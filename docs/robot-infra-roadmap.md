@@ -92,7 +92,7 @@ decided.
   base classes (`ActorLoop`/`LearnerLoop`/sync) plus `serl/` and `hil_serl/`
   subpackages of concrete (currently empty) subclasses;
   `rl_garden/training/real_world/` holds a shared `RealWorldFrankaArgs`
-  base, a `RealWorldAlgorithmRegistry` (`_registry.py`), and one flat file
+  base, a `RealWorldAlgorithmRegistry` (`registry.py`), and one flat file
   per method (`serl.py`, `hil_serl.py`, both shaped like
   `training/online/entrypoints/rlpd.py`) that self-registers at import time;
   `examples/train_real_world.py` is a generic `registry.run_cli()`

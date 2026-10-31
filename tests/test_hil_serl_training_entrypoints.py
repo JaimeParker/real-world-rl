@@ -11,7 +11,7 @@ from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
 
 from rl_garden.observations import ObservationConfig
-from rl_garden_real_world.training.hil_serl import HilSerlArgs, _build_env
+from rl_garden_real_world.training.entrypoints.hil_serl import HilSerlArgs, _build_env
 
 
 def test_hil_serl_args_override_real_robot_recipe_defaults_locally():
@@ -276,7 +276,7 @@ def test_run_actor_builds_scratch_agent_and_starts_actor_loop(monkeypatch):
 
     monkeypatch.setattr("rl_garden_real_world.hil_serl.HilSerlActorLoop", _FakeActorLoop)
 
-    from rl_garden_real_world.training.hil_serl import _run_actor
+    from rl_garden_real_world.training.entrypoints.hil_serl import _run_actor
 
     args = _base_args(role="actor", sync_host="10.0.0.1", sync_port=7000)
     _run_actor(args)
@@ -307,7 +307,7 @@ def test_run_actor_fwbw_builds_two_agents_and_starts_fwbw_actor_loop(monkeypatch
 
     monkeypatch.setattr("rl_garden_real_world.FWBWActorLoop", _FakeFWBWActorLoop)
 
-    from rl_garden_real_world.training.hil_serl import _run_actor
+    from rl_garden_real_world.training.entrypoints.hil_serl import _run_actor
 
     args = _base_args(role="actor", sync_host="10.0.0.1", sync_port=7000, fwbw=True)
     _run_actor(args)
@@ -343,7 +343,7 @@ def test_run_learner_builds_full_agent_and_starts_learner_loop(monkeypatch, tmp_
 
     monkeypatch.setattr("rl_garden_real_world.hil_serl.HilSerlLearnerLoop", _FakeLearnerLoop)
 
-    from rl_garden_real_world.training.hil_serl import _run_learner
+    from rl_garden_real_world.training.entrypoints.hil_serl import _run_learner
 
     args = _base_args(
         role="learner",
@@ -387,7 +387,7 @@ def test_run_learner_fwbw_backward_binds_to_backward_port(monkeypatch, tmp_path)
 
     monkeypatch.setattr("rl_garden_real_world.hil_serl.HilSerlLearnerLoop", _FakeLearnerLoop)
 
-    from rl_garden_real_world.training.hil_serl import _run_learner
+    from rl_garden_real_world.training.entrypoints.hil_serl import _run_learner
 
     args = _base_args(
         role="learner",
@@ -441,7 +441,7 @@ class _FakeEvalAgent:
 
 
 def test_run_eval_requires_load_checkpoint(monkeypatch):
-    from rl_garden_real_world.training.hil_serl import _run_eval
+    from rl_garden_real_world.training.entrypoints.hil_serl import _run_eval
 
     args = _base_args(role="eval", load_checkpoint=None)
     try:
@@ -452,7 +452,7 @@ def test_run_eval_requires_load_checkpoint(monkeypatch):
 
 
 def test_run_eval_rejects_fwbw(monkeypatch):
-    from rl_garden_real_world.training.hil_serl import _run_eval
+    from rl_garden_real_world.training.entrypoints.hil_serl import _run_eval
 
     args = _base_args(role="eval", fwbw=True, load_checkpoint="/tmp/ckpt.pt")
     try:
@@ -483,7 +483,7 @@ def test_run_eval_runs_deterministic_episodes_and_reports_success_rate(monkeypat
         "rl_garden.training.online.entrypoints.rlpd_hybrid.build_rlpd_hybrid", _fake_build_rlpd_hybrid
     )
 
-    from rl_garden_real_world.training.hil_serl import _run_eval
+    from rl_garden_real_world.training.entrypoints.hil_serl import _run_eval
 
     args = _base_args(role="eval", load_checkpoint="/tmp/ckpt.pt", eval_n_trajs=3)
     _run_eval(args)
@@ -531,7 +531,7 @@ def _rotvec_in_chain(env) -> bool:
 
 def test_build_env_real_robot_backend_receives_real_robot_config(monkeypatch):
     from rl_garden_real_world.envs.real_robot import RealRobotEnvConfig
-    from rl_garden_real_world.training.hil_serl import _hil_serl_env_request
+    from rl_garden_real_world.training.entrypoints.hil_serl import _hil_serl_env_request
 
     captured = {}
     _patch_backend(monkeypatch, captured)
@@ -620,7 +620,7 @@ def test_build_env_robot_teleop_device_wraps_teleop_part_source_in_order(_fake_r
     from rl_garden_real_world.envs.wrappers.grasp_penalty import GraspPenaltyWrapper
     from rl_garden_real_world.envs.wrappers.teleop_intervention import TeleopInterventionWrapper
     from rl_garden_real_world.envs.wrappers.teleop_sources import TeleopPartSource
-    from rl_garden_real_world.training.hil_serl import _hil_serl_env_request
+    from rl_garden_real_world.training.entrypoints.hil_serl import _hil_serl_env_request
 
     args = _fake_robot_args(
         frame_stack=2,
@@ -639,14 +639,14 @@ def test_build_env_robot_teleop_device_wraps_teleop_part_source_in_order(_fake_r
 
 
 def test_robot_teleop_device_requires_real_robot_backend():
-    from rl_garden_real_world.training.hil_serl import _robot_teleop_kwargs
+    from rl_garden_real_world.training.entrypoints.hil_serl import _robot_teleop_kwargs
 
     with pytest.raises(ValueError, match="real_robot"):
         _robot_teleop_kwargs(_base_args(teleop_device="robot"))
 
 
 def test_robot_teleop_declaration_comes_from_args():
-    from rl_garden_real_world.training.hil_serl import _robot_teleop_kwargs
+    from rl_garden_real_world.training.entrypoints.hil_serl import _robot_teleop_kwargs
 
     args = _real_robot_args(action_mode="joint_delta", num_joints=6)
     assert "teleop_contract" not in _robot_teleop_kwargs(args)
@@ -668,7 +668,7 @@ def test_real_robot_frame_stack_is_stacked_by_the_wrapper_not_the_backend(
     monkeypatch.setattr(
         "rl_garden_real_world.envs.wrappers.teleop_intervention.EETwistTeleOpWrapper", _FakeTeleop
     )
-    from rl_garden_real_world.training.hil_serl import _hil_serl_env_request
+    from rl_garden_real_world.training.entrypoints.hil_serl import _hil_serl_env_request
 
     args = _fake_robot_args(frame_stack=2)
     request = _hil_serl_env_request(args, run_name="t")
@@ -685,7 +685,7 @@ def test_real_robot_frame_stack_is_stacked_by_the_wrapper_not_the_backend(
 
 def test_franka_real_request_keeps_frame_stack():
     import rl_garden_real_world.envs.backends.franka_real  # noqa: F401  (registers the backend)
-    from rl_garden_real_world.training.hil_serl import _hil_serl_env_request
+    from rl_garden_real_world.training.entrypoints.hil_serl import _hil_serl_env_request
 
     args = _base_args(obs=ObservationConfig(state=True, rgb=("wrist",), frame_stack=2))
     assert _hil_serl_env_request(args, run_name="t").observation.frame_stack == 2

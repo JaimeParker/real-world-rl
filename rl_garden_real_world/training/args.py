@@ -6,7 +6,7 @@ real-robot training entrypoints.
 topology, and the ``ActorLoop``/``LearnerLoop`` cadence knobs. Algorithm-
 specific fields (e.g. SERL's RLPD hyperparameters, or HIL-SERL's
 classifier/demo-dataset paths) belong in each method's own
-``rl_garden_real_world/training/<method>.py``, not here.
+``rl_garden_real_world/training/entrypoints/<method>.py``, not here.
 
 ``FrankaRealConfig`` lives here (not in ``rl_garden/common/env_args.py``,
 where the other env backends' configs live) because it's exclusively used by

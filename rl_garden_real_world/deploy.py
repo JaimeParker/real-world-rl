@@ -223,7 +223,7 @@ def build_deploy_env(args: DeployArgs, training_args: Any):
     import rl_garden_real_world.envs.backends.real_robot  # noqa: F401  (registers the backend)
     from rl_garden.envs.backend_registry import EnvRequest, make_training_envs
     from rl_garden.observations import ObservationConfig
-    from rl_garden_real_world.envs.wrappers._obs_chain import apply_obs_chain, tcp_pose_quat_slice
+    from rl_garden_real_world.envs.wrappers.obs_chain import apply_obs_chain, tcp_pose_quat_slice
 
     robot_config = resolve_deploy_robot_config(args, training_args)
     observation = getattr(training_args, "obs", None) or ObservationConfig()

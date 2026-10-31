@@ -1,6 +1,6 @@
 """Shared glob+pickle demo-transition loading, factored out of
 ``HilSerlLearnerLoop._load_demo_datasets`` so the real-world BC entrypoint
-(``training/bc.py``) and the online HIL-SERL demo-buffer preload share one
+(``training/entrypoints/bc.py``) and the online HIL-SERL demo-buffer preload share one
 implementation of the pkl-list-of-transition-dicts format instead of two
 copies that could silently drift apart.
 """

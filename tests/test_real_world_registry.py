@@ -5,7 +5,7 @@ import pytest
 
 def test_real_world_registry_rejects_dry_run_via_single_parse(monkeypatch):
     from rl_garden.training.algorithm_registry import BaseAlgorithmRegistry
-    from rl_garden_real_world.training._registry import registry
+    from rl_garden_real_world.training.registry import registry
 
     assert registry.supports_dry_run is False
 

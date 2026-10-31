@@ -116,11 +116,11 @@ def run_serl(args: "SerlArgs") -> None:
 from dataclasses import dataclass, field  # noqa: E402
 
 from rl_garden.training.online.entrypoints.rlpd import RLPDArgs  # noqa: E402
-from rl_garden_real_world.training._args import (  # noqa: E402
+from rl_garden_real_world.training.args import (  # noqa: E402
     FrankaRealConfig,
     RealWorldFrankaArgs,
 )
-from rl_garden_real_world.training._registry import registry  # noqa: E402
+from rl_garden_real_world.training.registry import registry  # noqa: E402
 
 
 @dataclass

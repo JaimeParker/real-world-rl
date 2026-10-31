@@ -272,12 +272,12 @@ already fully registered (an `OfflineRLAlgorithm`, pure NLL loss, no
 critic) by the time this item's original text was written -- the actual gap
 was only a real-world entrypoint, not the algorithm itself.
 
-Now built: `rl_garden_real_world/training/bc.py::run_real_world_bc`. BC is
+Now built: `rl_garden_real_world/training/entrypoints/bc.py::run_real_world_bc`. BC is
 structurally an offline-style training loop over a static demo dataset --
 unlike `serl`/`hil_serl`, it has no actor/learner HTTP split at all (no
 `sync.py`, no `LearnerLoop`/`ActorLoop`), since `BC` is an
 `OfflineRLAlgorithm`, not an `OffPolicyAlgorithm`. Demo pkls are loaded via a
-new shared helper, `rl_garden_real_world/training/_demo_loading.py::
+new shared helper, `rl_garden_real_world/training/demo_loading.py::
 load_demo_pkls` (factored out of `HilSerlLearnerLoop._load_demo_datasets`,
 which now calls it too instead of duplicating the glob+pickle loop).
 

@@ -9,7 +9,7 @@ import torch
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
 
-from rl_garden_real_world.training.serl import SerlArgs
+from rl_garden_real_world.training.entrypoints.serl import SerlArgs
 
 
 class _FakeEnv(gym.Env):
@@ -58,7 +58,7 @@ def test_run_actor_builds_scratch_agent_with_tiny_buffer_and_starts_actor_loop(m
 
     monkeypatch.setattr("rl_garden_real_world.serl.SerlActorLoop", _FakeActorLoop)
 
-    from rl_garden_real_world.training.serl import _run_actor
+    from rl_garden_real_world.training.entrypoints.serl import _run_actor
 
     args = SerlArgs(role="actor", buffer_size=1_000_000, sync_host="10.0.0.1", sync_port=7000)
     _run_actor(args)
@@ -102,7 +102,7 @@ def test_run_learner_builds_full_agent_and_starts_learner_loop(monkeypatch, tmp_
 
     monkeypatch.setattr("rl_garden_real_world.serl.SerlLearnerLoop", _FakeLearnerLoop)
 
-    from rl_garden_real_world.training.serl import _run_learner
+    from rl_garden_real_world.training.entrypoints.serl import _run_learner
 
     args = SerlArgs(
         role="learner",
@@ -144,8 +144,8 @@ def test_serl_default_env_request_is_franka_real():
     import dataclasses
 
     from rl_garden_real_world.envs.real_robot import RealRobotEnvConfig
-    from rl_garden_real_world.training._args import FrankaRealConfig
-    from rl_garden_real_world.training.serl import _serl_env_request
+    from rl_garden_real_world.training.args import FrankaRealConfig
+    from rl_garden_real_world.training.entrypoints.serl import _serl_env_request
 
     args = SerlArgs()
     assert args.env_backend == "franka_real"
@@ -200,7 +200,7 @@ def test_serl_actor_builds_real_robot_env_with_real_robot_config(monkeypatch):
 
     monkeypatch.setattr("rl_garden_real_world.serl.SerlActorLoop", _FakeActorLoop)
 
-    from rl_garden_real_world.training.serl import _run_actor
+    from rl_garden_real_world.training.entrypoints.serl import _run_actor
 
     config = RealRobotEnvConfig(remote="127.0.0.1:1", num_joints=6)
     _run_actor(SerlArgs(role="actor", env_backend="real_robot", real_robot=config))

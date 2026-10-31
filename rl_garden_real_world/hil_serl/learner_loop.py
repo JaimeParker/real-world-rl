@@ -46,7 +46,7 @@ from rl_garden_real_world.action_contract import (
     write_contract_sidecar,
 )
 from rl_garden_real_world.learner_loop import _TRANSITION_TENSOR_KEYS, LearnerLoop
-from rl_garden_real_world.training._demo_loading import as_dict_observation, load_demo_pkls
+from rl_garden_real_world.training.demo_loading import as_dict_observation, load_demo_pkls
 
 
 class HilSerlLearnerLoop(LearnerLoop):

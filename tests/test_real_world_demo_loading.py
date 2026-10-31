@@ -6,7 +6,7 @@ import pickle
 import torch
 
 from rl_garden_real_world.hil_serl.learner_loop import HilSerlLearnerLoop
-from rl_garden_real_world.training._demo_loading import as_dict_observation, load_demo_pkls
+from rl_garden_real_world.training.demo_loading import as_dict_observation, load_demo_pkls
 
 
 def _transition(obs, next_obs) -> dict:

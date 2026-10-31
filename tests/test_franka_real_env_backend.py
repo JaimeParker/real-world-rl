@@ -6,7 +6,7 @@ import pytest
 from rl_garden.envs.backend_registry import EnvRequest
 from rl_garden.observations import ObservationConfig
 from rl_garden_real_world.envs.backends.franka_real import FrankaRealBackend
-from rl_garden_real_world.training._args import FrankaRealConfig
+from rl_garden_real_world.training.args import FrankaRealConfig
 
 
 def _req(**overrides) -> EnvRequest:

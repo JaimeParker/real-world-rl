@@ -18,11 +18,11 @@ import robot_infra.devices.claims as claims
 from rl_garden_real_world.action_contract import demo_contract_of, read_contract_sidecar
 from rl_garden_real_world.envs.real_robot import RealRobotEnv, RealRobotEnvConfig
 from rl_garden_real_world.envs.real_robot.env import RealRobotVectorEnv
-from rl_garden_real_world.envs.wrappers._obs_chain import apply_obs_chain, tcp_pose_quat_slice
 from rl_garden_real_world.envs.wrappers.grasp_penalty import GraspPenaltyWrapper
+from rl_garden_real_world.envs.wrappers.obs_chain import apply_obs_chain, tcp_pose_quat_slice
 from rl_garden_real_world.envs.wrappers.rotvec_obs import RotvecObsWrapper
 from rl_garden_real_world.envs.wrappers.teleop_intervention import TeleopInterventionWrapper
-from rl_garden_real_world.training._demo_loading import load_demo_pkls
+from rl_garden_real_world.training.demo_loading import load_demo_pkls
 
 
 # -- fakes ----------------------------------------------------------------------------
@@ -491,7 +491,7 @@ def test_restore_training_args_reads_real_robot_and_rotvec_from_persisted_config
     """persist_resolved_config -> config.json -> restore_training_args round trip."""
     from rl_garden.common.resolved_config import persist_resolved_config
     from rl_garden_real_world.deploy import DeployArgs, restore_training_args
-    from rl_garden_real_world.training.hil_serl import HilSerlArgs
+    from rl_garden_real_world.training.entrypoints.hil_serl import HilSerlArgs
 
     trained = RealRobotEnvConfig(
         remote="h:1", token="t", action_mode="joint_delta", num_joints=6, image_size=(16, 16),
@@ -517,7 +517,7 @@ def test_deploy_env_replays_rotvec_so_observation_matches_training_agent(tmp_pat
     from rl_garden_real_world.deploy import (
         DeployArgs, build_deploy_env, restore_policy, restore_training_args,
     )
-    from rl_garden_real_world.training.hil_serl import HilSerlArgs
+    from rl_garden_real_world.training.entrypoints.hil_serl import HilSerlArgs
 
     trained = RealRobotEnvConfig(robot=FAKE_FRANKA, home_joints=[0.0] * 7, reset_settle_s=0.0)
     persist_resolved_config(
@@ -639,7 +639,7 @@ class _TwoCameraEnv(gym.Env):
 def test_deploy_restores_classifier_image_keys_so_frame_stacking_matches_training(tmp_path):
     from rl_garden.common.resolved_config import persist_resolved_config
     from rl_garden_real_world.deploy import DeployArgs, restore_training_args
-    from rl_garden_real_world.training.hil_serl import HilSerlArgs
+    from rl_garden_real_world.training.entrypoints.hil_serl import HilSerlArgs
 
     trained_args = HilSerlArgs(
         env_backend="real_robot",

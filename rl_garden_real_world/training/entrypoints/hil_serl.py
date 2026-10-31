@@ -23,7 +23,7 @@ def _tcp_pose_quat_slice(args) -> tuple[int, int] | None:
     """FrankaRealEnv's state always starts with tcp_pose; real_robot's follows state_fields."""
     if args.env_backend != "real_robot":
         return _FRANKA_REAL_QUAT_SLICE
-    from rl_garden_real_world.envs.wrappers._obs_chain import tcp_pose_quat_slice
+    from rl_garden_real_world.envs.wrappers.obs_chain import tcp_pose_quat_slice
 
     return tcp_pose_quat_slice(args.real_robot)
 
@@ -66,8 +66,8 @@ def _build_env(args, env_request):
     from rl_garden.envs.backend_registry import make_training_envs
     from rl_garden.envs.wrappers.fwbw_reset_free import FWBWResetFreeWrapper
     from rl_garden.envs.wrappers.reward_classifier import RewardClassifierWrapper
-    from rl_garden_real_world.envs.wrappers._obs_chain import apply_obs_chain
     from rl_garden_real_world.envs.wrappers.grasp_penalty import GraspPenaltyWrapper
+    from rl_garden_real_world.envs.wrappers.obs_chain import apply_obs_chain
     from rl_garden_real_world.envs.wrappers.teleop_intervention import TeleopInterventionWrapper
 
     env, _ = make_training_envs(args.env_backend, env_request)
@@ -324,11 +324,11 @@ from typing import Literal, Optional, Sequence  # noqa: E402
 
 from rl_garden.encoders.config import EncoderConfig  # noqa: E402
 from rl_garden.training.online.entrypoints.rlpd_hybrid import RLPDHybridArgs  # noqa: E402
-from rl_garden_real_world.training._args import (  # noqa: E402
+from rl_garden_real_world.training.args import (  # noqa: E402
     FrankaRealConfig,
     RealWorldFrankaArgs,
 )
-from rl_garden_real_world.training._registry import registry  # noqa: E402
+from rl_garden_real_world.training.registry import registry  # noqa: E402
 
 
 @dataclass

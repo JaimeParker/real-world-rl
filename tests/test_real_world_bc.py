@@ -16,7 +16,7 @@ import torch
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
 
-from rl_garden_real_world.training.bc import RealWorldBCArgs, run_real_world_bc
+from rl_garden_real_world.training.entrypoints.bc import RealWorldBCArgs, run_real_world_bc
 
 
 class _FakeEnv(gym.Env):

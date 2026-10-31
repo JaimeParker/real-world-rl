@@ -124,7 +124,7 @@ def _config_path(args: DeployArgs) -> Path:
 def restore_training_args(args: DeployArgs) -> Any:
     """The ``<algo>`` online Args as the checkpoint's run trained them, with inference-only overrides."""
     from rl_garden.common.checkpoint import load_checkpoint_file
-    from rl_garden.training.online._registry import registry
+    from rl_garden.training.online.registry import registry
 
     registry.discover()
     entries = registry.entries()
@@ -256,7 +256,7 @@ def restore_policy(args: DeployArgs, training_args: Any, env: Any):
     from rl_garden.common import seed_everything
 
     seed_everything(args.seed)
-    module = importlib.import_module(f"rl_garden.training.online.{args.algo}")
+    module = importlib.import_module(f"rl_garden.training.online.entrypoints.{args.algo}")
     build_agent = getattr(module, f"build_{args.algo}")
     agent = build_agent(training_args, env, None, logger=None, checkpoint_dir=None)
     agent.load(args.checkpoint, load_replay_buffer=False, load_optimizers=False)

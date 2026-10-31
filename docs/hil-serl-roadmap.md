@@ -133,7 +133,7 @@ and resumes via `checkpoints.restore_checkpoint`
 (`train_rlpd.py:249-355,419-429`).
 
 Turned out most of the plumbing already existed: `build_rlpd`/
-`build_rlpd_hybrid` (`rl_garden/training/online/{rlpd,rlpd_hybrid}.py`)
+`build_rlpd_hybrid` (`rl_garden/training/online/entrypoints/{rlpd,rlpd_hybrid}.py`)
 already call `agent.load(args.load_checkpoint, ...)` when `--load_checkpoint`
 is set, and both `serl.py`/`hil_serl.py`'s `_run_learner` already pass
 `args`/`checkpoint_dir` straight through -- so **resume via
@@ -698,7 +698,7 @@ the first, which is hardcoded on the `rl-garden` side.
   items below, this can't currently be matched by passing a different flag.
 - **Actor-side LayerNorm defaults off**: `RLPDHybridArgs` overrides
   `critic_use_layer_norm=True` but not `actor_use_layer_norm` (inherits
-  `False`, `rl_garden/training/online/_args.py`). HIL-SERL's
+  `False`, `rl_garden/training/online/args.py`). HIL-SERL's
   `make_sac_pixel_agent_hybrid_single_arm` sets `use_layer_norm=True` on
   both critic and policy kwargs (`launcher.py:120-130`).
 - **Image augmentation defaults off for the real-world entrypoint**:

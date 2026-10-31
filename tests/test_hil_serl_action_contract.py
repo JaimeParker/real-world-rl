@@ -268,7 +268,10 @@ class _SmokeVecEnv:
 
 @pytest.mark.parametrize("action_dim", [7, 8], ids=["piper_6+1", "franka_7+1"])
 def test_build_rlpd_hybrid_trains_one_update_on_joint_action_widths(action_dim):
-    from rl_garden.training.online.rlpd_hybrid import RLPDHybridArgs, build_rlpd_hybrid
+    from rl_garden.training.online.entrypoints.rlpd_hybrid import (
+        RLPDHybridArgs,
+        build_rlpd_hybrid,
+    )
 
     args = RLPDHybridArgs(
         num_envs=1, buffer_size=64, buffer_device="cpu", batch_size=8, learning_starts=1,
@@ -510,7 +513,7 @@ def test_restore_training_args_reads_real_robot_and_rotvec_from_persisted_config
 
 def test_deploy_env_replays_rotvec_so_observation_matches_training_agent(tmp_path, _claim_dir):
     from rl_garden.common.resolved_config import persist_resolved_config
-    from rl_garden.training.online.rlpd import RLPDArgs, build_rlpd
+    from rl_garden.training.online.entrypoints.rlpd import RLPDArgs, build_rlpd
     from rl_garden_real_world.deploy import (
         DeployArgs, build_deploy_env, restore_policy, restore_training_args,
     )
@@ -670,7 +673,7 @@ def test_deploy_restores_classifier_image_keys_so_frame_stacking_matches_trainin
 @pytest.mark.parametrize("device_step_limit", [False, True])
 def test_deploy_joint_abs_requires_device_joint_step_limit(_claim_dir, device_step_limit):
     from robot_infra.devices.errors import DeviceFault
-    from rl_garden.training.online.rlpd import RLPDArgs
+    from rl_garden.training.online.entrypoints.rlpd import RLPDArgs
     from rl_garden_real_world.deploy import DeployArgs, build_deploy_env
 
     robot = dict(FAKE_FRANKA)
@@ -694,7 +697,7 @@ def test_deploy_joint_abs_requires_device_joint_step_limit(_claim_dir, device_st
 
 
 def test_deploy_main_reports_missing_joint_step_limit_as_device_error(_claim_dir, capsys):
-    from rl_garden.training.online.rlpd import RLPDArgs
+    from rl_garden.training.online.entrypoints.rlpd import RLPDArgs
     from rl_garden_real_world.deploy import DEVICE_ERROR_EXIT_CODE, DeployArgs, build_deploy_env, main
 
     connection = dict(robot=FAKE_FRANKA, home_joints=[0.0] * 7, reset_settle_s=0.0)

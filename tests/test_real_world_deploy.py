@@ -171,7 +171,7 @@ def _deploy_args(checkpoint, **overrides) -> DeployArgs:
 
 
 def test_restores_saved_rlpd_checkpoint_and_deploys(tmp_path, _claim_dir, capsys):
-    from rl_garden.training.online.rlpd import build_rlpd
+    from rl_garden.training.online.entrypoints.rlpd import build_rlpd
 
     checkpoint = tmp_path / "run" / "checkpoints" / "checkpoint_0.pt"
     checkpoint.parent.mkdir(parents=True)
@@ -206,6 +206,6 @@ def test_restores_saved_rlpd_checkpoint_and_deploys(tmp_path, _claim_dir, capsys
 
 
 def _scratch_rlpd_args():
-    from rl_garden.training.online.rlpd import RLPDArgs
+    from rl_garden.training.online.entrypoints.rlpd import RLPDArgs
 
     return RLPDArgs(num_envs=1, num_eval_envs=1, buffer_size=8, buffer_device="cpu")

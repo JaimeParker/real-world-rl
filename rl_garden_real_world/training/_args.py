@@ -13,7 +13,7 @@ where the other env backends' configs live) because it's exclusively used by
 real-robot training methods -- online/offline/off2on never target
 ``env_backend="franka_real"``. Each method's Args class opts in to it as a
 field explicitly (e.g. ``SerlArgs.franka_real``), the same way
-``rl_garden/training/online/rlpd.py``'s ``RLPDArgs`` composes
+``rl_garden/training/online/entrypoints/rlpd.py``'s ``RLPDArgs`` composes
 ``EnvBackendArgs`` itself rather than inheriting it implicitly.
 """
 from __future__ import annotations

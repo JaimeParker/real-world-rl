@@ -24,7 +24,7 @@ def test_hil_serl_args_override_real_robot_recipe_defaults_locally():
     assert hil_serl_args.encoder.pooling_method == "spatial_learned_embeddings"
     assert hil_serl_args.convert_obs_rotation is False
 
-    from rl_garden.training.online.rlpd_hybrid import RLPDHybridArgs
+    from rl_garden.training.online.entrypoints.rlpd_hybrid import RLPDHybridArgs
 
     sim_args = RLPDHybridArgs()
     assert sim_args.backup_entropy is True
@@ -480,7 +480,7 @@ def test_run_eval_runs_deterministic_episodes_and_reports_success_rate(monkeypat
         return fake_agent
 
     monkeypatch.setattr(
-        "rl_garden.training.online.rlpd_hybrid.build_rlpd_hybrid", _fake_build_rlpd_hybrid
+        "rl_garden.training.online.entrypoints.rlpd_hybrid.build_rlpd_hybrid", _fake_build_rlpd_hybrid
     )
 
     from rl_garden_real_world.training.hil_serl import _run_eval

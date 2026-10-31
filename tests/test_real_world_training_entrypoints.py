@@ -47,7 +47,7 @@ def test_run_actor_builds_scratch_agent_with_tiny_buffer_and_starts_actor_loop(m
         captured["checkpoint_dir"] = checkpoint_dir
         return _FakeAgent()
 
-    monkeypatch.setattr("rl_garden.training.online.rlpd.build_rlpd", _fake_build_rlpd)
+    monkeypatch.setattr("rl_garden.training.online.entrypoints.rlpd.build_rlpd", _fake_build_rlpd)
 
     class _FakeActorLoop:
         def __init__(self, env, policy, sync_client, **kwargs):
@@ -83,7 +83,7 @@ def test_run_learner_builds_full_agent_and_starts_learner_loop(monkeypatch, tmp_
         captured["checkpoint_dir"] = checkpoint_dir
         return _FakeAgent()
 
-    monkeypatch.setattr("rl_garden.training.online.rlpd.build_rlpd", _fake_build_rlpd)
+    monkeypatch.setattr("rl_garden.training.online.entrypoints.rlpd.build_rlpd", _fake_build_rlpd)
 
     class _FakeLoggerHandle:
         def close(self):
@@ -188,7 +188,7 @@ def test_serl_actor_builds_real_robot_env_with_real_robot_config(monkeypatch):
         "rl_garden.envs.backend_registry.make_training_envs", _fake_make_training_envs
     )
     monkeypatch.setattr(
-        "rl_garden.training.online.rlpd.build_rlpd", lambda *a, **k: _FakeAgent()
+        "rl_garden.training.online.entrypoints.rlpd.build_rlpd", lambda *a, **k: _FakeAgent()
     )
 
     class _FakeActorLoop:

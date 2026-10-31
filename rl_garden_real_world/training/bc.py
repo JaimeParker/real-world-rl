@@ -5,8 +5,8 @@ is an ``OfflineRLAlgorithm`` -- a static dataset, no online env stepping --
 not an ``OffPolicyAlgorithm``, so there is no actor/learner HTTP split here
 at all: no ``sync.py``, no ``LearnerLoop``/``ActorLoop``. This reuses
 ``rl_garden``'s existing offline BC algorithm construction
-(``rl_garden.training.offline.bc.build_bc``) directly against a
-demo-pkl-populated buffer, rather than ``rl_garden.training.offline._runner
+(``rl_garden.training.offline.entrypoints.bc.build_bc``) directly against a
+demo-pkl-populated buffer, rather than ``rl_garden.training.offline.runner
 .run_offline`` (which expects rl-garden's own ``--offline_dataset`` h5/minari
 format, not the real-world pkl-list-of-transition-dicts convention demo data
 already uses -- see ``rl_garden_real_world.training._demo_loading``).
@@ -23,8 +23,8 @@ def run_real_world_bc(args: "RealWorldBCArgs") -> None:
     from rl_garden.common import Logger, seed_everything
     from rl_garden.common.resolved_config import persist_resolved_config
     from rl_garden.envs.backend_registry import make_training_envs
-    from rl_garden.training.offline._runner import _eval_env_request
-    from rl_garden.training.offline.bc import build_bc
+    from rl_garden.training.offline.entrypoints.bc import build_bc
+    from rl_garden.training.offline.runner import _eval_env_request
     from rl_garden_real_world.action_contract import demo_contract_of
     from rl_garden_real_world.training._demo_loading import load_demo_pkls
 
@@ -90,7 +90,7 @@ def run_real_world_bc(args: "RealWorldBCArgs") -> None:
 from dataclasses import dataclass, field  # noqa: E402
 from typing import Sequence  # noqa: E402
 
-from rl_garden.training.offline.bc import BCArgs  # noqa: E402
+from rl_garden.training.offline.entrypoints.bc import BCArgs  # noqa: E402
 from rl_garden_real_world.training._args import (  # noqa: E402
     FrankaRealConfig,
     RealWorldFrankaArgs,

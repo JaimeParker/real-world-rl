@@ -20,8 +20,8 @@ def _run_actor(args) -> None:
     GPU-less robot control machine.
     """
     from rl_garden.envs.backend_registry import make_training_envs
+    from rl_garden.training.online.entrypoints.rlpd import build_rlpd
     from rl_garden_real_world.serl import SerlActorLoop, SerlActorSyncClient
-    from rl_garden.training.online.rlpd import build_rlpd
 
     env_request = _serl_env_request(args, run_name="real_world_actor")
     env, _ = make_training_envs(args.env_backend, env_request)
@@ -60,8 +60,8 @@ def _run_learner(args) -> None:
     from rl_garden.common import Logger, seed_everything
     from rl_garden.common.resolved_config import persist_resolved_config
     from rl_garden.envs.backend_registry import make_training_envs
+    from rl_garden.training.online.entrypoints.rlpd import build_rlpd
     from rl_garden_real_world.serl import SerlLearnerLoop
-    from rl_garden.training.online.rlpd import build_rlpd
 
     seed_everything(args.seed)
 
@@ -115,7 +115,7 @@ def run_serl(args: "SerlArgs") -> None:
 
 from dataclasses import dataclass, field  # noqa: E402
 
-from rl_garden.training.online.rlpd import RLPDArgs  # noqa: E402
+from rl_garden.training.online.entrypoints.rlpd import RLPDArgs  # noqa: E402
 from rl_garden_real_world.training._args import (  # noqa: E402
     FrankaRealConfig,
     RealWorldFrankaArgs,

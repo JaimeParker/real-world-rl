@@ -175,7 +175,7 @@ def _run_actor(args) -> None:
 
 
 def _rebuild_scratch_agent_for_env(args, env):
-    from rl_garden.training.online.rlpd_hybrid import build_rlpd_hybrid
+    from rl_garden.training.online.entrypoints.rlpd_hybrid import build_rlpd_hybrid
 
     scratch_args = dataclasses.replace(
         args, buffer_size=8, load_checkpoint=None, offline_dataset=None
@@ -195,9 +195,9 @@ def _run_learner(args) -> None:
 
     from rl_garden.common import Logger, seed_everything
     from rl_garden.common.resolved_config import persist_resolved_config
+    from rl_garden.training.online.entrypoints.rlpd_hybrid import build_rlpd_hybrid
     from rl_garden_real_world.action_contract import demo_contract_of
     from rl_garden_real_world.hil_serl import HilSerlLearnerLoop
-    from rl_garden.training.online.rlpd_hybrid import build_rlpd_hybrid
 
     seed_everything(args.seed)
 
@@ -263,8 +263,8 @@ def _run_eval(args) -> None:
     (timeout) counts as a failure. FWBW is out of scope this round -- same
     "single-arm only" boundary already documented elsewhere in the real-world
     RL stack."""
+    from rl_garden.training.online.entrypoints.rlpd_hybrid import build_rlpd_hybrid
     from rl_garden_real_world.actor_loop import ActorLoop
-    from rl_garden.training.online.rlpd_hybrid import build_rlpd_hybrid
 
     if args.fwbw:
         raise NotImplementedError("hil_serl eval mode does not support --fwbw yet.")
@@ -323,7 +323,7 @@ from dataclasses import dataclass, field  # noqa: E402
 from typing import Literal, Optional, Sequence  # noqa: E402
 
 from rl_garden.encoders.config import EncoderConfig  # noqa: E402
-from rl_garden.training.online.rlpd_hybrid import RLPDHybridArgs  # noqa: E402
+from rl_garden.training.online.entrypoints.rlpd_hybrid import RLPDHybridArgs  # noqa: E402
 from rl_garden_real_world.training._args import (  # noqa: E402
     FrankaRealConfig,
     RealWorldFrankaArgs,

@@ -94,7 +94,7 @@ decided.
   `rl_garden/training/real_world/` holds a shared `RealWorldFrankaArgs`
   base, a `RealWorldAlgorithmRegistry` (`_registry.py`), and one flat file
   per method (`serl.py`, `hil_serl.py`, both shaped like
-  `training/online/rlpd.py`) that self-registers at import time;
+  `training/online/entrypoints/rlpd.py`) that self-registers at import time;
   `examples/train_real_world.py` is a generic `registry.run_cli()`
   launcher, method selected via subcommand. `hil_serl.py` explicitly
   composes the env wrappers from Component 3
@@ -103,7 +103,7 @@ decided.
   wrapper composer). Its hybrid continuous+discrete gripper action space is
   a new algorithm, `RLPDHybrid` (`rl_garden/algorithms/rlpd_hybrid.py`),
   registered as an ordinary online algorithm
-  (`rl_garden/training/online/rlpd_hybrid.py`, usable via `--algo
+  (`rl_garden/training/online/entrypoints/rlpd_hybrid.py`, usable via `--algo
   rlpd_hybrid` in simulation too) and reused by `hil_serl.py` the same way
   `serl.py` reuses plain `RLPD`. Not migrated this round: BC (HIL-SERL's own
   code confirms it's never combined with the online RLPD loss, so it's a

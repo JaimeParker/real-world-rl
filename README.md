@@ -10,9 +10,10 @@ This package imports `rl_garden` as a normal dependency (algorithms,
 buffers, policies, the `EnvBackend`/`BasePolicy` contracts) and registers
 `franka_real` through rl-garden's `rlgarden.env_backends` entry-point group
 — no file inside the `rl_garden` package itself needs editing to add it.
-Hardware/communication code lives in the sibling
-[rlgarden-robot-infra](https://github.com/JaimeParker/rlgarden-robot-infra)
-repo (extra: `robot-infra`); `franka_real`'s own coupling to it is HTTP/JSON
+Hardware/communication code lives in this repository under
+[`robot_infra/`](robot_infra/README.md), a second, torch-free distribution
+(`rlgarden-robot-infra`) that the robot PC installs on its own
+(`pip install -e robot_infra`); `franka_real`'s own coupling to it is HTTP/JSON
 only (`FrankaBridgeClient`), no shared Python types.
 
 ## Running on hardware

@@ -15,16 +15,18 @@ dependencies = [
     "tyro",
     "requests",
     # Device layer for the generic real_robot env backend (envs/real_robot).
-    "rlgarden-robot-infra @ git+https://github.com/JaimeParker/rlgarden-robot-infra.git",
+    # Lives in this repository under robot_infra/ (torch-free). For development:
+    #   pip install -e real_world/robot_infra -e real_world
+    "rlgarden-robot-infra @ git+https://github.com/JaimeParker/rlgarden-real-world.git#subdirectory=robot_infra",
 ]
 
 [project.optional-dependencies]
 # Franka bridge client + teleop intervention wrapper need the sibling
-# rlgarden-robot-infra repo installed (controller/real, teleop/*). ROS
+# robot_infra/ distribution installed (controller/real, teleop/*). ROS
 # itself, required only on the machine running
 # robot_infra/controller/real/franka_bridge.py, is not pip-installable --
-# see that module's docstring in rlgarden-robot-infra.
-robot-infra = ["rlgarden-robot-infra @ git+https://github.com/JaimeParker/rlgarden-robot-infra.git"]
+# see that module's docstring.
+robot-infra = ["rlgarden-robot-infra @ git+https://github.com/JaimeParker/rlgarden-real-world.git#subdirectory=robot_infra"]
 # collect_data.py's global success/failure keyboard listener.
 reward-collection = ["pynput"]
 # examples/record_teleop_wsrl.py, run_teleop_demo.py: ManiSkill sim envs.

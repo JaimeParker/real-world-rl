@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 .pytest_cache/
 *.egg-info/
+mutagen.yml
+mutagen.yml.lock

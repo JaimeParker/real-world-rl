@@ -235,7 +235,7 @@ part, and the robot daemon serves it:
 
 ```bash
 # on the robot host, next to the SERL bridge
-pip install -e "real_world/robot_infra[gello]"          # + [gello-events] for an evdev pedal/keyboard
+pip install -e "robot_infra[gello]"          # + [gello-events] for an evdev pedal/keyboard
 python -m robot_infra.devices.backends.teleops.gello_calibrate --port /dev/serial/by-id/usb-FTDI_... \
     --joint-ids 1 2 3 4 5 6 7 --gripper-id 8            # paste the printed options into the yaml
 python -m robot_infra.server --config robot.gello_station.yaml --bind 0.0.0.0:50052
@@ -595,6 +595,6 @@ the `wsrl` subcommand when the checkpoint should be resumed by the WSRL
 offline→online flow. This entrypoint infers obs/action specs from the H5 and
 produces pretrained checkpoints that can later be loaded into compatible
 live-env training runs for online fine-tuning. See
-`docs/design/wsrl-overview.md#offline-only-pretraining-no-sim-env` in the
-main `rl-garden` repo for
+`rl-garden/docs/design/wsrl-overview.md#offline-only-pretraining-no-sim-env` in the
+`rl-garden/` submodule for
 the full workflow.

@@ -60,8 +60,8 @@ Which path to use:
 Install the backend on the machine the GELLO is plugged into:
 
 ```bash
-pip install -e "real_world/robot_infra[gello]"          # dynamixel-sdk
-pip install -e "real_world/robot_infra[gello-events]"   # evdev, only for an event_device (pedal/keyboard) on that machine
+pip install -e "robot_infra[gello]"          # dynamixel-sdk
+pip install -e "robot_infra[gello-events]"   # evdev, only for an event_device (pedal/keyboard) on that machine
 ```
 
 ## 2. Calibration

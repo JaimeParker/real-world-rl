@@ -16,6 +16,10 @@ Hardware/communication code lives in this repository under
 (`pip install -e robot_infra`); `franka_real`'s own coupling to it is HTTP/JSON
 only (`FrankaBridgeClient`), no shared Python types.
 
+This repository is the top level for real-robot work. It carries rl-garden as a
+git submodule under [`rl-garden/`](rl-garden), pinned to the rl-garden commit the
+tests here pass against.
+
 ## Methods
 
 Each method is a subcommand of `python examples/train_real_world.py <method> --role {actor,learner,eval}`
@@ -35,8 +39,9 @@ they need a base provider).
 ## Repository layout
 
 ```
-real_world/                      repository rlgarden-real-world
+rlgarden-real-world/             repository rlgarden-real-world (top level)
   pyproject.toml                 distribution rlgarden-real-world (imports rl_garden)
+  rl-garden/                     git submodule: rl-garden, pinned to the tested commit
   rl_garden_real_world/          loops, sync, env backends and wrappers, teleop, policies, algorithms, training entrypoints
   robot_infra/                   in-repo device layer: distribution rlgarden-robot-infra (package robot_infra, torch-free)
     pyproject.toml
@@ -54,11 +59,24 @@ real_world/                      repository rlgarden-real-world
 
 ## Installation
 
-From the repository root (`real_world/` in an rl-garden checkout), after installing rl-garden:
+Clone with the rl-garden submodule:
 
 ```bash
-pip install -e robot_infra -e .
+git clone --recurse-submodules https://github.com/JaimeParker/rlgarden-real-world.git
+cd rlgarden-real-world
+# in an existing clone: git submodule update --init
 ```
+
+For development, install all three distributions in editable mode from the repository root:
+
+```bash
+pip install -e rl-garden -e robot_infra -e .
+```
+
+`rl-garden/` is pinned to the commit the tests here pass against. Bump it deliberately
+(`git -C rl-garden checkout <commit>`, run the tests, then commit the new gitlink). A plain
+`pip install .` without the submodule takes the `rl_garden @ git+...` dependency from
+`pyproject.toml` instead.
 
 On the robot PC only the device layer is needed (see [`robot_infra/README.md`](robot_infra/README.md)):
 `pip install -e robot_infra` (plus the extras for your hardware, e.g. `'robot_infra[franky,grpc]'`).
@@ -66,17 +84,21 @@ On the robot PC only the device layer is needed (see [`robot_infra/README.md`](r
 
 ## Tests
 
-No hardware or network is needed; the tests use fake robots and teleops.
+No hardware or network is needed; the tests use fake robots and teleops. Run them from the
+repository root, after the editable install above or with the three source trees on `PYTHONPATH`:
 
 ```bash
 python -m pytest tests robot_infra/tests
+PYTHONPATH=.:rl-garden:robot_infra python -m pytest tests robot_infra/tests   # without installing
 ```
+
+rl-garden's own suite runs inside the submodule (see `rl-garden/.agents/runbooks/testing.md`).
 
 ## Running on hardware
 
 Everything below drives a `real_robot` env (any `robot_infra` robot). `franka_real` (the HTTP
 bridge) is always cartesian 7-D and is not covered here. Install this package
-(`pip install -e robot_infra -e .`) so that the `real_robot` backend is registered through the
+(`pip install -e rl-garden -e robot_infra -e .`) so that the `real_robot` backend is registered through the
 `rlgarden.env_backends` entry point; without it `--env-backend real_robot` fails with
 `Unknown env backend 'real_robot'`.
 

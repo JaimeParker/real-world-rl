@@ -12,7 +12,7 @@ gripper: null
 cameras: []
 teleop:
   name: gello                 # daemon serves teleop.gello.read / teleop.gello.reset
-  backend: gello              # needs the gello extra: pip install -e "real_world/robot_infra[gello]"
+  backend: gello              # needs the gello extra: pip install -e "robot_infra[gello]"
   hold_s: 0.0
   options:                    # every key shown; the calibration CLI prints this block:
                               #   python -m robot_infra.devices.backends.teleops.gello_calibrate --port ... --joint-ids 1 2 3 4 5 6 7 --gripper-id 8

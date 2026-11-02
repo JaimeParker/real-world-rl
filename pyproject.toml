@@ -8,6 +8,9 @@ version = "0.0.1"
 description = "Real-world RL orchestration for rl-garden: ActorLoop/LearnerLoop, the franka_real env backend, and SERL/HIL-SERL training loops. Imports rl_garden as a library; overrides/extends it here rather than living inside its repo."
 requires-python = ">=3.10"
 dependencies = [
+    # Non-dev installs take rl-garden from GitHub. For development the rl-garden/
+    # submodule pins the commit the tests pass against:
+    #   pip install -e rl-garden -e robot_infra -e .
     "rl_garden @ git+https://github.com/JaimeParker/rl-garden.git",
     "torch>=2.1",
     "numpy",
@@ -16,7 +19,7 @@ dependencies = [
     "requests",
     # Device layer for the generic real_robot env backend (envs/real_robot).
     # Lives in this repository under robot_infra/ (torch-free). For development:
-    #   pip install -e real_world/robot_infra -e real_world
+    #   pip install -e rl-garden -e robot_infra -e .
     "rlgarden-robot-infra @ git+https://github.com/JaimeParker/rlgarden-real-world.git#subdirectory=robot_infra",
 ]
 

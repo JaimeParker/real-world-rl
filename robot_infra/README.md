@@ -7,7 +7,8 @@ the standalone `rlgarden-robot-infra` repository, whose history is kept). To ins
 the robot PC, clone that repository and run `pip install -e robot_infra` (or
 `pip install -e 'robot_infra[franky,grpc]'` with the extras for your hardware, see
 [Install](#install)) from its root; nothing outside `robot_infra/` is needed. The
-GPU machine installs both distributions with `pip install -e robot_infra -e .`.
+GPU machine installs rl-garden (the `rl-garden/` submodule of that repository) and both
+distributions with `pip install -e rl-garden -e robot_infra -e .`.
 It provides:
 
 - a **device layer**: typed `Arm` / `Gripper` / `Camera` / `Teleop` contracts with backends for

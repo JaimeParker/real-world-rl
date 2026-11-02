@@ -1,7 +1,10 @@
 """Registers the real-world methods that have an agent builder on rl-garden's
-online registry, so ``rl-garden-eval`` (and ``deploy``) can rebuild their
-agents from a checkpoint. Loaded through the ``rlgarden.algorithms``
-entry-point group (see ``docs/guides/extending.md`` in rl-garden).
+online registry (``residual_hil_serl``, ``residual_hil_serl_hybrid``, ``silri``), so
+``rl_garden_real_world.deploy`` can rebuild their agents from a checkpoint. Loaded
+through the ``rlgarden.algorithms`` entry-point group (see ``docs/guides/extending.md``
+in rl-garden). The residual classes set ``checkpoint_eval_unsupported_reason`` so
+``rl-garden-eval`` refuses them: they need a base provider that only the real-world eval
+role and deploy build.
 
 The real-world registry (``training/registry.py``) stays the CLI owner of
 these methods: the ``run_fn`` registered here is the same function, kept so a
@@ -19,10 +22,59 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from rl_garden_real_world.training.entrypoints.residual_hil_serl import (
+    ResidualHilSerlArgs,
+    ResidualHilSerlHybridArgs,
+    build_residual_hil_serl,
+    run_residual_hil_serl,
+)
+from rl_garden_real_world.training.entrypoints.silri import (
+    SilriArgs,
+    build_silri,
+    run_silri,
+)
+
 AlgorithmRow = tuple[type, Callable[..., Any], Callable[[], type], Callable[..., Any]]
 
+
+def _residual_rlpd_algorithm_cls() -> type:
+    from rl_garden_real_world.algorithms.residual import ResidualRLPD
+
+    return ResidualRLPD
+
+
+def _residual_rlpd_hybrid_algorithm_cls() -> type:
+    from rl_garden_real_world.algorithms.residual import ResidualRLPDHybrid
+
+    return ResidualRLPDHybrid
+
+
+def _silri_algorithm_cls() -> type:
+    from rl_garden_real_world.algorithms.silri import SiLRI
+
+    return SiLRI
+
+
 # name -> (args_cls, run_fn, algorithm_cls thunk, build_agent)
-_ALGORITHMS: dict[str, AlgorithmRow] = {}
+_ALGORITHMS: dict[str, AlgorithmRow] = {
+    # One name per algorithm class (rl-garden matches checkpoints by class name and takes
+    # one Args class per name); both build with build_residual_hil_serl, which reads
+    # residual_variant. The real-world CLI only has residual_hil_serl.
+    "residual_hil_serl": (
+        ResidualHilSerlArgs,
+        run_residual_hil_serl,
+        _residual_rlpd_algorithm_cls,
+        build_residual_hil_serl,
+    ),
+    "residual_hil_serl_hybrid": (
+        ResidualHilSerlHybridArgs,
+        run_residual_hil_serl,
+        _residual_rlpd_hybrid_algorithm_cls,
+        build_residual_hil_serl,
+    ),
+    # HIL-RL (SiLRI).
+    "silri": (SilriArgs, run_silri, _silri_algorithm_cls, build_silri),
+}
 
 
 def register_real_world_algorithms(registry, algorithms: Mapping[str, AlgorithmRow] | None = None) -> None:

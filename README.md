@@ -2,9 +2,9 @@
 
 Real-world RL orchestration split out of
 [rl-garden](https://github.com/JaimeParker/rl-garden): `ActorLoop`/
-`LearnerLoop`/sync (SERL and HIL-SERL variants), the `franka_real` env
-backend, teleop intervention wrapper, and the reward-classifier
-data-collection tool.
+`LearnerLoop`/sync (SERL, HIL-SERL, residual and SiLRI variants), the
+`franka_real` and `real_robot` env backends, the `TeleopSource` registry and
+teleop intervention wrapper, and the reward-classifier data-collection tool.
 
 This package imports `rl_garden` as a normal dependency (algorithms,
 buffers, policies, the `EnvBackend`/`BasePolicy` contracts) and registers
@@ -16,18 +16,74 @@ Hardware/communication code lives in this repository under
 (`pip install -e robot_infra`); `franka_real`'s own coupling to it is HTTP/JSON
 only (`FrankaBridgeClient`), no shared Python types.
 
+## Methods
+
+Each method is a subcommand of `python examples/train_real_world.py <method> --role {actor,learner,eval}`
+(`real_world_bc` has no roles). `residual_hil_serl` and `silri` are also registered on rl-garden's
+online registry through the `rlgarden.algorithms` entry point, so `examples/deploy_real_robot.py`
+can rebuild their agents from a checkpoint (`rl-garden-eval` cannot evaluate residual checkpoints:
+they need a base provider).
+
+| Method | What it is | Guide |
+|---|---|---|
+| `serl` | Two-process SERL: actor on the robot PC, learner on the GPU box, RLPD (state or image obs). | [Running on hardware](#running-on-hardware) |
+| `hil_serl` | `serl` plus human interventions (teleop wrapper), a growing demo buffer, an optional reward classifier and a DQN gripper (`RLPDHybrid`). | [Running on hardware](#running-on-hardware), [`docs/hil-serl-roadmap.md`](docs/hil-serl-roadmap.md) |
+| `residual_hil_serl` | `hil_serl` with a bounded residual on top of a frozen base policy (zero, rl-garden checkpoint or ACT); `--residual-variant continuous\|hybrid`. | [`docs/residual.md`](docs/residual.md) |
+| `silri` | HIL-RL (SiLRI): actor pulled towards a learned model of the human's interventions under a state-wise Lagrange multiplier. | [`docs/silri.md`](docs/silri.md) |
+| `real_world_bc` | Offline behaviour cloning over demo pkls; no actor/learner split. | [Demo and snapshot contract sidecar](#demo-and-snapshot-contract-sidecar) |
+
+## Repository layout
+
+```
+real_world/                      repository rlgarden-real-world
+  pyproject.toml                 distribution rlgarden-real-world (imports rl_garden)
+  rl_garden_real_world/          loops, sync, env backends and wrappers, teleop, policies, algorithms, training entrypoints
+  robot_infra/                   in-repo device layer: distribution rlgarden-robot-infra (package robot_infra, torch-free)
+    pyproject.toml
+    robot_infra/                 devices, discovery, doctor, daemon, RemoteRobot
+    tests/
+  docs/                          teleop.md, residual.md, silri.md, hil-serl-roadmap.md
+  examples/                      train_real_world.py, deploy_real_robot.py, teleop demo and recording scripts
+  configs/                       RLinf config
+  tests/
+```
+
+`robot_infra/` is the device-layer distribution kept inside this repository (it was the separate
+`rlgarden-robot-infra` repository; its history is preserved). It does not import `rl_garden` or
+`rl_garden_real_world`.
+
+## Installation
+
+From the repository root (`real_world/` in an rl-garden checkout), after installing rl-garden:
+
+```bash
+pip install -e robot_infra -e .
+```
+
+On the robot PC only the device layer is needed (see [`robot_infra/README.md`](robot_infra/README.md)):
+`pip install -e robot_infra` (plus the extras for your hardware, e.g. `'robot_infra[franky,grpc]'`).
+`pyspacemouse` (`--teleop-device spacemouse`) is imported lazily and installed only where the device is used.
+
+## Tests
+
+No hardware or network is needed; the tests use fake robots and teleops.
+
+```bash
+python -m pytest tests robot_infra/tests
+```
+
 ## Running on hardware
 
 Everything below drives a `real_robot` env (any `robot_infra` robot). `franka_real` (the HTTP
 bridge) is always cartesian 7-D and is not covered here. Install this package
-(`pip install -e real_world`) so that the `real_robot` backend is registered through the
+(`pip install -e robot_infra -e .`) so that the `real_robot` backend is registered through the
 `rlgarden.env_backends` entry point; without it `--env-backend real_robot` fails with
 `Unknown env backend 'real_robot'`.
 
 ### Robot daemon
 
 The robot daemon runs on the robot PC (see the robot_infra README,
-[How to Start](../robot_infra/README.md#how-to-start)):
+[How to Start](robot_infra/README.md#how-to-start)):
 
 ```bash
 python -m robot_infra.server --config robot.yaml --bind 0.0.0.0:50051 --watchdog-s 5
@@ -84,7 +140,7 @@ the env is built (`TeleopInterventionWrapper`):
 |---|---|---|
 | `cartesian_delta` | yes | supported (spacemouse / pico / the robot's teleop part) |
 | `joint_delta` / `joint_abs` | yes | supported through `--teleop-device robot` (the robot yaml's `teleop:` section) |
-| any | no (`gripper_in_action=false`) | not supported (`RLPDHybrid` needs the gripper dim; no non-hybrid hil_serl yet) |
+| any | no (`gripper_in_action=false`) | not supported (the intervention wrapper requires the gripper dim, for `hil_serl`, `residual_hil_serl` and `silri` alike) |
 
 ### Safety limits
 
@@ -103,6 +159,17 @@ The limits live in the robot yaml on the robot PC (`safety_box`, `joint_limits`,
   robot cannot report it. A rising count means the policy keeps asking for targets outside the
   limits. `reset()` homes with `move_to_joints`, so a `home_joints` outside the robot's limits
   raises `SafetyViolation` there.
+
+### Teleoperation
+
+The HIL methods (`hil_serl`, `residual_hil_serl`, `silri`) take human interventions through a
+`TeleopSource` selected with `--teleop-device {pico,spacemouse,robot,fake}`. Only the actor and
+eval processes open the device; the learner builds its env with the teleop wrapper disabled, so no
+HID or ZMQ device is opened on the GPU box. `--teleop-device spacemouse` is a SpaceMouse on the
+actor's machine, driven through the device layer's `SpaceMouseTeleop` (needs `pyspacemouse>=2,<3`).
+The `TeleopSource` contract, the `info` keys the wrapper writes (`intervene_action`, `policy_action`,
+`intervened`, `intervention_onset`, `human_episode_end`, `teleop_events`), the demo and recording
+scripts, and how to add a device are in [`docs/teleop.md`](docs/teleop.md).
 
 ### Teleop (`--teleop-device robot`)
 
@@ -177,6 +244,28 @@ contract:
   with code 2.
 - The daemon's `--jpeg-quality` is not part of the run's config: start the deploy daemon with
   the same value (or none) the training daemon used.
+
+### Residual RL (`residual_hil_serl`)
+
+`residual_hil_serl` trains a bounded residual `clamp(base + scale * u, -1, 1)` on top of a
+frozen base policy (`--base-provider zero | checkpoint:<path>?algo=<name> | act:<path>`),
+with hil_serl's actor / learner / eval roles, demo buffer and interventions (the human
+overrides the total action; an optional BC term pulls the residual towards it).
+`--residual-variant continuous` (`ResidualRLPD`) puts the residual on every action dim,
+`hybrid` (`ResidualRLPDHybrid`) on the arm dims with the DQN gripper. Only the actor, eval
+and deploy build the base policy; deploy rebuilds it from the checkpoint metadata
+(`--algo residual_hil_serl` or `residual_hil_serl_hybrid`). See
+[`docs/residual.md`](docs/residual.md).
+
+### HIL-RL (`silri`)
+
+`silri` implements HIL-RL / SiLRI (arXiv 2512.24288): an actor-critic whose actor is pulled
+towards a learned Gaussian model of the human's interventions under a state-wise Lagrange
+multiplier, so consistent human behaviour constrains the policy and inconsistent behaviour
+leaves it to the critic. Same actor / learner / eval roles, teleop devices and demo pkls as
+hil_serl; the learner pretrains on the demo buffer, refreshes the human model as
+interventions arrive, and the actor tags the transition before each takeover
+(`intervention_onset`). Deploy with `--algo silri`. See [`docs/silri.md`](docs/silri.md).
 
 ### Demo and snapshot contract sidecar
 

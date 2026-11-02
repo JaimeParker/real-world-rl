@@ -150,8 +150,8 @@ twist is in physical units (as the Pico's), see how the demo scripts normalize i
 
 ## EETwist TeleOp Interface (Pico)
 
-`PicoTeleopSource` wraps `EETwistTeleOpWrapper` in `robot_infra/teleop/utils/telo_op_control_twist.py`
-(in the `robot_infra` device layer). Its only device is `pico`; the wrapper receives device data
+`PicoTeleopSource` wraps `EETwistTeleOpWrapper` in `robot_infra/robot_infra/teleop/utils/telo_op_control_twist.py`
+(in the in-repo `robot_infra` device layer). Its only device is `pico`; the wrapper receives device data
 from a ZeroMQ `SUB` socket. The Pico server is expected to publish JSON arrays to:
 
 ```python
@@ -215,7 +215,7 @@ python examples/run_teleop_demo.py \
 Print incoming teleop state without connecting to an environment:
 
 ```bash
-python robot_infra/teleop/examples/run_twist_input_inspector.py \
+python robot_infra/robot_infra/teleop/examples/run_twist_input_inspector.py \
   --device pico \
   --zmq-url tcp://192.168.6.2:7777
 ```
@@ -296,7 +296,7 @@ This file can be passed to WSRL, CQL, or Cal-QL offline training through
 `--offline_dataset`.
 
 For real-robot data where you only want to do offline pretraining (no sim
-env, no eval), use `examples/pretrain_offline.py cql` or
+env, no eval), use rl-garden's `examples/pretrain_offline.py cql` or
 `examples/pretrain_offline.py calql` for standalone offline CQL/Cal-QL checkpoints. Use
 the `wsrl` subcommand when the checkpoint should be resumed by the WSRL
 offline→online flow. This entrypoint infers obs/action specs from the H5 and

@@ -8,6 +8,13 @@ backward (outermost, per ``FWBWActorLoop``/``FWBWResetFreeWrapper``'s
 documented requirement). ``args`` is any Args that carries the fields of
 ``HilEnvArgs`` plus ``RealWorldFrankaArgs`` and the env-request fields of
 ``rl_garden.common.env_args``.
+
+``build_hil_env(args, role=..., enable_teleop=...)`` is the entry point: the actor and eval
+processes keep the human-intervention wrapper (and so open the teleop device), the learner passes
+``enable_teleop=False`` because it only needs the env's spaces and action contract and must not
+open a HID/ZMQ device on the training box. ``hil_serl.py``, ``residual_hil_serl.py`` and
+``silri.py`` all call it; ``compose_hil_env`` is the wrapper composition alone, for callers
+that already hold an env request.
 """
 from __future__ import annotations
 

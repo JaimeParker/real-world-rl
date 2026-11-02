@@ -2,8 +2,7 @@
 
 Targets HIL-SERL's ``train_rlpd.py`` capability set (online RLPD + demo
 mixing + human intervention + reward classifier), not BC or HG-DAgger's
-growing-dataset problem -- see
-docs/superpowers/specs/2026-07-09-hil-serl-migration-design.md.
+growing-dataset problem -- see docs/hil-serl-roadmap.md.
 """
 from __future__ import annotations
 

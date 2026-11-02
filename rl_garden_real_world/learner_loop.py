@@ -119,6 +119,12 @@ class LearnerLoop:
         on-disk dataset (e.g. HIL-SERL's demo/correction data). No-op by
         default -- SERL doesn't need it."""
 
+    def _ready_to_train(self) -> bool:
+        """Whether :meth:`run` may start training: ``learning_starts`` received
+        transitions by default. Subclasses add their own conditions (SiLRI also
+        waits for a minimum demo buffer)."""
+        return self.received_transitions >= self.agent.learning_starts
+
     def _train_step(self, compute_info: bool = False) -> dict[str, float]:
         gradient_steps = max(1, int(self.train_freq * self.agent.utd))
         with self._lock:
@@ -149,7 +155,7 @@ class LearnerLoop:
             while not self._stop:
                 if total_transitions is not None and self.received_transitions >= total_transitions:
                     break
-                if self.received_transitions < self.agent.learning_starts:
+                if not self._ready_to_train():
                     time.sleep(self.idle_poll_interval)
                     continue
                 self._refresh_offline_data()

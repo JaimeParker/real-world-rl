@@ -1,6 +1,13 @@
 # rlgarden-robot-infra
 
 `robot_infra` is the real-robot layer of [rl-garden](https://github.com/JaimeParker/rl-garden).
+It now lives inside the [rlgarden-real-world](https://github.com/JaimeParker/rlgarden-real-world)
+repository, as its `robot_infra/` directory (a separate, torch-free distribution; it was
+the standalone `rlgarden-robot-infra` repository, whose history is kept). To install it alone on
+the robot PC, clone that repository and run `pip install -e robot_infra` (or
+`pip install -e 'robot_infra[franky,grpc]'` with the extras for your hardware, see
+[Install](#install)) from its root; nothing outside `robot_infra/` is needed. The
+GPU machine installs both distributions with `pip install -e robot_infra -e .`.
 It provides:
 
 - a **device layer**: typed `Arm` / `Gripper` / `Camera` / `Teleop` contracts with backends for

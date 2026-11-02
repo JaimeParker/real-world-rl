@@ -136,7 +136,7 @@ def test_teleop_rejects_piper_joint_delta_even_though_widths_match():
 
 def test_teleop_rejects_env_without_gripper_in_action():
     env = _ContractEnv("cartesian_delta", 6, gripper_in_action=False)
-    with pytest.raises(ValueError, match="gripper_in_action=true.*non-hybrid"):
+    with pytest.raises(ValueError, match="gripper_in_action=true.*gripper-less"):
         TeleopInterventionWrapper(env, teleop=_Teleop())
 
 

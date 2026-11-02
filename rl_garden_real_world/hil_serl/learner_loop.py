@@ -3,7 +3,7 @@ capability set (online RLPD + demo mixing + HITL + reward classifier), which
 uses RLPD's existing static ``offline_dataset`` loading, not a
 continuously growing on-disk dataset. So ``_refresh_offline_data()`` stays
 the base class's no-op default here too; HG-DAgger's growing-dataset problem
-is out of scope for this round (see https://github.com/JaimeParker/rlgarden-robot-infra/blob/main/docs/robot-infra-roadmap.md).
+is out of scope for this round (see ``robot_infra/docs/robot-infra-roadmap.md`` in this repository).
 
 Overrides ``_on_transition`` to route transitions the way HIL-SERL's own
 actor loop does (``3rd_party/hil-serl/examples/train_rlpd.py:178-193``):
@@ -29,6 +29,13 @@ matching HIL-SERL's own always-reload-``demo_path`` behavior exactly. Uses
 the same pkl transition-dict format as the buffer snapshots above (not
 HIL-SERL's own numpy dict shape), so a previous run's
 ``demo_buffer/*.pkl`` snapshot files can be reused directly as seed data.
+
+``_buffer_kwargs(transition) -> (core, extra)`` is the hook that decides which fields of a
+received transition reach ``replay_buffer.add`` / ``add_demo_transition`` (and so the
+snapshots). The default drops ``intervened`` (routing only) and ``actor_id`` and forwards
+the rest, which is what ``DictReplayBuffer`` accepts (e.g. ``grasp_penalty``).
+``ResidualLearnerLoop`` and ``SilriLearnerLoop`` override it to keep ``intervened``,
+``policy_action`` and their own columns for ``InterventionReplayBuffer``.
 """
 from __future__ import annotations
 

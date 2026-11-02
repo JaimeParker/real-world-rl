@@ -5,10 +5,18 @@ This document was moved here from the main `rl-garden` repo's
 (`rl_garden/real_world/`, `rl_garden/training/real_world/`,
 `rl_garden/envs/franka_real/`) was split out into this repo. Paths below
 predate that split and are not updated path-by-path; `robot_infra/...`
-paths refer to the sibling
-[rlgarden-robot-infra](https://github.com/JaimeParker/rlgarden-robot-infra)
-repo, and `3rd_party/hil-serl/` refers to the vendored reference copy in the
-main `rl-garden` repo (not present here).
+paths refer to the device-layer distribution that now lives in this
+repository as `robot_infra/` (package `robot_infra`, i.e.
+`robot_infra/robot_infra/...` from the repository root; it used to be the
+sibling `rlgarden-robot-infra` repo), and `3rd_party/hil-serl/` refers to the
+vendored reference copy in the main `rl-garden` repo (not present here).
+
+Since this document was written the real-world layer also gained the
+`TeleopSource` registry, a shared HIL env builder, an overridable actor-loop
+step, an `InterventionReplayBuffer`, and the `residual_hil_serl` and `silri`
+methods; see "Landed since the initial migration" at the end of the
+"Not Yet Migrated" list. Sections below keep their original wording where
+they describe the state at the time of the item.
 
 This document tracks what HIL-SERL (`3rd_party/hil-serl/`) capability was
 **not** migrated in the initial `hil_serl` training-method landing (see
@@ -196,7 +204,7 @@ Now built as a third `hil_serl`-only role (kept out of the shared
 - `HilSerlArgs.role: Literal["actor", "learner", "eval"]`, plus
   `eval_n_trajs: int = 10`.
 - `_run_eval(args)` (`rl_garden/training/real_world/hil_serl.py`): builds the
-  env via the existing `_build_env` (same wrapper stack as actor/learner,
+  env via `build_hil_env` (`training/env_building.py`, formerly `_build_env`; same wrapper stack as actor/learner,
   including the reward classifier), builds the agent via `build_rlpd_hybrid`
   -- requiring `--load_checkpoint` (raises `ValueError` if unset, unlike
   `_run_actor`'s scratch-agent path which discards it) -- and runs
@@ -468,7 +476,21 @@ third mixing mechanism:
   `HilSerlLearnerLoop` (no change to `DemoInterventionMixin`, `ActorLoop`, or
   base `LearnerLoop`).
 - New `HilSerlArgs` fields: `demo_buffer_size`, `demo_data_ratio`,
-  `buffer_period`.
+  `buffer_period` (now declared on `HilEnvArgs`, which `HilSerlArgs`,
+  `ResidualHilSerlArgs` and `SilriArgs` share).
+
+**Update (shared loop seams)**: the tagging and routing above are now
+expressed through overridable hooks, with the `hil_serl` defaults unchanged.
+`ActorLoop.run()` calls `_act`, `_build_transition`, `_push`,
+`_on_episode_end`, `_on_params_refreshed` and `_on_run_end`;
+`HilSerlActorLoop` still only overrides `_extra_transition_fields`. The intervention
+wrapper now writes `info["intervened"]` (always) next to `intervene_action`
+(only while intervening); `HilSerlActorLoop` keeps tagging by
+`"intervene_action" in info`. `HilSerlLearnerLoop._buffer_kwargs(transition)
+-> (core, extra)` decides which fields reach `replay_buffer.add`; the default
+drops `intervened` and `actor_id` as before, and the residual and SiLRI loops
+override it to keep `intervened`, `policy_action` and their own columns for
+`InterventionReplayBuffer`.
 
 ### 12. `gripper_pos` normalization bug + other `robot_servers` deviations
 
@@ -522,7 +544,7 @@ default) rather than always-on.
 deliberate, already-documented deviation: "HIL-SERL converts to Euler via
 `Quat2EulerWrapper` instead, but rotvec avoids Euler's gimbal-lock/wraparound
 special-casing and stays consistent with this repo's own action convention"),
-wired into `hil_serl.py::_build_env` behind `--convert_obs_rotation` (off by
+wired into `training/env_building.py::compose_hil_env` (formerly `hil_serl.py::_build_env`) behind `--convert_obs_rotation` (off by
 default). Nothing to build; noted here only so this doesn't get re-flagged.
 Moved from `rl_garden/envs/wrappers/rotvec_obs.py` to
 `rl_garden_real_world/envs/wrappers/rotvec_obs.py` during a later placement
@@ -589,6 +611,18 @@ triggers intervention, whereas any SpaceMouse motion above the deadzone
 always will. Not a bug -- just worth knowing which device gives which
 behavior when choosing `--teleop_device`.
 
+**Update**: the SpaceMouse side of this comparison changed. `--teleop-device
+spacemouse` no longer uses the legacy `robot_infra/teleop/spacemouse`
+`SpaceMouseTeleOpWrapper`; `SpaceMouseTeleopSource` (`teleop/spacemouse.py`)
+drives the device layer's `SpaceMouseTeleop` (pyspacemouse 2.x) and maps it with
+`TeleopPartSource`. The intervention rule is still magnitude-based (twist norm
+above `deadzone`, or a button held, plus an optional `hold_s` tail); button 0
+toggles the sticky gripper and button 1 is the episode-end event. Pico keeps its
+bind-gated `PicoTeleopSource`. Both now converge on `TeleopReading.intervened`
+(a `TeleopSource`, registered by name), and the wrapper is
+`InterventionWrapper`/`TeleopInterventionWrapper`, not the `TeleOpSample`
+consumer described above. Details: `docs/teleop.md`.
+
 ### 17. No real camera capture integration
 
 HIL-SERL provides a full camera integration module,
@@ -611,8 +645,8 @@ frames like `VideoWrapper`, writes to disk on episode end like
 `VideoRecorder`). Pipes raw frames to an `ffmpeg` subprocess -- the same
 convention `rl_garden/envs/robotwin/adapter.py`'s eval-video logging already
 uses -- rather than adding an `imageio`/`tensorflow` dependency. Wired into
-`hil_serl.py::_run_actor` (actor role only) behind a new `record_video_dir`
-`HilSerlArgs` field.
+`_run_actor` of `hil_serl.py`, `residual_hil_serl.py` and `silri.py` (actor role only) behind a new `record_video_dir`
+`HilEnvArgs` field (shared by every HIL-style Args).
 
 Original text below, left for context:
 
@@ -660,9 +694,9 @@ generic (non-ManiSkill) path: an explicit `image_keys` constructor param
 `rgb*`/`depth*`-prefixed) that derives the stacked `single_observation_space`
 directly from the space definition -- deliberately never calls `env.reset()`
 to seed it, since a construction-time side effect would physically move the
-robot. Wired into `hil_serl.py::_build_env`, immediately after
-`make_training_envs(...)`, gated on the existing `HilSerlArgs.frame_stack`
-field (already inherited from `RLPDHybridArgs` -- no duplicate field added).
+robot. Wired into `training/env_building.py::compose_hil_env` (formerly `hil_serl.py::_build_env`), immediately after
+`make_training_envs(...)`, gated on the existing `obs.frame_stack`
+field (the observation group inherited from `RLPDHybridArgs` -- no duplicate field added).
 The ManiSkill (`image_keys=None`) path is untouched.
 
 Original text below, left for context:
@@ -679,6 +713,27 @@ only wired into the ManiSkill simulation backend
 (`rl_garden/envs/maniskill/env.py`) -- `hil_serl`'s `_build_env`
 (`rl_garden/training/real_world/hil_serl.py`) never applies it. Real Franka
 rollouts currently get no temporal observation stacking at all.
+
+### Landed since the initial migration
+
+Not HIL-SERL items, but they change what "not migrated" means above; all are
+real-world loops only (no simulator `learn()` path):
+
+- **Teleop base class**: `TeleopSource`/`TeleopReading` and a name registry
+  (`teleop/`), device-layer SpaceMouse, and a generic `InterventionWrapper`
+  (item 16 update; `docs/teleop.md`).
+- **Shared HIL env builder**: `training/env_building.py::build_hil_env(args,
+  *, role, enable_teleop)`; the learner passes `enable_teleop=False`, so no
+  teleop device is opened on the GPU box. `hil_serl._build_env` remains as a
+  thin alias of `compose_hil_env`.
+- **Residual RL with human intervention** (`residual_hil_serl`): a bounded
+  residual over a frozen base policy (rl-garden checkpoint, ACT or zero), both
+  `ResidualRLPD` and `ResidualRLPDHybrid`, with the human overriding the total
+  action. This is a human-in-the-loop method HIL-SERL itself does not have
+  (`docs/residual.md`).
+- **HIL-RL / SiLRI** (`silri`): learning from suboptimal interventions with a
+  state-wise Lagrangian (`docs/silri.md`). Still not covered: HG-DAgger
+  (item 1), a leader-arm teleop backend, and a dual-arm gripper (item 4).
 
 ## Behavioral Divergences from HIL-SERL's Real-Robot Defaults
 

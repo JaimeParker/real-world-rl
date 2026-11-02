@@ -7,16 +7,21 @@ paused for a gradient update, so the actor only ever does inference (under
 ``torch.no_grad()``) against a policy module, never training.
 
 HITL intervention / reward-classifier / safety-box logic all live in the env
-wrapper stack (``rl_garden/envs/wrappers/``) and are exercised transparently
+wrapper stack (``rl_garden/envs/wrappers/`` and
+``rl_garden_real_world/envs/wrappers/``) and are exercised transparently
 through ``env.step()`` -- ``ActorLoop`` itself doesn't need to know about any
 of them, it only reads ``info["intervene_action"]`` when present so the
 replay data records the action that was actually executed, matching SERL's
 convention for off-policy consistency under human intervention.
 
 The per-step body of :meth:`ActorLoop.run` is split into overridable hooks
-(``_act``, ``_build_transition``, ``_push``, ``_on_episode_end``,
-``_on_params_refreshed``) so subclasses can change what is proposed, what is
-recorded and where it goes without copying the loop's pacing/reset structure.
+(``_act``, ``_build_transition`` (which calls ``_extra_transition_fields``), ``_push``,
+``_on_episode_end``, ``_on_params_refreshed``, ``_on_run_end``) so subclasses can change what
+is proposed, what is recorded and where it goes without copying the loop's pacing/reset
+structure; the defaults are the plain SERL actor. Consumers: ``HilSerlActorLoop``
+(``_extra_transition_fields``), ``ResidualActorLoop`` (``_act``, ``_build_transition``,
+``_on_episode_end``) and ``SilriActorLoop`` (``_build_transition``, ``_push``,
+``_on_episode_end``, ``_on_run_end``). ``FWBWActorLoop`` does not use the hooks.
 """
 from __future__ import annotations
 
@@ -121,6 +126,11 @@ class ActorLoop:
         ``version`` counts payloads loaded by this loop, starting at 1.
         No-op by default."""
 
+    def _on_run_end(self) -> None:
+        """Called once when :meth:`run` stops (normally or by an exception),
+        before the sync client is stopped, so a subclass can still push
+        transitions it holds back. No-op by default."""
+
     def _extra_transition_fields(self, info: dict) -> dict:
         """Hook for subclasses that need to tag pushed transitions with
         extra, non-tensor metadata derived from ``info`` (e.g. HIL-SERL's
@@ -159,7 +169,10 @@ class ActorLoop:
                 if sleep_for > 0:
                     time.sleep(sleep_for)
         finally:
-            self.sync_client.stop()
+            try:
+                self._on_run_end()
+            finally:
+                self.sync_client.stop()
 
     @staticmethod
     def env_device(obs) -> torch.device:

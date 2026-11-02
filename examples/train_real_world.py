@@ -2,7 +2,7 @@
 
 Algorithm is selected via a subcommand, mirroring ``examples/train_online.py``
 -- see ``rl_garden_real_world/training/entrypoints/<method>.py`` for each registered
-training method (currently: ``serl``).
+training method (``serl``, ``hil_serl``, ``residual_hil_serl``, ``silri``, ``real_world_bc``).
 
 Run as two separate processes (optionally on two separate machines):
 
@@ -15,7 +15,7 @@ Run as two separate processes (optionally on two separate machines):
         --sync_port 6000 --env_id <task> --franka_real.bridge-url http://localhost:5000
 
 Both processes must be pointed at the same Franka bridge
-(``robot_infra/controller/real/franka_bridge.py``) config so their env's
+(``robot_infra/robot_infra/controller/real/franka_bridge.py``) config so their env's
 observation/action spaces match.
 """
 from __future__ import annotations

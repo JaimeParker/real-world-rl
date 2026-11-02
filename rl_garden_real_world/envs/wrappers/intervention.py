@@ -83,9 +83,9 @@ class InterventionWrapper(gym.Wrapper):
             )
         if not contract["gripper_in_action"]:
             raise ValueError(
-                "hil_serl currently requires gripper_in_action=true (RLPDHybrid treats the last "
-                "action dim as the discrete gripper); non-hybrid algorithms without a gripper "
-                f"are not supported yet. Env contract: {describe_contract(contract)}"
+                "the intervention wrapper requires gripper_in_action=true (hil_serl, "
+                "residual_hil_serl and silri treat the last action dim as the gripper); "
+                f"gripper-less envs are not supported yet. Env contract: {describe_contract(contract)}"
             )
         action_space = getattr(env, "single_action_space", None)
         if action_space is not None and source_dim != action_space.shape[-1]:

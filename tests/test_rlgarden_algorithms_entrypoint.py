@@ -43,15 +43,17 @@ def _table(args_cls=_FakeArgs):
     return {"fake_method": (args_cls, _run, _algorithm_cls, _build)}
 
 
-def test_module_ships_an_empty_table_and_imports_cleanly():
+def test_module_ships_the_real_world_rows_and_imports_cleanly():
     importlib.reload(rlgarden_algorithms)
-    assert rlgarden_algorithms._ALGORITHMS == {}
+    assert {"residual_hil_serl", "residual_hil_serl_hybrid", "silri"} <= set(
+        rlgarden_algorithms._ALGORITHMS
+    )
 
 
-def test_registering_the_shipped_empty_table_is_a_no_op():
+def test_registering_the_shipped_table_registers_exactly_its_names():
     registry = _Registry()
     register_real_world_algorithms(registry)
-    assert registry.entries() == {}
+    assert set(registry.entries()) == set(rlgarden_algorithms._ALGORITHMS)
 
 
 def test_online_registry_is_untouched_by_the_empty_table():

@@ -149,6 +149,9 @@ def _os_checks(config: RobotConfig) -> list[tuple[str, Check]]:
             checks.append((name, _make_check(2, name, _teleop_outcome(config.teleop))))
         if config.teleop.backend == "spacemouse":
             checks.append(("os:hid", _make_check(2, "os:hid", _hid_outcome())))
+        if config.teleop.backend == "gello":
+            port = config.teleop.options.get("port")
+            checks.append(("os:serial", _make_check(2, "os:serial", _serial_outcome(port))))
     return checks
 
 
@@ -271,6 +274,29 @@ def _hid_outcome(pattern: str | None = None) -> Callable[[], Outcome]:
                 "`docker run --device=/dev/hidrawN`",
             )
         return True, f"{len(paths)} HID device(s) readable and writable: {paths}"
+
+    return outcome
+
+
+def _serial_outcome(port: str | None) -> Callable[[], Outcome]:
+    def outcome() -> Outcome:
+        if not port:
+            return False, "teleop option 'port' is unset", "set teleop.options.port to /dev/serial/by-id/..."
+        if not os.path.exists(port):
+            return (
+                False,
+                f"serial port {port} not found",
+                "check the USB cable to the U2D2 / OpenRB-150 and list /dev/serial/by-id/; inside "
+                "Docker pass the node with `docker run --device=<port>`",
+            )
+        if not os.access(port, os.R_OK | os.W_OK):
+            return (
+                False,
+                f"no read/write access to {port}",
+                "add the user to the 'dialout' group (`sudo usermod -aG dialout $USER`, then log in "
+                'again) or add a udev rule giving the adapter MODE="0666"',
+            )
+        return True, f"serial port {port} readable and writable"
 
     return outcome
 

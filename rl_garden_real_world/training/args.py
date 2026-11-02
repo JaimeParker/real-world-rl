@@ -93,12 +93,30 @@ class HilEnvArgs:
     memory_efficient_buffer: bool = False
 
     # "robot": the teleop part of the real_robot env's robot (robot yaml ``teleop:`` section).
-    # "fake": a scripted source for dry runs without hardware.
-    teleop_device: Literal["pico", "spacemouse", "robot", "fake"] = "pico"
-    # Declares the robot's teleop part for --teleop-device robot over a remote robot, whose
-    # part is only known after connecting (checked then; a mismatch raises DeviceFault).
+    # "leader_arm": the same part read as a joint-space leader arm (GELLO over the daemon), with
+    # the --teleop-onset policy. "gello": a GELLO on this machine. "fake": a scripted source for
+    # dry runs without hardware. See docs/teleop.md for every device.
+    teleop_device: Literal[
+        "pico", "spacemouse", "robot", "fake", "gello", "leader_arm", "keyboard", "leader_cartesian"
+    ] = "pico"
+    # Declares the robot's teleop part for --teleop-device robot/leader_arm over a remote robot,
+    # whose part is only known after connecting (checked then; a mismatch raises DeviceFault).
     robot_teleop_action_mode: Optional[Literal["cartesian_delta", "joint_abs", "joint_delta"]] = None
     robot_teleop_has_gripper: bool = True
+    # A second device for the operator's buttons (intervention toggle, episode end, success/
+    # failure/rerecord): the env then takes its motion from --teleop-device and intervention plus
+    # events from this one (CompositeTeleopSource). None: --teleop-device alone.
+    teleop_event_device: Optional[Literal["keyboard", "spacemouse"]] = None
+    # Leader-arm takeover (--teleop-device gello/leader_arm): "ramp" rate-limits joint_abs targets
+    # to ramp_step_rad per step until the follower caught up; "arm" ignores the toggle until the
+    # leader is within arm_tolerance_rad of the follower.
+    teleop_onset: Literal["ramp", "arm"] = "ramp"
+    teleop_arm_tolerance_rad: float = 0.1
+    teleop_ramp_step_rad: float = 0.05
+    # Yaml mapping merged into the --teleop-device source kwargs (after the ones derived from the
+    # args above, so it overrides them): device options such as port/joint_ids/joint_offsets_rad/
+    # joint_signs for gello, device_index/deadzone for spacemouse, hold_s, read_timeout_s.
+    teleop_options_yaml: Optional[str] = None
     # Converts FrankaRealEnv's raw quaternion state slice to a rotation
     # vector (matching the action side's own rotvec convention). Off by
     # default -- changes "state"'s observation shape (20 -> 19), so it's an

@@ -38,6 +38,8 @@ pip install -e '.[franky,grpc]'     # e.g. a Franka robot PC running the daemon
 | `piper-sdk` | `piper_sdk` | Piper via the vendor SDK (`arm_backend: piper_sdk`) | robot PC |
 | `realsense` | `pyrealsense2` | RealSense cameras | robot PC |
 | `spacemouse` | `pyspacemouse>=2.0,<3` | `teleop: {backend: spacemouse}` (optional `hidapi` improves discovery) | robot PC |
+| `gello` | `dynamixel-sdk>=3.7.31,<3.9` | `teleop: {backend: gello}` (GELLO leader arm) and its calibration CLI | robot PC |
+| `gello-events` | `evdev` | a gello `event_device` (pedal or keyboard toggle and events, Linux) | robot PC |
 | `grpc` | `grpcio>=1.60` | the daemon (`python -m robot_infra.server`) and `RemoteRobot` | robot PC **and** GPU machine |
 | `jpeg` | `pillow` | `python -m robot_infra.server --jpeg-quality N` (OpenCV also works as the codec) | robot PC **and** GPU machine |
 | `real` | `flask`, `pyzmq`, `scipy`, `pyspacemouse` | legacy Flask bridge/gripper server and the legacy `teleop/spacemouse/` (old `read_all()` API; do not combine with the `spacemouse` extra's 2.x pin; ROS1 must be installed separately) | robot PC |
@@ -196,7 +198,7 @@ With hardware attached, the lines take the form `realsense: <serial>, <serial>`,
 | Section | Source | What to look for |
 |---|---|---|
 | `cameras` | each camera backend's `discover()` (RealSense serials) | copy the serial into `cameras[].serial` |
-| `teleops` | each teleop backend's `discover()` (SpaceMouse: `vid:pid:path` through `hidapi` when installed, else every `/dev/hidraw*`) | the device you put in `teleop:` shows up |
+| `teleops` | each teleop backend's `discover()` (SpaceMouse: `vid:pid:path` through `hidapi` when installed, else every `/dev/hidraw*`; gello: `/dev/serial/by-id/usb-FTDI_*` and `usb-ROBOTIS_*`) | the device you put in `teleop:` shows up |
 | `can interfaces` | `/sys/class/net/*` with type CAN, bitrate from `ip -details link show` | `operstate=up` and the bitrate in your yaml |
 | `hosts` | `ping` and TCP connect to the config's `robot_ip` | `ping=ok`. For Franka, 1337 open usually means FCI is reachable. |
 | `hid devices` | `/dev/hidraw*` | SpaceMouse and other HID teleop devices |
@@ -214,7 +216,7 @@ The doctor runs five layers in order (a `teleop:` section adds checks to layers 
 | Layer | Checks | Notes |
 |---|---|---|
 | 1 `sdk` | each backend name resolves and its SDK imports (`sdk:arm`, `sdk:gripper`, `sdk:camera:<name>`, `sdk:teleop:<backend>`) | an unknown backend skips layers 3-5 |
-| 2 `os` | ping `robot_ip` and port 1337 (informational); CAN interface exists / is up / bitrate; camera serial attached; `os:teleop:<name>` (a device of that backend is discovered); `os:hid` (a readable and writable `/dev/hidraw*` exists, SpaceMouse only) | driven by config fields; skipped for backends that need no SDK (fakes) |
+| 2 `os` | ping `robot_ip` and port 1337 (informational); CAN interface exists / is up / bitrate; camera serial attached; `os:teleop:<name>` (a device of that backend is discovered); `os:hid` (a readable and writable `/dev/hidraw*` exists, SpaceMouse only); `os:serial` (the gello `port` exists and is readable and writable) | driven by config fields; skipped for backends that need no SDK (fakes) |
 | 3 `handshake` | takes the robot's device claim (unless `claim: false`), then `robot.connect()` | a failure (including a held claim) skips layers 4-5 |
 | 4 `feedback` | the arm returns state; the gripper is readable; each camera delivers a frame within 2 s; `feedback:teleop:<name>`: the teleop poll thread is alive and healthy | |
 | 5 `mode` | backend preflight: Franka RT kernel, robot mode and libfranka version; Piper status, follower feedback and firmware profile (pyagxarm) or gripper stroke (piper_sdk) | |
@@ -528,7 +530,7 @@ the fake backend (a script advanced one step per `read()`):
 ```yaml
 teleop:
   name: teleop                # the daemon serves teleop.<name>.read / .reset
-  backend: fake               # fake | spacemouse
+  backend: fake               # fake | spacemouse | gello
   hold_s: 0.0                 # keep intervening this long after the last activity (default 0)
   options:                    # backend-private
     action_space: joint_abs   # fake: cartesian_delta (default) | joint_abs | joint_delta
@@ -580,6 +582,35 @@ gives the twist `[-y, x, z, -roll, -pitch, -yaw]`, button 0 toggles the sticky g
 `/dev/hidraw*`; `python -m robot_infra.doctor` checks this as `os:hid` and prints the udev
 rule. See [Known limitations](#known-limitations-and-needs-hardware-verification).
 
+`backend: gello` (extra `gello`, plus `gello-events` for `event_device`) is a GELLO leader arm
+(passive Dynamixel servos, Protocol 2.0, through a U2D2 or OpenRB-150): a `joint_abs` device
+with one joint per `joint_ids` entry and a gripper channel when `gripper_id` is set. Each poll
+is one sync read; joint `i` is `wrap((raw_rad - joint_offsets_rad[i]) * joint_signs[i])` into
+`[wrap_centers_rad[i] - pi, wrap_centers_rad[i] + pi)`, so no start pose is needed at connect
+(set the centres to the midpoints of `joint_limits`; Panda joint 6 reaches past pi and needs a centre > 0).
+The gripper is `clip((raw - gripper_closed_rad) / (gripper_open_rad - gripper_closed_rad), 0, 1)`,
+1 = open, optionally binarized with `gripper_binarize_threshold`. `intervention: always`
+(default) reports `intervening` on every poll; `toggle` follows a toggle key read with `evdev`
+from `event_device` (a pedal or keyboard on the robot PC), whose other keys raise
+`episode_end`/`success`/`failure`/`rerecord` (`event_keys`). Torque is turned off on connect and
+on disconnect; a missing servo or a failed sync read fails the poll (no stale samples). The
+full option list with defaults is in [`docs/robot.franka.example.yaml`](docs/robot.franka.example.yaml).
+Calibrate once per unit (torque off, the leader is moved by hand) and paste the printed block:
+
+```bash
+python -m robot_infra.devices.backends.teleops.gello_calibrate \
+    --port /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_XXXX-if00-port0 \
+    --joint-ids 1 2 3 4 5 6 7 --gripper-id 8 \
+    --calibration-pose 0 0 0 -1.57 0 1.57 0 --joint-limits-yaml robot.yaml
+```
+
+It checks each joint's sign (move one joint in the robot's positive direction when asked),
+solves the offsets on the quarter-turn grid from the calibration pose, captures the trigger's
+open and closed angles, and takes the wrap centres from the yaml's `joint_limits`. The port
+needs read/write access (`dialout` group); the doctor checks it as `os:serial`. The baud rate
+is never written to the servos: change it once in Dynamixel Wizard (1000000 gives about 130 Hz
+for 8 servos, 57600 about 25 Hz).
+
 ## Architecture
 
 ```text
@@ -589,7 +620,7 @@ Connection (ABC)                 connect()/disconnect() lifecycle, owner borrowi
     │   ├── realsense, fake
     │   └── (RemoteCamera is a Part, not a Camera)
     ├── Teleop   [registry]      background poll thread, read()/latest()/reset(), latched events
-    │   ├── spacemouse, fake
+    │   ├── gello, spacemouse, fake
     │   └── (RemoteTeleop is a Part, not a Teleop)
     └── ControllablePart         action_features, send_action()
         ├── Arm      [registry]  read_state, servo_cartesian/joints, move_to_pose/joints
@@ -626,7 +657,8 @@ own.
 | gripper `pyagxarm` / `piper_sdk` | as the arm | - | - | requires `shares_arm_session: true` and the matching arm backend |
 | camera `realsense` | `pyrealsense2` (`realsense`) | - | - | RGB (+ aligned depth in metres with `enable_depth`) |
 | `fake` gripper / camera | none | - | - | tests and `--mock` |
-| teleop `spacemouse` | `pyspacemouse>=2,<3` (`spacemouse`) | - | - | cartesian twist + sticky gripper; `Teleop.backends()` is `fake`, `spacemouse` |
+| teleop `spacemouse` | `pyspacemouse>=2,<3` (`spacemouse`) | - | - | cartesian twist + sticky gripper; `Teleop.backends()` is `fake`, `gello`, `spacemouse` |
+| teleop `gello` | `dynamixel-sdk` (`gello`; `evdev` via `gello-events`) | - | - | GELLO leader arm, `joint_abs` + optional gripper; torque off; evdev toggle and events |
 | teleop `fake` | none | - | - | scripted samples, `push()` injection, `fail_after`; tests and `--mock` |
 
 **`Arm` is a template-method class.** The public `servo_cartesian`, `servo_joints`,
@@ -725,8 +757,13 @@ Nothing below has been exercised on real hardware; the fakes cover the logic onl
 - **Does `pyspacemouse` `read()` block?** The backend polls at `poll_interval_s` (default 0.005 s)
   so a non-blocking `read()` does not spin a core; set it to `0` only after confirming that
   `read()` blocks on your pyspacemouse version.
-- **Piper master arm** as a teleop (leader-follower) is not implemented; only `fake` and
-  `spacemouse` exist. The `joint_abs` / `joint_delta` action spaces are exercised by the fake only.
+- **Piper master arm** as a teleop (leader-follower) is not implemented; the leader-arm backend is
+  `gello` (Dynamixel). `joint_delta` is exercised by the fake only.
+- **GELLO on hardware.** The `gello` backend and its calibration CLI run against a fake
+  `dynamixel_sdk` and a fake `evdev` only. Unverified: the U2D2/OpenRB-150 by-id names that
+  `discover()` globs, sync-read timing per baud rate, the FTDI latency timer (16 ms by default;
+  1 ms is the usual Dynamixel tip, not set by the backend), and that the present position stays
+  continuous when a joint crosses a turn boundary.
 - **Orientation is not limited.** `safety_box` limits the position, `max_delta_per_step` the
   position (`xyz_m`) and joints (`joint_rad`) only. A client that servos `tcp_pose` directly can
   command a large rotation in one step (the gym env bounds it with its own `rot_scale_rad`).

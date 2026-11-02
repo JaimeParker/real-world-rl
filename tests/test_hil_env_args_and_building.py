@@ -44,6 +44,11 @@ HIL_SERL_OWN_DEFAULTS = {
     "teleop_device": "pico",
     "robot_teleop_action_mode": None,
     "robot_teleop_has_gripper": True,
+    "teleop_event_device": None,
+    "teleop_onset": "ramp",
+    "teleop_arm_tolerance_rad": 0.1,
+    "teleop_ramp_step_rad": 0.05,
+    "teleop_options_yaml": None,
     "convert_obs_rotation": False,
     "demo_buffer_size": 100_000,
     "demo_data_ratio": 0.5,
@@ -93,6 +98,11 @@ def test_hil_env_args_holds_exactly_the_env_teleop_classifier_and_demo_fields():
         "teleop_device",
         "robot_teleop_action_mode",
         "robot_teleop_has_gripper",
+        "teleop_event_device",
+        "teleop_onset",
+        "teleop_arm_tolerance_rad",
+        "teleop_ramp_step_rad",
+        "teleop_options_yaml",
         "convert_obs_rotation",
         "demo_buffer_size",
         "demo_data_ratio",
@@ -209,3 +219,142 @@ def test_compose_hil_env_with_teleop_matches_the_hil_serl_alias(fake_backend):
 
     env = _build_env(HilSerlArgs(), env_request=None)
     assert isinstance(env, _RecordingTeleopWrapper) and env.env is fake_backend
+
+
+# -- teleop wrapper arguments --------------------------------------------------------------
+
+_ONSET = {"onset": "arm", "arm_tolerance_rad": 0.2, "ramp_step_rad": 0.03}
+
+
+def _onset_args(**overrides) -> HilSerlArgs:
+    return HilSerlArgs(
+        teleop_onset="arm", teleop_arm_tolerance_rad=0.2, teleop_ramp_step_rad=0.03, **overrides
+    )
+
+
+@pytest.mark.parametrize("device", ["pico", "spacemouse", "fake", "keyboard"])
+def test_devices_without_arguments_get_the_device_alone(device):
+    assert env_building.teleop_wrapper_kwargs(HilSerlArgs(teleop_device=device)) == {"device": device}
+
+
+def test_robot_device_keeps_its_part_arguments_and_no_onset():
+    args = HilSerlArgs(env_backend="real_robot", teleop_device="robot", robot_teleop_action_mode="joint_abs")
+    assert env_building.teleop_wrapper_kwargs(args) == {
+        "device": "robot",
+        **env_building.robot_teleop_kwargs(args),
+    }
+
+
+def test_leader_arm_gets_the_robot_part_arguments_plus_onset():
+    args = _onset_args(
+        env_backend="real_robot", teleop_device="leader_arm", robot_teleop_action_mode="joint_delta"
+    )
+    kwargs = env_building.teleop_wrapper_kwargs(args)
+    assert kwargs == {"device": "leader_arm", **env_building.robot_teleop_kwargs(args), **_ONSET}
+    assert kwargs["teleop_contract"] == ("joint_delta", args.real_robot.num_joints, True)
+
+
+def test_leader_arm_needs_the_real_robot_backend():
+    with pytest.raises(ValueError, match="leader_arm needs --env-backend real_robot"):
+        env_building.teleop_wrapper_kwargs(HilSerlArgs(teleop_device="leader_arm"))
+
+
+def test_gello_gets_the_onset_arguments():
+    assert env_building.teleop_wrapper_kwargs(_onset_args(teleop_device="gello")) == {
+        "device": "gello",
+        **_ONSET,
+    }
+
+
+def test_event_device_builds_a_composite_with_the_motion_devices_arguments():
+    args = _onset_args(
+        env_backend="real_robot",
+        teleop_device="leader_arm",
+        robot_teleop_action_mode="joint_delta",
+        teleop_event_device="keyboard",
+    )
+    assert env_building.teleop_wrapper_kwargs(args) == {
+        "device": "composite",
+        "motion": "leader_arm",
+        "events": "keyboard",
+        "intervention_from": "events",
+        "motion_kwargs": {**env_building.robot_teleop_kwargs(args), **_ONSET},
+    }
+
+
+def test_build_hil_env_wraps_a_composite_when_an_event_device_is_set(fake_backend, monkeypatch):
+    monkeypatch.setattr(env_building, "hil_env_request", lambda args, run_name: None)
+    args = HilSerlArgs(teleop_device="spacemouse", teleop_event_device="keyboard")
+    env = env_building.build_hil_env(args, role="actor")
+
+    assert isinstance(env, _RecordingTeleopWrapper) and env.env is fake_backend
+    assert env.device == "composite"
+    assert env.kwargs == {
+        "motion": "spacemouse",
+        "events": "keyboard",
+        "intervention_from": "events",
+        "motion_kwargs": {},
+    }
+
+
+def test_build_hil_env_passes_no_teleop_arguments_for_the_default_device(fake_backend, monkeypatch):
+    monkeypatch.setattr(env_building, "hil_env_request", lambda args, run_name: None)
+    env = env_building.build_hil_env(HilSerlArgs(), role="actor")
+    assert env.device == "pico" and env.kwargs == {}
+
+
+# -- --teleop-options-yaml -----------------------------------------------------------------
+
+
+def test_options_yaml_reaches_the_spacemouse_source(tmp_path, fake_backend, monkeypatch):
+    options = tmp_path / "spacemouse.yaml"
+    options.write_text("device_index: 2\nhold_s: 0.3\n", encoding="utf-8")
+    monkeypatch.setattr(env_building, "hil_env_request", lambda args, run_name: None)
+    args = HilSerlArgs(teleop_device="spacemouse", teleop_options_yaml=str(options))
+    env = env_building.build_hil_env(args, role="actor")
+    assert env.device == "spacemouse" and env.kwargs == {"device_index": 2, "hold_s": 0.3}
+
+
+def test_options_yaml_overrides_the_derived_kwargs_and_feeds_the_composite_motion(tmp_path):
+    options = tmp_path / "gello.yaml"
+    options.write_text("port: /dev/ttyUSB0\nramp_step_rad: 0.02\n", encoding="utf-8")
+    args = _onset_args(teleop_device="gello", teleop_options_yaml=str(options))
+    assert env_building.teleop_wrapper_kwargs(args) == {
+        "device": "gello",
+        **_ONSET,
+        "port": "/dev/ttyUSB0",
+        "ramp_step_rad": 0.02,
+    }
+    composite = env_building.teleop_wrapper_kwargs(
+        dataclasses.replace(args, teleop_event_device="keyboard")
+    )
+    assert composite["motion_kwargs"] == {**_ONSET, "port": "/dev/ttyUSB0", "ramp_step_rad": 0.02}
+
+
+def test_options_yaml_must_hold_a_mapping(tmp_path):
+    empty, listed = tmp_path / "empty.yaml", tmp_path / "list.yaml"
+    empty.write_text("", encoding="utf-8")
+    listed.write_text("- 1\n- 2\n", encoding="utf-8")
+    assert env_building.teleop_options_from_yaml(str(empty)) == {}
+    assert env_building.teleop_options_from_yaml(None) == {}
+    with pytest.raises(ValueError, match="mapping"):
+        env_building.teleop_options_from_yaml(str(listed))
+
+
+def test_options_yaml_device_index_opens_that_spacemouse(tmp_path, monkeypatch):
+    import sys
+
+    from _teleop_fakes import FakeEnv, make_pyspacemouse
+
+    from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
+
+    pyspacemouse = make_pyspacemouse()
+    monkeypatch.setitem(sys.modules, "pyspacemouse", pyspacemouse)
+    options = tmp_path / "spacemouse.yaml"
+    options.write_text("device_index: 2\n", encoding="utf-8")
+    args = HilSerlArgs(teleop_device="spacemouse", teleop_options_yaml=str(options))
+    wrapped = TeleopInterventionWrapper(FakeEnv(), **env_building.teleop_wrapper_kwargs(args))
+    try:
+        assert pyspacemouse.devices[0].kwargs == {"device_index": 2}
+    finally:
+        wrapped.close()

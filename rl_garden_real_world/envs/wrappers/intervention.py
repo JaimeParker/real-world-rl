@@ -21,7 +21,9 @@ source second, so events latched while the robot homes are dropped.
 ``"robot"`` device (the teleop part of the ``RealRobotEnv``'s robot) takes its mapping inputs
 through ``teleop_kwargs`` (``teleop_contract``, ``joint_limits``, ``joint_scale_rad``,
 ``read_timeout_s``); a teleop read failure propagates out of ``step()``. The wrapper keeps the
-gripper action last sent to the env (+1, open, after a reset), which a gripper-less teleop holds.
+gripper action last sent to the env (+1, open, after a reset), which a gripper-less teleop part
+holds: it passes ``last_gripper_action_getter`` to the ``GRIPPER_HOLDING_DEVICES`` and to the motion
+half of a ``"composite"`` whose motion device is one of them.
 """
 from __future__ import annotations
 
@@ -40,6 +42,9 @@ from rl_garden_real_world.teleop.registry import make_teleop_source
 
 # RealRobotEnv opens the gripper on reset.
 _GRIPPER_ACTION_AFTER_RESET = 1.0
+# Sources mapping a robot_infra teleop part, which hold the last sent gripper action when the part
+# has no gripper channel (they take ``last_gripper_action_getter``).
+GRIPPER_HOLDING_DEVICES = ("robot", "leader_arm", "gello", "leader_cartesian")
 
 
 class InterventionWrapper(gym.Wrapper):
@@ -173,8 +178,12 @@ class TeleopInterventionWrapper(InterventionWrapper):
         if teleop is not None:
             source = as_teleop_source(teleop)
         else:
-            if device == "robot":
-                # Read lazily: the wrapper's bookkeeping attribute does not exist yet.
-                teleop_kwargs.setdefault("last_gripper_action_getter", lambda: self._last_gripper_action)
+            # Read lazily: the wrapper's bookkeeping attribute does not exist yet.
+            hold_gripper = {"last_gripper_action_getter": lambda: self._last_gripper_action}
+            if device in GRIPPER_HOLDING_DEVICES:
+                teleop_kwargs = {**hold_gripper, **teleop_kwargs}
+            elif device == "composite" and teleop_kwargs.get("motion") in GRIPPER_HOLDING_DEVICES:
+                motion_kwargs = dict(teleop_kwargs.get("motion_kwargs") or {})
+                teleop_kwargs["motion_kwargs"] = {**hold_gripper, **motion_kwargs}
             source = make_teleop_source(device, env, **teleop_kwargs)
         super().__init__(env, source)

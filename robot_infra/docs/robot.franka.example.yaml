@@ -37,10 +37,33 @@ cameras:                      # default: no cameras
     enable_depth: false
 # teleop:                       # default: no teleop; when set, the device must be present at connect
 #   name: teleop                # daemon serves teleop.<name>.read / teleop.<name>.reset
-#   backend: fake               # fake | spacemouse
+#   backend: fake               # fake | spacemouse | gello (see the gello block below)
 #   hold_s: 0.0                 # keep intervening this long after the last activity (default 0)
 #   options:                    # backend-private; fake: action_space, has_gripper, num_joints,
 #     on_end: hold_last         #   script, on_end (hold_last | idle | loop), fail_after
 #     script:
 #       - {action: [0.5, 0, 0, 0, 0, 0], active: true, hold: 3}
 #       - {action: [0, 0, 0, 0, 0, 0], gripper: 0.0, events: {episode_end: true}}
+# GELLO leader arm (extra `gello`; `gello-events` for event_device). joint_abs, 7 joints + gripper.
+# Print this block for your unit with:
+#   python -m robot_infra.devices.backends.teleops.gello_calibrate --port <port> \
+#     --joint-ids 1 2 3 4 5 6 7 --gripper-id 8 --joint-limits-yaml robot.yaml
+# teleop:
+#   name: gello
+#   backend: gello
+#   hold_s: 0.0
+#   options:
+#     port: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_XXXX-if00-port0  # required; or usb-ROBOTIS_OpenRB-150_...
+#     baudrate: 57600           # default 57600 (factory); never written to the servo EEPROM
+#     joint_ids: [1, 2, 3, 4, 5, 6, 7]                                   # required, servo ids of the arm joints
+#     joint_offsets_rad: [0.0, 0.0, 3.1416, 3.1416, 3.1416, 4.7124, 0.0]  # required, from the calibration CLI
+#     joint_signs: [1, -1, 1, -1, 1, 1, 1]                               # required, +1/-1, verify per unit
+#     wrap_centers_rad: [0.0, 0.0, 0.0, -1.5708, 0.0, 1.8675, 0.0]        # default zeros; midpoints of joint_limits
+#     gripper_id: 8             # default null = no gripper channel
+#     gripper_open_rad: 3.22    # required with gripper_id: raw trigger angle when open (width 1)
+#     gripper_closed_rad: 2.0   # required with gripper_id: raw trigger angle when closed (width 0)
+#     gripper_binarize_threshold: null  # default null; e.g. 0.5 sends 0/1 for binary grippers
+#     intervention: always      # always (default, active every poll) | toggle (follows the toggle key)
+#     event_device: null        # default null; /dev/input/by-id/...-event-kbd (pedal or keyboard, needs evdev)
+#     event_keys: {toggle: KEY_SPACE, episode_end: KEY_ESC, success: KEY_S, failure: KEY_F, rerecord: KEY_R}  # defaults; null unbinds
+#     poll_interval_s: 0.0      # default 0.0; sleep before each bus read (one read is ~35 ms at 57600)

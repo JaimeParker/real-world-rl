@@ -42,7 +42,7 @@ real_world/                      repository rlgarden-real-world
     pyproject.toml
     robot_infra/                 devices, discovery, doctor, daemon, RemoteRobot
     tests/
-  docs/                          teleop.md, residual.md, silri.md, hil-serl-roadmap.md
+  docs/                          teleop.md, gello.md, recording-demos.md, residual.md, silri.md, hil-serl-roadmap.md
   examples/                      train_real_world.py, deploy_real_robot.py, teleop demo and recording scripts
   configs/                       RLinf config
   tests/
@@ -174,7 +174,13 @@ scripts, and how to add a device are in [`docs/teleop.md`](docs/teleop.md).
 ### Teleop (`--teleop-device robot`)
 
 hil_serl can take interventions from the teleop part of the robot itself (the robot yaml's
-`teleop:` section: SpaceMouse or the `fake` backend; no leader-arm backend exists yet), served by the daemon.
+`teleop:` section: SpaceMouse, a GELLO leader arm or the `fake` backend), served by the daemon. For
+leader arms (`--teleop-device leader_arm`/`gello`, onset policies, event devices) see
+[Leader arms (GELLO)](docs/teleop.md#leader-arms-gello).
+`--teleop-options-yaml PATH` supplies device options the CLI has no flags for (GELLO port and
+calibration, SpaceMouse index, daemon address), and `--teleop-event-device keyboard|spacemouse` takes
+the intervention toggle and events from a second device; both are described in
+[`docs/teleop.md`](docs/teleop.md).
 `--teleop-device spacemouse` opens a SpaceMouse on the actor's own machine through the same
 device-layer `SpaceMouseTeleop` instead (no robot yaml `teleop:` section needed); the device
 table, the `TeleopSource` contract and how to add a device are in [`docs/teleop.md`](docs/teleop.md).

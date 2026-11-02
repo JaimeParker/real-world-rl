@@ -209,3 +209,21 @@ def test_step_clips_target_orientation_to_safety_box_rpy():
     sent_quat = bridge2.sent_poses[0][3:7]
     euler = Rotation.from_quat(sent_quat).as_euler("xyz")
     assert euler[0] == pytest.approx(0.2, abs=1e-6)
+
+
+def test_last_tcp_pose_is_none_before_reset_then_a_copy_of_the_measured_pose():
+    env, bridge = _make_env(safety_box_low=(-10, -10, -10), safety_box_high=(10, 10, 10))
+    assert env.last_tcp_pose is None
+
+    env.reset()
+    np.testing.assert_allclose(env.last_tcp_pose, [0.5, 0.0, 0.2, 0.0, 0.0, 0.0, 1.0])
+    assert env.last_tcp_pose.dtype == np.float64
+
+    action = torch.zeros(1, 7)
+    action[0, 1] = 1.0  # +y
+    env.step(action)
+    np.testing.assert_allclose(env.last_tcp_pose, bridge.sent_poses[-1])
+
+    pose = env.last_tcp_pose
+    pose[:] = 0.0  # a caller mutating its copy leaves the env's step origin alone
+    assert env.last_tcp_pose[1] == pytest.approx(0.02)

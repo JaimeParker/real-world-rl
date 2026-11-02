@@ -43,6 +43,10 @@ jpeg = ["pillow"]
 # devices/backends/teleops/spacemouse.py: SpaceMouse teleop (pyspacemouse 2.x API; the legacy `real` extra
 # is for teleop/spacemouse/, which uses the old read_all() API). hidapi is optional, for discovery.
 spacemouse = ["pyspacemouse>=2.0,<3"]
+# devices/backends/teleops/gello.py: GELLO leader arm over Dynamixel Protocol 2.0 (also the calibration CLI).
+gello = ["dynamixel-sdk>=3.7.31,<3.9"]
+# devices/backends/teleops/gello.py with options.event_device: pedal/keyboard toggle and events via evdev (Linux).
+gello-events = ["evdev"]
 dev = ["pytest"]
 
 [tool.setuptools.packages.find]

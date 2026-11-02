@@ -129,6 +129,13 @@ class FrankaRealEnv(gym.Env):
         self._last_pose = np.asarray(state["pose"], dtype=np.float64)
         return self._obs_from_state(state), {}
 
+    @property
+    def last_tcp_pose(self) -> Optional[np.ndarray]:
+        """Measured TCP pose ``xyz(3) + quat_xyzw(4)`` in the base frame (the bridge's
+        ``O_T_EE``) from the latest reset/step, as a float64 copy; None before the first state
+        read. Unlike ``obs["state"][:7]`` it is never rewritten by observation wrappers."""
+        return None if self._last_pose is None else self._last_pose.copy()
+
     def _clip_orientation(self, rot: Rotation) -> Rotation:
         """Clip ``rot`` to ``self._safety_rpy_low/high`` (xyz Euler radians).
 

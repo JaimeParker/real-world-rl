@@ -45,14 +45,14 @@ def hil_env_request(args, run_name: str):
 
 
 def robot_teleop_kwargs(args) -> dict:
-    """``TeleopPartSource`` arguments for ``--teleop-device robot``.
+    """``TeleopPartSource`` arguments for ``--teleop-device robot`` (and ``leader_arm``).
 
     A ``RemoteRobot`` only learns its teleop part when it connects, so the device is declared
     here (mode + gripper; the arm width follows the env) and checked against the real part on
     connect. A local robot's teleop part is checked at construction either way.
     """
     if args.env_backend != "real_robot":
-        raise ValueError("--teleop-device robot needs --env-backend real_robot")
+        raise ValueError(f"--teleop-device {args.teleop_device} needs --env-backend real_robot")
     real_robot = args.real_robot
     kwargs = {"joint_limits": real_robot.joint_limits, "joint_scale_rad": real_robot.joint_scale_rad}
     mode = args.robot_teleop_action_mode
@@ -60,6 +60,59 @@ def robot_teleop_kwargs(args) -> dict:
         arm_dim = _CARTESIAN_ARM_DIM if mode == "cartesian_delta" else real_robot.num_joints
         kwargs["teleop_contract"] = (mode, arm_dim, args.robot_teleop_has_gripper)
     return kwargs
+
+
+def teleop_onset_kwargs(args) -> dict:
+    """Leader-arm onset arguments (``--teleop-onset`` and its tolerances)."""
+    return {
+        "onset": args.teleop_onset,
+        "arm_tolerance_rad": args.teleop_arm_tolerance_rad,
+        "ramp_step_rad": args.teleop_ramp_step_rad,
+    }
+
+
+def teleop_options_from_yaml(path: Optional[str]) -> dict:
+    """The mapping in ``--teleop-options-yaml`` (empty without a file, or for an empty file)."""
+    if path is None:
+        return {}
+    import yaml
+
+    with open(path, encoding="utf-8") as stream:
+        options = yaml.safe_load(stream)
+    if options is None:
+        return {}
+    if not isinstance(options, dict):
+        raise ValueError(f"--teleop-options-yaml {path} must hold a mapping, got {type(options).__name__}")
+    return options
+
+
+def motion_teleop_kwargs(args) -> dict:
+    """Source arguments for ``--teleop-device``: the ones derived from the args (empty for devices
+    configured by their defaults), then ``--teleop-options-yaml`` on top."""
+    if args.teleop_device == "robot":
+        derived = robot_teleop_kwargs(args)
+    elif args.teleop_device == "leader_arm":
+        derived = {**robot_teleop_kwargs(args), **teleop_onset_kwargs(args)}
+    elif args.teleop_device == "gello":
+        derived = teleop_onset_kwargs(args)
+    else:
+        derived = {}
+    return {**derived, **teleop_options_from_yaml(args.teleop_options_yaml)}
+
+
+def teleop_wrapper_kwargs(args) -> dict:
+    """``TeleopInterventionWrapper`` arguments: ``--teleop-device`` alone, or, with
+    ``--teleop-event-device``, a composite taking motion from the former and intervention plus
+    events from the latter."""
+    if args.teleop_event_device is None:
+        return {"device": args.teleop_device, **motion_teleop_kwargs(args)}
+    return {
+        "device": "composite",
+        "motion": args.teleop_device,
+        "events": args.teleop_event_device,
+        "intervention_from": "events",
+        "motion_kwargs": motion_teleop_kwargs(args),
+    }
 
 
 def compose_hil_env(args, env_request, *, enable_teleop: bool = True):
@@ -109,8 +162,7 @@ def compose_hil_env(args, env_request, *, enable_teleop: bool = True):
 
         # Validates the teleop source's action_mode/width against the env's action contract
         # (also rejects gripper_in_action=false, which GraspPenaltyWrapper below relies on).
-        teleop_kwargs = robot_teleop_kwargs(args) if args.teleop_device == "robot" else {}
-        env = TeleopInterventionWrapper(env, device=args.teleop_device, **teleop_kwargs)
+        env = TeleopInterventionWrapper(env, **teleop_wrapper_kwargs(args))
 
     if args.use_grasp_penalty:
         # Must wrap outside TeleopInterventionWrapper so

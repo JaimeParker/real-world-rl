@@ -107,7 +107,11 @@ The limits live in the robot yaml on the robot PC (`safety_box`, `joint_limits`,
 ### Teleop (`--teleop-device robot`)
 
 hil_serl can take interventions from the teleop part of the robot itself (the robot yaml's
-`teleop:` section: SpaceMouse or the `fake` backend; no leader-arm backend exists yet), served by the daemon:
+`teleop:` section: SpaceMouse or the `fake` backend; no leader-arm backend exists yet), served by the daemon.
+`--teleop-device spacemouse` opens a SpaceMouse on the actor's own machine through the same
+device-layer `SpaceMouseTeleop` instead (no robot yaml `teleop:` section needed); the device
+table, the `TeleopSource` contract and how to add a device are in [`docs/teleop.md`](docs/teleop.md).
+For `--teleop-device robot`:
 
 - `cartesian_delta` actions pass through as they are; `joint_abs` is normalized onto
   `joint_limits`; `joint_delta` becomes `(q_leader - q_follower) / joint_scale_rad` (needs

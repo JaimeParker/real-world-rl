@@ -134,19 +134,38 @@ class HilSerlLearnerLoop(LearnerLoop):
             **extra,
         )
 
+    def _buffer_kwargs(self, transition: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Splits a received transition into ``(core, extra)``: ``core`` holds the
+        five tensor keys (``obs``, ``next_obs``, ``action``, ``reward``, ``done``)
+        and ``extra`` the keywords forwarded to ``replay_buffer.add`` and
+        ``add_demo_transition``. What this returns is also what snapshots pickle
+        and what a restart re-adds, so extras survive a reload.
+
+        The default drops ``intervened`` (routing only) and ``actor_id``
+        (observability only) and forwards everything else, e.g. ``grasp_penalty``.
+        An override that keeps ``intervened`` needs a buffer ``add`` that takes it.
+        The routing decision reads ``transition["intervened"]`` before this call.
+        """
+        core = {key: transition[key] for key in _TRANSITION_TENSOR_KEYS}
+        extra = {
+            key: value
+            for key, value in transition.items()
+            if key not in _TRANSITION_TENSOR_KEYS and key not in ("intervened", "actor_id")
+        }
+        return core, extra
+
     def _on_transition(self, transition: dict[str, Any]) -> None:
-        intervened = bool(transition.pop("intervened", False))
-        # actor_id is observability-only (see LearnerLoop._on_transition) --
-        # popped before .add() and before the online/demo pkl append, so it
-        # never reaches the buffer and is never persisted into snapshots.
-        actor_id = transition.pop("actor_id", None)
+        intervened = bool(transition.get("intervened", False))
+        actor_id = transition.get("actor_id")
+        core, extra = self._buffer_kwargs(transition)
+        stored = {**core, **extra}
         device = self.agent.buffer_device
         with self._lock:
-            self._add_transition(self.agent.replay_buffer.add, transition, device)
-            self._pending_online.append(transition)
+            self._add_transition(self.agent.replay_buffer.add, stored, device)
+            self._pending_online.append(stored)
             if intervened:
-                self._add_transition(self.agent.add_demo_transition, transition, device)
-                self._pending_demo.append(transition)
+                self._add_transition(self.agent.add_demo_transition, stored, device)
+                self._pending_demo.append(stored)
             self._received += 1
             key = actor_id if actor_id is not None else "unknown"
             self._received_by_actor[key] = self._received_by_actor.get(key, 0) + 1

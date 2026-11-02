@@ -1,7 +1,7 @@
 import os
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, Optional
 
 import numpy as np
@@ -14,9 +14,11 @@ if REPO_ROOT not in sys.path:
 
 @dataclass
 class Args:
+    device: Literal["pico", "spacemouse", "fake"] = "pico"
     zmq_url: str = "tcp://192.168.6.2:7777"
-    device: Literal["pico", "spacemouse"] = "pico"
+    """Pico only."""
     hand: Literal["left", "right"] = "right"
+    """Pico only."""
     env_id: str = "PegInsertionSidePegOnly-v1"
     control_mode: str = "pd_ee_twist"
     robot_uids: str = "panda_wristcam_gripper_closed_wo_norm"
@@ -28,13 +30,46 @@ class Args:
     rot_scale: Optional[float] = None
     twist_limit: Optional[float] = None
     intervention_threshold: float = 1e-4
+    spacemouse_index: int = 0
+    """SpaceMouse only: which connected device to open."""
+    spacemouse_deadzone: float = 1e-3
+    spacemouse_invert_axes: list[int] = field(default_factory=list)
+    """SpaceMouse only: output twist indices (0-5) whose sign is flipped."""
+    spacemouse_hold_s: float = 0.0
+
+
+# Only the Pico twist is in physical units; the SpaceMouse (and fake) actions are already in
+# the env's normalized [-1, 1] space.
+PHYSICAL_TWIST_DEVICES = ("pico",)
+
+
+def build_teleop_kwargs(args: Args) -> dict:
+    if args.device == "pico":
+        kwargs = dict(
+            zmq_url=args.zmq_url,
+            hand=args.hand,
+            intervention_threshold=args.intervention_threshold,
+        )
+        for name in ("pos_scale", "rot_scale", "twist_limit"):
+            if getattr(args, name) is not None:
+                kwargs[name] = getattr(args, name)
+        return kwargs
+    if args.device == "spacemouse":
+        return dict(
+            device_index=args.spacemouse_index,
+            deadzone=args.spacemouse_deadzone,
+            invert_axes=args.spacemouse_invert_axes,
+            hold_s=args.spacemouse_hold_s,
+        )
+    return {}
 
 
 def main():
     args = tyro.cli(Args)
     import torch
     from rl_garden.envs import ManiSkillEnvConfig, make_maniskill_env
-    from robot_infra.teleop.utils.telo_op_control_twist import EETwistTeleOpWrapper
+
+    from rl_garden_real_world.teleop import make_teleop_source
 
     env_cfg = ManiSkillEnvConfig(
         env_id=args.env_id,
@@ -60,26 +95,16 @@ def main():
             print("normalize_action=False: using raw ee_twist actions.")
         else:
             print("normalize_action=True: scaling ee_twist actions to [-1, 1].")
-        teleop_kwargs = dict(
-            zmq_url=args.zmq_url,
-            hand=args.hand,
-            device=args.device,
-            intervention_threshold=args.intervention_threshold,
-        )
-        if args.pos_scale is not None:
-            teleop_kwargs["pos_scale"] = args.pos_scale
-        if args.rot_scale is not None:
-            teleop_kwargs["rot_scale"] = args.rot_scale
-        if args.twist_limit is not None:
-            teleop_kwargs["twist_limit"] = args.twist_limit
-        teleop = EETwistTeleOpWrapper(
-            **teleop_kwargs,
-        )
+        # A ManiSkill env has no action contract: sources assume the cartesian twist + gripper convention.
+        teleop = make_teleop_source(args.device, env, **build_teleop_kwargs(args))
+        teleop.start()
         obs, info = env.reset()
         step = 0
         while args.max_steps <= 0 or step < args.max_steps:
-            sample = teleop.poll()
-            teleop_action = normalize_twist(sample.action, twist_normalizer)
+            reading = teleop.poll()
+            teleop_action = reading.action
+            if args.device in PHYSICAL_TWIST_DEVICES:
+                teleop_action = normalize_twist(teleop_action, twist_normalizer)
             teleop_action = fit_action(teleop_action, env.action_space.shape)
             action = torch.as_tensor(
                 teleop_action, dtype=torch.float32, device=obs_device(obs)
@@ -91,11 +116,11 @@ def main():
                 "step:",
                 step,
                 "twist:",
-                sample.twist,
+                reading.action[:6],
                 "gripper:",
-                sample.gripper,
+                reading.action[-1],
                 "intervened:",
-                sample.intervened,
+                reading.intervened,
             )
             time.sleep(args.dt)
     finally:

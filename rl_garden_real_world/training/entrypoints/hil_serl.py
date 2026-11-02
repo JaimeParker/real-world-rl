@@ -12,110 +12,25 @@ import logging
 
 import torch
 
+from rl_garden_real_world.training.env_building import (
+    build_hil_env,
+    compose_hil_env,
+    hil_env_request,
+    robot_teleop_kwargs,
+    tcp_pose_quat_slice,
+)
+
 _LOGGER = logging.getLogger(__name__)
 
-
-_FRANKA_REAL_QUAT_SLICE = (3, 7)
-_CARTESIAN_ARM_DIM = 6
-
-
-def _tcp_pose_quat_slice(args) -> tuple[int, int] | None:
-    """FrankaRealEnv's state always starts with tcp_pose; real_robot's follows state_fields."""
-    if args.env_backend != "real_robot":
-        return _FRANKA_REAL_QUAT_SLICE
-    from rl_garden_real_world.envs.wrappers.obs_chain import tcp_pose_quat_slice
-
-    return tcp_pose_quat_slice(args.real_robot)
-
-
-def _hil_serl_env_request(args, run_name):
-    from rl_garden.common.env_args import make_env_request
-
-    env_request = make_env_request(args, run_name)
-    if args.env_backend == "real_robot":
-        # The backend cannot stack frames; apply_obs_chain stacks them (as deploy does).
-        env_request.observation = dataclasses.replace(env_request.observation, frame_stack=1)
-    return env_request
-
-
-def _robot_teleop_kwargs(args) -> dict:
-    """``TeleopPartSource`` arguments for ``--teleop-device robot``.
-
-    A ``RemoteRobot`` only learns its teleop part when it connects, so the device is declared
-    here (mode + gripper; the arm width follows the env) and checked against the real part on
-    connect. A local robot's teleop part is checked at construction either way.
-    """
-    if args.env_backend != "real_robot":
-        raise ValueError("--teleop-device robot needs --env-backend real_robot")
-    real_robot = args.real_robot
-    kwargs = {"joint_limits": real_robot.joint_limits, "joint_scale_rad": real_robot.joint_scale_rad}
-    mode = args.robot_teleop_action_mode
-    if mode is not None:
-        arm_dim = _CARTESIAN_ARM_DIM if mode == "cartesian_delta" else real_robot.num_joints
-        kwargs["teleop_contract"] = (mode, arm_dim, args.robot_teleop_has_gripper)
-    return kwargs
+# Names the tests and downstream code import from this module.
+_tcp_pose_quat_slice = tcp_pose_quat_slice
+_hil_serl_env_request = hil_env_request
+_robot_teleop_kwargs = robot_teleop_kwargs
 
 
 def _build_env(args, env_request):
-    """Composes the env wrappers built in the SERL v1 round but never wired
-    up until now: temporal observation stacking (innermost, optional) ->
-    rotvec observation conversion (optional) -> reward classifier -> human
-    intervention -> optional reset-free forward/backward (outer, per
-    ``FWBWActorLoop``/``FWBWResetFreeWrapper``'s documented requirement that
-    it sit outermost)."""
-    from rl_garden.envs.backend_registry import make_training_envs
-    from rl_garden.envs.wrappers.fwbw_reset_free import FWBWResetFreeWrapper
-    from rl_garden.envs.wrappers.reward_classifier import RewardClassifierWrapper
-    from rl_garden_real_world.envs.wrappers.grasp_penalty import GraspPenaltyWrapper
-    from rl_garden_real_world.envs.wrappers.obs_chain import apply_obs_chain
-    from rl_garden_real_world.envs.wrappers.teleop_intervention import TeleopInterventionWrapper
-
-    env, _ = make_training_envs(args.env_backend, env_request)
-
-    env = apply_obs_chain(
-        env,
-        frame_stack=args.obs.frame_stack,
-        # Reuses classifier_image_keys: the same "which keys are cameras" question the
-        # classifier wrapper below answers.
-        image_keys=args.classifier_image_keys,
-        convert_obs_rotation=args.convert_obs_rotation,
-        quat_slice=_tcp_pose_quat_slice(args),
-    )
-
-    if args.classifier_checkpoint is not None:
-        from rl_garden.common.utils import get_device
-        from rl_garden.models.reward.success.model import load_classifier_fn
-
-        # FrankaRealEnv's observation space is {"state": ..., <camera_key>: image, ...}
-        # (see rl_garden_real_world/envs/franka_real/env.py) -- camera keys are whatever
-        # the user configured (cfg.camera_keys), not necessarily "rgb*"/"depth*"
-        # prefixed, so every non-"state" key is an image key here.
-        image_keys = args.classifier_image_keys or tuple(
-            k for k in env.single_observation_space.spaces if k != "state"
-        )
-        classifier_fn = load_classifier_fn(
-            args.classifier_checkpoint,
-            env.single_observation_space,
-            image_keys,
-            device=get_device("auto"),
-        )
-        env = RewardClassifierWrapper(env, classifier_fn, threshold=args.classifier_threshold)
-
-    # Validates the teleop source's action_mode/width against the env's action contract
-    # (also rejects gripper_in_action=false, which GraspPenaltyWrapper below relies on).
-    teleop_kwargs = _robot_teleop_kwargs(args) if args.teleop_device == "robot" else {}
-    env = TeleopInterventionWrapper(env, device=args.teleop_device, **teleop_kwargs)
-
-    if args.use_grasp_penalty:
-        # Must wrap outside TeleopInterventionWrapper so
-        # info["intervene_action"] (the actually-executed action under
-        # human intervention) is already present when this runs.
-        env = GraspPenaltyWrapper(env, penalty=args.grasp_penalty_value)
-
-    if args.fwbw:
-        env = FWBWResetFreeWrapper(env)
-
-    return env
+    """Thin alias of ``env_building.compose_hil_env`` (teleop enabled)."""
+    return compose_hil_env(args, env_request)
 
 
 def _run_actor(args) -> None:
@@ -128,11 +43,10 @@ def _run_actor(args) -> None:
     from rl_garden_real_world import FWBWActorLoop
     from rl_garden_real_world.hil_serl import HilSerlActorLoop, HilSerlActorSyncClient
 
-    env_request = _hil_serl_env_request(args, run_name="real_world_actor")
-    env = _build_env(args, env_request)
+    env = build_hil_env(args, role="actor")
     if args.record_video_dir is not None:
-        # Applied here (not inside _build_env) since it's actor-only --
-        # _build_env is shared by actor/learner/eval, and only the actor
+        # Applied here (not inside build_hil_env) since it's actor-only --
+        # build_hil_env is shared by actor/learner/eval, and only the actor
         # process ever calls env.step() against the real robot.
         from rl_garden_real_world.envs.wrappers.video_recorder import VideoRecorderWrapper
 
@@ -229,8 +143,8 @@ def _run_learner(args) -> None:
         log_group=args.log_group or args.env_id,
     )
 
-    env_request = _hil_serl_env_request(args, run_name=run_name)
-    env = _build_env(args, env_request)
+    # The learner only needs the env's spaces and action contract: no teleop device here.
+    env = build_hil_env(args, role="learner", enable_teleop=False, run_name=run_name)
 
     agent = build_rlpd_hybrid(args, env, None, logger=logger, checkpoint_dir=checkpoint_dir)
     agent.init_demo_buffer(args.demo_buffer_size, args.demo_data_ratio)
@@ -271,8 +185,7 @@ def _run_eval(args) -> None:
     if args.load_checkpoint is None:
         raise ValueError("hil_serl eval requires --load_checkpoint.")
 
-    env_request = _hil_serl_env_request(args, run_name="real_world_eval")
-    env = _build_env(args, env_request)
+    env = build_hil_env(args, role="eval")
 
     eval_args = dataclasses.replace(args, buffer_size=8, offline_dataset=None)
     agent = build_rlpd_hybrid(eval_args, env, None, logger=None, checkpoint_dir=None)
@@ -320,19 +233,20 @@ def run_hil_serl(args: "HilSerlArgs") -> None:
 # ---------------------------------------------------------------------------
 
 from dataclasses import dataclass, field  # noqa: E402
-from typing import Literal, Optional, Sequence  # noqa: E402
+from typing import Literal  # noqa: E402
 
 from rl_garden.encoders.config import EncoderConfig  # noqa: E402
 from rl_garden.training.online.entrypoints.rlpd_hybrid import RLPDHybridArgs  # noqa: E402
 from rl_garden_real_world.training.args import (  # noqa: E402
     FrankaRealConfig,
+    HilEnvArgs,
     RealWorldFrankaArgs,
 )
 from rl_garden_real_world.training.registry import registry  # noqa: E402
 
 
 @dataclass
-class HilSerlArgs(RealWorldFrankaArgs, RLPDHybridArgs):
+class HilSerlArgs(HilEnvArgs, RealWorldFrankaArgs, RLPDHybridArgs):
     franka_real: FrankaRealConfig = field(default_factory=FrankaRealConfig)
 
     # Overrides RealWorldFrankaArgs.role's Literal["actor", "learner"] with a
@@ -340,62 +254,6 @@ class HilSerlArgs(RealWorldFrankaArgs, RLPDHybridArgs):
     # HilSerlArgs rather than the shared RealWorldFrankaArgs so this round's
     # scope stays limited to hil_serl; serl.py is unaffected.
     role: Literal["actor", "learner", "eval"] = "actor"
-    # Only used when role="eval": number of deterministic episodes to run.
-    eval_n_trajs: int = 10
-
-    classifier_checkpoint: Optional[str] = None
-    classifier_threshold: float = 0.5
-    classifier_image_keys: Sequence[str] = field(default_factory=tuple)
-
-    # Gripper-flip reward shaping added to RLPDHybrid's discrete critic
-    # target on top of the raw env reward (HIL-SERL's grasp_penalty) --
-    # see rl_garden_real_world/envs/wrappers/grasp_penalty.py.
-    use_grasp_penalty: bool = False
-    grasp_penalty_value: float = -0.05
-
-    # Records each actor-side episode to <record_video_dir>/episode_*.mp4
-    # via ffmpeg -- actor role only (see _run_actor). None disables it.
-    record_video_dir: Optional[str] = None
-
-    # Replay-buffer image-frame dedup (MemoryEfficientDictReplayBuffer) --
-    # only meaningful when obs.frame_stack > 1; a memory-usage optimization,
-    # not a correctness change, for long image-heavy real-world sessions.
-    memory_efficient_buffer: bool = False
-
-    # "robot": the teleop part of the real_robot env's robot (robot yaml ``teleop:`` section).
-    teleop_device: Literal["pico", "spacemouse", "robot"] = "pico"
-    # Declares the robot's teleop part for --teleop-device robot over a remote robot, whose
-    # part is only known after connecting (checked then; a mismatch raises DeviceFault).
-    robot_teleop_action_mode: Optional[Literal["cartesian_delta", "joint_abs", "joint_delta"]] = None
-    robot_teleop_has_gripper: bool = True
-    # Converts FrankaRealEnv's raw quaternion state slice to a rotation
-    # vector (matching the action side's own rotvec convention). Off by
-    # default -- changes "state"'s observation shape (20 -> 19), so it's an
-    # explicit opt-in, not a silent default change.
-    convert_obs_rotation: bool = False
-
-    # Growing human-intervention demo buffer (DemoInterventionMixin), mixed
-    # into training via RLPD's existing offline_replay_buffer/
-    # offline_data_ratio slot -- see rl_garden/buffers/demo_intervention.py.
-    # Not supported together with --offline_dataset (RLPD's static prior
-    # dataset) in this round; both use the same slot.
-    demo_buffer_size: int = 100_000
-    demo_data_ratio: float = 0.5
-    # Crash-recovery pkl snapshot cadence (received transitions between
-    # snapshots), mirroring HIL-SERL's own buffer_period.
-    buffer_period: int = 1000
-    # Pre-collected demo transitions (HIL-SERL's --demo_path equivalent),
-    # glob patterns over pkl files in the same transition-dict format as the
-    # buffer snapshots above. Loaded into the demo buffer unconditionally on
-    # every start, before crash-recovery snapshot reload.
-    demo_dataset_paths: Sequence[str] = field(default_factory=tuple)
-
-    fwbw: bool = False
-    # Only used when fwbw=True. Actor: builds both directions' sync clients
-    # (forward on sync_port, backward on sync_port_backward). Learner: which
-    # direction this particular learner process owns.
-    sync_port_backward: Optional[int] = None
-    fwbw_direction: Literal["forward", "backward"] = "forward"
 
     # Below: HilSerlArgs-local overrides of RLPDHybridArgs/EncoderConfig
     # defaults, matching what HIL-SERL's own real-robot recipes

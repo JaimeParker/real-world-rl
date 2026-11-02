@@ -6,8 +6,8 @@ run ``episodes`` reset/step episodes and report steps, return, RTT and robot hea
 Policy restore mirrors rl-garden's ``examples/eval_checkpoint.py`` (there is no library-level
 eval loader): the online registry's ``<algo>`` Args are filled from the run's ``config.json``
 (``<run>/config.json`` next to ``<run>/checkpoints/``) and the checkpoint's
-``metadata.hyperparameters``, the agent is rebuilt with ``build_<algo>`` against the deploy
-env's spaces, and ``BaseAlgorithm.load`` restores the weights (no replay, no optimizers).
+``metadata.hyperparameters``, the agent is rebuilt with the registry entry's ``build_agent`` against
+the deploy env's spaces, and ``BaseAlgorithm.load`` restores the weights (no replay, no optimizers).
 Checkpoint/space mismatches therefore surface before the robot moves (nothing connects until
 the first ``reset``).
 
@@ -249,15 +249,27 @@ def build_deploy_env(args: DeployArgs, training_args: Any):
     )
 
 
-def restore_policy(args: DeployArgs, training_args: Any, env: Any):
-    """Rebuild the ``<algo>`` agent on ``env``'s spaces and load the checkpoint weights."""
+def _resolve_build_agent(algo: str):
+    """The online registry entry's ``build_agent``; algorithms registered without one fall
+    back to ``build_<algo>`` in their in-tree entrypoints module."""
     import importlib
 
+    from rl_garden.training.online.registry import registry
+
+    registry.discover()
+    entry = registry.entries().get(algo)
+    if entry is not None and entry.build_agent is not None:
+        return entry.build_agent
+    module = importlib.import_module(f"rl_garden.training.online.entrypoints.{algo}")
+    return getattr(module, f"build_{algo}")
+
+
+def restore_policy(args: DeployArgs, training_args: Any, env: Any):
+    """Rebuild the ``<algo>`` agent on ``env``'s spaces and load the checkpoint weights."""
     from rl_garden.common import seed_everything
 
     seed_everything(args.seed)
-    module = importlib.import_module(f"rl_garden.training.online.entrypoints.{args.algo}")
-    build_agent = getattr(module, f"build_{args.algo}")
+    build_agent = _resolve_build_agent(args.algo)
     agent = build_agent(training_args, env, None, logger=None, checkpoint_dir=None)
     agent.load(args.checkpoint, load_replay_buffer=False, load_optimizers=False)
     # Online builders construct on device "auto"; inference runs where --device says.

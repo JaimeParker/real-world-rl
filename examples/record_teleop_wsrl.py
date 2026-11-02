@@ -4,7 +4,7 @@ import json
 import os
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -21,9 +21,11 @@ from rl_garden_real_world.utils.tree import index_tree  # noqa: E402
 @dataclass
 class Args:
     output_path: str
+    device: Literal["pico", "spacemouse", "fake"] = "pico"
     zmq_url: str = "tcp://192.168.6.2:7777"
-    device: Literal["pico", "spacemouse"] = "pico"
+    """Pico only."""
     hand: Literal["left", "right"] = "right"
+    """Pico only."""
     dt: float = 1 / 30
 
     env_id: str = "PegInsertionSidePegOnly-v1"
@@ -48,6 +50,49 @@ class Args:
     rot_scale: Optional[float] = None
     twist_limit: Optional[float] = None
     intervention_threshold: float = 1e-4
+    spacemouse_index: int = 0
+    """SpaceMouse only: which connected device to open."""
+    spacemouse_deadzone: float = 1e-3
+    spacemouse_invert_axes: list[int] = field(default_factory=list)
+    """SpaceMouse only: output twist indices (0-5) whose sign is flipped."""
+    spacemouse_hold_s: float = 0.0
+
+
+# Only the Pico twist is in physical units; the SpaceMouse (and fake) actions are already in
+# the env's normalized [-1, 1] space.
+PHYSICAL_TWIST_DEVICES = ("pico",)
+
+
+def build_teleop_kwargs(args: Args) -> dict:
+    if args.device == "pico":
+        kwargs = dict(
+            zmq_url=args.zmq_url,
+            hand=args.hand,
+            intervention_threshold=args.intervention_threshold,
+        )
+        for name in ("pos_scale", "rot_scale", "twist_limit"):
+            if getattr(args, name) is not None:
+                kwargs[name] = getattr(args, name)
+        return kwargs
+    if args.device == "spacemouse":
+        return dict(
+            device_index=args.spacemouse_index,
+            deadzone=args.spacemouse_deadzone,
+            invert_axes=args.spacemouse_invert_axes,
+            hold_s=args.spacemouse_hold_s,
+        )
+    return {}
+
+
+def reset_teleop(teleop, *, episode_end_pressed: bool = False) -> None:
+    """Resets the source; after a manual episode end the Pico button is still held, so it is told
+    not to report it again (other sources have no such state)."""
+    from rl_garden_real_world.teleop.pico import PicoTeleopSource
+
+    if episode_end_pressed and isinstance(teleop, PicoTeleopSource):
+        teleop.reset(episode_end_pressed=True)
+    else:
+        teleop.reset()
 
 
 def main():
@@ -57,7 +102,8 @@ def main():
     from mani_skill.utils import gym_utils
     from rl_garden.datasets import PolicySource, WSRLTrajectoryWriter
     from rl_garden.envs import ManiSkillEnvConfig, make_maniskill_env
-    from robot_infra.teleop.utils.telo_op_control_twist import EETwistTeleOpWrapper
+
+    from rl_garden_real_world.teleop import make_teleop_source
 
     env_kwargs = load_env_kwargs(args)
     env_cfg = ManiSkillEnvConfig(
@@ -82,19 +128,9 @@ def main():
     env.auto_reset = False
     max_episode_steps = gym_utils.find_max_episode_steps_value(env)
 
-    teleop_kwargs = dict(
-        zmq_url=args.zmq_url,
-        hand=args.hand,
-        device=args.device,
-        intervention_threshold=args.intervention_threshold,
-    )
-    if args.pos_scale is not None:
-        teleop_kwargs["pos_scale"] = args.pos_scale
-    if args.rot_scale is not None:
-        teleop_kwargs["rot_scale"] = args.rot_scale
-    if args.twist_limit is not None:
-        teleop_kwargs["twist_limit"] = args.twist_limit
-    teleop = EETwistTeleOpWrapper(**teleop_kwargs)
+    # A ManiSkill env has no action contract: sources assume the cartesian twist + gripper convention.
+    teleop = make_teleop_source(args.device, env, **build_teleop_kwargs(args))
+    teleop.start()
 
     source = PolicySource(
         tier="success",
@@ -128,8 +164,8 @@ def main():
             print("normalize_action=True: saving normalized env actions.", flush=True)
 
         while True:
-            sample = teleop.poll()
-            if sample.episode_end:
+            reading = teleop.poll()
+            if reading.episode_end:
                 finish_episode(
                     episode=episode,
                     max_episode_steps=max_episode_steps,
@@ -140,15 +176,17 @@ def main():
                 obs, _ = env.reset()
                 env.render()
                 episode = new_episode(obs)
-                teleop.reset(episode_end_pressed=True)
+                reset_teleop(teleop, episode_end_pressed=True)
                 time.sleep(args.dt)
                 continue
 
-            if not sample.intervened:
+            if not reading.intervened:
                 time.sleep(args.dt)
                 continue
 
-            teleop_action = normalize_twist(sample.action, twist_normalizer)
+            teleop_action = reading.action
+            if args.device in PHYSICAL_TWIST_DEVICES:
+                teleop_action = normalize_twist(teleop_action, twist_normalizer)
             teleop_action = fit_action(teleop_action, env.action_space.shape)
             action = torch.as_tensor(
                 teleop_action, dtype=torch.float32, device=obs_device(obs)
@@ -185,7 +223,7 @@ def main():
                 )
                 obs, _ = env.reset()
                 episode = new_episode(obs)
-                teleop.reset()
+                reset_teleop(teleop)
             else:
                 obs = next_obs
 

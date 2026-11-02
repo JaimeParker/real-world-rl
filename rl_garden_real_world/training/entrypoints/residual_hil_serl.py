@@ -107,6 +107,7 @@ def _run_actor(args) -> None:
         sync_client,
         provider,
         warmup_unit_residual=args.residual_warmup_unit,
+        base_resync_on_intervention=args.residual_base_resync_on_intervention,
         control_hz=args.control_hz,
         device=agent.device,
         deterministic=args.deterministic_actor,
@@ -256,6 +257,9 @@ class ResidualHilSerlArgs(HilSerlArgs):
     # Actor-side unit residual noise amplitude until the first learner weights arrive
     # (0: pure base actions).
     residual_warmup_unit: float = 0.0
+    # Actor resets the base provider after every intervened step, so a stateful base (ACT)
+    # replans from the robot's actual state instead of a stale chunk (no-op for zero/checkpoint).
+    residual_base_resync_on_intervention: bool = True
     # Base policy spec, e.g. "zero", "checkpoint:<path>?algo=real_world_bc", "act:<path>".
     # Required (checked when the run starts).
     base_provider: str = ""

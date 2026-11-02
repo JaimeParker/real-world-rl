@@ -52,7 +52,7 @@ the same provider.
 |---|---|
 | `zero` | `ZeroBaseProvider`: base action 0 (plain RL with scale-bounded actions; tests, ablations) |
 | `checkpoint:<path>?algo=<name>` | `CheckpointBaseProvider`: the deterministic action of an rl-garden checkpoint. `algo` is `real_world_bc` or an rl-garden online-registry name with an agent builder (`rlpd`, `rlpd_hybrid`, ...). The run's `config.json` next to `checkpoints/` is read when present; the checkpoint must match the env's observation and action spaces |
-| `act:<path>[?temporal_agg=1&temporal_agg_k=0.01&state_dict_key=ema_agent]` | `ACTBaseProvider`: rl-garden's ACT checkpoint wrapper, de-normalised by the checkpoint statistics, clipped to `[-1, 1]`. Reads `obs["state"]`; `reset()` at episode end clears the chunk / ensemble state |
+| `act:<path>[?temporal_agg=1&temporal_agg_k=0.01&state_dict_key=ema_agent]` | `ACTBaseProvider`: rl-garden's ACT checkpoint wrapper, de-normalised by the checkpoint statistics, clipped to `[-1, 1]`. Reads `obs["state"]`; `reset()` at episode end (and by default after every intervened step, see below) clears the chunk / ensemble state |
 
 Options are joined with `&`; quote the spec on the shell (`?` globs, `&` backgrounds):
 
@@ -62,6 +62,19 @@ Options are joined with `&`; quote the spec on the shell (`?` globs, `&` backgro
 
 Every provider returns `(B, A)` actions in `[-1, 1]` and is computed without gradients.
 Providers are built only by the actor, eval and deploy, never by the learner.
+
+`--residual-base-resync-on-intervention` (default on; `--no-residual-base-resync-on-intervention`
+turns it off) makes the actor reset the provider after every intervened step, before it
+computes the base of that step's next observation. While the human acts, the robot leaves
+the trajectory an ACT chunk was planned for: without the resync an open-loop provider
+(`temporal_agg=0`) keeps replaying the stale chunk until its next chunk boundary, and an
+ensembling one (`temporal_agg=1`) keeps averaging chunks predicted before and during the
+takeover, so the stored `base_actions` / `next_base_actions`, the BC target on intervened
+rows and the base the policy acts on right after the release lag the robot by up to one
+chunk. With the resync the base of every observation after an intervened step is the first
+action of a chunk freshly planned at that observation. The step on which the human takes
+over keeps the base computed before the takeover. The `zero` and `checkpoint` providers
+have no state (`reset()` does nothing), so the flag changes nothing for them.
 
 ## Human intervention
 

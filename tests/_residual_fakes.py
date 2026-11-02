@@ -2,6 +2,7 @@
 provider, a fake sync client, agent factories and replay fillers."""
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any, Optional
 
 import gymnasium as gym
@@ -17,15 +18,19 @@ ACTION_DIM = 3  # two arm dims + the gripper
 class DictEnv(gym.Env):
     """One-env torch env with ``{"state"}`` observations. Reset observations are filled
     with ``100 + reset count`` and step observations with the step count, so a recorded
-    observation tells which call produced it. Terminates every ``terminate_every`` steps."""
+    observation tells which call produced it. Terminates every ``terminate_every`` steps.
+    The steps numbered in ``intervene_steps`` (1-based, counted across episodes) report a
+    human takeover: ``info["intervene_action"]`` is ``HUMAN_ACTION_VALUE`` on every dim."""
 
     num_envs = 1
+    HUMAN_ACTION_VALUE = 0.5
 
     def __init__(
         self,
         action_dim: int = ACTION_DIM,
         terminate_every: Optional[int] = None,
         info: Optional[dict] = None,
+        intervene_steps: Iterable[int] = (),
     ) -> None:
         self.single_observation_space = spaces.Dict(
             {"state": spaces.Box(-1.0, 1.0, (STATE_DIM,), dtype="float32")}
@@ -35,6 +40,7 @@ class DictEnv(gym.Env):
         self.action_space = batch_space(self.single_action_space, 1)
         self.terminate_every = terminate_every
         self.info = dict(info or {})
+        self.intervene_steps = frozenset(intervene_steps)
         self.resets = 0
         self.steps = 0
         self.actions: list[torch.Tensor] = []
@@ -49,12 +55,15 @@ class DictEnv(gym.Env):
         self.steps += 1
         self.actions.append(action)
         terminated = self.terminate_every is not None and self.steps % self.terminate_every == 0
+        info = dict(self.info)
+        if self.steps in self.intervene_steps:
+            info["intervene_action"] = torch.full(action.shape, self.HUMAN_ACTION_VALUE)
         return (
             {"state": torch.full((1, STATE_DIM), float(self.steps))},
             torch.ones(1),
             torch.tensor([terminated]),
             torch.tensor([False]),
-            dict(self.info),
+            info,
         )
 
     def close(self):
@@ -63,12 +72,14 @@ class DictEnv(gym.Env):
 
 class RecordingProvider:
     """Base action ``state[0, 0] / 1000`` on every dim; records the first state entry of
-    every observation it is asked about and counts resets."""
+    every observation it is asked about, counts resets and records the reset count at
+    every query (``reset_calls_at_select``), so a test can tell which resets preceded it."""
 
     def __init__(self, action_dim: int = ACTION_DIM) -> None:
         self.action_dim = action_dim
         self.seen: list[float] = []
         self.reset_calls = 0
+        self.reset_calls_at_select: list[int] = []
 
     @staticmethod
     def value_for(marker: float) -> float:
@@ -77,6 +88,7 @@ class RecordingProvider:
     def select_action(self, obs) -> torch.Tensor:
         marker = float(obs["state"][0, 0])
         self.seen.append(marker)
+        self.reset_calls_at_select.append(self.reset_calls)
         return torch.full((1, self.action_dim), self.value_for(marker))
 
     def reset(self) -> None:

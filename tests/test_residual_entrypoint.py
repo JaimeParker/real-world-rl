@@ -92,6 +92,7 @@ def test_args_defaults():
     assert (args.residual_action_scale, args.residual_gripper_scale) == (0.1, 0.0)
     assert args.residual_zero_init is True and args.residual_log_std_init == -3.0
     assert args.residual_bc_weight == 0.0 and args.residual_warmup_unit == 0.0
+    assert args.residual_base_resync_on_intervention is True
     assert args.critic_only_updates == 0
     assert args.allow_base_less_demos is False
     assert args.base_provider == ""
@@ -165,13 +166,22 @@ def test_actor_builds_the_provider_and_the_residual_loop(monkeypatch, fake_backe
             captured["ran"] = True
 
     monkeypatch.setattr("rl_garden_real_world.residual.ResidualActorLoop", _FakeActorLoop)
-    run_residual_hil_serl(_args(role="actor", sync_host="10.0.0.1", sync_port=7000, residual_warmup_unit=0.2))
+    run_residual_hil_serl(
+        _args(
+            role="actor",
+            sync_host="10.0.0.1",
+            sync_port=7000,
+            residual_warmup_unit=0.2,
+            residual_base_resync_on_intervention=False,
+        )
+    )
 
     assert captured["ran"] is True
     assert isinstance(captured["provider"], ZeroBaseProvider)
     assert captured["provider"].action_dim == _ACTION_DIM
     assert captured["sync_client"]._base_url == "http://10.0.0.1:7000"
     assert captured["kwargs"]["warmup_unit_residual"] == 0.2
+    assert captured["kwargs"]["base_resync_on_intervention"] is False
     assert captured["policy"].residual_dim == _ACTION_DIM
 
 

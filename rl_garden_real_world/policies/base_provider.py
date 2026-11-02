@@ -45,7 +45,8 @@ class BaseActionProvider(Protocol):
         ...
 
     def reset(self) -> None:
-        """Clear per-episode state; called when an episode ends."""
+        """Clear per-episode state; called when an episode ends and, by the residual
+        actor loop, after every intervened step (so a stateful base replans)."""
         ...
 
     def to(self, device: torch.device | str) -> "BaseActionProvider":

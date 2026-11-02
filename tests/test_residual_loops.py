@@ -1,5 +1,6 @@
 """ResidualActorLoop (warm-up gate, intervention recording, base-action caching across
-steps and episodes) and ResidualLearnerLoop (extras kept, demo pkls filled, snapshots)."""
+steps and episodes, base provider resync on intervened steps) and ResidualLearnerLoop
+(extras kept, demo pkls filled, snapshots)."""
 from __future__ import annotations
 
 import pickle
@@ -140,6 +141,74 @@ def test_run_reuses_next_base_within_episodes_and_resets_the_provider_at_episode
     # The env executed exactly the pure base actions (warm-up, no refresh).
     for executed, (base_marker, _) in zip(env.actions, expected):
         torch.testing.assert_close(executed, base(base_marker))
+
+
+# -- base resync on intervention ---------------------------------------------------------
+
+# Episode 1 is steps 1-5 (5 terminal) with the human acting on steps 2 and 3; step 6 is
+# the first step of episode 2.
+_INTERVENE_STEPS = (2, 3)
+_INTERVENED_FLAGS = [False, True, True, False, False, False]
+# Reset obs 101, steps 1-5 (5 terminal, pre-reset), reset obs 102, step 6.
+_PROVIDER_QUERIES = [101.0, 1.0, 2.0, 3.0, 4.0, 5.0, 102.0, 6.0]
+
+
+def _run_with_interventions(**loop_kwargs) -> tuple[RecordingProvider, list[dict]]:
+    provider = RecordingProvider()
+    sync_client = FakeSyncClient()
+    env = DictEnv(terminate_every=5, intervene_steps=_INTERVENE_STEPS)
+    _actor_loop(
+        residual_agent(ResidualRLPD).policy, env=env, sync_client=sync_client, provider=provider, **loop_kwargs
+    ).run(total_steps=6)
+    return provider, sync_client.pushed
+
+
+def test_base_resync_on_intervention_defaults_on_and_must_be_a_bool():
+    policy = residual_agent(ResidualRLPD).policy
+    assert _actor_loop(policy).base_resync_on_intervention is True
+    with pytest.raises(TypeError, match="base_resync_on_intervention"):
+        _actor_loop(policy, base_resync_on_intervention="false")
+
+
+def test_intervened_steps_reset_the_provider_before_the_base_of_their_next_obs():
+    provider, pushed = _run_with_interventions()
+
+    assert [t["intervened"] for t in pushed] == _INTERVENED_FLAGS
+    assert provider.seen == _PROVIDER_QUERIES
+    # One reset after each intervened step plus the episode-end reset after step 5.
+    assert provider.reset_calls == len(_INTERVENE_STEPS) + 1
+    # The bases of obs 2 and obs 3 (the next obs of intervened steps 2 and 3) are computed
+    # after that step's reset; the onset step's own base (obs 1) predates the takeover.
+    assert provider.reset_calls_at_select == [0, 0, 1, 2, 2, 2, 3, 3]
+
+
+def test_disabled_resync_resets_the_provider_at_episode_ends_only():
+    provider, pushed = _run_with_interventions(base_resync_on_intervention=False)
+
+    assert [t["intervened"] for t in pushed] == _INTERVENED_FLAGS
+    assert provider.seen == _PROVIDER_QUERIES
+    assert provider.reset_calls == 1
+    assert provider.reset_calls_at_select == [0, 0, 0, 0, 0, 0, 1, 1]
+
+
+def test_resync_leaves_the_stored_fields_of_a_stateless_provider_unchanged():
+    _, resynced = _run_with_interventions(base_resync_on_intervention=True)
+    _, not_resynced = _run_with_interventions(base_resync_on_intervention=False)
+
+    def base(marker):
+        return torch.full((1, ACTION_DIM), RecordingProvider.value_for(marker))
+
+    expected = [(101.0, 1.0), (1.0, 2.0), (2.0, 3.0), (3.0, 4.0), (4.0, 5.0), (102.0, 6.0)]
+    assert len(resynced) == len(not_resynced) == len(expected)
+    for with_resync, without_resync, (base_marker, next_marker) in zip(resynced, not_resynced, expected):
+        assert with_resync["intervened"] is without_resync["intervened"]
+        for key in ("action", "policy_action", "base_actions", "next_base_actions"):
+            assert torch.equal(with_resync[key], without_resync[key]), key
+        torch.testing.assert_close(with_resync["base_actions"], base(base_marker))
+        torch.testing.assert_close(with_resync["next_base_actions"], base(next_marker))
+    human = torch.full((1, ACTION_DIM), DictEnv.HUMAN_ACTION_VALUE)
+    for transition, intervened in zip(resynced, _INTERVENED_FLAGS):
+        assert torch.equal(transition["action"], human) is intervened
 
 
 # -- learner loop ----------------------------------------------------------------------

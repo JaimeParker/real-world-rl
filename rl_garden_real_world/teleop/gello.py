@@ -72,7 +72,7 @@ class GelloTeleopSource(ToggleableTeleopSource):
         joint_limits: Optional[Sequence[Sequence[float]]] = None,
         joint_scale_rad: Optional[float] = None,
         last_observation_getter: Optional[Callable[[], Optional[dict]]] = None,
-        last_gripper_action_getter: Optional[Callable[[], float]] = None,
+        last_gripper_action_getter: Optional[Callable[[], Any]] = None,
         onset: str = "ramp",
         arm_tolerance_rad: float = DEFAULT_ARM_TOLERANCE_RAD,
         ramp_step_rad: float = DEFAULT_RAMP_STEP_RAD,

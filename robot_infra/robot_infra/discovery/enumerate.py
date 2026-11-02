@@ -5,6 +5,7 @@ import glob
 import re
 import socket
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
@@ -123,6 +124,23 @@ def tcp_open(ip: str, port: int, timeout_s: float = 0.5) -> bool:
             return True
     except OSError:
         return False
+
+
+def open_ports_by_host(
+    host_ips: Iterable[str], ports: Iterable[int], timeout_s: float = 0.5, max_workers: int = 32
+) -> dict[str, list[int]]:
+    """TCP-connect every (host, port) pair in a thread pool; the open ports per host, in input order."""
+    host_ips, ports = list(dict.fromkeys(host_ips)), list(ports)
+    pairs = [(ip, port) for ip in host_ips for port in ports]
+    if not pairs:
+        return {ip: [] for ip in host_ips}
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(pairs))) as pool:
+        states = list(pool.map(lambda pair: tcp_open(pair[0], pair[1], timeout_s), pairs))
+    open_ports: dict[str, list[int]] = {ip: [] for ip in host_ips}
+    for (ip, port), is_open in zip(pairs, states):
+        if is_open:
+            open_ports[ip].append(port)
+    return open_ports
 
 
 def discover_cameras(hardware_only: bool = False) -> dict[str, set[str]]:

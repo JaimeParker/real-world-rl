@@ -352,3 +352,23 @@ def test_part_source_close_leaves_the_robot_owned_part_alone():
 def test_robot_device_needs_a_real_robot_env():
     with pytest.raises(ValueError, match="real_robot"):
         make_teleop_source("robot", FakeEnv())
+
+
+# -- held gripper action (one entry per arm) -------------------------------------------------
+
+
+@pytest.mark.parametrize("held", [-0.5, [-0.5], np.array([-0.5], dtype=np.float32)])
+def test_held_gripper_action_reads_a_number_or_a_one_entry_vector(held):
+    from rl_garden_real_world.teleop.base import held_gripper_action
+
+    assert held_gripper_action(lambda: held) == -0.5
+
+
+def test_held_gripper_action_reads_the_entry_of_its_arm():
+    import torch
+
+    from rl_garden_real_world.teleop.base import held_gripper_action
+
+    getter = lambda: torch.tensor([1.0, -1.0])  # noqa: E731
+    assert held_gripper_action(getter) == 1.0
+    assert held_gripper_action(getter, arm_index=1) == -1.0

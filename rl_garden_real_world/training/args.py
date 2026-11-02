@@ -22,6 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Optional, Sequence
 
+from rl_garden_real_world.envs.bimanual.config import BimanualRealRobotEnvConfig
 from rl_garden_real_world.envs.real_robot.config import RealRobotEnvConfig
 
 
@@ -41,10 +42,12 @@ class RealWorldFrankaArgs:
     train_freq: int = 1
     publish_freq: int = 100
 
-    # "franka_real" (FrankaRealEnv over the HTTP bridge, ``--franka_real.*``) or
-    # "real_robot" (any robot_infra robot, ``--real_robot.*``).
-    env_backend: Literal["franka_real", "real_robot"] = "franka_real"
+    # "franka_real" (FrankaRealEnv over the HTTP bridge, ``--franka_real.*``),
+    # "real_robot" (any robot_infra robot, ``--real_robot.*``) or "real_robot_bimanual"
+    # (two robot_infra arms as one env, ``--real_robot_bimanual.{left,right}.*``).
+    env_backend: Literal["franka_real", "real_robot", "real_robot_bimanual"] = "franka_real"
     real_robot: RealRobotEnvConfig = field(default_factory=RealRobotEnvConfig)
+    real_robot_bimanual: BimanualRealRobotEnvConfig = field(default_factory=BimanualRealRobotEnvConfig)
 
 
 @dataclass
@@ -95,10 +98,22 @@ class HilEnvArgs:
     # "robot": the teleop part of the real_robot env's robot (robot yaml ``teleop:`` section).
     # "leader_arm": the same part read as a joint-space leader arm (GELLO over the daemon), with
     # the --teleop-onset policy. "gello": a GELLO on this machine. "fake": a scripted source for
-    # dry runs without hardware. See docs/teleop.md for every device.
+    # dry runs without hardware. "bimanual": one --teleop-arm-device per arm of a
+    # real_robot_bimanual env. See docs/teleop.md for every device.
     teleop_device: Literal[
-        "pico", "spacemouse", "robot", "fake", "gello", "leader_arm", "keyboard", "leader_cartesian"
+        "pico",
+        "spacemouse",
+        "robot",
+        "fake",
+        "gello",
+        "leader_arm",
+        "keyboard",
+        "leader_cartesian",
+        "bimanual",
     ] = "pico"
+    # --teleop-device bimanual: the device of each arm ("robot", "leader_arm" or "gello", as the
+    # single-arm devices of the same name, built over that arm's own env).
+    teleop_arm_device: Literal["robot", "leader_arm", "gello"] = "leader_arm"
     # Declares the robot's teleop part for --teleop-device robot/leader_arm over a remote robot,
     # whose part is only known after connecting (checked then; a mismatch raises DeviceFault).
     robot_teleop_action_mode: Optional[Literal["cartesian_delta", "joint_abs", "joint_delta"]] = None
@@ -107,15 +122,18 @@ class HilEnvArgs:
     # failure/rerecord): the env then takes its motion from --teleop-device and intervention plus
     # events from this one (CompositeTeleopSource). None: --teleop-device alone.
     teleop_event_device: Optional[Literal["keyboard", "spacemouse"]] = None
-    # Leader-arm takeover (--teleop-device gello/leader_arm): "ramp" rate-limits joint_abs targets
-    # to ramp_step_rad per step until the follower caught up; "arm" ignores the toggle until the
-    # leader is within arm_tolerance_rad of the follower.
+    # Leader-arm takeover (--teleop-device gello/leader_arm, and every arm of bimanual): "ramp"
+    # rate-limits joint_abs targets to ramp_step_rad per step until the follower caught up; "arm"
+    # ignores the toggle until the leader is within arm_tolerance_rad of the follower.
     teleop_onset: Literal["ramp", "arm"] = "ramp"
     teleop_arm_tolerance_rad: float = 0.1
     teleop_ramp_step_rad: float = 0.05
     # Yaml mapping merged into the --teleop-device source kwargs (after the ones derived from the
     # args above, so it overrides them): device options such as port/joint_ids/joint_offsets_rad/
-    # joint_signs for gello, device_index/deadzone for spacemouse, hold_s, read_timeout_s.
+    # joint_signs for gello, device_index/deadzone for spacemouse, hold_s, read_timeout_s. A
+    # robot_infra station yaml also works for gello: its teleop: options become the source kwargs.
+    # For bimanual: per-arm sections keyed by arm name (left: {...}) plus common keys, or a station
+    # yaml with robots: {left, right}.
     teleop_options_yaml: Optional[str] = None
     # Converts FrankaRealEnv's raw quaternion state slice to a rotation
     # vector (matching the action side's own rotvec convention). Off by

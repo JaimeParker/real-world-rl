@@ -5,7 +5,9 @@
 and its reference implementation (github.com/nuomizai/HIL-RL, policy `silri`). The policy is an
 off-policy actor-critic. Its actor is pulled towards a learned model of the human's actions,
 but only as far as the human is consistent: a state-wise Lagrange multiplier enforces a
-distance constraint whose tolerance grows with the spread of the human model.
+distance constraint whose tolerance grows with the spread of the human model. The hardware setup
+and a first run on one or two arms are walked through in
+[getting-started-hardware.md](getting-started-hardware.md#8c-silri).
 
 Code: `rl_garden_real_world/policies/silri_policy.py` (`SiLRIPolicy`),
 `rl_garden_real_world/algorithms/silri.py` (`SiLRI`), `rl_garden_real_world/silri/`
@@ -176,4 +178,6 @@ Deployment without the training stack: `python examples/deploy_real_robot.py --a
   multiplier and the targets as well, though it only needs the actor and the gripper head; a
   filtered publish is future work.
 - Pretraining (500 steps by default) and refreshes block transition ingestion while they run.
-- Single arm: the gripper head handles one gripper dim, the last one.
+- Grippers: the env action ends with one gripper dim per arm (the action contract's layout), and
+  the gripper head classifies all of them jointly over `3 ** num_grippers` classes, labelled as
+  rl-garden's `encode_gripper_labels` does; a single-arm env has one, the last dim.

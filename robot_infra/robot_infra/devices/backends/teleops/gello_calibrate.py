@@ -225,29 +225,62 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     return args
 
 
-def main(argv: Sequence[str] | None = None, *, ask: Ask = input, echo: Echo = print) -> int:
-    args = _parse_args(argv)
-    num_joints = len(args.joint_ids)
-    servo_ids = list(args.joint_ids) + ([] if args.gripper_id is None else [args.gripper_id])
-    bus = DynamixelBus(GelloTeleop.require_sdk(), args.port, args.baudrate, servo_ids, device="gello_calibrate")
+def _rounded(value: float) -> float:
+    rounded = round(float(value), _DECIMALS)
+    return 0.0 if rounded == 0 else rounded
+
+
+def calibrate_gello(
+    *,
+    port: str,
+    joint_ids: Sequence[int],
+    gripper_id: int | None = None,
+    baudrate: int = 57600,
+    calibration_pose: Sequence[float] | None = None,
+    joint_signs: Sequence[int] | None = None,
+    joint_limits: Sequence[Sequence[float]] | None = None,
+    skip_sign_check: bool = False,
+    ask: Ask = input,
+    echo: Echo = print,
+    bus: Any = None,
+) -> dict[str, Any]:
+    """Run the guided calibration on the leader and return the gello options it determines:
+    ``port``, ``baudrate``, ``joint_ids``, ``joint_offsets_rad``, ``joint_signs``,
+    ``wrap_centers_rad``, ``gripper_id``, ``gripper_open_rad``, ``gripper_closed_rad`` (angles
+    rounded to 4 decimals); ``format_yaml_block(**options)`` renders them. ``bus`` replaces the
+    ``DynamixelBus`` (an unopened object with ``open``, ``read_positions_rad`` and ``close``);
+    by default the SDK is required before the first prompt. ``calibration_pose`` defaults to the
+    Franka pose for 7 joints, ``joint_signs`` to all +1."""
+    joint_ids = [int(joint_id) for joint_id in joint_ids]
+    num_joints = len(joint_ids)
+    if calibration_pose is None:
+        if num_joints != len(FRANKA_CALIBRATION_POSE):
+            raise ValueError(f"calibration_pose is required for {num_joints} joints")
+        calibration_pose = list(FRANKA_CALIBRATION_POSE)
+    initial_signs = [1] * num_joints if joint_signs is None else [int(sign) for sign in joint_signs]
+    for option, values in (("calibration_pose", calibration_pose), ("joint_signs", initial_signs)):
+        if len(values) != num_joints:
+            raise ValueError(f"{option} needs {num_joints} values, got {len(values)}")
+    servo_ids = joint_ids + ([] if gripper_id is None else [int(gripper_id)])
+    if bus is None:
+        bus = DynamixelBus(GelloTeleop.require_sdk(), port, baudrate, servo_ids, device="gello_calibrate")
     bus.open()  # torque off: the leader moves freely
     try:
-        signs = list(args.joint_signs)
-        if not args.skip_sign_check:
+        signs = list(initial_signs)
+        if not skip_sign_check:
             signs = check_joint_signs(bus.read_positions_rad, signs, ask, echo)
-        ask(f"hold the leader in the calibration pose {_flow_list(args.calibration_pose)}, then press Enter ")
+        ask(f"hold the leader in the calibration pose {_flow_list(calibration_pose)}, then press Enter ")
         raw = bus.read_positions_rad()
-        offsets = solve_offsets(raw[:num_joints], args.calibration_pose, signs)
-        residuals = offset_residuals(raw[:num_joints], args.calibration_pose, signs, offsets)
+        offsets = solve_offsets(raw[:num_joints], calibration_pose, signs)
+        residuals = offset_residuals(raw[:num_joints], calibration_pose, signs, offsets)
         echo(f"offset residuals (rad): {_flow_list(residuals)}")
         if np.any(residuals > np.pi / 8):
             echo("warning: a residual above pi/8 means the leader was not in the pose or a sign is wrong")
         gripper_open = gripper_closed = None
-        if args.gripper_id is not None:
+        if gripper_id is not None:
             gripper_open, gripper_closed = capture_gripper_range(bus.read_positions_rad, num_joints, ask)
     finally:
         bus.close()
-    joint_limits = None if args.joint_limits_yaml is None else load_joint_limits(args.joint_limits_yaml)
     if joint_limits is None:
         echo("warning: no joint_limits given (--joint-limits-yaml); wrap_centers_rad are zeros, which is "
              "wrong for joints whose range is not centred on 0 (Panda joint 6 reaches past pi)")
@@ -256,19 +289,35 @@ def main(argv: Sequence[str] | None = None, *, ask: Ask = input, echo: Echo = pr
         if len(joint_limits) != num_joints:
             raise ValueError(f"joint_limits has {len(joint_limits)} rows, expected {num_joints}")
         centers = wrap_centers_from_joint_limits(joint_limits)
-    echo(
-        format_yaml_block(
-            port=args.port,
-            baudrate=args.baudrate,
-            joint_ids=args.joint_ids,
-            joint_offsets_rad=offsets,
-            joint_signs=signs,
-            wrap_centers_rad=centers,
-            gripper_id=args.gripper_id,
-            gripper_open_rad=gripper_open,
-            gripper_closed_rad=gripper_closed,
-        )
+    return {
+        "port": port,
+        "baudrate": int(baudrate),
+        "joint_ids": joint_ids,
+        "joint_offsets_rad": [_rounded(offset) for offset in offsets],
+        "joint_signs": [int(sign) for sign in signs],
+        "wrap_centers_rad": [_rounded(center) for center in centers],
+        "gripper_id": None if gripper_id is None else int(gripper_id),
+        "gripper_open_rad": None if gripper_open is None else _rounded(gripper_open),
+        "gripper_closed_rad": None if gripper_closed is None else _rounded(gripper_closed),
+    }
+
+
+def main(argv: Sequence[str] | None = None, *, ask: Ask = input, echo: Echo = print) -> int:
+    args = _parse_args(argv)
+    joint_limits = None if args.joint_limits_yaml is None else load_joint_limits(args.joint_limits_yaml)
+    options = calibrate_gello(
+        port=args.port,
+        joint_ids=args.joint_ids,
+        gripper_id=args.gripper_id,
+        baudrate=args.baudrate,
+        calibration_pose=args.calibration_pose,
+        joint_signs=args.joint_signs,
+        joint_limits=joint_limits,
+        skip_sign_check=args.skip_sign_check,
+        ask=ask,
+        echo=echo,
     )
+    echo(format_yaml_block(**options))
     return 0
 
 

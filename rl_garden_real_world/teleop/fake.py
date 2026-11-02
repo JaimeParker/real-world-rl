@@ -6,6 +6,7 @@ from typing import Any, Optional, Sequence
 from rl_garden_real_world.action_contract import (
     LEGACY_ACTION_CONTRACT,
     get_env_action_contract,
+    num_arms_of,
 )
 from rl_garden_real_world.teleop.base import TeleopReading, TeleopSource
 from rl_garden_real_world.teleop.registry import register_teleop_source
@@ -16,8 +17,9 @@ class ScriptedTeleopSource(TeleopSource):
     """Returns ``readings`` in order and repeats the last one. Counts ``start``/``reset``/
     ``close`` calls (``start_calls``/``reset_calls``/``close_calls``).
 
-    ``device="fake"`` builds one from the env's action contract with a single idle reading, so a
-    run exercises the intervention path without an operator; pass ``readings=[...]`` to script one.
+    ``device="fake"`` builds one from the env's action contract (its arm count included) with a
+    single idle reading of the full action width, so a run exercises the intervention path
+    without an operator, on one arm or several; pass ``readings=[...]`` to script one.
     """
 
     def __init__(
@@ -27,6 +29,7 @@ class ScriptedTeleopSource(TeleopSource):
         action_mode: str = "cartesian_delta",
         arm_action_dim: int = 6,
         has_gripper: bool = True,
+        num_arms: int = 1,
     ) -> None:
         if not readings:
             raise ValueError("ScriptedTeleopSource needs at least one reading")
@@ -35,6 +38,7 @@ class ScriptedTeleopSource(TeleopSource):
         self._action_mode = action_mode
         self._arm_action_dim = arm_action_dim
         self._has_gripper = has_gripper
+        self._num_arms = int(num_arms)
         self.start_calls = 0
         self.reset_calls = 0
         self.close_calls = 0
@@ -48,10 +52,12 @@ class ScriptedTeleopSource(TeleopSource):
             action_mode=contract["action_mode"],
             arm_action_dim=int(contract["arm_action_dim"]),
             has_gripper=bool(contract["gripper_in_action"]),
+            num_arms=num_arms_of(contract),
         )
         declared.update(kwargs)
         if readings is None:
-            readings = [TeleopReading.idle(declared["arm_action_dim"] + int(declared["has_gripper"]))]
+            per_arm_dim = declared["arm_action_dim"] + int(declared["has_gripper"])
+            readings = [TeleopReading.idle(declared["num_arms"] * per_arm_dim)]
         return cls(readings, **declared)
 
     @property
@@ -65,6 +71,10 @@ class ScriptedTeleopSource(TeleopSource):
     @property
     def has_gripper(self) -> bool:
         return self._has_gripper
+
+    @property
+    def num_arms(self) -> int:
+        return self._num_arms
 
     def start(self) -> None:
         self.start_calls += 1

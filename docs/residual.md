@@ -2,7 +2,9 @@
 
 `residual_hil_serl` trains a bounded correction on top of a frozen base policy (a BC
 policy, an earlier RL checkpoint or an ACT model) on the real robot, with HIL-SERL's
-actor / learner split, demo buffer and human intervention.
+actor / learner split, demo buffer and human intervention. The hardware setup, the BC base
+policy and a first residual run on one or two arms are walked through in
+[getting-started-hardware.md](getting-started-hardware.md#8b-residual_hil_serl-on-top-of-the-bc-policy).
 
 ## Method
 
@@ -37,8 +39,9 @@ loss conditions on the stored `base_actions` and the TD target on `next_base_act
 | `continuous` (default) | `ResidualRLPD` | every action dim; scale `--residual-action-scale` on the arm dims, `--residual-gripper-scale` (default 0) on the gripper | base gripper plus its (default zero) residual |
 | `hybrid` | `ResidualRLPDHybrid` | the arm dims | `RLPDHybrid`'s DQN head; the base's gripper is ignored |
 
-Both treat the last action dim as the gripper, as every HIL env does (the intervention
-wrapper requires `gripper_in_action`). `--use-grasp-penalty` needs the hybrid variant.
+Both treat the last `num_grippers` action dims as the grippers, one per arm after all arm
+blocks (the env action contract's layout; one for a single-arm env), as every HIL env has them
+(the intervention wrapper requires `gripper_in_action`). `--use-grasp-penalty` needs the hybrid variant.
 Both variants keep the growing demo buffer (intervened transitions, mixed at
 `--demo-data-ratio`).
 
@@ -51,7 +54,7 @@ the same provider.
 | Spec | Provider |
 |---|---|
 | `zero` | `ZeroBaseProvider`: base action 0 (plain RL with scale-bounded actions; tests, ablations) |
-| `checkpoint:<path>?algo=<name>` | `CheckpointBaseProvider`: the deterministic action of an rl-garden checkpoint. `algo` is `real_world_bc` or an rl-garden online-registry name with an agent builder (`rlpd`, `rlpd_hybrid`, ...). The run's `config.json` next to `checkpoints/` is read when present; the checkpoint must match the env's observation and action spaces |
+| `checkpoint:<path>?algo=<name>[&num_grippers=<k>]` | `CheckpointBaseProvider`: the deterministic action of an rl-garden checkpoint. `algo` is `real_world_bc` or an rl-garden online-registry name with an agent builder (`rlpd`, `rlpd_hybrid`, ...). The run's `config.json` next to `checkpoints/` is read when present; the checkpoint must match the env's observation and action spaces. `num_grippers` (default 1, only for `algo=rlpd_hybrid`) is the gripper count of a multi-arm checkpoint, whose discrete head covers the last `num_grippers` action dims: a two-arm `hil_serl` checkpoint is `checkpoint:<path>?algo=rlpd_hybrid&num_grippers=2` (a spaces-only rebuild cannot infer it; a `real_world_bc` base needs no such option) |
 | `act:<path>[?temporal_agg=1&temporal_agg_k=0.01&state_dict_key=ema_agent]` | `ACTBaseProvider`: rl-garden's ACT checkpoint wrapper, de-normalised by the checkpoint statistics, clipped to `[-1, 1]`. Reads `obs["state"]`; `reset()` at episode end (and by default after every intervened step, see below) clears the chunk / ensemble state |
 
 Options are joined with `&`; quote the spec on the shell (`?` globs, `&` backgrounds):

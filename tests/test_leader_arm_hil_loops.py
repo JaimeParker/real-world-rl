@@ -27,6 +27,7 @@ from robot_infra.devices.backends.teleops.gello import gripper_width_from_raw
 from rl_garden_real_world.algorithms.residual import ResidualRLPDHybrid
 from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
 from rl_garden_real_world.hil_serl import HilSerlActorLoop, HilSerlLearnerLoop
+from rl_garden_real_world.policies.base_provider import ZeroBaseProvider
 from rl_garden_real_world.residual import ResidualActorLoop, ResidualLearnerLoop
 from rl_garden_real_world.silri import SilriActorLoop
 from rl_garden_real_world.teleop.leader_arm import TELEOP_SYNCING_EVENT
@@ -399,3 +400,132 @@ def test_silri_arm_onset_tags_the_last_unarmed_step(leader_env):
     # (and so the tag) starts once the leader is armed.
     assert [t["intervention_onset"] for t in pushed] == [False, False, True, False, False]
     assert loop._held_transition is None
+
+
+# -- two arms: one leader per arm through device="bimanual" ------------------------------------
+
+BIMANUAL_ACTION_DIM = 2 * NUM_JOINTS + 2
+# Far enough that every intervened joint_delta step saturates: [1, -1, 0, ...] from near zero.
+FAR_LEADER = [1.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+SATURATED = [1.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+
+class MarkerObs(InfoLog):
+    """``InfoLog`` that replaces the two-arm env's observations with ``FollowingJointEnv``'s
+    ``(1, STATE_DIM)`` markers (``100 + reset count`` after a reset, the step count after a
+    step), so the small test agents can act on them."""
+
+    def __init__(self, env) -> None:
+        super().__init__(env)
+        self.resets = 0
+        self.steps = 0
+
+    def reset(self, **kwargs):
+        self.env.reset(**kwargs)
+        self.resets += 1
+        return {"state": torch.full((1, STATE_DIM), 100.0 + self.resets)}, {}
+
+    def step(self, action):
+        _, reward, terminated, truncated, info = super().step(action)
+        self.steps += 1
+        return {"state": torch.full((1, STATE_DIM), float(self.steps))}, reward, terminated, truncated, info
+
+
+class OpenGrippersPolicy(ZeroPolicy):
+    """Zero arm actions, both grippers open (+1)."""
+
+    def predict(self, obs, deterministic=False):
+        del obs, deterministic
+        action = torch.zeros(1, BIMANUAL_ACTION_DIM)
+        action[0, -2:] = 1.0
+        return action
+
+
+@pytest.fixture
+def bimanual_leaders(tmp_path, monkeypatch):
+    """``MarkerObs`` over ``TeleopInterventionWrapper(device="bimanual")`` on two fake Frankas in
+    ``joint_delta``, each with a scripted fake leader part: the left operator leaves the policy
+    ``POLICY_STEPS`` steps, then takes over towards ``FAR_LEADER`` with the trigger squeezed; the
+    right operator never intervenes but also squeezes the trigger."""
+    import robot_infra.devices.claims as claims
+    from _bimanual_fakes import bimanual_config, fake_franka
+    from robot_infra.devices.teleop import TeleopConfig
+
+    from rl_garden_real_world.envs.bimanual import BimanualRealRobotEnv, BimanualRealRobotVectorEnv
+
+    monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
+    scripts = {
+        "left": [
+            {"action": FAR_LEADER, "gripper": 0.0, "active": False, "hold": POLICY_STEPS},
+            {"action": FAR_LEADER, "gripper": 0.0, "active": True},
+        ],
+        "right": [{"action": FAR_LEADER, "gripper": 0.0, "active": False}],
+    }
+    robots = {
+        arm: fake_franka(
+            arm,
+            teleop=TeleopConfig(
+                name="leader",
+                backend="fake",
+                options={"action_space": "joint_abs", "num_joints": NUM_JOINTS, "script": script},
+            ),
+        )
+        for arm, script in scripts.items()
+    }
+    config = bimanual_config(shared={"action_mode": "joint_delta", "control_hz": 1000.0})
+    env = BimanualRealRobotVectorEnv(BimanualRealRobotEnv(config, robots=robots))
+    wrapped = TeleopInterventionWrapper(
+        env, device="bimanual", device_per_arm="leader_arm", common_kwargs={"onset": "ramp"}
+    )
+    yield MarkerObs(wrapped)
+    wrapped.close()
+
+
+def _assert_left_drives_and_right_holds(pushed) -> None:
+    """Rows after the takeover: the left leader's saturated delta, the right arm held still, the
+    left trigger closed and the right gripper held at the action last sent to it."""
+    assert [bool(t["intervened"]) for t in pushed] == [False] * POLICY_STEPS + [True, True]
+    for index in range(POLICY_STEPS, len(pushed)):
+        action = as_array(pushed[index]["action"])
+        assert action.shape == (BIMANUAL_ACTION_DIM,)
+        np.testing.assert_allclose(action[:NUM_JOINTS], SATURATED, atol=1e-6)
+        np.testing.assert_array_equal(action[NUM_JOINTS : 2 * NUM_JOINTS], np.zeros(NUM_JOINTS))
+        previous_right_gripper = float(np.clip(as_array(pushed[index - 1]["action"])[-1], -1.0, 1.0))
+        np.testing.assert_allclose(action[-2:], [-1.0, previous_right_gripper], atol=1e-6)
+
+
+def test_hil_serl_bimanual_rows_store_both_arms_and_one_intervened_flag(bimanual_leaders):
+    _, pushed = run_loop(HilSerlActorLoop, bimanual_leaders, total_steps=POLICY_STEPS + 2, policy=OpenGrippersPolicy())
+
+    _assert_left_drives_and_right_holds(pushed)
+    for row in pushed[:POLICY_STEPS]:
+        np.testing.assert_array_equal(as_array(row["action"]), [0.0] * 2 * NUM_JOINTS + [1.0, 1.0])
+    # The idle right trigger (squeezed) never reached the right gripper.
+    assert all(as_array(row["action"])[-1] == 1.0 for row in pushed)
+    assert [info["intervened"] for info in bimanual_leaders.infos] == [False] * POLICY_STEPS + [True, True]
+
+
+def test_residual_bimanual_rows_store_the_human_total_action_with_both_grippers(bimanual_leaders, tmp_path):
+    agent = residual_agent(ResidualRLPDHybrid, env=DictEnv(action_dim=BIMANUAL_ACTION_DIM), num_grippers=2)
+    agent.init_demo_buffer(buffer_size=16, demo_data_ratio=0.5)
+    # A zero base keeps both followers at home during warm-up, so the left leader's delta saturates.
+    provider = ZeroBaseProvider(BIMANUAL_ACTION_DIM)
+    _, pushed = run_loop(
+        ResidualActorLoop,
+        bimanual_leaders,
+        POLICY_STEPS + 2,
+        policy=agent.policy,
+        base_provider=provider,
+        deterministic=True,
+    )
+
+    _assert_left_drives_and_right_holds(pushed)
+    for row in pushed:
+        assert row["base_actions"].shape == (1, BIMANUAL_ACTION_DIM)
+
+    learner = ResidualLearnerLoop(agent, "127.0.0.1", 0, checkpoint_dir=str(tmp_path), buffer_period=1000)
+    for transition in pushed:
+        learner._on_transition(transition)
+    demo = agent.offline_replay_buffer
+    assert len(demo) == 2 and bool(demo.intervened[:2].all())
+    torch.testing.assert_close(demo.actions[:2, 0], torch.cat([row["action"] for row in pushed[POLICY_STEPS:]]))

@@ -21,6 +21,7 @@ _BUILTIN_MODULES: Dict[str, str] = {
     "keyboard": "rl_garden_real_world.teleop.keyboard",
     "composite": "rl_garden_real_world.teleop.composite",
     "leader_cartesian": "rl_garden_real_world.teleop.leader_cartesian",
+    "bimanual": "rl_garden_real_world.teleop.bimanual",
 }
 
 

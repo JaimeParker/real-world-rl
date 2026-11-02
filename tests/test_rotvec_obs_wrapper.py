@@ -108,3 +108,35 @@ def test_quat_xyzw_to_rotvec_preserves_device_and_dtype(dtype):
     q = torch.tensor([[0.0, 0.0, 0.7071, 0.7071]], dtype=dtype)
     out = quat_xyzw_to_rotvec(q)
     assert out.dtype == dtype and out.device == q.device and out.shape == (1, 3)
+
+
+def test_one_quat_slice_per_arm_converts_each_and_drops_one_dim_per_arm():
+    slices = [(3, 7), (10, 14)]
+    quat = Rotation.from_euler("xyz", [[0.1, 0.2, 0.3], [-0.4, 0.5, 0.6]]).as_quat()
+    state = torch.arange(2 * 16, dtype=torch.float32).reshape(2, 16)
+    for start, end in slices:
+        state[:, start:end] = torch.as_tensor(quat, dtype=torch.float32)
+    env = RotvecObsWrapper(_FakeStateEnv(state), quat_slice=slices)
+    assert env.single_observation_space["state"].shape == (14,)
+    out = env.reset()[0]["state"]
+    assert out.shape == (2, 14)
+    rotvec = Rotation.from_quat(quat).as_rotvec()
+    torch.testing.assert_close(out[:, :3], state[:, :3])
+    np.testing.assert_allclose(out[:, 3:6].numpy(), rotvec, atol=1e-5)
+    torch.testing.assert_close(out[:, 6:9], state[:, 7:10])
+    np.testing.assert_allclose(out[:, 9:12].numpy(), rotvec, atol=1e-5)
+    torch.testing.assert_close(out[:, 12:], state[:, 14:])
+
+
+def test_a_single_pair_in_a_list_matches_the_bare_pair():
+    state = torch.zeros(1, 12)
+    state[:, 6] = 1.0  # identity quaternion at (3, 7)
+    bare = RotvecObsWrapper(_FakeStateEnv(state), quat_slice=(3, 7)).reset()[0]["state"]
+    listed = RotvecObsWrapper(_FakeStateEnv(state), quat_slice=[(3, 7)]).reset()[0]["state"]
+    torch.testing.assert_close(bare, listed)
+
+
+@pytest.mark.parametrize("quat_slices", [[(3, 7), (5, 9)], [(3, 7), (10, 13)], []])
+def test_overlapping_short_or_empty_quat_slices_are_rejected(quat_slices):
+    with pytest.raises(ValueError):
+        RotvecObsWrapper(_FakeStateEnv(torch.zeros(1, 16)), quat_slice=quat_slices)

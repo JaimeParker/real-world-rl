@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 import torch
-from _residual_fakes import ACTION_DIM, DictEnv, add_rows, residual_agent
+from _residual_fakes import ACTION_DIM, TWO_ARM_ACTION_DIM, DictEnv, add_rows, residual_agent
 from rl_garden_real_world.algorithms.residual import ResidualRLPD, ResidualRLPDHybrid
 from rl_garden_real_world.buffers import InterventionReplayBuffer, InterventionSample
 
@@ -201,3 +201,54 @@ def test_auto_target_entropy_is_minus_the_residual_dim():
 def test_explicit_target_entropy_is_kept():
     agent = residual_agent(ResidualRLPDHybrid, env=DictEnv(action_dim=7), target_entropy=-1.5)
     assert agent.target_entropy == -1.5
+
+
+# -- two arms: the last two action dims are the grippers --------------------------------
+
+
+def _two_arm_agent(cls, **overrides):
+    return residual_agent(cls, env=DictEnv(action_dim=TWO_ARM_ACTION_DIM), num_grippers=2, **overrides)
+
+
+def test_single_gripper_agents_record_one_gripper():
+    for cls in _VARIANTS:
+        agent = residual_agent(cls)
+        assert agent.num_grippers == 1
+        assert agent._checkpoint_metadata()["num_grippers"] == 1
+
+
+def test_two_gripper_scale_vectors_per_variant():
+    continuous = _two_arm_agent(ResidualRLPD, residual_action_scale=0.2, residual_gripper_scale=0.5)
+    assert continuous.residual_scale_vector() == [0.2, 0.2, 0.2, 0.2, 0.5, 0.5]
+    assert continuous.policy.residual_dim == TWO_ARM_ACTION_DIM
+    hybrid = _two_arm_agent(ResidualRLPDHybrid, residual_action_scale=0.2)
+    assert hybrid.residual_scale_vector() == [0.2, 0.2, 0.2, 0.2]
+    assert hybrid.policy.residual_dim == 4
+    assert hybrid.policy.discrete_critic.net[-1].out_features == 9
+
+
+@pytest.mark.parametrize("cls", _VARIANTS)
+def test_two_gripper_predict_keeps_the_layout(cls):
+    agent = _two_arm_agent(cls)
+    base = torch.full((1, TWO_ARM_ACTION_DIM), 0.2)
+    with torch.no_grad():
+        action = agent.policy.predict({"state": torch.zeros(1, 4)}, deterministic=True, base_actions=base)
+    assert action.shape == (1, TWO_ARM_ACTION_DIM)
+    # Zero-initialised residual: the arm dims are the base's.
+    torch.testing.assert_close(action[:, :4], base[:, :4])
+    if cls is ResidualRLPDHybrid:
+        assert set(action[0, -2:].tolist()) <= {-1.0, 0.0, 1.0}
+    else:
+        torch.testing.assert_close(action[:, -2:], base[:, -2:])
+
+
+@pytest.mark.parametrize("cls", _VARIANTS)
+def test_two_gripper_agents_train_and_record_num_grippers(cls):
+    agent = _two_arm_agent(cls, residual_bc_weight=1.0)
+    agent.init_demo_buffer(buffer_size=32, demo_data_ratio=0.5)
+    rows = dict(action_dim=TWO_ARM_ACTION_DIM, num_grippers=2, base=0.2, gripper=-1.0)
+    add_rows(agent.replay_buffer.add, 16, **rows)
+    add_rows(agent.add_demo_transition, 8, intervened=True, human_offset=0.05, **rows)
+    info = agent.train(4, compute_info=True)
+    assert all(torch.isfinite(torch.tensor(value)) for value in info.values())
+    assert agent._checkpoint_metadata()["num_grippers"] == 2

@@ -9,12 +9,19 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 import numpy as np
 
 _LEGACY_ACTION_MODE = "cartesian_delta"
 _LEGACY_ARM_ACTION_DIM = 6
+
+
+def held_gripper_action(last_gripper_action_getter: Callable[[], Any], arm_index: int = 0) -> float:
+    """The gripper action last sent to arm ``arm_index``. The getter returns one entry per arm
+    (``InterventionWrapper`` keeps a ``(num_arms,)`` tensor); a bare number counts as one arm."""
+    held = np.asarray(last_gripper_action_getter(), dtype=np.float64).reshape(-1)
+    return float(held[arm_index])
 
 
 @dataclass(frozen=True)

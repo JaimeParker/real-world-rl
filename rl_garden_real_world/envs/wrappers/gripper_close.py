@@ -2,7 +2,9 @@
 ``3rd_party/hil-serl/serl_robot_infra/franka_env/envs/wrappers.py``):
 removes the gripper dimension (default: 7D -> 6D) for tasks that never
 open/close the gripper, re-inserting ``closed_value`` there before
-forwarding to the wrapped env.
+forwarding to the wrapped env. A multi-arm env (``num_grippers`` > 1) has its
+grippers as the last ``num_grippers`` dims (see ``action_contract``); all of
+them are removed.
 
 Lives in ``real_world/`` rather than ``rl_garden/envs/wrappers/``: the 7D,
 last-dim-is-gripper action shape it asserts is ``FrankaRealEnv``'s own
@@ -13,7 +15,7 @@ sim task uses it (RoboTwin's own gripper handling is an unrelated dual-arm,
 continuous-delta scheme). Unlike ``MultiStageBinaryRewardClassifierWrapper``/
 ``ActionChunkWrapper``/``ImageFrameStackWrapper``, this wrapper has no
 sim-reusable, shape-agnostic form -- it's specific to the real-robot
-single-Franka-arm action contract.
+action contract.
 """
 from __future__ import annotations
 
@@ -24,27 +26,43 @@ from gymnasium.vector.utils import batch_space
 
 
 class GripperCloseEnv(gym.ActionWrapper):
-    """Hides the gripper dimension (``gripper_dim``, default last) from the
-    policy and always forwards ``closed_value`` for it. The base env's gripper
-    threshold decides open/close, so 0.0 means "closed" under the Franka
-    [-1, 1] convention; a continuous gripper passes its own closed action value.
+    """Hides the gripper dimensions from the policy and always forwards ``closed_value`` for
+    them: ``gripper_dim`` (default last) for one gripper, the last ``num_grippers`` dims
+    otherwise. The base env's gripper threshold decides open/close, so 0.0 means "closed"
+    under the Franka [-1, 1] convention; a continuous gripper passes its own closed action value.
     """
 
     def __init__(
-        self, env: gym.Env, gripper_dim: int = -1, closed_value: float = 0.0
+        self,
+        env: gym.Env,
+        gripper_dim: int = -1,
+        closed_value: float = 0.0,
+        num_grippers: int = 1,
     ) -> None:
         super().__init__(env)
         single = env.single_action_space
-        if len(single.shape) != 1 or single.shape[0] < 2:
+        if num_grippers < 1:
+            raise ValueError(f"num_grippers must be >= 1, got {num_grippers}.")
+        if len(single.shape) != 1 or single.shape[0] < num_grippers + 1:
             raise ValueError(
-                f"GripperCloseEnv requires a 1-D action space with >= 2 dims, got {single.shape}."
+                f"GripperCloseEnv requires a 1-D action space with >= {num_grippers + 1} dims, "
+                f"got {single.shape}."
             )
         full_dim = single.shape[0]
-        if not -full_dim <= gripper_dim < full_dim:
-            raise ValueError(f"gripper_dim={gripper_dim} out of range for {full_dim}-D action space.")
-        self._gripper_dim = gripper_dim % full_dim
+        if num_grippers == 1:
+            if not -full_dim <= gripper_dim < full_dim:
+                raise ValueError(f"gripper_dim={gripper_dim} out of range for {full_dim}-D action space.")
+            gripper_dims = [gripper_dim % full_dim]
+        else:
+            if gripper_dim != -1:
+                raise ValueError(
+                    f"gripper_dim selects the single gripper; with num_grippers={num_grippers} the "
+                    "grippers are the last num_grippers dims."
+                )
+            gripper_dims = list(range(full_dim - num_grippers, full_dim))
+        self._gripper_dims = gripper_dims
         self._closed_value = closed_value
-        self._kept_dims = [i for i in range(full_dim) if i != self._gripper_dim]
+        self._kept_dims = [i for i in range(full_dim) if i not in gripper_dims]
         self.single_action_space = spaces.Box(
             low=single.low[self._kept_dims], high=single.high[self._kept_dims], dtype=single.dtype
         )
@@ -56,7 +74,8 @@ class GripperCloseEnv(gym.ActionWrapper):
         return getattr(self.env, name)
 
     def action(self, action: torch.Tensor) -> torch.Tensor:
-        full = action.new_full((*action.shape[:-1], len(self._kept_dims) + 1), self._closed_value)
+        full_dim = len(self._kept_dims) + len(self._gripper_dims)
+        full = action.new_full((*action.shape[:-1], full_dim), self._closed_value)
         full[..., self._kept_dims] = action
         return full
 

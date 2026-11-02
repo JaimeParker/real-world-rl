@@ -72,21 +72,27 @@ remote_address: <robot-host>:<port>
 
 With `--teleop-event-device` the file feeds the motion half of the composite.
 
-The wrapper passes its "last gripper action sent" to `robot`, `leader_arm`, `gello` and
-`leader_cartesian` (and to the motion half of a composite built on one of them), so a leader part
-without a gripper holds the gripper instead of dropping a grasped object.
+The wrapper passes its "last gripper action sent" to `robot`, `leader_arm`, `gello`,
+`leader_cartesian` and `bimanual` (and to the motion half of a composite built on one of them),
+so a leader part without a gripper holds the gripper instead of dropping a grasped object. The
+env action ends with one gripper dim per arm (the action contract's layout), so the getter
+returns one entry per arm and a single-arm source reads entry 0 (`bimanual` hands each arm's
+source its own entry); a source drives one arm unless it declares `num_arms`, and the wrapper
+rejects a source whose arm count differs from the env's, or whose `arm_names` (when it declares
+them) are not the env's in the env's order.
 
 | `device` | Source | Reads | Action space | Notes |
 | --- | --- | --- | --- | --- |
 | `pico` | `PicoTeleopSource` | Pico VR controller over a ZeroMQ `SUB` socket (`EETwistTeleOpWrapper`) | cartesian_delta, 6 + gripper | kwargs: `zmq_url`, `hand`, `pos_scale`, `rot_scale`, `twist_limit`, `intervention_threshold`. Data format below. |
 | `spacemouse` | `SpaceMouseTeleopSource` | a SpaceMouse on this machine, through the device layer's `SpaceMouseTeleop` | cartesian_delta, 6 + gripper | kwargs: `device_index=0`, `deadzone=1e-3`, `invert_axes=()`, `poll_interval_s=0.005`, `hold_s=0.0`, `read_timeout_s`. Needs `pyspacemouse>=2,<3`, imported at `start()`. |
 | `robot` | `TeleopPartSource` | the teleop part of the robot behind a `real_robot` env (robot yaml `teleop:` section, local or daemon-served) | cartesian_delta, joint_abs or joint_delta, mapped into the env space | kwargs: `teleop_contract`, `joint_limits`, `joint_scale_rad`, `read_timeout_s` (hil_serl: `--robot-teleop-action-mode`, `--no-robot-teleop-has-gripper`). The robot owns the part, so `close()` leaves it connected. |
-| `fake` | `ScriptedTeleopSource` | scripted readings (tests; with no `readings` an operator who never intervenes) | follows the env's action contract | pass `readings=[TeleopReading, ...]` to script one; the last reading repeats. |
+| `fake` | `ScriptedTeleopSource` | scripted readings (tests; with no `readings` an operator who never intervenes) | follows the env's action contract, its arm count included | pass `readings=[TeleopReading, ...]` to script one; the last reading repeats. |
 | `gello` | `GelloTeleopSource` | a GELLO on this machine, through the device layer's `gello` teleop (Dynamixel bus) | joint_abs or joint_delta (the env's), leader joints mapped as for `robot` | kwargs: the device options (`port`, `joint_ids`, `joint_offsets_rad`, `joint_signs`, ...; see [Leader arms](#leader-arms-gello)), `hold_s`, `read_timeout_s`, `onset`, `arm_tolerance_rad`, `ramp_step_rad`. Needs `dynamixel-sdk` (robot_infra extra `gello`), imported at `start()`. |
 | `leader_arm` | `LeaderArmPartSource` | the teleop part of the robot behind a `real_robot` env, read as a joint-space leader arm (a GELLO served by the robot daemon) | joint_abs or joint_delta (the env's) | kwargs: those of `robot` plus `onset`, `arm_tolerance_rad`, `ramp_step_rad` (hil_serl: `--teleop-onset`, `--teleop-arm-tolerance-rad`, `--teleop-ramp-step-rad`). |
 | `keyboard` | `KeyboardTeleopSource` | this machine's keyboard via `pynput` | follows the env's action contract; action always zeros | Space toggles the intervention, Esc ends the episode, `s`/`f`/`r` raise `success`/`failure`/`rerecord`. An event device: on its own it only suits event-only tests. Needs `pynput` (extra `reward-collection`), imported at `start()`. |
 | `composite` | `CompositeTeleopSource` | a motion source plus an event source | the motion source's | kwargs: `motion`, `events` (registry names), `motion_kwargs`, `events_kwargs`, `intervention_from="events"` (or `"motion"`). hil_serl builds it from `--teleop-event-device`. |
 | `leader_cartesian` | `LeaderArmCartesianSource` | a joint-space leader arm turned into a cartesian twist by Panda forward kinematics (the `franka_real` stack) | cartesian_delta, 6 + gripper | see [Leader arm on a cartesian robot](#leader-arm-on-a-cartesian-robot-leader_cartesian). |
+| `bimanual` | `BimanualTeleopSource` | one single-arm source per arm of a `real_robot_bimanual` env (`--teleop-arm-device`) | the env's, both arms then both grippers | kwargs: `device_per_arm`, `per_arm_kwargs`, `common_kwargs`, `intervention_from="any"` (or `"all"`). See [Two arms](#two-arms-bimanual). |
 
 ### SpaceMouse
 
@@ -124,8 +130,9 @@ declaration and an example yaml.
 ### Leader arms (GELLO)
 
 The end-to-end guide (hardware, calibration, robot yaml, demo recording and the HIL commands for
-`hil_serl`, `residual_hil_serl` and `silri`) is [gello.md](gello.md); this section describes the
-sources.
+`hil_serl`, `residual_hil_serl` and `silri`) is [gello.md](gello.md); the first-day walkthrough
+with the setup wizard, BC and deployment is
+[getting-started-hardware.md](getting-started-hardware.md). This section describes the sources.
 
 A leader arm reports absolute leader joint positions. `LeaderArmPartSource`
 (`rl_garden_real_world/teleop/leader_arm.py`) maps them into the env's joint action mode like
@@ -135,7 +142,8 @@ adds an onset policy for the moment the operator takes over. Two ways to read a 
 
 - `--teleop-device leader_arm`: the GELLO is the `teleop:` part of the robot yaml the daemon
   serves on the robot PC (`python -m robot_infra.server --config robot.yaml ...`), read through
-  `RemoteRobot`. Add the section to the robot yaml (for example
+  `RemoteRobot`. `python -m robot_infra.setup` writes the section (calibration included) into a
+  station yaml; or add it to the robot yaml by hand (for example
   `robot_infra/docs/robot.franka.example.yaml`);
   `python -m robot_infra.devices.backends.teleops.gello_calibrate --port ... --joint-ids 1 2 3 4 5 6 7 --gripper-id 8`
   prints the `options` block for a unit:
@@ -369,6 +377,75 @@ means Desk's end-effector setting differs from the Franka Hand default: pass
 with the configuration point at the DH table itself; `anchored` mapping is less sensitive to
 both.
 
+### Two arms (`bimanual`)
+
+On `--env-backend real_robot_bimanual` (see [bimanual.md](bimanual.md)) the action is
+`[left arm, right arm, left gripper, right gripper]`, and the single-arm devices (`robot`,
+`leader_arm`, `gello`, `leader_cartesian`, `spacemouse`, `pico`) are rejected. `--teleop-device
+bimanual` (`BimanualTeleopSource`, `rl_garden_real_world/teleop/bimanual.py`) builds one
+single-arm source per arm over that arm's own `RealRobotEnv`, so each one reads its own robot and
+follower, and assembles their readings into the two-arm action. `--teleop-arm-device` picks the
+per-arm device:
+
+| `--teleop-arm-device` | Each arm's source | Notes |
+| --- | --- | --- |
+| `leader_arm` (default) | `LeaderArmPartSource` over that arm robot's teleop part | a GELLO served by that arm's daemon (its robot yaml's `teleop:` section); `--robot-teleop-action-mode` declares both parts before the remote robots connect; the `--teleop-onset` flags apply to every arm |
+| `robot` | `TeleopPartSource` over that arm robot's teleop part | any teleop part, mapped as for `--teleop-device robot` |
+| `gello` | `GelloTeleopSource` | a GELLO plugged into the actor's machine, one per arm; each needs its own `port` and calibration (below) |
+
+`leader_cartesian` is not available per arm: it turns one leader into the twist of one cartesian
+arm.
+
+The operator overrides the whole action: `intervened` is true while any arm's operator
+intervenes (`intervention_from: any`, the default) or only while both do (`all`). Under `any`,
+the arm whose operator is not intervening is held still: its arm block is the hold action (the
+follower's joints in `joint_abs`, zero in the delta modes) and its gripper the action last sent
+to it, so an idle leader never moves its follower and an idle trigger never opens a gripper.
+`episode_end` and the events are ORed over the arms; `info["teleop_events"]` carries each event
+both as `<arm>_<event>` and as the plain `<event>` (`success`, `teleop_syncing`, ...).
+
+With `--teleop-event-device keyboard` the bimanual source is the motion half of a composite: one
+keyboard toggles both arms at once (each arm's onset policy still applies) and carries the
+episode-end and outcome keys.
+
+`--teleop-options-yaml` for `bimanual` is either a mapping with one section per arm name plus
+common keys (`intervention_from` is the source's own; every other common key goes to every arm,
+the arm's section overrides it):
+
+```yaml
+# bimanual.yaml, for --teleop-device bimanual --teleop-arm-device gello
+intervention_from: any
+hold_s: 0.0
+left:
+  port: /dev/serial/by-id/usb-FTDI_..._LEFT-if00-port0
+  joint_ids: [1, 2, 3, 4, 5, 6, 7]
+  joint_offsets_rad: [...]
+  joint_signs: [...]
+right:
+  port: /dev/serial/by-id/usb-FTDI_..._RIGHT-if00-port0
+  joint_ids: [1, 2, 3, 4, 5, 6, 7]
+  joint_offsets_rad: [...]
+  joint_signs: [...]
+```
+
+or, with `--teleop-arm-device gello`, the robot_infra station yaml itself
+(`robots: {left: ..., right: ...}`, as `python -m robot_infra.setup` writes it): each robot's
+`teleop.options` (and `hold_s`) become that arm's kwargs, matched by robot name to the env's
+`arm_names`. A single-robot station or robot yaml works the same way for `--teleop-device gello`
+on one arm. With `leader_arm` or `robot` per arm, each daemon reads its own GELLO, so a station
+yaml is refused there.
+
+HIL over the two daemons:
+
+```bash
+python examples/train_real_world.py hil_serl --role actor --config bimanual.yaml \
+    --teleop-device bimanual --teleop-arm-device leader_arm \
+    --robot-teleop-action-mode joint_delta --teleop-event-device keyboard
+```
+
+`--teleop-device fake` declares the env's arm count too, so it dry-runs the two-arm actor
+without an operator.
+
 ## `InterventionWrapper`
 
 `rl_garden_real_world/envs/wrappers/intervention.py`. `InterventionWrapper(env, source)` takes a
@@ -519,8 +596,9 @@ Pico's physical twist (SpaceMouse actions are already normalized), and steps the
 
 ## Recording demos on the real robot
 
-`examples/record_real_demos.py` records teleoperated episodes on the `real_robot` or `franka_real`
-env of a HIL run (same env and teleop flags as its actor) into the demo pkl format the learners
+`examples/record_real_demos.py` records teleoperated episodes on the `real_robot`,
+`real_robot_bimanual` or `franka_real` env of a HIL run (same env and teleop flags as its actor)
+into the demo pkl format the learners
 load with `--demo-dataset-paths`, keeping only the intervened steps. See
 [recording-demos.md](recording-demos.md); for a GELLO, [gello.md](gello.md#5-recording-demos).
 

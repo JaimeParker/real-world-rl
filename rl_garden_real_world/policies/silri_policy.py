@@ -11,11 +11,13 @@ critic, a learned human behaviour model and a state-wise Lagrange multiplier.
   Gaussian over the continuous action dims fitted to human actions;
 - ``lambda_net``: its own extractor, an MLP with a zero-initialised output layer and a
   ``softplus``, so ``lambda(s) = softplus(0) = log 2`` at initialisation;
-- ``discrete_head`` (only with ``discrete_gripper``): gripper logits over
-  ``_DISCRETE_ACTION_VALUES`` (open/hold/close) on the actor's features.
+- ``discrete_head`` (only with ``discrete_gripper``): logits over the ``3 ** num_grippers``
+  joint gripper actions (each gripper one of ``_DISCRETE_ACTION_VALUES``, open/hold/close)
+  on the actor's features, indexed as rl-garden's ``encode_gripper_labels`` labels them.
 
-With ``discrete_gripper`` the last env action dim is the gripper: the actor, critic and
-behaviour model only see the continuous dims before it.
+With ``discrete_gripper`` the last ``num_grippers`` env action dims are the grippers (one
+per arm, the ``action_contract`` layout): the actor, critic and behaviour model only see
+the continuous dims before them.
 """
 from __future__ import annotations
 
@@ -35,7 +37,10 @@ from rl_garden.networks.discrete_critic import DiscreteCritic
 from rl_garden.networks.mlp import create_mlp
 from rl_garden.policies.base import EncoderSharing
 from rl_garden.policies.ddpg_policy import DDPGPolicy
-from rl_garden.policies.rlpd_hybrid_policy import _DISCRETE_ACTION_VALUES
+from rl_garden.policies.rlpd_hybrid_policy import (
+    _DISCRETE_ACTION_VALUES,
+    gripper_index_digits,
+)
 
 # Sampled actions stay strictly inside the tanh range (as the reference's select_action).
 _ACTION_EPS = 1e-6
@@ -101,8 +106,8 @@ class LagrangeMultiplierNet(nn.Module):
 class SiLRIPolicy(DDPGPolicy):
     """See the module docstring. ``predict`` returns the tanh mean, plus
     ``N(0, actor_noise_std^2)`` noise unless ``deterministic``, clamped to
-    ``[-1 + 1e-6, 1 - 1e-6]``; with ``discrete_gripper`` the gripper value of the
-    ``discrete_head`` argmax is appended last.
+    ``[-1 + 1e-6, 1 - 1e-6]``; with ``discrete_gripper`` the ``num_grippers`` gripper
+    values decoded from the ``discrete_head`` argmax are appended last.
 
     Parameter groups (one optimizer each): ``actor_parameters`` and
     ``critic_and_encoder_parameters`` (``DDPGPolicy``'s), ``behavior_parameters``,
@@ -129,16 +134,21 @@ class SiLRIPolicy(DDPGPolicy):
         lambda_hidden_dims: Sequence[int] = (256, 256),
         discrete_gripper: bool = False,
         discrete_hidden_dim: int = 256,
+        num_grippers: int = 1,
     ) -> None:
         if not isinstance(action_space, spaces.Box):
             raise TypeError("SiLRIPolicy requires a Box action space.")
         if discrete_gripper:
-            if int(np.prod(action_space.shape)) < 2:
+            if num_grippers < 1:
+                raise ValueError(f"discrete_gripper needs num_grippers >= 1, got {num_grippers}.")
+            if int(np.prod(action_space.shape)) <= num_grippers:
                 raise ValueError(
                     "discrete_gripper needs at least one continuous action dim before the gripper dim."
                 )
             continuous_action_space = spaces.Box(
-                low=action_space.low[:-1], high=action_space.high[:-1], dtype=action_space.dtype
+                low=action_space.low[:-num_grippers],
+                high=action_space.high[:-num_grippers],
+                dtype=action_space.dtype,
             )
         else:
             continuous_action_space = action_space
@@ -157,6 +167,7 @@ class SiLRIPolicy(DDPGPolicy):
         self.continuous_action_dim = int(np.prod(continuous_action_space.shape))
         self.actor_noise_std = float(actor_noise_std)
         self.discrete_gripper = bool(discrete_gripper)
+        self.num_grippers = int(num_grippers)
 
         # Lagged copy of the actor head only; it reads the actor extractor's features.
         self.actor_target = copy.deepcopy(self.actor)
@@ -177,7 +188,7 @@ class SiLRIPolicy(DDPGPolicy):
             self.discrete_head = DiscreteCritic(
                 self.actor_features_dim,
                 (int(discrete_hidden_dim),),
-                n_actions=len(_DISCRETE_ACTION_VALUES),
+                n_actions=len(_DISCRETE_ACTION_VALUES) ** self.num_grippers,
                 use_layer_norm=True,
             )
             self.register_buffer("_discrete_action_values", torch.tensor(_DISCRETE_ACTION_VALUES))
@@ -198,15 +209,15 @@ class SiLRIPolicy(DDPGPolicy):
         return torch.cat([action, self.discrete_action_from_index(gripper_index)], dim=-1)
 
     def discrete_action_from_index(self, index: torch.Tensor) -> torch.Tensor:
-        """The gripper value ``(B, 1)`` of each discrete index."""
-        return self._discrete_action_values[index].unsqueeze(-1)
+        """The ``(B, num_grippers)`` gripper values of each joint discrete index."""
+        return self._discrete_action_values[gripper_index_digits(index, self.num_grippers)]
 
     # ------------------------------------------------------------------
     # Training helpers
     # ------------------------------------------------------------------
 
     def continuous_actions(self, actions: torch.Tensor) -> torch.Tensor:
-        """The continuous part of env actions (all dims but the gripper under ``discrete_gripper``)."""
+        """The continuous part of env actions (all dims but the grippers under ``discrete_gripper``)."""
         return actions[..., : self.continuous_action_dim]
 
     def actor_mean(self, obs: Obs) -> torch.Tensor:
@@ -227,7 +238,7 @@ class SiLRIPolicy(DDPGPolicy):
         return self.lambda_net(obs)
 
     def discrete_logits(self, obs: Obs) -> torch.Tensor:
-        """Gripper logits ``(B, 3)`` over ``_DISCRETE_ACTION_VALUES``."""
+        """Gripper logits ``(B, 3 ** num_grippers)`` over the joint gripper actions."""
         return self.discrete_logits_from_features(self.extract_actor_features(obs))
 
     def discrete_logits_from_features(self, actor_features: torch.Tensor) -> torch.Tensor:

@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import pytest
+import yaml
 
+import robot_infra.discovery.__main__ as discovery_cli
 from robot_infra.devices import CameraConfig
 from robot_infra.devices.backends.cameras.fake import FakeCamera
 from robot_infra.devices.backends.cameras.realsense import RealSenseCamera
@@ -10,6 +12,43 @@ from robot_infra.devices.robots.franka import FrankaConfig
 from robot_infra.devices.robots.piper import PiperConfig
 from robot_infra.discovery import enumerate as enum
 from robot_infra.discovery.autoconfig import fill_from_env
+
+
+@pytest.fixture
+def probed_hosts(monkeypatch):
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        discovery_cli, "discover_all", lambda host_ips: calls.append(list(host_ips)) or enum.DiscoveryReport()
+    )
+    return calls
+
+
+def test_cli_without_config_probes_every_robot_of_the_station(tmp_path, monkeypatch, probed_hosts, capsys):
+    robots = {
+        name: {"type": "franka", "arm_backend": "fake", "robot_ip": ip}
+        for name, ip in (("left", "10.0.0.1"), ("right", "10.0.0.2"), ("spare", "10.0.0.1"))
+    }
+    path = tmp_path / "station.yaml"
+    path.write_text(yaml.safe_dump({"robots": robots}))
+    monkeypatch.setenv("ROBOT_INFRA_CONFIG", str(path))
+    assert discovery_cli.main([]) == 0
+    assert probed_hosts == [["10.0.0.1", "10.0.0.2"]]
+    assert "hosts:" in capsys.readouterr().out
+
+
+def test_cli_without_config_or_station_probes_no_hosts(tmp_path, monkeypatch, probed_hosts):
+    monkeypatch.delenv("ROBOT_INFRA_CONFIG", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.chdir(tmp_path)
+    assert discovery_cli.main([]) == 0
+    assert probed_hosts == [[]]
+
+
+def test_cli_with_a_single_robot_config(tmp_path, probed_hosts):
+    path = tmp_path / "robot.yaml"
+    path.write_text(yaml.safe_dump({"type": "franka", "arm_backend": "fake", "robot_ip": "10.0.0.7"}))
+    assert discovery_cli.main(["--config", str(path)]) == 0
+    assert probed_hosts == [["10.0.0.7"]]
 
 
 def write_iface(root, name, iface_type, operstate):

@@ -105,3 +105,23 @@ def test_run_real_world_bc_saves_periodic_and_final_checkpoints(monkeypatch, tmp
     assert (checkpoint_dir / "checkpoint_4.pt").exists()
     assert (checkpoint_dir / "final.pt").exists()
 
+
+
+def test_run_real_world_bc_logs_metrics_at_log_freq(monkeypatch, tmp_path):
+    """The offline loop logs through Logger.log_metrics; a log step must not raise."""
+    monkeypatch.setattr(
+        "rl_garden.envs.backend_registry.make_training_envs",
+        lambda backend, req: (_FakeEnv(), None),
+    )
+    demo_path = tmp_path / "demos.pkl"
+    _write_demo_pkl(demo_path)
+    logged: list[tuple[dict, int]] = []
+    from rl_garden.common.logger import Logger
+
+    monkeypatch.setattr(Logger, "log_metrics", lambda self, metrics, step, **kw: logged.append((dict(metrics), step)))
+    args = _base_args(tmp_path, demo_dataset_paths=[str(demo_path)], num_offline_steps=4, log_freq=2)
+
+    run_real_world_bc(args)
+
+    assert [step for _, step in logged] == [2, 4]
+    assert all(metrics for metrics, _ in logged)

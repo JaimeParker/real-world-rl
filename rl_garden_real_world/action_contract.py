@@ -4,6 +4,15 @@ A contract is the dict ``RealRobotEnv.action_contract`` exposes; the demo contra
 (``DEMO_CONTRACT_KEYS``) is the subset persisted next to pkl transition files, so a
 replayed transition can be checked against the env it is replayed into. Backends
 without a contract (``franka_real``) yield ``None`` and keep their legacy behavior.
+
+Action layout: an env drives ``num_arms`` arms named ``arm_names`` (one arm, ``["arm"]``,
+by default), each with ``arm_action_dim`` arm dims. The action is the arm blocks in
+``arm_names`` order followed, with ``gripper_in_action``, by one gripper dim per arm in the
+same order: ``[arm_0, ..., arm_{n-1}, gripper_0, ..., gripper_{n-1}]``. So the last
+``k = num_grippers_of(contract)`` dims are the grippers (``gripper_slice``) and the arm dims
+are everything before them (``arm_block_slices``); consumers read the grippers as
+``action[..., -k:]`` and the arms as ``action[..., :-k]``. A contract without ``num_arms`` /
+``arm_names`` (older sidecars and checkpoints) is read as one arm named ``"arm"``.
 """
 from __future__ import annotations
 
@@ -17,14 +26,18 @@ import torch
 
 # What a normalized action physically means: these must match for a replayed transition.
 _PHYSICAL_KEYS = ("joint_limits", "xyz_scale_m", "rot_scale_rad", "joint_scale_rad", "state_fields")
-DEMO_CONTRACT_KEYS = ("action_mode", "arm_action_dim", "gripper_in_action", "num_joints") + _PHYSICAL_KEYS
-_COMPARED_KEYS = ("action_mode", "arm_action_dim", "gripper_in_action") + _PHYSICAL_KEYS
+_ARM_LAYOUT_KEYS = ("num_arms", "arm_names")
+DEMO_CONTRACT_KEYS = (
+    ("action_mode", "arm_action_dim", "gripper_in_action", "num_joints") + _ARM_LAYOUT_KEYS + _PHYSICAL_KEYS
+)
+_COMPARED_KEYS = ("action_mode", "arm_action_dim", "gripper_in_action") + _ARM_LAYOUT_KEYS + _PHYSICAL_KEYS
 # Pre-contract convention: a 6-D cartesian twist plus a trailing gripper dimension.
 LEGACY_ACTION_CONTRACT: Mapping[str, Any] = {
     "action_mode": "cartesian_delta",
     "arm_action_dim": 6,
     "gripper_in_action": True,
 }
+_SINGLE_ARM_NAMES = ("arm",)
 _SIDECAR_SUFFIX = ".contract.json"
 
 
@@ -38,8 +51,40 @@ def get_env_action_contract(env: Any) -> Optional[dict]:
     return dict(contract) if isinstance(contract, Mapping) else None
 
 
+def with_arm_layout(contract: Mapping[str, Any]) -> dict:
+    """``contract`` with ``num_arms`` / ``arm_names`` filled in as one arm when it predates them."""
+    return {"num_arms": 1, "arm_names": list(_SINGLE_ARM_NAMES), **contract}
+
+
+def num_arms_of(contract: Mapping[str, Any]) -> int:
+    return int(contract.get("num_arms", 1))
+
+
+def num_grippers_of(contract: Mapping[str, Any]) -> int:
+    """Gripper dims at the end of the action: one per arm with ``gripper_in_action``, else 0."""
+    return num_arms_of(contract) if bool(contract["gripper_in_action"]) else 0
+
+
 def action_dim_of(contract: Mapping[str, Any]) -> int:
-    return int(contract["arm_action_dim"]) + int(bool(contract["gripper_in_action"]))
+    return num_arms_of(contract) * int(contract["arm_action_dim"]) + num_grippers_of(contract)
+
+
+def arm_block_slices(contract: Mapping[str, Any]) -> list[slice]:
+    """Each arm's block of the action, in ``arm_names`` order."""
+    arm_dim = int(contract["arm_action_dim"])
+    return [slice(index * arm_dim, (index + 1) * arm_dim) for index in range(num_arms_of(contract))]
+
+
+def gripper_slice(contract: Mapping[str, Any]) -> slice:
+    """The gripper dims (the last ``num_grippers_of(contract)``), one per arm in ``arm_names`` order."""
+    action_dim = action_dim_of(contract)
+    return slice(action_dim - num_grippers_of(contract), action_dim)
+
+
+def env_num_grippers(env: Any) -> int:
+    """``num_grippers_of`` ``env``'s contract; a contract-less backend has the legacy single
+    trailing gripper."""
+    return num_grippers_of(get_env_action_contract(env) or LEGACY_ACTION_CONTRACT)
 
 
 def demo_contract_of(env: Any) -> Optional[dict]:
@@ -51,9 +96,13 @@ def demo_contract_of(env: Any) -> Optional[dict]:
 
 
 def describe_contract(contract: Mapping[str, Any]) -> str:
+    num_arms = num_arms_of(contract)
+    arms = (
+        f", num_arms={num_arms}, arm_names={list(contract.get('arm_names', ()))!r}" if num_arms != 1 else ""
+    )
     return (
         f"action_mode={contract['action_mode']!r}, arm_action_dim={contract['arm_action_dim']}, "
-        f"gripper_in_action={contract['gripper_in_action']} "
+        f"gripper_in_action={contract['gripper_in_action']}{arms} "
         f"(action dim {action_dim_of(contract)})"
     )
 
@@ -102,11 +151,13 @@ def validate_transitions_against_contract(
     ``saved`` is the sidecar metadata of ``source`` (``None`` for pkls written before contracts
     existed: only the action width is checked, and a warning notes the missing metadata). Keys
     the env contract has but an older sidecar lacks (limits, scales, state_fields) are skipped
-    with a warning.
+    with a warning; a contract without ``num_arms`` / ``arm_names`` is read as one arm.
     """
     if expected is None:
         return
+    expected = with_arm_layout(expected)
     if saved is not None:
+        saved = with_arm_layout(saved)
         compared = [key for key in _COMPARED_KEYS if key in expected]
         missing = [key for key in compared if key not in saved]
         mismatched = [

@@ -86,6 +86,16 @@ class CompositeTeleopSource(TeleopSource):
     def has_gripper(self) -> bool:
         return self.motion.has_gripper
 
+    @property
+    def num_arms(self) -> int:
+        """The motion half's arm count (the event half only adds buttons)."""
+        return int(getattr(self.motion, "num_arms", 1))
+
+    @property
+    def arm_names(self) -> Optional[list[str]]:
+        names = getattr(self.motion, "arm_names", None)
+        return None if names is None else [str(name) for name in names]
+
     def start(self) -> None:
         self.motion.start()
         try:

@@ -111,6 +111,30 @@ def test_builds_both_variants_with_the_residual_options(variant, cls):
     assert agent.policy.residual_dim == expected_dim
 
 
+class _TwoArmContractEnv(_FakeEnv):
+    """Spaces of a two-arm cartesian env: [left twist, right twist, left gripper, right gripper]."""
+
+    def __init__(self):
+        super().__init__()
+        self.single_action_space = spaces.Box(-1, 1, (14,), dtype="float32")
+        self.action_space = batch_space(self.single_action_space, 1)
+        self.action_contract = {
+            "action_mode": "cartesian_delta",
+            "arm_action_dim": 6,
+            "gripper_in_action": True,
+            "num_arms": 2,
+            "arm_names": ["left", "right"],
+        }
+
+
+@pytest.mark.parametrize("variant, residual_dim", [("continuous", 14), ("hybrid", 12)])
+def test_builds_take_the_gripper_count_from_the_env_contract(variant, residual_dim):
+    agent = build_residual_hil_serl(_args(residual_variant=variant), _TwoArmContractEnv(), None, None, None)
+    assert agent.num_grippers == 2
+    assert agent.policy.residual_dim == residual_dim
+    assert build_residual_hil_serl(_args(residual_variant=variant), _FakeEnv(), None, None, None).num_grippers == 1
+
+
 @pytest.mark.parametrize(
     "overrides, error, match",
     [

@@ -11,13 +11,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+from _bimanual_fakes import bimanual_config, fake_franka
 from _leader_teleop_fakes import (
     JointEnv,
     connected_joint_part,
     executed_joints,
     normalized_joints,
 )
-from _teleop_fakes import ContractEnv
+from _teleop_fakes import ContractEnv, TwoArmContractEnv
+
+import robot_infra.devices.claims as claims
 
 from rl_garden_real_world.action_contract import (
     contract_sidecar_path,
@@ -34,8 +37,10 @@ from rl_garden_real_world.demos.record import (
     run_recorder,
     save_demos,
 )
+from rl_garden_real_world.envs.bimanual import BimanualRealRobotEnv, BimanualRealRobotVectorEnv
 from rl_garden_real_world.envs.wrappers.intervention import InterventionWrapper
 from rl_garden_real_world.teleop import TeleopReading
+from rl_garden_real_world.teleop.bimanual import normalized_joint_target
 from rl_garden_real_world.teleop.composite import CompositeTeleopSource
 from rl_garden_real_world.teleop.fake import ScriptedTeleopSource
 from rl_garden_real_world.teleop.leader_arm import (
@@ -175,6 +180,140 @@ def test_joint_delta_holds_with_a_zero_arm_action_and_skips_the_start_check():
 def test_cartesian_hold_is_a_zero_twist_with_the_held_gripper():
     hold = hold_action_fn_for(ContractEnv("cartesian_delta", 6))
     np.testing.assert_allclose(hold(CLOSED).numpy(), [0.0] * 6 + [CLOSED])
+
+
+def test_two_arm_hold_is_both_arm_blocks_then_one_held_gripper_per_arm():
+    hold = hold_action_fn_for(TwoArmContractEnv("cartesian_delta", 6))
+    np.testing.assert_allclose(hold([CLOSED, OPEN]).numpy(), [0.0] * 12 + [CLOSED, OPEN])
+    np.testing.assert_allclose(hold(CLOSED).numpy(), [0.0] * 12 + [CLOSED, CLOSED])
+
+
+def test_two_arm_joint_abs_hold_needs_each_arms_follower():
+    env = TwoArmContractEnv("joint_abs", 7)
+    env.action_contract["joint_limits"] = [[[-2.0, 2.0]] * 7] * 2
+    with pytest.raises(ValueError, match="real_robot_bimanual"):
+        hold_action_fn_for(env)
+
+
+# -- two arms in joint_abs over the two-arm env -----------------------------------------------
+
+LEFT_LIMITS = [[-1.0, 3.0]] * 7
+RIGHT_LIMITS = [[-2.0, 2.0]] * 7
+
+
+@pytest.fixture
+def two_arm_joint_abs_env(tmp_path, monkeypatch):
+    """A joint_abs two-arm vector env over fake Frankas (left limits [-1, 3], right [-2, 2])."""
+    monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
+    config = bimanual_config(
+        shared={"action_mode": "joint_abs", "control_hz": 1000.0},
+        left={"joint_limits": LEFT_LIMITS},
+        right={"joint_limits": RIGHT_LIMITS},
+    )
+    # joint_abs needs the device layer's per-step joint limit.
+    robots = {arm: fake_franka(arm, max_delta_per_step={"joint_rad": 10.0}) for arm in ("left", "right")}
+    env = BimanualRealRobotVectorEnv(BimanualRealRobotEnv(config, robots=robots))
+    yield env
+    env.close()
+
+
+def _two_arm_joint_reading(left_q, right_q, grippers=(OPEN, OPEN), **kwargs) -> TeleopReading:
+    arm = np.concatenate([normalized_joint_target(left_q, LEFT_LIMITS), normalized_joint_target(right_q, RIGHT_LIMITS)])
+    return TeleopReading(action=np.append(arm, grippers).astype(np.float32), **kwargs)
+
+
+def _arm_followers(env) -> dict:
+    return {arm: arm_env.last_observation["state"]["joint_pos"] for arm, arm_env in env.env.arms.items()}
+
+
+def test_two_arm_joint_abs_hold_is_each_arms_follower_on_its_own_limits(two_arm_joint_abs_env):
+    env = two_arm_joint_abs_env
+    env.reset()
+    hold = hold_action_fn_for(env)
+    # Both followers at zero: -0.5 on the left's [-1, 3], 0 on the right's [-2, 2].
+    np.testing.assert_allclose(hold([CLOSED, OPEN]).numpy(), [-0.5] * 7 + [0.0] * 7 + [CLOSED, OPEN], atol=1e-6)
+
+    step = torch.zeros(1, 16)
+    step[0, :7] = 0.0  # left target 1.0 rad on [-1, 3]
+    step[0, 7] = 0.5  # right joint 0 target 1.0 rad on [-2, 2]
+    env.step(step)
+    followers = _arm_followers(env)
+    expected = np.concatenate(
+        [
+            np.clip(2.0 * (followers["left"] - (-1.0)) / 4.0 - 1.0, -1.0, 1.0),
+            np.clip(2.0 * (followers["right"] - (-2.0)) / 4.0 - 1.0, -1.0, 1.0),
+        ]
+    )
+    assert not np.allclose(followers["left"], 0.0)  # the hold follows the moved followers
+    np.testing.assert_allclose(hold(OPEN).numpy()[:14], expected, atol=1e-5)
+
+
+def test_two_arm_start_check_compares_each_leader_with_its_own_follower(two_arm_joint_abs_env):
+    env = two_arm_joint_abs_env
+    env.reset()
+    contract = env.action_contract
+    near = ScriptedTeleopSource(
+        [_two_arm_joint_reading([0.1] * 7, [0.0] * 6 + [-0.2], intervened=False)],
+        action_mode="joint_abs",
+        arm_action_dim=7,
+        num_arms=2,
+    )
+    errors = check_leader_near_follower(env, near, contract, 0.8)
+    assert errors.shape == (2, 7)
+    np.testing.assert_allclose(errors[0], [0.1] * 7, atol=1e-5)
+    np.testing.assert_allclose(errors[1], [0.0] * 6 + [0.2], atol=1e-5)
+
+    far_right = ScriptedTeleopSource(
+        [_two_arm_joint_reading([0.1] * 7, [0.9] + [0.0] * 6, intervened=False)],
+        action_mode="joint_abs",
+        arm_action_dim=7,
+        num_arms=2,
+    )
+    with pytest.raises(LeaderFollowerGapError, match=r"leader arm 'right'.*0\.9.*start_tolerance_rad = 0\.8"):
+        check_leader_near_follower(env, far_right, contract, 0.8)
+
+
+def test_two_arm_joint_abs_recording_keeps_both_arms_intervened_steps(two_arm_joint_abs_env):
+    env = two_arm_joint_abs_env
+    zeros = [0.0] * 7
+    readings = [
+        _two_arm_joint_reading(zeros, zeros, intervened=False),  # the episode-start leader read
+        _two_arm_joint_reading(zeros, zeros, intervened=False),
+        _two_arm_joint_reading([0.1] * 7, zeros, (CLOSED, OPEN), intervened=True, events={"success": True}),
+        _two_arm_joint_reading([0.1] * 7, zeros, (CLOSED, OPEN), intervened=False, episode_end=True),
+    ]
+    source = ScriptedTeleopSource(readings, action_mode="joint_abs", arm_action_dim=7, num_arms=2)
+    transitions, episodes = _record(InterventionWrapper(env, source))
+
+    assert episodes[0].kept and episodes[0].steps == 3 and len(transitions) == 1
+    np.testing.assert_allclose(transitions[0]["action"].reshape(-1).numpy(), readings[2].action)
+
+
+def test_max_episode_steps_caps_the_two_arm_env():
+    args = record._with_episode_step_cap(_args(env_backend="real_robot_bimanual", max_episode_steps=40))
+    assert args.real_robot_bimanual.max_episode_steps == 40
+    assert args.real_robot_bimanual.left.max_episode_steps is None
+
+
+class _TwoArmScriptedSource(ScriptedTeleopSource):
+    num_arms = 2
+
+
+def test_two_arm_recording_holds_both_last_executed_grippers():
+    def two_arm(grippers, **kwargs):
+        return TeleopReading(action=np.array([0.0] * 12 + list(grippers), dtype=np.float32), **kwargs)
+
+    env = TwoArmContractEnv("cartesian_delta", 6)
+    readings = [
+        two_arm([OPEN, OPEN], intervened=False),
+        two_arm([CLOSED, OPEN], intervened=True, events={"success": True}),
+        two_arm([OPEN, OPEN], intervened=False, episode_end=True),
+    ]
+    transitions, _ = _record(InterventionWrapper(env, _TwoArmScriptedSource(readings)))
+
+    assert len(env.step_actions) == 3 and len(transitions) == 1
+    np.testing.assert_allclose(_sent(env, 0), [0.0] * 12 + [OPEN, OPEN])
+    np.testing.assert_allclose(_sent(env, 2), [0.0] * 12 + [CLOSED, OPEN])
 
 
 @pytest.mark.parametrize("keep_syncing_steps, recorded", [(False, 1), (True, 3)])
@@ -455,6 +594,53 @@ def test_example_parses_the_hil_env_flags_over_a_training_preset(example, monkey
     assert (args.output_path, args.num_successes, args.max_episode_steps) == ("demos/task.pkl", 3, 40)
     assert args.start_tolerance_rad == 0.5 and args.keep_syncing_steps
     assert args.eval_freq == 0
+
+
+def test_example_parses_the_two_arm_flags_over_a_training_preset(example, monkeypatch, tmp_path):
+    limits = "[[-1.0, 1.0], [-1.0, 1.0], [-1.0, 1.0], [-1.0, 1.0], [-1.0, 1.0], [-1.0, 1.0], [-1.0, 1.0]]"
+    preset = tmp_path / "bimanual.yaml"
+    preset.write_text(
+        "env_backend: real_robot_bimanual\n"
+        "batch_size: 256\n"  # an algorithm field of the training run: skipped
+        "real_robot_bimanual:\n"
+        "  left:\n"
+        "    action_mode: joint_abs\n"
+        f"    joint_limits: {limits}\n"
+        "  right:\n"
+        "    action_mode: joint_abs\n"
+        f"    joint_limits: {limits}\n",
+        encoding="utf-8",
+    )
+    received = []
+    monkeypatch.setattr(example, "run_recorder", received.append)
+    example.main(
+        [
+            "--config", str(preset),
+            "--teleop-device", "bimanual",
+            "--teleop-arm-device", "leader_arm",
+            "--robot-teleop-action-mode", "joint_abs",
+            "--teleop-event-device", "keyboard",
+            "--real_robot_bimanual.left.remote", "10.0.0.2:50051",
+            "--real_robot_bimanual.right.remote", "10.0.0.3:50052",
+            "--output-path", "demos/bimanual.pkl",
+            "--max-episode-steps", "40",
+        ]
+    )
+
+    (args,) = received
+    assert args.env_backend == "real_robot_bimanual"
+    assert (args.teleop_device, args.teleop_arm_device, args.robot_teleop_action_mode) == (
+        "bimanual",
+        "leader_arm",
+        "joint_abs",
+    )
+    bimanual = args.real_robot_bimanual
+    assert (bimanual.left.remote, bimanual.right.remote) == ("10.0.0.2:50051", "10.0.0.3:50052")
+    assert bimanual.left.action_mode == bimanual.right.action_mode == "joint_abs"
+    assert bimanual.right.joint_limits == [[-1.0, 1.0]] * 7
+    assert record._with_episode_step_cap(args).real_robot_bimanual.max_episode_steps == 40
+    kwargs = env_building.teleop_wrapper_kwargs(args)
+    assert kwargs["motion"] == "bimanual" and kwargs["motion_kwargs"]["device_per_arm"] == "leader_arm"
 
 
 def test_recorder_defaults():

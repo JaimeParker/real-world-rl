@@ -1,11 +1,14 @@
-"""Converts the quaternion slice of a Franka real-robot env's ``state``
-observation into a 3D rotation vector, matching the rotation representation
+"""Converts the quaternion slice(s) of a Franka real-robot env's ``state``
+observation into 3D rotation vectors, matching the rotation representation
 the action side already uses (``FrankaRealEnv.step()``'s rotvec deltas).
 Optional and off by default -- HIL-SERL converts to Euler via
 ``Quat2EulerWrapper`` instead, but rotvec avoids Euler's gimbal-lock/wraparound
 special-casing and stays consistent with this repo's own action convention.
+A two-arm env has one quaternion per arm; pass one slice per arm.
 """
 from __future__ import annotations
+
+from typing import Sequence, Union
 
 import gymnasium as gym
 import numpy as np
@@ -17,7 +20,19 @@ from gymnasium.vector.utils import batch_space
 # pose (xyz[0:3] + quat_xyzw[3:7]) + vel(6) + gripper_pos(1) + force(3) +
 # torque(3). Other robots pass their own ``quat_slice``.
 _DEFAULT_QUAT_SLICE = (3, 7)
+_QUAT_DIM = 4
 _SMALL_ANGLE_EPS = 1e-8
+
+QuatSlice = tuple[int, int]
+# One ``(start, end)`` pair, or one pair per quaternion (e.g. per arm).
+QuatSlices = Union[QuatSlice, Sequence[QuatSlice]]
+
+
+def as_quat_slice_list(quat_slice: QuatSlices) -> list[QuatSlice]:
+    """``quat_slice`` as a list of ``(start, end)`` pairs (a single pair becomes a one-item list)."""
+    if len(quat_slice) == 2 and all(isinstance(bound, (int, np.integer)) for bound in quat_slice):
+        return [(int(quat_slice[0]), int(quat_slice[1]))]
+    return [(int(start), int(end)) for start, end in quat_slice]
 
 
 def quat_xyzw_to_rotvec(q: torch.Tensor) -> torch.Tensor:
@@ -41,22 +56,29 @@ def quat_xyzw_to_rotvec(q: torch.Tensor) -> torch.Tensor:
 
 
 class RotvecObsWrapper(gym.ObservationWrapper):
-    """Shrinks ``obs["state"]`` by one dim by replacing the 4D xyzw quaternion
-    at ``quat_slice`` (default ``(3, 7)``) with its 3D rotation vector."""
+    """Shrinks ``obs["state"]`` by one dim per quaternion by replacing each 4D xyzw
+    quaternion at ``quat_slice`` (default ``(3, 7)``; a sequence of pairs for several,
+    e.g. one per arm) with its 3D rotation vector."""
 
     def __init__(
-        self, env: gym.Env, quat_slice: tuple[int, int] = _DEFAULT_QUAT_SLICE
+        self, env: gym.Env, quat_slice: QuatSlices = _DEFAULT_QUAT_SLICE
     ) -> None:
         super().__init__(env)
-        start, end = quat_slice
-        if end - start != 4:
-            raise ValueError(f"quat_slice must span 4 dims, got {quat_slice}.")
-        self._quat_start, self._quat_end = start, end
+        slices = sorted(as_quat_slice_list(quat_slice))
+        if not slices:
+            raise ValueError("quat_slice must name at least one quaternion.")
+        for start, end in slices:
+            if end - start != _QUAT_DIM:
+                raise ValueError(f"quat_slice must span 4 dims, got {(start, end)}.")
+        for (_, previous_end), (next_start, _) in zip(slices, slices[1:]):
+            if next_start < previous_end:
+                raise ValueError(f"quat_slice pairs must not overlap, got {slices}.")
+        self._quat_slices = slices
         state_space = env.single_observation_space["state"]
         new_state_space = spaces.Box(
             low=-np.inf,
             high=np.inf,
-            shape=(state_space.shape[0] - 1,),
+            shape=(state_space.shape[0] - len(slices),),
             dtype=state_space.dtype,
         )
         new_spaces = dict(env.single_observation_space.spaces)
@@ -73,7 +95,11 @@ class RotvecObsWrapper(gym.ObservationWrapper):
 
     def observation(self, obs: dict) -> dict:
         state = obs["state"]
-        before = state[..., : self._quat_start]
-        rotvec = quat_xyzw_to_rotvec(state[..., self._quat_start : self._quat_end])
-        after = state[..., self._quat_end :]
-        return {**obs, "state": torch.cat([before, rotvec, after], dim=-1)}
+        pieces = []
+        position = 0
+        for start, end in self._quat_slices:
+            pieces.append(state[..., position:start])
+            pieces.append(quat_xyzw_to_rotvec(state[..., start:end]))
+            position = end
+        pieces.append(state[..., position:])
+        return {**obs, "state": torch.cat(pieces, dim=-1)}

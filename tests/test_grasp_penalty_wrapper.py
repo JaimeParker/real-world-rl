@@ -79,3 +79,44 @@ def test_getattr_forwards_to_wrapped_env():
     env = _FakeEnv()
     wrapped = GraspPenaltyWrapper(env)
     assert wrapped.num_envs == 1
+
+
+# -- several grippers (gripper_slice) ------------------------------------------------------
+
+
+def _two_gripper_action(left: float, right: float) -> torch.Tensor:
+    action = torch.zeros(1, 6)  # two 2-D arm blocks, then the left and right grippers
+    action[..., -2:] = torch.tensor([left, right])
+    return action
+
+
+def test_two_grippers_pay_the_penalty_once_per_flipped_gripper():
+    wrapped = GraspPenaltyWrapper(_FakeEnv(), penalty=-0.05, gripper_slice=slice(4, 6))
+    wrapped.reset()
+    _, _, _, _, first = wrapped.step(_two_gripper_action(-1.0, -1.0))
+    _, _, _, _, same = wrapped.step(_two_gripper_action(-1.0, -1.0))
+    _, _, _, _, one_flip = wrapped.step(_two_gripper_action(1.0, -1.0))
+    _, _, _, _, two_flips = wrapped.step(_two_gripper_action(-1.0, 1.0))
+    assert first["grasp_penalty"].item() == 0.0 and same["grasp_penalty"].item() == 0.0
+    assert one_flip["grasp_penalty"].item() == pytest.approx(-0.05)
+    assert two_flips["grasp_penalty"].item() == pytest.approx(-0.10)
+    assert two_flips["grasp_penalty"].shape == (1,)
+
+
+def test_arm_dims_are_ignored_with_a_gripper_slice():
+    wrapped = GraspPenaltyWrapper(_FakeEnv(), penalty=-0.05, gripper_slice=slice(4, 6))
+    wrapped.reset()
+    wrapped.step(_two_gripper_action(-1.0, -1.0))
+    arm_moved = _two_gripper_action(-1.0, -1.0)
+    arm_moved[..., :4] = 1.0
+    _, _, _, _, info = wrapped.step(arm_moved)
+    assert info["grasp_penalty"].item() == 0.0
+
+
+def test_a_one_gripper_slice_matches_the_default_last_dim():
+    by_index, by_slice = GraspPenaltyWrapper(_FakeEnv()), GraspPenaltyWrapper(_FakeEnv(), gripper_slice=slice(6, 7))
+    for wrapped in (by_index, by_slice):
+        wrapped.reset()
+    for value in (-1.0, 1.0, 1.0, -1.0):
+        expected = by_index.step(_gripper_action(value))[4]["grasp_penalty"]
+        torch.testing.assert_close(by_slice.step(_gripper_action(value))[4]["grasp_penalty"], expected)

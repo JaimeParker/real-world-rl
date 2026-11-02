@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import torch
-from _teleop_fakes import ContractEnv, FakeEnv
+from _teleop_fakes import ContractEnv, FakeEnv, TwoArmContractEnv
 
 from rl_garden_real_world.envs.wrappers.intervention import (
     InterventionWrapper,
@@ -183,3 +183,48 @@ def test_teleop_argument_wins_over_device_and_scripted_readings_pass_through():
 def test_unknown_device_lists_the_registered_names():
     with pytest.raises(ValueError, match="pico"):
         TeleopInterventionWrapper(FakeEnv(), device="joystick")
+
+
+# -- two arms: one gripper per arm, the last two action dims ------------------------------
+
+
+class _TwoArmScriptedSource(ScriptedTeleopSource):
+    num_arms = 2
+
+
+def _two_arm_reading(intervened: bool, grippers=(1.0, 1.0)) -> TeleopReading:
+    return TeleopReading(action=np.array([0.0] * 12 + list(grippers), dtype=np.float32), intervened=intervened)
+
+
+def test_two_arm_wrapper_tracks_both_executed_grippers_and_resets_them_to_open():
+    wrapped = InterventionWrapper(
+        TwoArmContractEnv(), _TwoArmScriptedSource([_reading(False), _two_arm_reading(True, (-0.5, 0.25))])
+    )
+    torch.testing.assert_close(wrapped._last_gripper_action, torch.tensor([1.0, 1.0]))
+    policy_action = torch.zeros(1, 14)
+    policy_action[0, -2:] = torch.tensor([-3.0, 0.5])  # the env clips to [-1, 1]
+    wrapped.step(policy_action)
+    torch.testing.assert_close(wrapped._last_gripper_action, torch.tensor([-1.0, 0.5]))
+    _, _, _, _, info = wrapped.step(policy_action)
+    assert info["intervened"] is True and info["intervene_action"].shape == (1, 14)
+    torch.testing.assert_close(wrapped._last_gripper_action, torch.tensor([-0.5, 0.25]))
+    wrapped.reset()
+    torch.testing.assert_close(wrapped._last_gripper_action, torch.tensor([1.0, 1.0]))
+
+
+def test_single_arm_wrapper_keeps_a_one_entry_gripper_vector():
+    wrapped, _, _ = _wrap([_reading(False)])
+    assert wrapped._last_gripper_action.shape == (1,)
+
+
+def test_a_single_arm_source_on_a_two_arm_env_is_rejected():
+    source = ScriptedTeleopSource([_reading(False)])
+    with pytest.raises(ValueError, match="drives 1 arm.*num_arms=2"):
+        InterventionWrapper(TwoArmContractEnv(), source)
+    assert source.start_calls == 0
+
+
+def test_a_two_arm_source_of_the_wrong_width_is_rejected():
+    source = _TwoArmScriptedSource([_reading(False)], arm_action_dim=7)
+    with pytest.raises(ValueError, match="16-D actions"):
+        InterventionWrapper(TwoArmContractEnv(), source)

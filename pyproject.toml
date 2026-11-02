@@ -39,6 +39,7 @@ dev = ["pytest", "scipy"]
 [project.entry-points."rlgarden.env_backends"]
 franka_real = "rl_garden_real_world.envs.backends.franka_real"
 real_robot = "rl_garden_real_world.envs.backends.real_robot"
+real_robot_bimanual = "rl_garden_real_world.envs.backends.real_robot_bimanual"
 
 [project.entry-points."rlgarden.algorithms"]
 real_world = "rl_garden_real_world.training.rlgarden_algorithms"

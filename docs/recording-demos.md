@@ -8,6 +8,8 @@ The recorder builds the env exactly as the HIL actor does (`build_hil_env(args, 
 so it takes the same env, teleop and observation flags, and the same `--config` preset, as
 `train_real_world.py hil_serl`. Pass the flags of the run that will load the demos: the recorded
 observations and actions must match its env (the pkl's contract sidecar is checked on load).
+[getting-started-hardware.md](getting-started-hardware.md#6-record-demos) walks through the first
+recording session, from the station setup to the BC run that loads the pkl.
 
 ## Commands
 
@@ -30,6 +32,14 @@ gello.yaml` for a GELLO on this machine, `--teleop-device spacemouse` for a cart
 `--teleop-device leader_cartesian` on `franka_real`. The GELLO setup itself is in
 [gello.md](gello.md), the devices in [teleop.md](teleop.md).
 
+Two arms (`--env-backend real_robot_bimanual`): `--teleop-device bimanual --teleop-arm-device
+leader_arm` (or `gello`, or `robot`) reads one leader per arm, and the recorder works per arm.
+The hold action is each arm's own (in `joint_abs`, every follower's joints on its own limits),
+the episode-start check compares every leader with its own follower and names the arm furthest
+apart, and `--max-episode-steps` replaces `--real-robot-bimanual.max-episode-steps`. A step is
+recorded when either operator intervenes; the other arm is then held still. The commands are in
+[bimanual.md](bimanual.md#teleop-and-demo-recording).
+
 Then train with the demos:
 
 ```bash
@@ -43,7 +53,7 @@ python examples/train_real_world.py hil_serl --role learner --config hil.yaml \
 | --- | --- | --- |
 | `--output-path` | required | the demo pkl (must end in `.pkl` and not exist); `<stem>.contract.json` is written next to it |
 | `--num-successes` | 20 | stop after this many kept episodes |
-| `--max-episode-steps` | unset | episode step cap; replaces `--real-robot.max-episode-steps` or `--franka-real.max-episode-steps` when set |
+| `--max-episode-steps` | unset | episode step cap; replaces `--real-robot.max-episode-steps`, `--real-robot-bimanual.max-episode-steps` or `--franka-real.max-episode-steps` when set |
 | `--start-tolerance-rad` | 0.8 | `joint_abs`: refuse to start an episode while the leader is further than this from the follower in any joint |
 | `--keep-syncing-steps` | off | also record the ramp-onset steps (see below) |
 
@@ -62,7 +72,8 @@ python examples/train_real_world.py hil_serl --role learner --config hil.yaml \
 3. Every step the recorder sends a hold action; while the operator intervenes the intervention
    wrapper executes the operator's action instead. The hold action keeps the robot where it is:
    a zero arm action in `joint_delta` and `cartesian_delta`, the follower's current joint
-   positions in `joint_abs`, and the last executed gripper action (open after a reset).
+   positions in `joint_abs`, and the last executed gripper action (open after a reset), one per
+   arm: the grippers are the last `num_arms` action dims (the action contract's layout).
 4. A step is recorded only when it was intervened. Steps the ramp onset rate-limited carry
    `teleop_syncing` and are left out unless `--keep-syncing-steps` is given.
 5. The episode ends when the env terminates or truncates: the operator's episode-end button

@@ -172,6 +172,32 @@ class DynamixelBus:
             self._close_port()
             raise
 
+    def broadcast_ping(self) -> dict[int, int]:
+        """Open the port at ``baudrate``, broadcast-ping and close it again: servo id -> model
+        number of every responder (``servo_ids`` is ignored). Read-only: no torque write. Raises
+        ``DeviceNotFound`` when the port cannot be opened or the baud rate is refused."""
+        if self.is_open:
+            raise RuntimeError(f"broadcast_ping needs a closed bus; {self.port} is open")
+        sdk = self._sdk
+        port_handler = sdk.PortHandler(self.port)
+        try:
+            opened = port_handler.openPort()
+        except Exception as error:
+            raise DeviceNotFound(
+                f"cannot open Dynamixel port {self.port}: {error}", hint=_PORT_HINT, device=self._device
+            ) from error
+        if not opened:
+            raise DeviceNotFound(f"cannot open Dynamixel port {self.port}", hint=_PORT_HINT, device=self._device)
+        self._port_handler = port_handler
+        self._packet_handler = sdk.PacketHandler(PROTOCOL_VERSION)
+        try:
+            self._set_baudrate()
+            # Responders are kept even when the tail of the reply is corrupt or times out.
+            responders, _comm_result = self._packet_handler.broadcastPing(port_handler)
+        finally:
+            self._close_port()
+        return {int(servo_id): int(info[0]) for servo_id, info in dict(responders or {}).items()}
+
     def _set_baudrate(self) -> None:
         try:
             accepted = self._port_handler.setBaudRate(self.baudrate)

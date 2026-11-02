@@ -17,13 +17,16 @@ from rl_garden_real_world.training.env_building import build_hil_env
 def build_residual_hil_serl(args, env, eval_env, logger, checkpoint_dir):
     """The residual agent for ``args.residual_variant`` through rl-garden's RLPD
     builders (``algorithm_cls=`` + the residual keywords). The online registry's
-    ``build_agent`` for ``residual_hil_serl`` and ``residual_hil_serl_hybrid``."""
+    ``build_agent`` for ``residual_hil_serl`` and ``residual_hil_serl_hybrid``.
+    ``num_grippers`` comes from ``env``'s action contract."""
+    from rl_garden_real_world.action_contract import env_num_grippers
     from rl_garden_real_world.algorithms.residual import (
         ResidualRLPD,
         ResidualRLPDHybrid,
     )
 
     residual_kwargs = dict(
+        num_grippers=env_num_grippers(env),
         residual_action_scale=args.residual_action_scale,
         residual_gripper_scale=args.residual_gripper_scale,
         residual_zero_init=args.residual_zero_init,

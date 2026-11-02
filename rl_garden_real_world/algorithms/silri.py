@@ -87,9 +87,10 @@ class SiLRI(DemoInterventionMixin, DDPG):
 
     ``utd`` is the number of critic updates per gradient step (one actor and one
     multiplier update each), so ``train(n)`` runs ``n * utd`` critic updates and
-    ``global_update`` advances by ``n``. ``discrete_gripper`` treats the last action dim
-    as an open/hold/close gripper predicted by a classification head; the critic and
-    the behaviour model then see the other dims only. ``learning_starts`` and
+    ``global_update`` advances by ``n``. ``discrete_gripper`` treats the last
+    ``num_grippers`` action dims as open/hold/close grippers predicted jointly by a
+    classification head over ``3 ** num_grippers`` classes; the critic and the behaviour
+    model then see the other dims only. ``learning_starts`` and
     ``demo_learning_starts`` are the online and demo buffer sizes the learner loop
     waits for. ``onset_to_demo_buffer`` is read by the learner loop (route the
     transition before an intervention onset to the demo buffer too; such rows keep
@@ -153,6 +154,7 @@ class SiLRI(DemoInterventionMixin, DDPG):
         lambda_hidden_dims: Sequence[int] = (256, 256),
         discrete_gripper: bool = False,
         discrete_hidden_dim: int = 256,
+        num_grippers: int = 1,
         encoder_config: Optional[EncoderConfig] = None,
         obs_groups: Optional[ObsGroups] = None,
         critic_encoder_config: Optional[EncoderConfig] = None,
@@ -201,6 +203,7 @@ class SiLRI(DemoInterventionMixin, DDPG):
         self.lambda_hidden_dims = tuple(int(dim) for dim in lambda_hidden_dims)
         self.discrete_gripper = bool(discrete_gripper)
         self.discrete_hidden_dim = int(discrete_hidden_dim)
+        self.num_grippers = int(num_grippers)
         # Checkpointed progress counters.
         self.pretrained = False
         self.demo_additions_since_refresh = 0
@@ -292,6 +295,7 @@ class SiLRI(DemoInterventionMixin, DDPG):
             "lambda_hidden_dims": self.lambda_hidden_dims,
             "discrete_gripper": self.discrete_gripper,
             "discrete_hidden_dim": self.discrete_hidden_dim,
+            "num_grippers": self.num_grippers,
         }
 
     def _build_auxiliary_extractor(self, observation_space) -> BaseFeaturesExtractor:
@@ -404,7 +408,7 @@ class SiLRI(DemoInterventionMixin, DDPG):
         return -(multiplier * excess_distance).mean()
 
     def _gripper_cross_entropy(self, logits: torch.Tensor, data) -> torch.Tensor:
-        labels = _discrete_labels_from_actions(data.actions)
+        labels = _discrete_labels_from_actions(data.actions, self.num_grippers)
         return _masked_mean(F.cross_entropy(logits, labels, reduction="none"), data.intervened)
 
     def _behavior_nll(self, data) -> tuple[torch.Tensor, torch.Tensor]:
@@ -618,6 +622,7 @@ class SiLRI(DemoInterventionMixin, DDPG):
                 "lambda_hidden_dims": list(self.lambda_hidden_dims),
                 "discrete_gripper": self.discrete_gripper,
                 "discrete_hidden_dim": self.discrete_hidden_dim,
+                "num_grippers": self.num_grippers,
             }
         )
         return meta

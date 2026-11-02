@@ -6,11 +6,13 @@ different observation layout than it trained on.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Union
 
 import gymnasium as gym
 
+from rl_garden_real_world.envs.bimanual.config import BimanualRealRobotEnvConfig
 from rl_garden_real_world.envs.real_robot.config import RealRobotEnvConfig
+from rl_garden_real_world.envs.wrappers.rotvec_obs import QuatSlices, as_quat_slice_list
 
 _LOGGER = logging.getLogger(__name__)
 _TCP_POSE_FIELD = "tcp_pose"
@@ -31,17 +33,39 @@ def tcp_pose_quat_slice(config: RealRobotEnvConfig) -> Optional[tuple[int, int]]
     return None
 
 
+def tcp_pose_quat_slices(
+    config: Union[RealRobotEnvConfig, BimanualRealRobotEnvConfig],
+) -> list[tuple[int, int]]:
+    """Every arm's ``tcp_pose`` quaternion in the flat ``state`` vector, in arm order; empty
+    without ``tcp_pose``. A two-arm state is the arms' blocks back to back, each laid out by the
+    shared ``state_fields``, so arm ``i``'s slice is the single-arm one shifted by ``i`` blocks."""
+    from rl_garden_real_world.envs.real_robot.env import _state_field_shape
+
+    arm_configs = (
+        list(config.arm_configs.values()) if isinstance(config, BimanualRealRobotEnvConfig) else [config]
+    )
+    slices = []
+    offset = 0
+    for arm_config in arm_configs:
+        arm_slice = tcp_pose_quat_slice(arm_config)
+        if arm_slice is not None:
+            slices.append((offset + arm_slice[0], offset + arm_slice[1]))
+        offset += sum(_state_field_shape(field, arm_config.num_joints)[0] for field in arm_config.state_fields)
+    return slices
+
+
 def apply_obs_chain(
     env: gym.Env,
     *,
     frame_stack: int,
     image_keys: Sequence[str],
     convert_obs_rotation: bool,
-    quat_slice: Optional[tuple[int, int]],
+    quat_slice: Optional[QuatSlices],
 ) -> gym.Env:
     """Frame stacking (innermost) then rotvec conversion, each only when requested.
 
-    ``image_keys`` empty means every non-``state`` observation key is a camera.
+    ``image_keys`` empty means every non-``state`` observation key is a camera. ``quat_slice`` is
+    one ``(start, end)`` pair or one per arm; ``None`` or empty means there is no quaternion.
     """
     from rl_garden.envs.wrappers.frame_stack import ImageFrameStackWrapper
     from rl_garden_real_world.envs.wrappers.rotvec_obs import RotvecObsWrapper
@@ -56,7 +80,7 @@ def apply_obs_chain(
         env = ImageFrameStackWrapper(env, frame_stack=frame_stack, image_keys=stack_keys)
 
     if convert_obs_rotation:
-        if quat_slice is None:
+        if quat_slice is None or not as_quat_slice_list(quat_slice):
             _LOGGER.warning(
                 "convert_obs_rotation skipped: state_fields has no tcp_pose, so there is no "
                 "quaternion to convert"

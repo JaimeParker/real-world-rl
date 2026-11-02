@@ -19,11 +19,20 @@ import time
 import torch
 
 
+def build_real_world_bc(args, env, eval_env, logger, checkpoint_dir):
+    """The BC agent on ``env``'s spaces (rl-garden's offline ``build_bc``), with the online
+    builders' signature so ``deploy`` restores a real_world_bc checkpoint like any other.
+    ``checkpoint_dir`` is unused: ``run_real_world_bc`` saves the checkpoints itself."""
+    from rl_garden.training.offline.entrypoints.bc import build_bc
+
+    del checkpoint_dir
+    return build_bc(args, env, logger, eval_env=eval_env)
+
+
 def run_real_world_bc(args: "RealWorldBCArgs") -> None:
     from rl_garden.common import Logger, seed_everything
     from rl_garden.common.resolved_config import persist_resolved_config
     from rl_garden.envs.backend_registry import make_training_envs
-    from rl_garden.training.offline.entrypoints.bc import build_bc
     from rl_garden.training.offline.runner import _eval_env_request
     from rl_garden_real_world.action_contract import demo_contract_of
     from rl_garden_real_world.training.demo_loading import load_demo_pkls
@@ -58,7 +67,7 @@ def run_real_world_bc(args: "RealWorldBCArgs") -> None:
     env_request = _eval_env_request(args)
     env, _ = make_training_envs(args.env_backend, env_request)
 
-    agent = build_bc(args, env, logger, eval_env=None)
+    agent = build_real_world_bc(args, env, None, logger, checkpoint_dir=None)
     loaded = load_demo_pkls(
         args.demo_dataset_paths,
         agent.replay_buffer.add,
@@ -74,7 +83,7 @@ def run_real_world_bc(args: "RealWorldBCArgs") -> None:
         for step in range(1, args.num_offline_steps + 1):
             metrics = agent.train(1, compute_info=(step % args.log_freq == 0))
             if step % args.log_freq == 0:
-                logger.log(metrics, step)
+                logger.log_metrics(metrics, step)
             if args.checkpoint_freq > 0 and step % args.checkpoint_freq == 0:
                 agent.save(os.path.join(checkpoint_dir, f"checkpoint_{step}.pt"))
         if args.save_final_checkpoint:

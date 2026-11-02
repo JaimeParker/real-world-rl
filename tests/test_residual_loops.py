@@ -10,6 +10,7 @@ import torch
 from _residual_fakes import (
     ACTION_DIM,
     STATE_DIM,
+    TWO_ARM_ACTION_DIM,
     DictEnv,
     FakeSyncClient,
     RecordingProvider,
@@ -84,6 +85,18 @@ def test_hybrid_warmup_keeps_the_base_gripper():
     action, ctx = loop._act(_obs(-1000.0))  # base -1.0 on every dim
     assert action.shape == (1, ACTION_DIM)
     assert float(action[0, -1]) == -1.0
+
+
+def test_two_gripper_hybrid_warmup_keeps_both_base_grippers():
+    env = DictEnv(action_dim=TWO_ARM_ACTION_DIM)
+    policy = residual_agent(ResidualRLPDHybrid, env=env, num_grippers=2).policy
+    loop = _actor_loop(
+        policy, env=env, provider=RecordingProvider(action_dim=TWO_ARM_ACTION_DIM), warmup_unit_residual=0.5
+    )
+    action, ctx = loop._act(_obs(-1000.0))  # base -1.0 on every dim
+    assert policy.residual_dim == 4 and action.shape == (1, TWO_ARM_ACTION_DIM)
+    torch.testing.assert_close(action[:, -2:], torch.full((1, 2), -1.0))
+    assert float((action[:, :4] - ctx["base_actions"][:, :4]).abs().max()) <= 0.5 * 0.1 + 1e-7
 
 
 def test_warmup_unit_residual_outside_unit_interval_is_rejected():

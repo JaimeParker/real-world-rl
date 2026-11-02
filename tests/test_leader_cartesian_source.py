@@ -619,3 +619,10 @@ def test_gello_station_example_yaml_is_a_stub_robot_with_every_gello_option():
     assert config.teleop.backend == "gello"
     assert set(config.teleop.options) == GELLO_OPTION_KEYS
     assert len(config.teleop.options["joint_ids"]) == 7
+
+
+def test_leader_without_gripper_reads_its_arm_from_a_one_entry_gripper_vector():
+    follower = _Follower(_ee_pose(np.asarray(READY_Q, dtype=np.float32)))
+    leader = _Leader(has_gripper=False)
+    reading = _source(leader, follower, last_gripper_action_getter=lambda: torch.tensor([-0.25])).poll()
+    assert reading.action[6] == pytest.approx(-0.25)

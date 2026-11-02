@@ -1,10 +1,16 @@
-"""Fill empty config fields from environment variables and unambiguous camera discovery."""
+"""Station config lookup and loading, plus filling empty config fields from environment
+variables and unambiguous camera discovery.
+
+A station yaml is either one robot mapping (optionally nested under ``robot:``) or
+``{"robots": {name: <robot mapping>, ...}}``. Each robot mapping may carry a
+``daemon: {bind, token}`` block, read by the daemon and stripped before ``RobotConfig.from_dict``."""
 from __future__ import annotations
 
 import dataclasses
 import os
 import types
 import typing
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -13,6 +19,16 @@ import yaml
 from robot_infra.devices import Camera, Robot, RobotConfig
 
 _TRUE_STRINGS = {"1", "true", "yes"}
+STATION_FILENAME = "station.yaml"
+STATION_CONFIG_ENV = "ROBOT_INFRA_CONFIG"
+STATION_SCOPES = ("local", "user")
+DEFAULT_DAEMON_BIND = "0.0.0.0:50051"
+_LOCAL_CONFIG_DIR = "local"
+_USER_CONFIG_DIR = "robot_infra"
+_DAEMON_KEY = "daemon"
+_DAEMON_KEYS = {"bind", "token"}
+_ROBOTS_KEY = "robots"
+SETUP_COMMAND = "python -m robot_infra.setup"
 
 
 def _scalar_type(annotation: Any) -> type | None:
@@ -55,17 +71,153 @@ def _with_discovered_serial(camera):
     return dataclasses.replace(camera, serial=next(iter(serials))) if len(serials) == 1 else camera
 
 
-def load_config(path: str | Path) -> RobotConfig:
-    """Parse a robot yaml into its config without building parts, so an unregistered
-    backend is reported by the doctor instead of failing at load time."""
-    data = yaml.safe_load(Path(path).read_text())
+def default_station_config_dir(
+    scope: str = "local", *, cwd: str | Path | None = None, env: Mapping[str, str] | None = None
+) -> Path:
+    """Directory the setup wizard writes ``station.yaml`` to: ``<cwd>/local`` for ``local``,
+    ``$XDG_CONFIG_HOME/robot_infra`` (default ``~/.config/robot_infra``) for ``user``."""
+    env = os.environ if env is None else env
+    if scope == "local":
+        return Path.cwd() / _LOCAL_CONFIG_DIR if cwd is None else Path(cwd) / _LOCAL_CONFIG_DIR
+    if scope == "user":
+        if env.get("XDG_CONFIG_HOME"):
+            base = Path(env["XDG_CONFIG_HOME"])
+        elif env.get("HOME"):
+            base = Path(env["HOME"]) / ".config"
+        else:
+            base = Path.home() / ".config"
+        return base / _USER_CONFIG_DIR
+    raise ValueError(f"unknown station config scope '{scope}'; choose from {list(STATION_SCOPES)}")
+
+
+def station_config_search_path(
+    *, cwd: str | Path | None = None, env: Mapping[str, str] | None = None
+) -> list[Path]:
+    """The two well-known station files, in lookup order (``$ROBOT_INFRA_CONFIG`` comes first)."""
+    return [default_station_config_dir(scope, cwd=cwd, env=env) / STATION_FILENAME for scope in STATION_SCOPES]
+
+
+def resolve_station_config_path(
+    explicit: str | Path | None = None,
+    *,
+    env: Mapping[str, str] | None = None,
+    cwd: str | Path | None = None,
+) -> Path:
+    """``explicit`` if given; else ``$ROBOT_INFRA_CONFIG`` if set; else the first existing of
+    ``<cwd>/local/station.yaml`` and ``$XDG_CONFIG_HOME/robot_infra/station.yaml``."""
+    env = os.environ if env is None else env
+    if explicit:
+        return Path(explicit)
+    if env.get(STATION_CONFIG_ENV):
+        return Path(env[STATION_CONFIG_ENV])
+    candidates = station_config_search_path(cwd=cwd, env=env)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    locations = [f"${STATION_CONFIG_ENV}", *(str(candidate) for candidate in candidates)]
+    raise FileNotFoundError(
+        "no robot config given and no station config found; looked at " + ", ".join(locations)
+        + f". Pass --config <yaml>, or run `{SETUP_COMMAND}` to write one"
+    )
+
+
+@dataclass
+class StationRobot:
+    """One robot of a station: its config and where its daemon listens."""
+
+    config: RobotConfig
+    bind: str = DEFAULT_DAEMON_BIND
+    token: str | None = None
+
+
+@dataclass
+class Station:
+    """Every robot of a station yaml by name. ``multi_robot`` is True for the ``robots:`` form."""
+
+    robots: dict[str, StationRobot]
+    multi_robot: bool = False
+
+    def select(self, name: str | None = None) -> StationRobot:
+        """The robot called ``name``; without a name, the only robot (several raise ``ValueError``)."""
+        if name is None:
+            if len(self.robots) == 1:
+                return next(iter(self.robots.values()))
+            raise ValueError(
+                f"the station has {len(self.robots)} robots {sorted(self.robots)}; pass --robot <name>"
+            )
+        try:
+            return self.robots[name]
+        except KeyError:
+            raise ValueError(f"no robot '{name}' in the station; robots: {sorted(self.robots)}") from None
+
+
+def _robot_config_from_mapping(data: Any, *, default_name: str | None = None) -> StationRobot:
+    if not isinstance(data, Mapping):
+        raise ValueError(f"a robot config must be a mapping, got {type(data).__name__}")
+    values = dict(data)
+    daemon = values.pop(_DAEMON_KEY, None) or {}
+    if not isinstance(daemon, Mapping):
+        raise ValueError(f"'daemon' must be a mapping with keys {sorted(_DAEMON_KEYS)}, got {daemon!r}")
+    unknown = sorted(set(daemon) - _DAEMON_KEYS)
+    if unknown:
+        raise ValueError(f"unknown daemon keys {unknown}; known: {sorted(_DAEMON_KEYS)}")
+    if "type" not in values:
+        raise ValueError(f"robot config has no 'type'; registered: {sorted(Robot.types())}")
+    if default_name is not None and "name" not in values:
+        values["name"] = default_name
+    config = Robot.types()[str(values["type"]).lower()].CONFIG.from_dict(values)
+    bind = daemon.get("bind")
+    token = daemon.get("token")
+    return StationRobot(
+        config=config,
+        bind=DEFAULT_DAEMON_BIND if bind is None else str(bind),
+        token=None if token is None else str(token),
+    )
+
+
+def parse_station(data: Any) -> Station:
+    """A station from parsed yaml: one robot mapping (optionally under ``robot:``), named by its
+    ``name`` field, or ``{"robots": {name: mapping}}`` where a mapping without ``name`` takes its key."""
+    if isinstance(data, Mapping) and _ROBOTS_KEY in data:
+        unknown = sorted(set(data) - {_ROBOTS_KEY})
+        if unknown:
+            raise ValueError(f"unknown station keys {unknown}; a multi-robot station has only '{_ROBOTS_KEY}'")
+        robots = data[_ROBOTS_KEY]
+        if not isinstance(robots, Mapping) or not robots:
+            raise ValueError(f"'{_ROBOTS_KEY}' must map at least one robot name to its config")
+        return Station(
+            {
+                str(name): _robot_config_from_mapping(robot, default_name=str(name))
+                for name, robot in robots.items()
+            },
+            multi_robot=True,
+        )
     if isinstance(data, Mapping) and "robot" in data:
         data = data["robot"]
-    if "type" not in data:
-        raise ValueError(f"robot config has no 'type'; registered: {sorted(Robot.types())}")
-    return Robot.types()[str(data["type"]).lower()].CONFIG.from_dict(data)
+    robot = _robot_config_from_mapping(data)
+    return Station({robot.config.name: robot})
 
 
-def load_config_with_env(path: str | Path) -> RobotConfig:
+def load_station(path: str | Path) -> Station:
+    """Parse a station yaml without building parts or reading the environment."""
+    return parse_station(yaml.safe_load(Path(path).read_text()))
+
+
+def load_station_with_env(path: str | Path) -> Station:
+    """``load_station`` with ``fill_from_env`` applied to every robot."""
+    station = load_station(path)
+    for robot in station.robots.values():
+        robot.config = fill_from_env(robot.config)
+    return station
+
+
+def load_config(path: str | Path, robot: str | None = None) -> RobotConfig:
+    """Parse a robot or station yaml into one robot's config without building parts, so an
+    unregistered backend is reported by the doctor instead of failing at load time. A station
+    with several robots needs ``robot``."""
+    return load_station(path).select(robot).config
+
+
+def load_config_with_env(path: str | Path, robot: str | None = None) -> RobotConfig:
     """``load_config`` plus ``fill_from_env``: the one config view shared by daemon, doctor and discovery."""
-    return fill_from_env(load_config(path))
+    return fill_from_env(load_config(path, robot))

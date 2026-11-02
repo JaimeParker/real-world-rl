@@ -87,13 +87,24 @@ def _run_actor(args) -> None:
     loop.run()
 
 
+def _gripper_kwargs(env) -> dict:
+    """``num_grippers`` for ``build_rlpd_hybrid`` from ``env``'s action contract; empty for a
+    single gripper, so the builder's default applies."""
+    from rl_garden_real_world.action_contract import env_num_grippers
+
+    num_grippers = env_num_grippers(env)
+    return {} if num_grippers == 1 else {"num_grippers": num_grippers}
+
+
 def _rebuild_scratch_agent_for_env(args, env):
     from rl_garden.training.online.entrypoints.rlpd_hybrid import build_rlpd_hybrid
 
     scratch_args = dataclasses.replace(
         args, buffer_size=8, load_checkpoint=None, offline_dataset=None
     )
-    return build_rlpd_hybrid(scratch_args, env, None, logger=None, checkpoint_dir=None)
+    return build_rlpd_hybrid(
+        scratch_args, env, None, logger=None, checkpoint_dir=None, **_gripper_kwargs(env)
+    )
 
 
 def _run_learner(args) -> None:
@@ -145,7 +156,9 @@ def _run_learner(args) -> None:
     # The learner only needs the env's spaces and action contract: no teleop device here.
     env = build_hil_env(args, role="learner", enable_teleop=False, run_name=run_name)
 
-    agent = build_rlpd_hybrid(args, env, None, logger=logger, checkpoint_dir=checkpoint_dir)
+    agent = build_rlpd_hybrid(
+        args, env, None, logger=logger, checkpoint_dir=checkpoint_dir, **_gripper_kwargs(env)
+    )
     agent.init_demo_buffer(args.demo_buffer_size, args.demo_data_ratio)
 
     loop = HilSerlLearnerLoop(
@@ -187,7 +200,9 @@ def _run_eval(args) -> None:
     env = build_hil_env(args, role="eval")
 
     eval_args = dataclasses.replace(args, buffer_size=8, offline_dataset=None)
-    agent = build_rlpd_hybrid(eval_args, env, None, logger=None, checkpoint_dir=None)
+    agent = build_rlpd_hybrid(
+        eval_args, env, None, logger=None, checkpoint_dir=None, **_gripper_kwargs(env)
+    )
     agent.policy.eval()
 
     successes = 0

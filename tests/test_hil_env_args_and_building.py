@@ -3,6 +3,7 @@ and training/env_building.build_hil_env."""
 from __future__ import annotations
 
 import dataclasses
+from pathlib import Path
 
 import gymnasium as gym
 import pytest
@@ -11,6 +12,7 @@ from gymnasium.vector.utils import batch_space
 
 from rl_garden.encoders.config import EncoderConfig
 from rl_garden.training.online.entrypoints.rlpd_hybrid import RLPDHybridArgs
+from rl_garden_real_world.envs.bimanual.config import BimanualRealRobotEnvConfig
 from rl_garden_real_world.envs.real_robot.config import RealRobotEnvConfig
 from rl_garden_real_world.training import env_building
 from rl_garden_real_world.training.args import (
@@ -32,6 +34,7 @@ HIL_SERL_OWN_DEFAULTS = {
     "publish_freq": 100,
     "env_backend": "franka_real",
     "real_robot": RealRobotEnvConfig(),
+    "real_robot_bimanual": BimanualRealRobotEnvConfig(),
     "franka_real": FrankaRealConfig(),
     "eval_n_trajs": 10,
     "classifier_checkpoint": None,
@@ -42,6 +45,7 @@ HIL_SERL_OWN_DEFAULTS = {
     "record_video_dir": None,
     "memory_efficient_buffer": False,
     "teleop_device": "pico",
+    "teleop_arm_device": "leader_arm",
     "robot_teleop_action_mode": None,
     "robot_teleop_has_gripper": True,
     "teleop_event_device": None,
@@ -96,6 +100,7 @@ def test_hil_env_args_holds_exactly_the_env_teleop_classifier_and_demo_fields():
         "record_video_dir",
         "memory_efficient_buffer",
         "teleop_device",
+        "teleop_arm_device",
         "robot_teleop_action_mode",
         "robot_teleop_has_gripper",
         "teleop_event_device",
@@ -356,5 +361,188 @@ def test_options_yaml_device_index_opens_that_spacemouse(tmp_path, monkeypatch):
     wrapped = TeleopInterventionWrapper(FakeEnv(), **env_building.teleop_wrapper_kwargs(args))
     try:
         assert pyspacemouse.devices[0].kwargs == {"device_index": 2}
+    finally:
+        wrapped.close()
+
+
+# -- --teleop-device bimanual ---------------------------------------------------------------
+
+BIMANUAL = "real_robot_bimanual"
+STATION_BIMANUAL_YAML = Path(__file__).resolve().parents[1] / "robot_infra" / "docs" / "station.bimanual.example.yaml"
+
+
+def _bimanual_args(**overrides) -> HilSerlArgs:
+    return _onset_args(env_backend=BIMANUAL, teleop_device="bimanual", **overrides)
+
+
+def test_bimanual_leader_arms_get_the_onset_per_arm():
+    assert env_building.teleop_wrapper_kwargs(_bimanual_args()) == {
+        "device": "bimanual",
+        "device_per_arm": "leader_arm",
+        "per_arm_kwargs": {},
+        "common_kwargs": _ONSET,
+    }
+
+
+def test_bimanual_declares_each_arms_robot_teleop_part():
+    args = _bimanual_args(robot_teleop_action_mode="joint_delta")
+    kwargs = env_building.teleop_wrapper_kwargs(args)
+    assert kwargs["common_kwargs"] == {"teleop_contract": ("joint_delta", 7, True), **_ONSET}
+
+    robot = env_building.teleop_wrapper_kwargs(dataclasses.replace(args, teleop_arm_device="robot"))
+    assert robot["device_per_arm"] == "robot"
+    assert robot["common_kwargs"] == {"teleop_contract": ("joint_delta", 7, True)}  # no onset
+
+    gello = env_building.teleop_wrapper_kwargs(dataclasses.replace(args, teleop_arm_device="gello"))
+    assert gello["device_per_arm"] == "gello" and gello["common_kwargs"] == _ONSET  # no declaration
+
+
+def test_bimanual_with_an_event_device_is_the_motion_half_of_a_composite():
+    kwargs = env_building.teleop_wrapper_kwargs(_bimanual_args(teleop_event_device="keyboard"))
+    assert kwargs == {
+        "device": "composite",
+        "motion": "bimanual",
+        "events": "keyboard",
+        "intervention_from": "events",
+        "motion_kwargs": {"device_per_arm": "leader_arm", "per_arm_kwargs": {}, "common_kwargs": _ONSET},
+    }
+
+
+def test_bimanual_needs_the_bimanual_backend():
+    with pytest.raises(ValueError, match="bimanual needs --env-backend real_robot_bimanual"):
+        env_building.teleop_wrapper_kwargs(HilSerlArgs(env_backend="real_robot", teleop_device="bimanual"))
+
+
+def test_bimanual_options_yaml_splits_arm_sections_from_common_keys(tmp_path):
+    options = tmp_path / "bimanual.yaml"
+    options.write_text(
+        "left: {port: /dev/left}\nright: {port: /dev/right}\nhold_s: 0.2\nintervention_from: all\n",
+        encoding="utf-8",
+    )
+    args = _bimanual_args(teleop_arm_device="gello", teleop_options_yaml=str(options))
+    assert env_building.teleop_wrapper_kwargs(args) == {
+        "device": "bimanual",
+        "device_per_arm": "gello",
+        "per_arm_kwargs": {"left": {"port": "/dev/left"}, "right": {"port": "/dev/right"}},
+        "intervention_from": "all",
+        "common_kwargs": {**_ONSET, "hold_s": 0.2},
+    }
+
+    options.write_text("left: /dev/left\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="'left' section must be a mapping"):
+        env_building.teleop_wrapper_kwargs(args)
+
+
+def test_bimanual_takes_each_arms_gello_options_from_a_station_yaml():
+    args = _bimanual_args(teleop_arm_device="gello", teleop_options_yaml=str(STATION_BIMANUAL_YAML))
+    kwargs = env_building.teleop_wrapper_kwargs(args)
+    per_arm = kwargs["per_arm_kwargs"]
+    assert set(per_arm) == {"left", "right"} and kwargs["common_kwargs"] == _ONSET
+    assert "LEFT" in per_arm["left"]["port"] and "RIGHT" in per_arm["right"]["port"]
+    assert per_arm["left"]["joint_ids"] == [1, 2, 3, 4, 5, 6, 7] and per_arm["left"]["hold_s"] == 0.0
+
+    renamed = dataclasses.replace(
+        args, real_robot_bimanual=BimanualRealRobotEnvConfig(arm_names=("a", "b"))
+    )
+    with pytest.raises(ValueError, match=r"do not include the env's arms \['a', 'b'\]"):
+        env_building.teleop_wrapper_kwargs(renamed)
+    # The daemons read their own GELLOs: a station yaml configures only local ones.
+    with pytest.raises(ValueError, match="station yaml"):
+        env_building.teleop_wrapper_kwargs(dataclasses.replace(args, teleop_arm_device="leader_arm"))
+
+
+def _single_robot_station(tmp_path) -> Path:
+    path = tmp_path / "robot.yaml"
+    path.write_text(
+        "type: franka\nname: arm\narm_backend: franky\n"
+        "teleop:\n  name: gello\n  backend: gello\n  hold_s: 0.1\n"
+        "  options: {port: /dev/gello, joint_ids: [1, 2, 3, 4, 5, 6, 7]}\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_teleop_options_from_yaml_reads_flat_single_and_multi_robot_forms(tmp_path):
+    flat = tmp_path / "flat.yaml"
+    flat.write_text("port: /dev/ttyUSB0\n", encoding="utf-8")
+    assert env_building.teleop_options_from_yaml(str(flat)) == {"port": "/dev/ttyUSB0"}
+    assert env_building.teleop_options_from_yaml(str(_single_robot_station(tmp_path))) == {
+        "port": "/dev/gello",
+        "joint_ids": [1, 2, 3, 4, 5, 6, 7],
+        "hold_s": 0.1,
+    }
+    multi = env_building.teleop_options_from_yaml(str(STATION_BIMANUAL_YAML))
+    assert set(multi) == {"left", "right"} and "LEFT" in multi["left"]["port"]
+
+
+def test_a_station_robot_without_a_gello_teleop_is_rejected(tmp_path):
+    station = tmp_path / "station.yaml"
+    station.write_text("robots:\n  left: {type: franka}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="'left' has no teleop"):
+        env_building.teleop_options_from_yaml(str(station))
+    station.write_text("teleop: {backend: spacemouse, options: {}}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="'spacemouse' teleop"):
+        env_building.teleop_options_from_yaml(str(station))
+
+
+def test_single_arm_gello_reads_a_single_robot_station_yaml(tmp_path):
+    args = _onset_args(teleop_device="gello", teleop_options_yaml=str(_single_robot_station(tmp_path)))
+    assert env_building.teleop_wrapper_kwargs(args) == {
+        "device": "gello",
+        **_ONSET,
+        "port": "/dev/gello",
+        "joint_ids": [1, 2, 3, 4, 5, 6, 7],
+        "hold_s": 0.1,
+    }
+
+
+def test_single_arm_devices_refuse_station_yamls_they_cannot_use(tmp_path):
+    with pytest.raises(ValueError, match="drives one arm"):
+        env_building.teleop_wrapper_kwargs(
+            _onset_args(teleop_device="gello", teleop_options_yaml=str(STATION_BIMANUAL_YAML))
+        )
+    with pytest.raises(ValueError, match="not --teleop-device spacemouse"):
+        env_building.teleop_wrapper_kwargs(
+            HilSerlArgs(teleop_device="spacemouse", teleop_options_yaml=str(_single_robot_station(tmp_path)))
+        )
+    with pytest.raises(ValueError, match="describes one robot"):
+        env_building.teleop_wrapper_kwargs(
+            _bimanual_args(teleop_arm_device="gello", teleop_options_yaml=str(_single_robot_station(tmp_path)))
+        )
+
+
+@pytest.fixture
+def bimanual_backend_env(tmp_path, monkeypatch):
+    """A two-arm vector env over fake Frankas, each with a scripted fake leader part."""
+    import robot_infra.devices.claims as claims
+    from _bimanual_fakes import bimanual_config, fake_franka
+    from robot_infra.devices.teleop import TeleopConfig
+
+    from rl_garden_real_world.envs.bimanual import BimanualRealRobotEnv, BimanualRealRobotVectorEnv
+
+    monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
+    leader = {"action_space": "joint_abs", "num_joints": 7, "script": [{"action": [0.0] * 7}]}
+    robots = {
+        arm: fake_franka(arm, teleop=TeleopConfig(name="leader", backend="fake", options=leader))
+        for arm in ("left", "right")
+    }
+    config = bimanual_config(shared={"action_mode": "joint_delta"})
+    return BimanualRealRobotVectorEnv(BimanualRealRobotEnv(config, robots=robots))
+
+
+def test_bimanual_args_build_the_bimanual_source_over_the_two_arm_env(bimanual_backend_env):
+    from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
+    from rl_garden_real_world.teleop.bimanual import BimanualTeleopSource
+    from rl_garden_real_world.teleop.leader_arm import LeaderArmPartSource
+
+    args = _bimanual_args(real_robot_bimanual=bimanual_backend_env.env.config)
+    wrapped = TeleopInterventionWrapper(bimanual_backend_env, **env_building.teleop_wrapper_kwargs(args))
+    try:
+        source = wrapped.source
+        assert isinstance(source, BimanualTeleopSource) and source.arm_names == ["left", "right"]
+        for arm, child in source.sources.items():
+            assert isinstance(child, LeaderArmPartSource)
+            assert child._onset == "arm" and child._ramp_step_rad == 0.03
+            assert child._resolve() is bimanual_backend_env.env.robot[arm].teleop
     finally:
         wrapped.close()

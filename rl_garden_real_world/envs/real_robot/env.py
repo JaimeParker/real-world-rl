@@ -400,6 +400,8 @@ class RealRobotEnv(gym.Env):
             "action_mode": config.action_mode,
             "gripper_in_action": config.gripper_in_action,
             "arm_action_dim": self.arm_action_dim,
+            "num_arms": 1,
+            "arm_names": ["arm"],
             "num_joints": config.num_joints,
             "joint_limits": config.joint_limits,
             "xyz_scale_m": config.xyz_scale_m,

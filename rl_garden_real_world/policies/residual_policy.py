@@ -6,7 +6,7 @@ action is ``clamp(base + residual_scale * u, -1, 1)``; the critic scores that
 composed action, exactly as it would score any env action.
 
 ``ResidualRLPDPolicy`` applies the residual to every env action dim (the
-algorithm sets the gripper dim's scale, ``0`` by default). ``ResidualRLPDHybridPolicy``
+algorithm sets the gripper dims' scale, ``0`` by default). ``ResidualRLPDHybridPolicy``
 applies it to the arm dims only; the gripper comes from the DQN head exactly as
 in ``RLPDHybridPolicy.predict`` and the base's gripper entry is ignored.
 

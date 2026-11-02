@@ -9,13 +9,20 @@ eval loader): the online registry's ``<algo>`` Args are filled from the run's ``
 ``metadata.hyperparameters``, the agent is rebuilt with the registry entry's ``build_agent`` against
 the deploy env's spaces, and ``BaseAlgorithm.load`` restores the weights (no replay, no optimizers).
 Checkpoint/space mismatches therefore surface before the robot moves (nothing connects until
-the first ``reset``).
+the first ``reset``). ``--algo real_world_bc`` restores a real-world BC run the same way, with
+the real-world registry's Args and ``build_real_world_bc`` (BC is not on the online registry).
+The gripper count of an ``rlpd_hybrid`` agent comes from the deploy env's action contract, as
+in hil_serl.
 
 The training run is the source of truth for the action/observation contract: the env is built
 from the run's ``real_robot`` config (``resolve_deploy_robot_config``; the CLI only supplies
 connection fields and an explicit, conflicting contract field is an error) and the
 training-time observation wrappers (HIL-SERL frame stacking / rotvec conversion) are re-applied.
 Training-only wrappers (teleop intervention, classifier, grasp penalty, FWBW) are not.
+
+A run trained on two arms deploys with ``--env-backend real_robot_bimanual``: the env is built
+from the run's ``real_robot_bimanual`` config the same way (``resolve_deploy_bimanual_config``),
+checking the contract fields on each arm.
 """
 from __future__ import annotations
 
@@ -25,13 +32,16 @@ import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import torch
 
+from rl_garden_real_world.envs.bimanual.config import BimanualRealRobotEnvConfig
 from rl_garden_real_world.envs.real_robot.config import RealRobotEnvConfig
 
 _BACKEND = "real_robot"
+_BIMANUAL_BACKEND = "real_robot_bimanual"
+_DEPLOY_BACKENDS = (_BACKEND, _BIMANUAL_BACKEND)
 # Inverse of rl_garden.common.effective_config.json_value's non-finite float encoding.
 _JSON_FLOAT_SENTINELS = {"Infinity": float("inf"), "-Infinity": float("-inf"), "NaN": float("nan")}
 DEVICE_ERROR_EXIT_CODE = 2
@@ -52,6 +62,16 @@ _CONTRACT_FIELDS = (
     "control_hz",
     "max_episode_steps",
 )
+# The two-arm config splits the same fields: max_episode_steps (and the arm names, which name
+# the observation keys) on the two-arm config, the rest on each arm.
+_BIMANUAL_CONTRACT_FIELDS = ("arm_names", "max_episode_steps")
+_BIMANUAL_ARM_CONTRACT_FIELDS = tuple(name for name in _CONTRACT_FIELDS if name != "max_episode_steps")
+_BIMANUAL_ARMS = ("left", "right")
+# The real-world registry's offline BC method: restored from that registry, not the online one.
+_REAL_WORLD_BC = "real_world_bc"
+# Online builders that take the gripper count as a keyword; the residual and SiLRI builders read
+# it from the env's action contract themselves.
+_GRIPPER_COUNT_KEYWORD_ALGOS = ("rlpd_hybrid",)
 
 
 @dataclass
@@ -62,10 +82,14 @@ class DeployArgs:
     checkpoint: str
     # Online-registry algorithm that produced the checkpoint ("rlpd" for serl,
     # "rlpd_hybrid" for hil_serl, "residual_hil_serl" or "residual_hil_serl_hybrid" for
-    # residual_hil_serl).
+    # residual_hil_serl), or "real_world_bc" for a real_world_bc run.
     algo: str = "rlpd"
     # Robot connection and env settings (exactly one of --real_robot.robot / .remote).
     real_robot: RealRobotEnvConfig = field(default_factory=RealRobotEnvConfig)
+    # "real_robot_bimanual" for a run trained on two arms (connection settings then go to
+    # --real_robot_bimanual.{left,right}.*); must match the training run's backend.
+    env_backend: Literal["real_robot", "real_robot_bimanual"] = "real_robot"
+    real_robot_bimanual: BimanualRealRobotEnvConfig = field(default_factory=BimanualRealRobotEnvConfig)
     # Number of reset/step episodes to run.
     episodes: int = 5
     # Use the policy's deterministic (mean) action.
@@ -125,21 +149,43 @@ def _config_path(args: DeployArgs) -> Path:
     return Path(args.checkpoint).parent.parent / "config.json"
 
 
-def restore_training_args(args: DeployArgs) -> Any:
-    """The ``<algo>`` online Args as the checkpoint's run trained them, with inference-only overrides."""
-    from rl_garden.common.checkpoint import load_checkpoint_file
+def _training_args_cls(algo: str) -> type:
+    """The Args class of ``algo``'s runs: the real-world registry's for ``real_world_bc``, the
+    online registry entry's otherwise."""
+    if algo == _REAL_WORLD_BC:
+        from rl_garden_real_world.training.registry import (
+            registry as real_world_registry,
+        )
+
+        real_world_registry.discover()
+        return real_world_registry.entries()[_REAL_WORLD_BC].args_cls
     from rl_garden.training.online.registry import registry
 
     registry.discover()
     entries = registry.entries()
-    if args.algo not in entries:
-        raise ValueError(f"unknown algo {args.algo!r}; online registry has {sorted(entries)}")
-    training_args = entries[args.algo].args_cls()
+    if algo not in entries:
+        raise ValueError(
+            f"unknown algo {algo!r}; online registry has {sorted(entries)} (or {_REAL_WORLD_BC!r})"
+        )
+    return entries[algo].args_cls
+
+
+def restore_training_args(args: DeployArgs) -> Any:
+    """The ``<algo>`` Args as the checkpoint's run trained them, with inference-only overrides."""
+    from rl_garden.common.checkpoint import load_checkpoint_file
+
+    training_args = _training_args_cls(args.algo)()
 
     config_path = _config_path(args)
     if config_path.exists():
         config = json.loads(config_path.read_text(encoding="utf-8"))
         saved = config.get("inputs", config.get("args", config))
+        saved_backend = saved.get("env_backend")
+        if saved_backend in _DEPLOY_BACKENDS and saved_backend != args.env_backend:
+            raise ValueError(
+                f"the training run used --env-backend {saved_backend}; deploy it with "
+                f"--env-backend {saved_backend} (got {args.env_backend})"
+            )
         _apply_mapping(training_args, saved)
         _restore_real_world_fields(training_args, saved)
     checkpoint = load_checkpoint_file(args.checkpoint, map_location="cpu")
@@ -150,7 +196,7 @@ def restore_training_args(args: DeployArgs) -> Any:
     _apply_mapping(
         training_args,
         {
-            "env_backend": _BACKEND,
+            "env_backend": args.env_backend,
             "num_envs": 1,
             "num_eval_envs": 1,
             "seed": args.seed,
@@ -168,6 +214,10 @@ def restore_training_args(args: DeployArgs) -> Any:
             "log_type": "none",
         },
     )
+    if args.algo == _REAL_WORLD_BC:
+        # BC builds on its Args' device, which the checkpoint metadata set to the training
+        # device; online builders pick theirs and restore_policy moves the policy to --device.
+        _apply_mapping(training_args, {"device": args.device})
     return training_args
 
 
@@ -175,19 +225,43 @@ def _restore_real_world_fields(training_args: Any, saved: Mapping[str, Any]) -> 
     """Attach the real-world-only training fields the online ``<algo>`` Args do not declare.
 
     ``real_robot`` is attached only for ``env_backend == "real_robot"`` runs (franka_real runs
-    persist a default, meaningless ``real_robot``); ``convert_obs_rotation`` and
+    persist a default, meaningless ``real_robot``), ``real_robot_bimanual`` only for
+    ``env_backend == "real_robot_bimanual"`` runs; ``convert_obs_rotation`` and
     ``classifier_image_keys`` (the frame-stacked camera keys) come from hil_serl.
     """
     saved_robot = saved.get("real_robot")
     if saved.get("env_backend") == _BACKEND and isinstance(saved_robot, Mapping):
-        names = {f.name for f in fields(RealRobotEnvConfig)}
-        training_args.real_robot = RealRobotEnvConfig(
-            **{k: v for k, v in saved_robot.items() if k in names}
-        )
+        training_args.real_robot = _real_robot_config_from_saved(saved_robot)
+    saved_bimanual = saved.get("real_robot_bimanual")
+    if saved.get("env_backend") == _BIMANUAL_BACKEND and isinstance(saved_bimanual, Mapping):
+        training_args.real_robot_bimanual = _bimanual_config_from_saved(saved_bimanual)
     if "convert_obs_rotation" in saved:
         training_args.convert_obs_rotation = bool(saved["convert_obs_rotation"])
     if "classifier_image_keys" in saved:
         training_args.classifier_image_keys = tuple(saved["classifier_image_keys"] or ())
+
+
+def _real_robot_config_from_saved(saved_robot: Mapping[str, Any]) -> RealRobotEnvConfig:
+    names = {f.name for f in fields(RealRobotEnvConfig)}
+    return RealRobotEnvConfig(**{k: v for k, v in saved_robot.items() if k in names})
+
+
+def _bimanual_config_from_saved(saved_bimanual: Mapping[str, Any]) -> BimanualRealRobotEnvConfig:
+    names = {f.name for f in fields(BimanualRealRobotEnvConfig)}
+    values = {k: v for k, v in saved_bimanual.items() if k in names}
+    for arm in _BIMANUAL_ARMS:
+        if isinstance(values.get(arm), Mapping):
+            values[arm] = _real_robot_config_from_saved(values[arm])
+    return BimanualRealRobotEnvConfig(**values)
+
+
+def _contract_conflicts(cli: Any, trained: Any, defaults: Any, names: tuple[str, ...], prefix: str = "") -> list[str]:
+    """The contract fields given on the CLI (differing from ``defaults``) that contradict training."""
+    return [
+        f"{prefix}{name}: training={getattr(trained, name)!r}, cli={getattr(cli, name)!r}"
+        for name in names
+        if getattr(cli, name) != getattr(defaults, name) and getattr(cli, name) != getattr(trained, name)
+    ]
 
 
 def resolve_deploy_robot_config(args: DeployArgs, training_args: Any) -> RealRobotEnvConfig:
@@ -205,12 +279,7 @@ def resolve_deploy_robot_config(args: DeployArgs, training_args: Any) -> RealRob
             "--real_robot.* CLI config as is, so action/observation contract is NOT verified"
         )
         return cli
-    defaults = RealRobotEnvConfig()
-    conflicts = [
-        f"{name}: training={getattr(trained, name)!r}, cli={getattr(cli, name)!r}"
-        for name in _CONTRACT_FIELDS
-        if getattr(cli, name) != getattr(defaults, name) and getattr(cli, name) != getattr(trained, name)
-    ]
+    conflicts = _contract_conflicts(cli, trained, RealRobotEnvConfig(), _CONTRACT_FIELDS)
     if conflicts:
         raise ValueError(
             "--real_robot.* contradicts the training run's real_robot config; the training run "
@@ -220,16 +289,63 @@ def resolve_deploy_robot_config(args: DeployArgs, training_args: Any) -> RealRob
     return replace(cli, **{name: getattr(trained, name) for name in _CONTRACT_FIELDS})
 
 
+def resolve_deploy_bimanual_config(args: DeployArgs, training_args: Any) -> BimanualRealRobotEnvConfig:
+    """``resolve_deploy_robot_config`` for two arms: ``arm_names`` and ``max_episode_steps`` from
+    the training run's two-arm config, every other contract field from the training run's config
+    of each arm, connection fields from ``--real_robot_bimanual.*``. Runs without a
+    ``real_robot_bimanual`` config fall back to the CLI config entirely (with a warning)."""
+    cli = args.real_robot_bimanual
+    trained = getattr(training_args, "real_robot_bimanual", None)
+    if trained is None:
+        _LOGGER.warning(
+            "training config has no real_robot_bimanual section; using the "
+            "--real_robot_bimanual.* CLI config as is, so action/observation contract is NOT verified"
+        )
+        return cli
+    conflicts = _contract_conflicts(cli, trained, BimanualRealRobotEnvConfig(), _BIMANUAL_CONTRACT_FIELDS)
+    arm_defaults = RealRobotEnvConfig()
+    for arm in _BIMANUAL_ARMS:
+        conflicts += _contract_conflicts(
+            getattr(cli, arm), getattr(trained, arm), arm_defaults, _BIMANUAL_ARM_CONTRACT_FIELDS, f"{arm}."
+        )
+    if conflicts:
+        raise ValueError(
+            "--real_robot_bimanual.* contradicts the training run's real_robot_bimanual config; "
+            "the training run is the source of truth for these fields (drop them from the CLI):\n  "
+            + "\n  ".join(conflicts)
+        )
+    arms = {
+        arm: replace(
+            getattr(cli, arm),
+            **{name: getattr(getattr(trained, arm), name) for name in _BIMANUAL_ARM_CONTRACT_FIELDS},
+        )
+        for arm in _BIMANUAL_ARMS
+    }
+    return replace(cli, **arms, **{name: getattr(trained, name) for name in _BIMANUAL_CONTRACT_FIELDS})
+
+
 def build_deploy_env(args: DeployArgs, training_args: Any):
-    """The real_robot env with the observation layout the policy was trained on."""
+    """The ``args.env_backend`` env with the observation layout the policy was trained on."""
     import dataclasses
 
-    import rl_garden_real_world.envs.backends.real_robot  # noqa: F401  (registers the backend)
     from rl_garden.envs.backend_registry import EnvRequest, make_training_envs
     from rl_garden.observations import ObservationConfig
-    from rl_garden_real_world.envs.wrappers.obs_chain import apply_obs_chain, tcp_pose_quat_slice
+    from rl_garden_real_world.envs.wrappers.obs_chain import (
+        apply_obs_chain,
+        tcp_pose_quat_slice,
+        tcp_pose_quat_slices,
+    )
 
-    robot_config = resolve_deploy_robot_config(args, training_args)
+    if args.env_backend == _BIMANUAL_BACKEND:
+        import rl_garden_real_world.envs.backends.real_robot_bimanual  # noqa: F401  (registers the backend)
+
+        robot_config = resolve_deploy_bimanual_config(args, training_args)
+        quat_slice = tcp_pose_quat_slices(robot_config) or None
+    else:
+        import rl_garden_real_world.envs.backends.real_robot  # noqa: F401  (registers the backend)
+
+        robot_config = resolve_deploy_robot_config(args, training_args)
+        quat_slice = tcp_pose_quat_slice(robot_config)
     observation = getattr(training_args, "obs", None) or ObservationConfig()
     request = EnvRequest(
         env_id=getattr(training_args, "env_id", "real_robot"),
@@ -243,21 +359,26 @@ def build_deploy_env(args: DeployArgs, training_args: Any):
         create_eval_env=False,
         backend_config=robot_config,
     )
-    env, _ = make_training_envs(_BACKEND, request)
+    env, _ = make_training_envs(args.env_backend, request)
     return apply_obs_chain(
         env,
         frame_stack=observation.frame_stack,
         image_keys=tuple(getattr(training_args, "classifier_image_keys", ())),
         convert_obs_rotation=bool(getattr(training_args, "convert_obs_rotation", False)),
-        quat_slice=tcp_pose_quat_slice(robot_config),
+        quat_slice=quat_slice,
     )
 
 
 def _resolve_build_agent(algo: str):
     """The online registry entry's ``build_agent``; algorithms registered without one fall
-    back to ``build_<algo>`` in their in-tree entrypoints module."""
+    back to ``build_<algo>`` in their in-tree entrypoints module. ``real_world_bc`` builds with
+    ``build_real_world_bc``."""
     import importlib
 
+    if algo == _REAL_WORLD_BC:
+        from rl_garden_real_world.training.entrypoints.bc import build_real_world_bc
+
+        return build_real_world_bc
     from rl_garden.training.online.registry import registry
 
     registry.discover()
@@ -268,13 +389,27 @@ def _resolve_build_agent(algo: str):
     return getattr(module, f"build_{algo}")
 
 
+def _gripper_count_kwargs(algo: str, env: Any) -> dict:
+    """``num_grippers`` for the builders in ``_GRIPPER_COUNT_KEYWORD_ALGOS`` from ``env``'s action
+    contract, as hil_serl builds them; empty for one gripper (the builders' default) and for
+    every other algorithm."""
+    if algo not in _GRIPPER_COUNT_KEYWORD_ALGOS:
+        return {}
+    from rl_garden_real_world.action_contract import env_num_grippers
+
+    num_grippers = env_num_grippers(env)
+    return {} if num_grippers == 1 else {"num_grippers": num_grippers}
+
+
 def restore_policy(args: DeployArgs, training_args: Any, env: Any):
     """Rebuild the ``<algo>`` agent on ``env``'s spaces and load the checkpoint weights."""
     from rl_garden.common import seed_everything
 
     seed_everything(args.seed)
     build_agent = _resolve_build_agent(args.algo)
-    agent = build_agent(training_args, env, None, logger=None, checkpoint_dir=None)
+    agent = build_agent(
+        training_args, env, None, logger=None, checkpoint_dir=None, **_gripper_count_kwargs(args.algo, env)
+    )
     agent.load(args.checkpoint, load_replay_buffer=False, load_optimizers=False)
     # Online builders construct on device "auto"; inference runs where --device says.
     policy = agent.policy.to(torch.device(args.device))
@@ -319,7 +454,9 @@ def _health_ok(env: Any) -> Optional[bool]:
     robot = _find_robot(env)
     if robot is None:
         return None
-    return bool(robot.health().ok)
+    # A two-arm env's ``robot`` maps arm name to robot; healthy means every arm is.
+    robots = robot.values() if isinstance(robot, Mapping) else (robot,)
+    return all(bool(each.health().ok) for each in robots)
 
 
 def _obs_to_device(obs: Any, device: torch.device) -> Any:

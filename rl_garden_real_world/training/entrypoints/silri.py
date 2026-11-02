@@ -75,7 +75,8 @@ class SilriArgs(
     hidden_dim: int = 256
     behavior_hidden_dims: tuple[int, ...] = (256, 256)
     lambda_hidden_dims: tuple[int, ...] = (256, 256)
-    # Last action dim is an open/hold/close gripper predicted by a classification head.
+    # The last action dims (one gripper per arm, from the env contract) are open/hold/close
+    # grippers predicted by a classification head.
     discrete_gripper: bool = True
     discrete_hidden_dim: int = 256
 
@@ -91,14 +92,18 @@ def build_silri(
     **extra_kwargs: Any,
 ):
     """Build ``algorithm_cls`` (``SiLRI`` when ``None``) from ``args``; ``extra_kwargs``
-    win over the keywords taken from ``args``. Loads ``args.load_checkpoint`` when set.
+    win over the keywords taken from ``args``; ``num_grippers`` comes from ``env``'s action
+    contract. Loads ``args.load_checkpoint`` when set.
     The demo buffer is left to the caller (``agent.init_demo_buffer``)."""
     from rl_garden.common.cli_args import (
         resolve_critic_encoder_config,
         resolve_obs_groups_config,
     )
     from rl_garden.training.inspection import construct_agent
-    from rl_garden_real_world.action_contract import get_env_action_contract
+    from rl_garden_real_world.action_contract import (
+        env_num_grippers,
+        get_env_action_contract,
+    )
     from rl_garden_real_world.algorithms.silri import SiLRI
 
     contract = get_env_action_contract(env)
@@ -137,6 +142,7 @@ def build_silri(
         lambda_hidden_dims=tuple(args.lambda_hidden_dims),
         discrete_gripper=args.discrete_gripper,
         discrete_hidden_dim=args.discrete_hidden_dim,
+        num_grippers=env_num_grippers(env),
         encoder_config=args.encoder if args.obs.is_visual else None,
         obs_groups=resolve_obs_groups_config(args),
         critic_encoder_config=resolve_critic_encoder_config(args),

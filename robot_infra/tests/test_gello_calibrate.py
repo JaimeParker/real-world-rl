@@ -257,3 +257,66 @@ def test_main_requires_a_pose_for_non_franka_joint_counts(scripted_bus, capsys):
     with pytest.raises(SystemExit):
         calibrate.main(["--port", "/dev/ttyUSB0", "--joint-ids", "1", "2", "3"], ask=lambda prompt: "")
     assert "--calibration-pose is required" in capsys.readouterr().err
+
+
+# -- calibrate_gello (shared by the CLI and the setup wizard) ----------------------------------
+
+
+def test_calibrate_gello_returns_the_options_main_prints(scripted_bus, tmp_path):
+    true_offsets = QUARTER * np.array([0, 0, 2, 2, 2, 3, 0])
+    signs = [1, -1, 1, -1, 1, 1, 1]
+    pose_raw = raw_for(FRANKA_POSE, true_offsets, signs)
+    readings = [np.append(pose_raw, 0.0), np.append(pose_raw, 3.2), np.append(pose_raw, 2.1)]
+    limits = [[-2.9, 2.9]] * 7
+    scripted_bus.readings = list(readings)
+    options = calibrate.calibrate_gello(
+        port="/dev/ttyUSB0", joint_ids=[1, 2, 3, 4, 5, 6, 7], gripper_id=8, joint_signs=signs,
+        joint_limits=limits, skip_sign_check=True, ask=lambda prompt: "", echo=lambda line: None,
+    )
+    assert set(options) == {
+        "port", "baudrate", "joint_ids", "joint_offsets_rad", "joint_signs", "wrap_centers_rad",
+        "gripper_id", "gripper_open_rad", "gripper_closed_rad",
+    }
+    assert options["joint_offsets_rad"] == [0.0, 0.0, 3.1416, 3.1416, 3.1416, 4.7124, 0.0]
+    assert options["joint_signs"] == signs and options["wrap_centers_rad"] == [0.0] * 7
+    assert (options["gripper_open_rad"], options["gripper_closed_rad"]) == (3.2, 2.1)
+    assert scripted_bus.instances[-1].servo_ids == [1, 2, 3, 4, 5, 6, 7, 8]
+
+    robot_yaml_limits = {"robot": {"type": "franka", "joint_limits": limits}}
+    scripted_bus.readings = list(readings)
+    printed = []
+    argv = [
+        "--port", "/dev/ttyUSB0", "--joint-ids", "1", "2", "3", "4", "5", "6", "7", "--gripper-id", "8",
+        "--joint-signs", "1", "-1", "1", "-1", "1", "1", "1", "--skip-sign-check",
+    ]
+    limits_path = tmp_path / "robot.yaml"
+    limits_path.write_text(yaml.safe_dump(robot_yaml_limits))
+    assert calibrate.main([*argv, "--joint-limits-yaml", str(limits_path)], ask=lambda prompt: "", echo=printed.append) == 0
+    assert printed[-1] == calibrate.format_yaml_block(**options)
+
+
+def test_calibrate_gello_uses_an_injected_bus_without_the_sdk(monkeypatch):
+    monkeypatch.setattr(GelloTeleop, "require_sdk", classmethod(lambda cls: pytest.fail("SDK required")))
+    monkeypatch.setattr(ScriptedBus, "instances", [])
+    monkeypatch.setattr(ScriptedBus, "readings", [np.zeros(3)])
+    bus = ScriptedBus(None, "/dev/ttyUSB0", 57600, [1, 2, 3], device="test")
+    options = calibrate.calibrate_gello(
+        port="/dev/ttyUSB0", joint_ids=[1, 2, 3], calibration_pose=[0.0, 0.0, 0.0], skip_sign_check=True,
+        ask=lambda prompt: "", echo=lambda line: None, bus=bus,
+    )
+    assert bus.opened and bus.closed
+    assert options["joint_offsets_rad"] == [0.0, 0.0, 0.0] and options["gripper_id"] is None
+    assert options["gripper_open_rad"] is None and options["gripper_closed_rad"] is None
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({"joint_ids": [1, 2, 3]}, "calibration_pose is required for 3 joints"),
+        ({"joint_ids": [1, 2, 3], "calibration_pose": [0.0, 0.0]}, "calibration_pose needs 3 values"),
+        ({"joint_ids": [1, 2, 3], "calibration_pose": [0.0] * 3, "joint_signs": [1]}, "joint_signs needs 3 values"),
+    ],
+)
+def test_calibrate_gello_validates_before_touching_the_bus(kwargs, match):
+    with pytest.raises(ValueError, match=match):
+        calibrate.calibrate_gello(port="/dev/ttyUSB0", ask=lambda prompt: "", bus=object(), **kwargs)

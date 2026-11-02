@@ -6,7 +6,7 @@ import math
 
 import pytest
 import torch
-from _silri_fakes import fill, silri_agent
+from _silri_fakes import TWO_ARM_ACTION_DIM, fill, silri_agent
 from rl_garden_real_world.buffers.intervention_replay_buffer import (
     InterventionReplayBuffer,
     InterventionSample,
@@ -262,3 +262,12 @@ def test_checkpoint_metadata_names_silri_hyperparameters_only(tmp_path):
     for unused in ("stddev_schedule", "nstep", "policy_lr", "q_lr", "training_freq"):
         assert unused not in meta
     assert "SiLRI" in type(agent)._compatible_checkpoint_algorithms
+
+
+def test_two_gripper_agent_trains_and_records_num_grippers():
+    agent = _ready_agent(action_dim=TWO_ARM_ACTION_DIM, num_grippers=2)
+    info = agent.train(1, compute_info=True)
+    assert set(info) == _TRAIN_INFO_KEYS
+    assert all(math.isfinite(value) for value in info.values())
+    assert agent._checkpoint_metadata()["num_grippers"] == 2
+    assert silri_agent()._checkpoint_metadata()["num_grippers"] == 1

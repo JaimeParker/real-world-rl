@@ -21,9 +21,12 @@ source second, so events latched while the robot homes are dropped.
 ``"robot"`` device (the teleop part of the ``RealRobotEnv``'s robot) takes its mapping inputs
 through ``teleop_kwargs`` (``teleop_contract``, ``joint_limits``, ``joint_scale_rad``,
 ``read_timeout_s``); a teleop read failure propagates out of ``step()``. The wrapper keeps the
-gripper action last sent to the env (+1, open, after a reset), which a gripper-less teleop part
-holds: it passes ``last_gripper_action_getter`` to the ``GRIPPER_HOLDING_DEVICES`` and to the motion
-half of a ``"composite"`` whose motion device is one of them.
+gripper actions last sent to the env, one per arm (the last ``num_arms`` action dims, see
+``action_contract``; +1, open, after a reset) as a ``(num_arms,)`` tensor, which a gripper-less
+teleop part holds: it passes ``last_gripper_action_getter`` (returning that tensor; a source
+reads the entry of its arm; ``"bimanual"`` hands each per-arm child a view of its entry) to the
+``GRIPPER_HOLDING_DEVICES`` and to the motion half of a ``"composite"`` whose motion device is one
+of them.
 """
 from __future__ import annotations
 
@@ -36,6 +39,8 @@ from rl_garden_real_world.action_contract import (
     LEGACY_ACTION_CONTRACT,
     describe_contract,
     get_env_action_contract,
+    num_arms_of,
+    with_arm_layout,
 )
 from rl_garden_real_world.teleop.base import TeleopSource, as_teleop_source
 from rl_garden_real_world.teleop.registry import make_teleop_source
@@ -43,8 +48,8 @@ from rl_garden_real_world.teleop.registry import make_teleop_source
 # RealRobotEnv opens the gripper on reset.
 _GRIPPER_ACTION_AFTER_RESET = 1.0
 # Sources mapping a robot_infra teleop part, which hold the last sent gripper action when the part
-# has no gripper channel (they take ``last_gripper_action_getter``).
-GRIPPER_HOLDING_DEVICES = ("robot", "leader_arm", "gello", "leader_cartesian")
+# has no gripper channel (they take ``last_gripper_action_getter``); ``bimanual`` holds one per arm.
+GRIPPER_HOLDING_DEVICES = ("robot", "leader_arm", "gello", "leader_cartesian", "bimanual")
 
 
 class InterventionWrapper(gym.Wrapper):
@@ -56,7 +61,9 @@ class InterventionWrapper(gym.Wrapper):
     def __init__(self, env: gym.Env, source: TeleopSource) -> None:
         super().__init__(env)
         # Set before anything reads them: __getattr__ forwards unknown attributes to the env.
-        self._last_gripper_action = _GRIPPER_ACTION_AFTER_RESET
+        # One gripper per arm: the env must have gripper_in_action (checked below).
+        self._num_grippers = num_arms_of(get_env_action_contract(env) or LEGACY_ACTION_CONTRACT)
+        self._last_gripper_action = self._gripper_actions_after_reset()
         self._previously_intervened = False
         self.source = as_teleop_source(source)
         self._action_dim = self._validate_against_env(env, self.source)
@@ -72,13 +79,16 @@ class InterventionWrapper(gym.Wrapper):
         """Checks the source's declared action space against the env's contract.
 
         Compares ``action_mode`` and not just widths: a 6-joint ``joint_delta`` arm plus gripper
-        is 7-D, the same width as a cartesian twist plus gripper.
+        is 7-D, the same width as a cartesian twist plus gripper. A source drives one arm unless
+        it declares ``num_arms``; it must drive as many arms as the env has, and when it also
+        declares ``arm_names`` they must be the env's, in the env's order.
         """
         contract = get_env_action_contract(env) or LEGACY_ACTION_CONTRACT
         source_mode = source.action_mode
         source_arm_dim = int(source.arm_action_dim)
         source_has_gripper = bool(source.has_gripper)
-        source_dim = source_arm_dim + int(source_has_gripper)
+        source_num_arms, source_arm_names = _declared_arm_layout(source)
+        source_dim = source_num_arms * (source_arm_dim + int(source_has_gripper))
         if source_mode != contract["action_mode"]:
             raise ValueError(
                 f"teleop source produces action_mode={source_mode!r} ({source_dim}-D) but the env "
@@ -86,18 +96,31 @@ class InterventionWrapper(gym.Wrapper):
                 "Use --real_robot.action_mode cartesian_delta, or a teleop source that declares "
                 "a joint action space."
             )
+        env_num_arms = num_arms_of(contract)
+        if source_num_arms != env_num_arms:
+            raise ValueError(
+                f"teleop source drives {source_num_arms} arm(s) but the env has num_arms={env_num_arms} "
+                f"({describe_contract(contract)}); use a teleop source that drives {env_num_arms} arm(s)."
+            )
+        env_arm_names = list(with_arm_layout(contract)["arm_names"])
+        if source_arm_names is not None and source_arm_names != env_arm_names:
+            raise ValueError(
+                f"teleop source drives arms {source_arm_names} but the env's arms are {env_arm_names} "
+                f"({describe_contract(contract)}); build the source for the env's arm_names, in order."
+            )
         if not contract["gripper_in_action"]:
             raise ValueError(
                 "the intervention wrapper requires gripper_in_action=true (hil_serl, "
-                "residual_hil_serl and silri treat the last action dim as the gripper); "
+                "residual_hil_serl and silri treat the last num_arms action dims as the grippers); "
                 f"gripper-less envs are not supported yet. Env contract: {describe_contract(contract)}"
             )
         action_space = getattr(env, "single_action_space", None)
         if action_space is not None and source_dim != action_space.shape[-1]:
+            arms = f" per arm, {source_num_arms} arms" if source_num_arms != 1 else ""
             raise ValueError(
                 f"teleop source produces {source_dim}-D actions (arm {source_arm_dim} + gripper "
-                f"{int(source_has_gripper)}, action_mode={source_mode!r}) but the env action space "
-                f"is {action_space.shape[-1]}-D ({describe_contract(contract)})"
+                f"{int(source_has_gripper)}{arms}, action_mode={source_mode!r}) but the env action "
+                f"space is {action_space.shape[-1]}-D ({describe_contract(contract)})"
             )
         return None if action_space is None else int(action_space.shape[-1])
 
@@ -109,11 +132,14 @@ class InterventionWrapper(gym.Wrapper):
         # transparent to algorithm code built against the unwrapped env.
         return getattr(self.env, name)
 
+    def _gripper_actions_after_reset(self) -> torch.Tensor:
+        return torch.full((self._num_grippers,), _GRIPPER_ACTION_AFTER_RESET)
+
     def reset(self, **kwargs):
         # Env first: events latched while the robot homes are then dropped by the source reset.
         result = self.env.reset(**kwargs)
         self.source.reset()
-        self._last_gripper_action = _GRIPPER_ACTION_AFTER_RESET
+        self._last_gripper_action = self._gripper_actions_after_reset()
         self._previously_intervened = False
         return result
 
@@ -131,9 +157,9 @@ class InterventionWrapper(gym.Wrapper):
             )
             info_extra["intervene_action"] = action
         obs, reward, terminated, truncated, info = self.env.step(action)
-        # The env clips actions to [-1, 1], so this is the gripper action it actually sent.
-        self._last_gripper_action = float(
-            torch.as_tensor(action).reshape(-1)[-1].clamp(-1.0, 1.0)
+        # The env clips actions to [-1, 1], so these are the gripper actions it actually sent.
+        self._last_gripper_action = (
+            torch.as_tensor(action).detach().reshape(-1)[-self._num_grippers :].clamp(-1.0, 1.0).cpu()
         )
         info = {
             **info,
@@ -158,6 +184,14 @@ class InterventionWrapper(gym.Wrapper):
             self.source.close()
         finally:
             self.env.close()
+
+
+def _declared_arm_layout(source: TeleopSource) -> tuple[int, Optional[list[str]]]:
+    """``(num_arms, arm_names)`` the source declares: one arm and no names unless it declares
+    them (a composite delegates to its motion half)."""
+    arm_names = getattr(source, "arm_names", None)
+    num_arms = int(getattr(source, "num_arms", 1))
+    return num_arms, None if arm_names is None else [str(name) for name in arm_names]
 
 
 class TeleopInterventionWrapper(InterventionWrapper):

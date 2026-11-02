@@ -1,11 +1,14 @@
-"""Fakes shared by the teleop tests: a minimal env and a mocked ``pyspacemouse`` SDK."""
+"""Fakes shared by the teleop tests: a minimal env (one arm, or two arms) and a mocked
+``pyspacemouse`` SDK."""
 from __future__ import annotations
 
 import time
 import types
 
 import gymnasium as gym
+import numpy as np
 import torch
+from gymnasium import spaces
 
 
 class FakeEnv(gym.Env):
@@ -45,6 +48,15 @@ class ContractEnv(FakeEnv):
             "arm_action_dim": arm_action_dim,
             "gripper_in_action": gripper_in_action,
         }
+
+
+class TwoArmContractEnv(ContractEnv):
+    """A two-arm ``ContractEnv``: actions are ``[left arm, right arm, left gripper, right gripper]``."""
+
+    def __init__(self, action_mode="cartesian_delta", arm_action_dim=6):
+        super().__init__(action_mode, arm_action_dim, gripper_in_action=True)
+        self.action_contract.update(num_arms=2, arm_names=["left", "right"])
+        self.single_action_space = spaces.Box(-1.0, 1.0, (2 * arm_action_dim + 2,), dtype=np.float32)
 
 
 def make_pyspacemouse() -> types.ModuleType:

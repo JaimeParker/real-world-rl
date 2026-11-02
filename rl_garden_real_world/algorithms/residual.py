@@ -16,8 +16,9 @@ unit residual towards the residual the human action implies,
 ``ResidualRLPD`` puts the residual on every env action dim (gripper scale
 ``residual_gripper_scale``, ``0`` by default) and has no DQN head;
 ``ResidualRLPDHybrid`` puts it on the arm dims and keeps ``RLPDHybrid``'s DQN
-gripper head. Both assume the env's last action dim is the gripper, as every
-HIL env does (the intervention wrapper requires it). Real-world loops only:
+gripper head. Both take the env's last ``num_grippers`` action dims as the
+grippers (one per arm, the ``action_contract`` layout), as every HIL env has
+them (the intervention wrapper requires it). Real-world loops only:
 ``learn()``'s rollout and rl-garden's checkpoint evaluation call
 ``policy.predict`` without a base action, which the residual policy refuses.
 """
@@ -108,11 +109,12 @@ class ResidualMixin:
 
     def residual_scale_vector(self) -> list[float]:
         """Per-dim residual scale: ``residual_action_scale`` on the arm dims, then
-        ``residual_gripper_scale`` when the residual covers the gripper."""
-        arm_dim = int(self.env.single_action_space.shape[0]) - 1
+        ``residual_gripper_scale`` on each of the ``num_grippers`` gripper dims when the
+        residual covers the grippers."""
+        arm_dim = int(self.env.single_action_space.shape[0]) - self.num_grippers
         scales = [self.residual_action_scale] * arm_dim
         if self._residual_covers_gripper:
-            scales.append(self.residual_gripper_scale)
+            scales.extend([self.residual_gripper_scale] * self.num_grippers)
         return scales
 
     def _policy_kwargs(self, observation_space) -> dict[str, Any]:
@@ -244,6 +246,7 @@ class ResidualMixin:
             "residual_log_std_init": self.residual_log_std_init,
             "residual_bc_weight": self.residual_bc_weight,
             "residual_scale": self.residual_scale_vector(),
+            "num_grippers": self.num_grippers,
             "critic_only_updates": self.critic_only_updates,
             "base_provider": self.base_provider_spec,
         }
@@ -251,15 +254,22 @@ class ResidualMixin:
 
 class ResidualRLPD(ResidualMixin, DemoInterventionMixin, RLPD):
     """Residual RLPD over every env action dim, with the growing intervention demo
-    buffer of ``DemoInterventionMixin``."""
+    buffer of ``DemoInterventionMixin``. ``num_grippers`` (the env's trailing gripper
+    dims) sets which dims get ``residual_gripper_scale``."""
 
     _compatible_checkpoint_algorithms = ("ResidualRLPD",)
     policy_class = ResidualRLPDPolicy
 
+    def __init__(self, env: Any, eval_env: Optional[Any] = None, *, num_grippers: int = 1, **kwargs: Any) -> None:
+        # Set before super().__init__(): it builds the policy from residual_scale_vector().
+        self.num_grippers = int(num_grippers)
+        super().__init__(env, eval_env, **kwargs)
+
 
 class ResidualRLPDHybrid(ResidualMixin, RLPDHybrid):
-    """Residual RLPD over the arm dims; the gripper is ``RLPDHybrid``'s DQN head,
-    trained on the recorded gripper action (the human's on intervened rows)."""
+    """Residual RLPD over the arm dims; the grippers are ``RLPDHybrid``'s DQN head
+    (``num_grippers`` of them, an ``RLPDHybrid`` keyword), trained on the recorded
+    gripper actions (the human's on intervened rows)."""
 
     _compatible_checkpoint_algorithms = ("ResidualRLPDHybrid",)
     policy_class = ResidualRLPDHybridPolicy

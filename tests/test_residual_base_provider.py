@@ -122,6 +122,36 @@ def test_checkpoint_provider_on_an_online_registry_checkpoint(tmp_path):
     torch.testing.assert_close(provider.select_action(obs), expected)
 
 
+def test_checkpoint_provider_rebuilds_a_two_gripper_rlpd_hybrid_checkpoint(tmp_path):
+    from rl_garden.training.online.entrypoints.rlpd_hybrid import RLPDHybridArgs, build_rlpd_hybrid
+
+    observation_space, action_space = _spaces()
+    hybrid_args = RLPDHybridArgs(num_envs=1, num_eval_envs=1, buffer_size=8, buffer_device="cpu")
+    env = _SpacesOnlyEnv(observation_space, action_space)
+    saved = build_rlpd_hybrid(hybrid_args, env, None, None, None, num_grippers=2)
+    assert saved.policy.discrete_critic.n_actions == 9
+    path = tmp_path / "run" / "checkpoints" / "final.pt"
+    saved.save(path)
+
+    provider = _make(f"checkpoint:{path}?algo=rlpd_hybrid&num_grippers=2")
+    assert provider.spec()["options"] == {"algo": "rlpd_hybrid", "num_grippers": 2}
+    obs = {"state": torch.randn(2, STATE_DIM)}
+    saved.policy.to("cpu")
+    with torch.no_grad():
+        expected = saved.policy.predict(obs, deterministic=True).clamp(-1.0, 1.0)
+    torch.testing.assert_close(provider.select_action(obs), expected)
+    # Without the option the rebuilt head is 3-way and the 9-way weights do not load.
+    with pytest.raises(RuntimeError):
+        _make(f"checkpoint:{path}?algo=rlpd_hybrid")
+
+
+def test_checkpoint_provider_rejects_num_grippers_for_algorithms_without_a_gripper_head():
+    with pytest.raises(ValueError, match="num_grippers=2 only applies"):
+        CheckpointBaseProvider.__new__(CheckpointBaseProvider).__init__(
+            "/x.pt", "rlpd", observation_space=_spaces()[0], action_space=_spaces()[1], num_grippers=2
+        )
+
+
 def test_residual_policy_with_base_feeds_the_provider_action_and_resets_it():
     policy = residual_agent(ResidualRLPD).policy
     provider = RecordingProvider()

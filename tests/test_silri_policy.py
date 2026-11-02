@@ -7,7 +7,14 @@ import math
 
 import pytest
 import torch
-from _silri_fakes import ACTION_DIM, CONTINUOUS_DIM, STATE_DIM, random_obs, silri_agent
+from _silri_fakes import (
+    ACTION_DIM,
+    CONTINUOUS_DIM,
+    STATE_DIM,
+    TWO_ARM_ACTION_DIM,
+    random_obs,
+    silri_agent,
+)
 
 from rl_garden.policies.rlpd_hybrid_policy import _DISCRETE_ACTION_VALUES
 
@@ -137,3 +144,30 @@ def test_actor_target_starts_equal_to_the_actor_and_does_not_copy_the_extractor(
         torch.testing.assert_close(online, target)
     target_ids = {id(p) for p in policy.actor_target.parameters()}
     assert target_ids.isdisjoint({id(p) for p in policy.actor_extractor.parameters()})
+
+
+def test_one_gripper_policy_keeps_the_three_way_head():
+    policy = silri_agent().policy
+    assert policy.num_grippers == 1
+    assert policy.discrete_head.net[-1].out_features == len(_DISCRETE_ACTION_VALUES)
+
+
+def test_two_grippers_widen_the_head_and_append_both_grippers_last():
+    agent = silri_agent(action_dim=TWO_ARM_ACTION_DIM, num_grippers=2)
+    policy = agent.policy
+    obs = random_obs(agent.env.single_observation_space, batch=4)
+    assert policy.num_grippers == 2 and policy.continuous_action_dim == 4
+    assert policy.discrete_logits(obs).shape == (4, 9)
+    output_layer = policy.discrete_head.net[-1]
+    with torch.no_grad():
+        output_layer.weight.zero_()
+        output_layer.bias.zero_()
+        output_layer.bias[5] = 5.0  # joint index 5: first gripper hold (0), second open (+1)
+        action = policy.predict(obs, deterministic=True)
+    assert action.shape == (4, TWO_ARM_ACTION_DIM)
+    torch.testing.assert_close(action[:, -2:], torch.tensor([[0.0, 1.0]] * 4))
+
+
+def test_discrete_gripper_needs_a_continuous_dim_before_the_grippers():
+    with pytest.raises(ValueError, match="continuous action dim"):
+        silri_agent(action_dim=2, num_grippers=2)

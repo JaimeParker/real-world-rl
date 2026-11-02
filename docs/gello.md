@@ -5,7 +5,10 @@ as absolute joint angles. This guide goes from the bench to human-in-the-loop tr
 hardware and permissions, calibration, the robot yaml, demo recording and the `hil_serl`,
 `residual_hil_serl` and `silri` commands. The teleop source semantics (device table, onset
 policies, the `info` keys of the intervention wrapper) are in [teleop.md](teleop.md); demo
-recording has its own guide, [recording-demos.md](recording-demos.md).
+recording has its own guide, [recording-demos.md](recording-demos.md). For a first-day walkthrough
+that uses the setup wizard (it runs the calibration of section 2 inline and writes the yaml of
+section 3) and continues through BC and deployment, see
+[getting-started-hardware.md](getting-started-hardware.md).
 
 The hardware design comes from GELLO (MIT license, Philipp Wu,
 https://github.com/wuphilipp/gello_software). `robot_infra`'s `gello` teleop backend is a
@@ -67,7 +70,9 @@ pip install -e "robot_infra[gello-events]"   # evdev, only for an event_device (
 ## 2. Calibration
 
 The calibration CLI finds the per-unit joint signs, the joint offsets and the trigger range, and
-prints the `teleop:` yaml block:
+prints the `teleop:` yaml block. (`python -m robot_infra.setup` runs these steps inline per arm and
+writes the result into the station yaml, so with the wizard you can skip the paste below; see the
+[robot_infra README](../robot_infra/README.md#setup-wizard).)
 
 ```bash
 python -m robot_infra.devices.backends.teleops.gello_calibrate \
@@ -119,7 +124,11 @@ the joint angles with the follower's.
 
 ## 3. The robot yaml (`real_robot`, franky)
 
-Start from `robot_infra/docs/robot.franka.example.yaml` and add the safety limits and the GELLO:
+Start from `robot_infra/docs/robot.franka.example.yaml` and add the safety limits and the GELLO. The
+alternative is `python -m robot_infra.setup`, which writes a station yaml with the robot, cameras,
+GELLO calibration and daemon port (`./local/station.yaml`, found by the daemon without `--config`);
+it leaves `safety_box`, `joint_limits` and `max_delta_per_step` at `null`, so add the limits below
+by hand either way:
 
 ```yaml
 type: franka
@@ -260,6 +269,19 @@ Where the intervention toggle comes from:
 - An evdev pedal or keyboard on the robot PC: set `intervention: toggle` and `event_device:
   /dev/input/by-id/...` in the yaml's `teleop:` options (extra `gello-events`, user in the `input`
   group) and drop `--teleop-event-device`. The keys are `event_keys` (defaults above).
+
+### Two GELLOs, two arms
+
+For a two-arm station (`--env-backend real_robot_bimanual`, [bimanual.md](bimanual.md)) give each
+robot its own GELLO. `python -m robot_infra.setup` writes the station yaml for both: it probes the
+GELLO buses, runs the calibration of each unit inline and writes `robots: {left, right}`, each with
+its `teleop:` section and daemon port (the robot_infra README's
+[Setup wizard](../robot_infra/README.md#setup-wizard);
+`robot_infra/docs/station.bimanual.example.yaml` is an annotated example). Then train or record
+with `--teleop-device bimanual`: `--teleop-arm-device leader_arm` reads each GELLO through its
+arm's daemon; `--teleop-arm-device gello --teleop-options-yaml <station.yaml>` opens both GELLOs on
+the actor's machine with the options from the same file. One `--teleop-event-device keyboard`
+toggles both arms; [teleop.md](teleop.md#two-arms-bimanual) has the intervention rule.
 
 ## 7. What the HIL rows record
 

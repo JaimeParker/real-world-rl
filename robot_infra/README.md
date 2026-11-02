@@ -50,10 +50,61 @@ pip install -e '.[franky,grpc]'     # e.g. a Franka robot PC running the daemon
 Vendor SDKs are imported lazily. The core package, the CLIs and `--mock` runs work
 without any SDK installed.
 
+### Setup wizard
+
+For a Franka station (one arm, or two arms for bimanual work), plug in the robot (Ethernet),
+the RealSense cameras and the GELLO leader arm(s) (USB), then run on the robot PC:
+
+```bash
+pip install -e '.[franky,grpc,realsense,gello]'
+python -m robot_infra.setup
+```
+
+It probes the hardware (TCP 22/443/1337 of `172.16.0.2`, `172.16.1.2`, `$ROBOT_IP` and
+`--robot-ip`, plus every host of `--scan-subnet CIDR`; RealSense serials; a Dynamixel broadcast
+ping on every `/dev/serial/by-id/usb-FTDI_*` and `usb-ROBOTIS_*` port at 57600 to 4000000 baud;
+SpaceMouse devices), then asks per arm for the robot IP, arm and gripper backend, home joints,
+cameras (`1=wrist,2=front`), teleop device (GELLO port and servo ids, the last id offered as the
+gripper trigger), intervention mode and daemon port, calibrates each GELLO inline (the same
+steps as the calibration CLI in [step 7](#7-add-a-teleop-device); skipped, it writes zero offsets
+with a `# TODO calibrate` comment), writes the annotated station yaml, runs the doctor on it and
+prints the next commands.
+
+Every arm gets device-side safety limits: the Panda datasheet `joint_limits` (`--joint-limits`),
+a servo step cap `max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}` (`--max-delta-xyz-m`,
+`--max-delta-joint-rad`) and a `safety_box` it asks for (base frame, metres, suggested
+`[0.3, -0.3, 0.05, 0.7, 0.3, 0.6]`, `--safety-box`), which must contain the home pose.
+
+The daemon, the doctor and discovery find the station yaml without `--config`. They take the
+first of:
+
+1. `$ROBOT_INFRA_CONFIG`
+2. `./local/station.yaml` (relative to the current directory; the wizard's default, `--scope local`; `local/` is git-ignored)
+3. `$XDG_CONFIG_HOME/robot_infra/station.yaml`, default `~/.config/robot_infra/station.yaml` (`--scope user`)
+
+`--config <yaml>` still wins over all three.
+
+```bash
+python -m robot_infra.setup --mock                     # canned hardware and a simulated GELLO; the doctor runs with --mock
+python -m robot_infra.setup --from local/station.yaml  # the old file's values are the defaults
+python -m robot_infra.setup --from local/station.yaml --only cameras   # redo one section: cameras | teleop | daemon
+python -m robot_infra.setup --non-interactive --mock --arms 1 --arm-names arm --robot-ip 172.16.0.2 \
+    --arm-backend franky --gripper franky --home-joints 0,-0.785,0,-2.356,0,1.571,0.785 \
+    --cameras 123422070001=wrist --teleop none --daemon-port 50051 --output /tmp/station.yaml
+```
+
+Every question has a flag (`python -m robot_infra.setup --help`); per-arm flags take one value
+per arm or one for all arms. `--non-interactive` fails on the first question that has neither a
+flag nor a `--from` value; `--non-interactive --from X` rewrites `X` unchanged. An existing file
+is first copied to `station.yaml.bak.<UTC %Y%m%dT%H%M%SZ>`, then replaced atomically. A probed
+value is required unless `--allow-unprobed`.
+
 ## How to Start
 
 These steps run on the robot PC (the computer wired to the arm, CAN adapter and cameras),
-except step 5, which runs on the GPU machine.
+except step 5, which runs on the GPU machine. For the training side (demos, BC, HIL-SERL, deploy)
+on top of a running daemon, see the real-world guide
+[`docs/getting-started-hardware.md`](../docs/getting-started-hardware.md).
 
 ### 1. Write `robot.yaml`
 
@@ -61,7 +112,32 @@ A robot config is one YAML mapping with a `type` key. It can also be nested unde
 top-level `robot:` key. Unknown keys are rejected with the list of valid ones. Omitted
 keys take the defaults shown below. Full annotated copies are in
 [`docs/robot.franka.example.yaml`](docs/robot.franka.example.yaml) and
-[`docs/robot.piper.example.yaml`](docs/robot.piper.example.yaml).
+[`docs/robot.piper.example.yaml`](docs/robot.piper.example.yaml). The
+[setup wizard](#setup-wizard) writes this file for a Franka station.
+
+A station with several robots (for example two Frankas for bimanual work) lists one robot
+mapping per name under `robots:`; a mapping without `name` takes its key. Each robot may carry a
+`daemon:` block (also allowed in a single-robot file), which the daemon reads and strips before
+the robot config is parsed:
+
+```yaml
+robots:
+  left:
+    type: franka
+    robot_ip: 172.16.0.2
+    # ... any robot key, as above
+    daemon: {bind: 0.0.0.0:50051, token: null}   # default bind 0.0.0.0:50051, no token
+  right:
+    type: franka
+    robot_ip: 172.16.1.2
+    daemon: {bind: 0.0.0.0:50052, token: null}
+```
+
+`python -m robot_infra.server` then starts one daemon process per robot, and
+`python -m robot_infra.doctor` checks each robot in turn; `--robot <name>` picks one. A full
+example with two GELLOs and three cameras is
+[`docs/station.bimanual.example.yaml`](docs/station.bimanual.example.yaml).
+`Robot.from_yaml` reads single-robot files without a `daemon:` block only.
 
 **Franka Panda + Franka Hand + one RealSense**
 
@@ -172,8 +248,9 @@ With a `teleop:` section a last line is added, for example `  teleop: SpaceMouse
 python -m robot_infra.discovery --config robot.yaml
 ```
 
-Discovery only probes. It never connects to a robot. `--config` is optional: when given, the
-config's `robot_ip` is pinged and TCP-probed on ports 22, 80, 443, 1337 and 50051.
+Discovery only probes. It never connects to a robot. `--config` is optional: the given
+config's (or else the [station file's](#setup-wizard)) `robot_ip` of every robot is pinged and
+TCP-probed on ports 22, 80, 443, 1337 and 50051.
 
 On a machine with nothing attached (real output):
 
@@ -204,13 +281,17 @@ With hardware attached, the lines take the form `realsense: <serial>, <serial>`,
 | `hosts` | `ping` and TCP connect to the config's `robot_ip` | `ping=ok`. For Franka, 1337 open usually means FCI is reachable. |
 | `hid devices` | `/dev/hidraw*` | SpaceMouse and other HID teleop devices |
 
-Without `--config`, `hosts:` prints `none`.
+Without `--config` and without a station file, `hosts:` prints `none`.
 
 ### 3. Check with the doctor
 
 ```bash
-python -m robot_infra.doctor --config robot.yaml [--mock] [--fix] [--json]
+python -m robot_infra.doctor --config robot.yaml [--robot NAME] [--mock] [--fix] [--json]
 ```
+
+Without `--config` the doctor checks the [station file](#setup-wizard). A station with several
+robots is checked robot by robot (`== robot '<name>' ==` before each report, an `overall:` line
+at the end); `--robot NAME` checks one.
 
 The doctor runs five layers in order (a `teleop:` section adds checks to layers 1, 2 and 4):
 
@@ -229,8 +310,9 @@ Flags:
 - `--fix` runs the autofix attached to a failed check, then re-runs that check. The useful
   autofixes are `arm.recover()` for a Franka in Reflex/UserStopped/Guiding mode
   (`mode:robot_mode`) and `camera.reopen()` for a camera that delivers no frames.
-- `--json` prints a list of `{layer, name, ok, message, hint, skipped}` objects.
-- Exit code: `1` if any check failed, else `0`. Skipped checks do not fail the run.
+- `--json` prints a list of `{layer, name, ok, message, hint, skipped}` objects (several
+  robots: `{<name>: [...]}`).
+- Exit code: `1` if any check failed (on any robot), else `0`. Skipped checks do not fail the run.
 
 The doctor connects to the robot and disconnects it again. It never powers anything off.
 
@@ -347,9 +429,18 @@ python -m robot_infra.server --config robot.yaml --bind 0.0.0.0:50051 [--token T
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--config` | required | robot yaml |
-| `--bind` | `0.0.0.0:50051` | `host:port` to listen on |
-| `--token` | none | shared secret; clients must send the same one (gRPC metadata `x-robot-token`) |
+| `--config` | the [station file](#setup-wizard) | robot or station yaml |
+| `--robot` | every robot | serve one robot of a station; without it a station with several robots starts one daemon process per robot |
+| `--bind` | the robot's `daemon.bind`, else `0.0.0.0:50051` | `host:port` to listen on (single robot only) |
+| `--token` | the robot's `daemon.token`, else none | shared secret; clients must send the same one (gRPC metadata `x-robot-token`) (single robot only) |
+
+With several robots and no `--robot`, the command is a supervisor: it starts
+`python -m robot_infra.server --config <station> --robot <name>` per robot (each in its own
+process session, with `--watchdog-s`, `--jpeg-quality`, `--no-preflight` and `--transport`
+passed on), forwards SIGINT/SIGTERM to them, waits for all and exits with the first non-zero
+child exit code. `--bind`/`--token` are then an error (set `daemon.bind`/`daemon.token` per
+robot), and so are two robots on the same `daemon.bind`. Killing the supervisor with SIGKILL
+leaves the daemons running; stop them with SIGTERM.
 | `--watchdog-s` | `0.5` | idle a servoing arm after this many seconds without actions |
 | `--no-preflight` | off | skip the doctor run before serving |
 | `--transport` | `grpc` | the only transport |
@@ -596,7 +687,9 @@ from `event_device` (a pedal or keyboard on the robot PC), whose other keys rais
 `episode_end`/`success`/`failure`/`rerecord` (`event_keys`). Torque is turned off on connect and
 on disconnect; a missing servo or a failed sync read fails the poll (no stale samples). The
 full option list with defaults is in [`docs/robot.franka.example.yaml`](docs/robot.franka.example.yaml).
-Calibrate once per unit (torque off, the leader is moved by hand) and paste the printed block:
+Calibrate once per unit (torque off, the leader is moved by hand); the [setup wizard](#setup-wizard)
+runs these steps inline and writes the result into the station yaml. Standalone, the CLI prints
+the block to paste:
 
 ```bash
 python -m robot_infra.devices.backends.teleops.gello_calibrate \

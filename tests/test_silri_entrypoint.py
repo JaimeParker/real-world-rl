@@ -88,6 +88,27 @@ def test_build_silri_extra_kwargs_and_algorithm_cls_win():
     assert type(agent) is _Custom and agent.constraint_margin == 0.7
 
 
+class _TwoArmContractEnv(SpacesEnv):
+    action_contract = {
+        "action_mode": "cartesian_delta",
+        "arm_action_dim": 2,
+        "gripper_in_action": True,
+        "num_arms": 2,
+        "arm_names": ["left", "right"],
+    }
+
+    def __init__(self):
+        super().__init__(action_dim=6)
+
+
+def test_build_silri_takes_the_gripper_count_from_the_env_contract():
+    single = build_silri(_args(), SpacesEnv(), None, logger=None, checkpoint_dir=None)
+    assert single.num_grippers == 1 and single.policy.continuous_action_dim == 2
+    two_arms = build_silri(_args(), _TwoArmContractEnv(), None, logger=None, checkpoint_dir=None)
+    assert two_arms.num_grippers == 2 and two_arms.policy.continuous_action_dim == 4
+    assert two_arms.policy.discrete_head.net[-1].out_features == 9
+
+
 def test_build_silri_rejects_a_gripper_head_without_a_gripper_dim():
     with pytest.raises(ValueError, match="gripper_in_action"):
         build_silri(_args(), _ArmOnlyContractEnv(), None, logger=None, checkpoint_dir=None)

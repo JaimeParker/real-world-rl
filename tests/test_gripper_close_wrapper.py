@@ -127,3 +127,28 @@ def test_rejects_non_1d_or_too_small_action_space():
         GripperCloseEnv(_OneDim())
     with pytest.raises(ValueError):
         GripperCloseEnv(_FakeEnv(), gripper_dim=7)
+
+
+# -- several grippers (the last num_grippers dims) -------------------------------------------
+
+
+def test_two_grippers_hide_the_last_two_dims_and_forward_the_closed_value():
+    env = _make_env(8)
+    wrapped = GripperCloseEnv(env, closed_value=-1.0, num_grippers=2)
+    assert wrapped.single_action_space.shape == (6,)
+    assert wrapped.action_space.shape == (1, 6)
+
+    action = torch.arange(1, 7, dtype=torch.float32)[None] / 10
+    _, _, _, _, info = wrapped.step(action)
+    forwarded = env.step_actions[0]
+    assert forwarded.shape == (1, 8)
+    torch.testing.assert_close(forwarded[..., :6], action)
+    torch.testing.assert_close(forwarded[..., 6:], torch.full((1, 2), -1.0))
+    torch.testing.assert_close(info["intervene_action"], torch.arange(6, dtype=torch.float32)[None])
+
+
+def test_two_grippers_reject_gripper_dim_and_too_small_spaces():
+    with pytest.raises(ValueError, match="gripper_dim"):
+        GripperCloseEnv(_make_env(8), gripper_dim=0, num_grippers=2)
+    with pytest.raises(ValueError, match=">= 3 dims"):
+        GripperCloseEnv(_make_env(2), num_grippers=2)

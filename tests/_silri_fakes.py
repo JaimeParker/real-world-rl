@@ -16,6 +16,7 @@ from rl_garden.encoders.config import EncoderConfig
 STATE_DIM = 4
 ACTION_DIM = 3  # two arm dims + the gripper
 CONTINUOUS_DIM = ACTION_DIM - 1
+TWO_ARM_ACTION_DIM = 6  # two 2-D arm blocks, then the left and right grippers
 IMAGE_SHAPE = (64, 64, 3)
 # "gap" pooling tolerates the small test image; random_shift exercises prepare_batch.
 RGB_ENCODER = EncoderConfig(
@@ -75,11 +76,16 @@ def random_obs(space: spaces.Dict, batch: int = 1) -> dict[str, torch.Tensor]:
     return obs
 
 
-def random_actions(batch: int, action_dim: int = ACTION_DIM, gripper: bool = True) -> torch.Tensor:
-    """Continuous dims in [-1, 1]; with ``gripper`` the last dim is one of -1/0/1."""
+def random_actions(
+    batch: int, action_dim: int = ACTION_DIM, gripper: bool = True, num_grippers: int = 1
+) -> torch.Tensor:
+    """Continuous dims in [-1, 1]; with ``gripper`` each of the last ``num_grippers`` dims is one
+    of -1/0/1."""
     actions = torch.rand(batch, action_dim) * 2 - 1
-    if gripper:
+    if gripper and num_grippers == 1:
         actions[:, -1] = torch.randint(-1, 2, (batch,)).float()
+    elif gripper:
+        actions[:, -num_grippers:] = torch.randint(-1, 2, (batch, num_grippers)).float()
     return actions
 
 
@@ -98,7 +104,7 @@ def fill(
     action_dim = agent.env.single_action_space.shape[0]
     add = agent.add_demo_transition if demo else agent.replay_buffer.add
     for _ in range(count):
-        action = random_actions(1, action_dim, gripper=agent.discrete_gripper)
+        action = random_actions(1, action_dim, gripper=agent.discrete_gripper, num_grippers=agent.num_grippers)
         add(
             random_obs(space),
             random_obs(space),

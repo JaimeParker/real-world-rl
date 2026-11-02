@@ -7,7 +7,7 @@ import math
 
 import torch
 import torch.nn.functional as F
-from _silri_fakes import CONTINUOUS_DIM, hand_batch, silri_agent
+from _silri_fakes import CONTINUOUS_DIM, TWO_ARM_ACTION_DIM, hand_batch, silri_agent
 from torch.distributions import Normal
 
 
@@ -186,3 +186,16 @@ def test_actor_bc_nll_uses_the_fixed_noise_std():
         constant = CONTINUOUS_DIM * (math.log(0.1) + 0.5 * math.log(2 * math.pi))
         expected = (squared / (2 * 0.1**2) + constant).mean()
     torch.testing.assert_close(nll.detach(), expected)
+
+
+def test_two_gripper_cross_entropy_uses_the_joint_label_of_the_last_two_dims():
+    agent = silri_agent(action_dim=TWO_ARM_ACTION_DIM, num_grippers=2)
+    actions = torch.zeros(3, TWO_ARM_ACTION_DIM)
+    actions[:, -2:] = torch.tensor([[1.0, 0.0], [-1.0, 1.0], [0.0, -1.0]])
+    batch = hand_batch([True, True, True], actions=actions)
+    logits = torch.randn(3, 9)
+
+    loss = agent._gripper_cross_entropy(logits, batch)
+
+    # Joint label = 3 * index(first gripper) + index(second gripper).
+    torch.testing.assert_close(loss, F.cross_entropy(logits, torch.tensor([7, 2, 3])))

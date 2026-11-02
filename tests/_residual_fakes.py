@@ -13,6 +13,7 @@ from rl_garden_real_world.algorithms.residual import ResidualRLPD, ResidualRLPDH
 
 STATE_DIM = 4
 ACTION_DIM = 3  # two arm dims + the gripper
+TWO_ARM_ACTION_DIM = 6  # two 2-D arm blocks, then the left and right grippers
 
 
 class DictEnv(gym.Env):
@@ -145,13 +146,16 @@ def residual_row(
     human_offset: float = 0.0,
     gripper: float = 1.0,
     grasp_penalty: Optional[float] = None,
+    action_dim: int = ACTION_DIM,
+    num_grippers: int = 1,
 ) -> dict[str, Any]:
     """One transition with the residual extras: base action ``base`` on the arm dims, the
-    stored action ``base + human_offset`` on the arm dims and ``gripper`` last."""
-    base_actions = torch.full((1, ACTION_DIM), base)
+    stored action ``base + human_offset`` on the arm dims and ``gripper`` on each of the last
+    ``num_grippers`` dims."""
+    base_actions = torch.full((1, action_dim), base)
     action = base_actions.clone()
-    action[:, :-1] += human_offset
-    action[:, -1] = gripper
+    action[:, :-num_grippers] += human_offset
+    action[:, -num_grippers:] = gripper
     row: dict[str, Any] = {
         "obs": {"state": torch.randn(1, STATE_DIM)},
         "next_obs": {"state": torch.randn(1, STATE_DIM)},

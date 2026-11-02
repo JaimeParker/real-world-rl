@@ -714,3 +714,88 @@ def test_deploy_main_reports_missing_joint_step_limit_as_device_error(_claim_dir
 
     assert main(args, env=env, policy=_UnusedPolicy()) == DEVICE_ERROR_EXIT_CODE
     assert "max_delta_per_step" in capsys.readouterr().err
+
+
+# -- arm layout: num_arms / arm_names, grippers last ------------------------------------------
+
+_TWO_ARM_CART = dict(_CART, num_arms=2, arm_names=["left", "right"])
+
+
+def test_layout_helpers_put_the_arm_blocks_first_and_one_gripper_per_arm_last():
+    from rl_garden_real_world.action_contract import (
+        action_dim_of,
+        arm_block_slices,
+        gripper_slice,
+        num_grippers_of,
+    )
+
+    assert (action_dim_of(_CART), num_grippers_of(_CART)) == (7, 1)
+    assert arm_block_slices(_CART) == [slice(0, 6)]
+    assert gripper_slice(_CART) == slice(6, 7)
+    assert (action_dim_of(_TWO_ARM_CART), num_grippers_of(_TWO_ARM_CART)) == (14, 2)
+    assert arm_block_slices(_TWO_ARM_CART) == [slice(0, 6), slice(6, 12)]
+    assert gripper_slice(_TWO_ARM_CART) == slice(12, 14)
+    arm_only = dict(_TWO_ARM_CART, gripper_in_action=False)
+    assert (action_dim_of(arm_only), num_grippers_of(arm_only)) == (12, 0)
+    assert gripper_slice(arm_only) == slice(12, 12)
+
+
+def test_env_num_grippers_reads_the_contract_and_defaults_to_one():
+    from rl_garden_real_world.action_contract import env_num_grippers
+
+    two_arms = _ContractEnv("cartesian_delta", 6)
+    two_arms.action_contract.update(num_arms=2, arm_names=["left", "right"])
+    assert env_num_grippers(two_arms) == 2
+    assert env_num_grippers(_ContractEnv("cartesian_delta", 6)) == 1
+    assert env_num_grippers(_ContractEnv("cartesian_delta", 6, gripper_in_action=False)) == 0
+    assert env_num_grippers(gym.Env()) == 1  # contract-less: the legacy trailing gripper
+
+
+def test_real_robot_env_contract_names_its_single_arm_and_sidecars_carry_it(tmp_path):
+    from rl_garden_real_world.action_contract import write_contract_sidecar
+
+    env = _real_env()
+    contract = env.get_wrapper_attr("action_contract")
+    assert (contract["num_arms"], contract["arm_names"]) == (1, ["arm"])
+    demo_contract = demo_contract_of(env)
+    assert (demo_contract["num_arms"], demo_contract["arm_names"]) == (1, ["arm"])
+    _write_pkl(tmp_path / "a.pkl", action_dim=7)
+    write_contract_sidecar(tmp_path / "a.pkl", demo_contract)
+    saved = read_contract_sidecar(tmp_path / "a.pkl")
+    assert (saved["num_arms"], saved["arm_names"]) == (1, ["arm"])
+
+
+def test_sidecar_without_arm_layout_reads_as_one_arm_against_a_single_arm_env(tmp_path):
+    _write_pkl(tmp_path / "a.pkl", action_dim=7, meta=_CART)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        count = load_demo_pkls(
+            [str(tmp_path / "*.pkl")], lambda *a, **k: None, "cpu",
+            expected_contract=dict(_CART, num_arms=1, arm_names=["arm"]),
+        )
+    assert count == 2
+
+
+@pytest.mark.parametrize(
+    "recorded, field",
+    [(_CART, "num_arms"), (dict(_TWO_ARM_CART, arm_names=["right", "left"]), "arm_names")],
+)
+def test_arm_layout_mismatch_raises_like_the_other_fields(tmp_path, recorded, field):
+    _write_pkl(tmp_path / "a.pkl", action_dim=14, meta=recorded)
+    with pytest.raises(ValueError) as error:
+        load_demo_pkls([str(tmp_path / "*.pkl")], lambda *a, **k: None, "cpu", expected_contract=_TWO_ARM_CART)
+    message = str(error.value)
+    assert f"{field}: recorded=" in message and "num_arms=2" in message
+
+
+def test_two_arm_action_width_is_checked_against_the_layout(tmp_path):
+    _write_pkl(tmp_path / "a.pkl", action_dim=7, meta=_TWO_ARM_CART)
+    with pytest.raises(ValueError, match="action dim 7.*expects 14"):
+        load_demo_pkls([str(tmp_path / "*.pkl")], lambda *a, **k: None, "cpu", expected_contract=_TWO_ARM_CART)
+
+
+def test_teleop_rejects_a_single_arm_source_on_a_two_arm_env():
+    env = _ContractEnv("cartesian_delta", 6)
+    env.action_contract.update(num_arms=2, arm_names=["left", "right"])
+    with pytest.raises(ValueError, match="num_arms=2"):
+        TeleopInterventionWrapper(env, teleop=_Teleop())

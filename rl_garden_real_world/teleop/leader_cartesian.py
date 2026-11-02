@@ -43,7 +43,11 @@ from rl_garden_real_world.kinematics.transforms import (
     matrix_to_rotvec,
     pose_to_transform,
 )
-from rl_garden_real_world.teleop.base import TeleopReading, TeleopSource
+from rl_garden_real_world.teleop.base import (
+    TeleopReading,
+    TeleopSource,
+    held_gripper_action,
+)
 from rl_garden_real_world.teleop.part import (
     DEFAULT_READ_TIMEOUT_S,
     TeleopContract,
@@ -95,7 +99,7 @@ class LeaderArmCartesianSource(TeleopSource):
         pos_scale_m: float = 0.02,
         rot_scale_rad: float = 0.1,
         gripper_binarize_threshold: Optional[float] = 0.5,
-        last_gripper_action_getter: Optional[Callable[[], float]] = None,
+        last_gripper_action_getter: Optional[Callable[[], Any]] = None,
         read_timeout_s: float = DEFAULT_READ_TIMEOUT_S,
     ) -> None:
         from rl_garden_real_world.action_contract import LEGACY_ACTION_CONTRACT
@@ -298,7 +302,7 @@ class LeaderArmCartesianSource(TeleopSource):
 
     def _gripper_action(self, sample: Any, teleop: Any) -> float:
         if not self._leader_has_gripper:
-            return float(self._last_gripper_action())
+            return held_gripper_action(self._last_gripper_action)
         if sample.gripper is None:
             raise self._device_fault("leader declares a gripper but its sample carries none", teleop)
         width = float(sample.gripper)

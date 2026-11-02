@@ -47,7 +47,7 @@ rlgarden-real-world/             repository rlgarden-real-world (top level)
     pyproject.toml
     robot_infra/                 devices, discovery, doctor, daemon, RemoteRobot
     tests/
-  docs/                          teleop.md, gello.md, recording-demos.md, residual.md, silri.md, hil-serl-roadmap.md
+  docs/                          getting-started-hardware.md, bimanual.md, teleop.md, gello.md, recording-demos.md, residual.md, silri.md, hil-serl-roadmap.md
   examples/                      train_real_world.py, deploy_real_robot.py, teleop demo and recording scripts
   configs/                       RLinf config
   tests/
@@ -96,11 +96,16 @@ rl-garden's own suite runs inside the submodule (see `rl-garden/.agents/runbooks
 
 ## Running on hardware
 
+**New to the hardware?** [Getting started on hardware](docs/getting-started-hardware.md) is a
+first-day walkthrough for one or two Franka arms with GELLO leader arms: station setup, demo
+recording, BC, HIL-SERL / residual / SiLRI, and deployment. This section is the reference.
+
 Everything below drives a `real_robot` env (any `robot_infra` robot). `franka_real` (the HTTP
 bridge) is always cartesian 7-D and is not covered here. Install this package
 (`pip install -e rl-garden -e robot_infra -e .`) so that the `real_robot` backend is registered through the
 `rlgarden.env_backends` entry point; without it `--env-backend real_robot` fails with
 `Unknown env backend 'real_robot'`.
+Two arms as one env: `--env-backend real_robot_bimanual`, see [`docs/bimanual.md`](docs/bimanual.md).
 
 ### Robot daemon
 
@@ -110,6 +115,11 @@ The robot daemon runs on the robot PC (see the robot_infra README,
 ```bash
 python -m robot_infra.server --config robot.yaml --bind 0.0.0.0:50051 --watchdog-s 5
 ```
+
+For a Franka station, `python -m robot_infra.setup` writes the yaml instead of copying an example
+(the [setup wizard](robot_infra/README.md#setup-wizard)), and `python -m robot_infra.server
+--watchdog-s 5` without `--config` then serves it: one daemon process per robot for a two-arm
+station.
 
 The daemon idles a servoing arm that gets no action for `--watchdog-s` (default 0.5 s), and the
 env enters servo mode at the end of `reset()`. If the first policy step after a reset can take
@@ -161,7 +171,7 @@ the env is built (`TeleopInterventionWrapper`):
 | teleop `action_mode` | gripper | support |
 |---|---|---|
 | `cartesian_delta` | yes | supported (spacemouse / pico / the robot's teleop part) |
-| `joint_delta` / `joint_abs` | yes | supported through `--teleop-device robot` (the robot yaml's `teleop:` section) |
+| `joint_delta` / `joint_abs` | yes | supported through `--teleop-device robot` (the robot yaml's `teleop:` section), `leader_arm` / `gello` (a GELLO) and, for two arms, `bimanual` |
 | any | no (`gripper_in_action=false`) | not supported (the intervention wrapper requires the gripper dim, for `hil_serl`, `residual_hil_serl` and `silri` alike) |
 
 ### Safety limits
@@ -185,7 +195,8 @@ The limits live in the robot yaml on the robot PC (`safety_box`, `joint_limits`,
 ### Teleoperation
 
 The HIL methods (`hil_serl`, `residual_hil_serl`, `silri`) take human interventions through a
-`TeleopSource` selected with `--teleop-device {pico,spacemouse,robot,fake}`. Only the actor and
+`TeleopSource` selected with `--teleop-device` (`pico`, `spacemouse`, `robot`, `fake`, `gello`,
+`leader_arm`, `keyboard`, `leader_cartesian` or, for two arms, `bimanual`). Only the actor and
 eval processes open the device; the learner builds its env with the teleop wrapper disabled, so no
 HID or ZMQ device is opened on the GPU box. `--teleop-device spacemouse` is a SpaceMouse on the
 actor's machine, driven through the device layer's `SpaceMouseTeleop` (needs `pyspacemouse>=2,<3`).
@@ -251,7 +262,10 @@ python examples/deploy_real_robot.py --checkpoint runs/.../checkpoints/checkpoin
     --episodes 5 --max-steps-per-episode 100
 ```
 
-(`--algo rlpd` for a serl checkpoint, `rlpd_hybrid` for hil_serl.) The training run's
+(`--algo rlpd` for a serl checkpoint, `rlpd_hybrid` for hil_serl, `real_world_bc` for a
+`real_world_bc` run, `residual_hil_serl` / `residual_hil_serl_hybrid` and `silri` as in their
+sections below; `--env-backend real_robot_bimanual` for a two-arm run, see
+[`docs/bimanual.md`](docs/bimanual.md#deploy).) The training run's
 `config.json` (next to `checkpoints/`) is the source of truth for the action/observation
 contract:
 

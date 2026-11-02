@@ -32,13 +32,20 @@ from rl_garden.common.env_args import EnvBackendArgs, EnvRunArgs
 
 from rl_garden_real_world.action_contract import (
     LEGACY_ACTION_CONTRACT,
+    arm_block_slices,
     demo_contract_of,
     get_env_action_contract,
+    num_arms_of,
+    num_grippers_of,
     write_contract_sidecar,
 )
 from rl_garden_real_world.actor_loop import ActorLoop
 from rl_garden_real_world.envs.wrappers.intervention import InterventionWrapper
 from rl_garden_real_world.teleop.base import TeleopReading, TeleopSource
+from rl_garden_real_world.teleop.bimanual import (
+    find_bimanual_env,
+    normalized_joint_target,
+)
 from rl_garden_real_world.teleop.composite import (
     CompositeTeleopSource,
     ToggleableTeleopSource,
@@ -68,8 +75,9 @@ __all__ = [
 _GRIPPER_ACTION_AFTER_RESET = 1.0
 _DEMO_SUFFIX = ".pkl"
 
-# Gripper action to hold -> the (A,) action that keeps the arm where it is.
-HoldActionFn = Callable[[float], torch.Tensor]
+# Gripper action(s) to hold, one per arm (a number for one arm) -> the (A,) action that keeps the
+# arms where they are.
+HoldActionFn = Callable[[Any], torch.Tensor]
 
 
 @dataclass
@@ -88,8 +96,8 @@ class RecordDemosArgs(HilEnvArgs, RealWorldFrankaArgs, EnvRunArgs, ObservationAr
     output_path: Optional[str] = None
     # Stop after this many kept (successful) episodes.
     num_successes: int = 20
-    # Episode step cap for the env: replaces --real-robot.max-episode-steps or
-    # --franka-real.max-episode-steps when set.
+    # Episode step cap for the env: replaces --real-robot.max-episode-steps,
+    # --real-robot-bimanual.max-episode-steps or --franka-real.max-episode-steps when set.
     max_episode_steps: Optional[int] = None
     # joint_abs: refuse to start an episode while the leader is further than this from the
     # follower in any joint (rad). Below it, --teleop-onset (ramp or arm) handles the takeover.
@@ -125,30 +133,46 @@ class LeaderFollowerGapError(RuntimeError):
 def hold_action_fn_for(env: Any) -> HoldActionFn:
     """The action that keeps ``env``'s robot still, by the env's action contract: a zero arm
     action for ``joint_delta`` and ``cartesian_delta``, the follower's current ``joint_pos``
-    normalised onto ``joint_limits`` for ``joint_abs``. The gripper dimension, when the env has
-    one, is the given gripper action (the last one executed), since a fixed value would open or
-    close the gripper."""
+    normalised onto ``joint_limits`` for ``joint_abs`` (per arm, from each arm's own follower,
+    on a two-arm env). The gripper dimensions, when the env has them (the last ``num_arms``
+    dims), are the given gripper actions (the last ones executed, one per arm), since a fixed
+    value would open or close the grippers."""
     contract = get_env_action_contract(env) or LEGACY_ACTION_CONTRACT
+    num_arms = num_arms_of(contract)
     arm_dim = int(contract["arm_action_dim"])
-    has_gripper = bool(contract["gripper_in_action"])
+    num_grippers = num_grippers_of(contract)
 
     if contract["action_mode"] == "joint_abs":
         if contract.get("joint_limits") is None:
             raise ValueError("a joint_abs env needs joint_limits in its action contract to hold the arm")
-        low, high = np.asarray(contract["joint_limits"], dtype=np.float64).T
+        if num_arms == 1:
+            low, high = np.asarray(contract["joint_limits"], dtype=np.float64).T
 
-        def arm_action() -> np.ndarray:
-            return np.clip(2.0 * (follower_joint_pos(env) - low) / (high - low) - 1.0, -1.0, 1.0)
+            def arm_action() -> np.ndarray:
+                return np.clip(2.0 * (follower_joint_pos(env) - low) / (high - low) - 1.0, -1.0, 1.0)
+
+        else:
+            arm_envs = _arm_envs_of(env, contract)
+            per_arm_limits = np.asarray(contract["joint_limits"], dtype=np.float64)
+
+            def arm_action() -> np.ndarray:
+                return np.concatenate(
+                    [
+                        normalized_joint_target(follower_joint_pos(arm_env), limits)
+                        for arm_env, limits in zip(arm_envs, per_arm_limits)
+                    ]
+                )
 
     else:
 
         def arm_action() -> np.ndarray:
-            return np.zeros(arm_dim)
+            return np.zeros(num_arms * arm_dim)
 
-    def hold(gripper_action: float) -> torch.Tensor:
+    def hold(gripper_actions: Any) -> torch.Tensor:
         parts = [arm_action()]
-        if has_gripper:
-            parts.append(np.array([gripper_action]))
+        if num_grippers:
+            held = np.asarray(gripper_actions, dtype=np.float64).reshape(-1)
+            parts.append(np.broadcast_to(held, (num_grippers,)))
         return torch.as_tensor(np.concatenate(parts), dtype=torch.float32)
 
     return hold
@@ -173,6 +197,17 @@ def follower_joint_pos(env: Any) -> np.ndarray:
     return np.asarray(state["joint_pos"], dtype=np.float64)
 
 
+def _arm_envs_of(env: Any, contract: Mapping[str, Any]) -> list:
+    """Each arm's ``RealRobotEnv`` of the two-arm env behind ``env``, in ``arm_names`` order."""
+    bimanual = find_bimanual_env(env)
+    if bimanual is None:
+        raise ValueError(
+            f"reading each arm's follower joints (num_arms={num_arms_of(contract)}) needs a "
+            "real_robot_bimanual env (BimanualRealRobotEnv) behind the wrapper chain"
+        )
+    return [bimanual.arms[arm] for arm in contract["arm_names"]]
+
+
 # -- episode-start sync ------------------------------------------------------------------
 
 
@@ -185,11 +220,15 @@ def check_leader_near_follower(
     ``joint_abs`` only: the leader position is the source's unramped target decoded from the
     joint limits. The read goes through the motion half of a composite with the toggle released
     (``poll_with_toggle(False)`` for a leader arm), so neither the event device's latched
-    buttons nor the onset policy change it.
+    buttons nor the onset policy change it. On a two-arm env every arm's leader is compared with
+    its own follower: the result is ``(num_arms, num_joints)`` and the error names the arm
+    furthest apart.
     """
     if contract["action_mode"] != "joint_abs":
         raise ValueError(f"the leader/follower start check needs joint_abs, got {contract['action_mode']!r}")
     reading = _read_leader(source)
+    if num_arms_of(contract) != 1:
+        return _check_leaders_near_followers(env, reading, contract, tolerance_rad)
     low, high = np.asarray(contract["joint_limits"], dtype=np.float64).T
     arm = np.asarray(reading.action[: len(low)], dtype=np.float64)
     leader = low + (arm + 1.0) / 2.0 * (high - low)
@@ -201,6 +240,30 @@ def check_leader_near_follower(
             "leader onto the follower's pose and restart"
         )
     return error
+
+
+def _check_leaders_near_followers(
+    env: Any, reading: TeleopReading, contract: Mapping[str, Any], tolerance_rad: float
+) -> np.ndarray:
+    arm_names = list(contract["arm_names"])
+    action = np.asarray(reading.action, dtype=np.float64)
+    per_arm_limits = np.asarray(contract["joint_limits"], dtype=np.float64)
+    errors = []
+    for block, arm_env, limits in zip(arm_block_slices(contract), _arm_envs_of(env, contract), per_arm_limits):
+        low, high = limits.T
+        leader = low + (action[block] + 1.0) / 2.0 * (high - low)
+        errors.append(np.abs(leader - follower_joint_pos(arm_env)))
+    errors = np.stack(errors)
+    worst = int(np.argmax(errors.max(axis=1)))
+    if float(errors[worst].max()) > tolerance_rad:
+        per_arm = ", ".join(f"{arm}: {np.round(error, 3).tolist()}" for arm, error in zip(arm_names, errors))
+        raise LeaderFollowerGapError(
+            f"leader arm {arm_names[worst]!r} too far from its follower to start an episode: "
+            f"|q_leader - q_follower| = {np.round(errors[worst], 3).tolist()} rad, "
+            f"start_tolerance_rad = {tolerance_rad} (per arm: {per_arm}); move every leader onto "
+            "its follower's pose and restart"
+        )
+    return errors
 
 
 def _read_leader(source: TeleopSource) -> TeleopReading:
@@ -232,7 +295,7 @@ def record_demos(
     """
     wrapper = _intervention_wrapper_of(env)
     contract = get_env_action_contract(env) or LEGACY_ACTION_CONTRACT
-    has_gripper = bool(contract["gripper_in_action"])
+    num_grippers = num_grippers_of(contract)
     control_period_s = 1.0 / args.control_hz
 
     kept: list[dict] = []
@@ -248,7 +311,7 @@ def record_demos(
             args,
             hold_action_fn,
             index=index,
-            has_gripper=has_gripper,
+            num_grippers=num_grippers,
             control_period_s=control_period_s,
         )
         if episode.kept:
@@ -267,11 +330,14 @@ def _record_episode(
     hold_action_fn: HoldActionFn,
     *,
     index: int,
-    has_gripper: bool,
+    num_grippers: int,
     control_period_s: float,
 ) -> RecordedEpisode:
     transitions: list[dict] = []
-    gripper_action = _GRIPPER_ACTION_AFTER_RESET
+    # A number for one gripper, one entry per gripper otherwise (see HoldActionFn).
+    gripper_action: Any = (
+        _GRIPPER_ACTION_AFTER_RESET if num_grippers <= 1 else [_GRIPPER_ACTION_AFTER_RESET] * num_grippers
+    )
     success = failure = False
     steps = 0
     while True:
@@ -280,8 +346,9 @@ def _record_episode(
         next_obs, reward, terminated, truncated, info = env.step(action)
         steps += 1
         executed = info.get("intervene_action", action)
-        if has_gripper:
-            gripper_action = float(torch.as_tensor(executed).reshape(-1)[-1].clamp(-1.0, 1.0))
+        if num_grippers:
+            executed_grippers = torch.as_tensor(executed).reshape(-1)[-num_grippers:].clamp(-1.0, 1.0).tolist()
+            gripper_action = executed_grippers[0] if num_grippers == 1 else executed_grippers
         events = info.get("teleop_events") or {}
         if events.get("rerecord", False):
             return RecordedEpisode(index, steps, success=False, discarded_reason="rerecord")
@@ -417,6 +484,9 @@ def _with_episode_step_cap(args: RecordDemosArgs) -> RecordDemosArgs:
     if args.env_backend == "real_robot":
         real_robot = dataclasses.replace(args.real_robot, max_episode_steps=args.max_episode_steps)
         return dataclasses.replace(args, real_robot=real_robot)
+    if args.env_backend == "real_robot_bimanual":
+        bimanual = dataclasses.replace(args.real_robot_bimanual, max_episode_steps=args.max_episode_steps)
+        return dataclasses.replace(args, real_robot_bimanual=bimanual)
     franka_real = dataclasses.replace(args.franka_real, max_episode_steps=args.max_episode_steps)
     return dataclasses.replace(args, franka_real=franka_real)
 

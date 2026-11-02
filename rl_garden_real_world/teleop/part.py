@@ -10,7 +10,8 @@ The teleop's arm action is mapped into the env's ``[-1, 1]`` action space:
 
 A teleop gripper target in ``[0, 1]`` becomes ``2*g-1`` (inverse of ``RealRobotEnv``'s
 ``(a+1)/2``). A teleop without a gripper on an env with one holds the gripper action last sent
-to the env (``last_gripper_action_getter``, kept by ``InterventionWrapper``):
+to the env (``last_gripper_action_getter``, kept by ``InterventionWrapper`` with one entry per arm;
+this single-arm source reads entry 0):
 ``RealRobotEnv`` sends an absolute width target every step, so there is no no-op value; a fixed
 "open" would drop a grasped object the moment a human takes over the arm, and the measured width
 would too (a binary gripper closed on a wide object measures above its open threshold).
@@ -24,7 +25,11 @@ from typing import Any, Callable, Mapping, NamedTuple, Optional, Sequence, Union
 
 import numpy as np
 
-from rl_garden_real_world.teleop.base import TeleopReading, TeleopSource
+from rl_garden_real_world.teleop.base import (
+    TeleopReading,
+    TeleopSource,
+    held_gripper_action,
+)
 from rl_garden_real_world.teleop.registry import register_teleop_source
 
 __all__ = [
@@ -82,7 +87,7 @@ class TeleopPartSource(TeleopSource):
         joint_limits: Optional[Sequence[Sequence[float]]] = None,
         joint_scale_rad: Optional[float] = None,
         last_observation_getter: Optional[Callable[[], Optional[dict]]] = None,
-        last_gripper_action_getter: Optional[Callable[[], float]] = None,
+        last_gripper_action_getter: Optional[Callable[[], Any]] = None,
         read_timeout_s: float = DEFAULT_READ_TIMEOUT_S,
     ) -> None:
         self._resolve: TeleopResolver = teleop if callable(teleop) else (lambda: teleop)
@@ -257,7 +262,7 @@ class TeleopPartSource(TeleopSource):
 
     def _gripper_action(self, sample: Any, teleop: Any) -> float:
         if self._pads_gripper:
-            return float(self._last_gripper_action())
+            return held_gripper_action(self._last_gripper_action)
         if sample.gripper is None:
             from robot_infra.devices.errors import DeviceFault
 

@@ -15,7 +15,7 @@ from robot_infra.devices.robots.franka import FrankaConfig
 from robot_infra.devices.robots.piper import PiperConfig
 from robot_infra.discovery import enumerate as probes
 from robot_infra.doctor import cli
-from robot_infra.doctor.checks import exit_code, run_doctor, summarize
+from robot_infra.doctor.checks import CheckResult, exit_code, run_doctor, summarize
 
 
 def franka_config(**kwargs) -> FrankaConfig:
@@ -168,6 +168,50 @@ def test_cli_text_and_json(tmp_path, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert {entry["layer"] for entry in payload} == {1, 2, 3, 4, 5}
     assert all("autofix" not in entry for entry in payload)
+
+
+def write_station(tmp_path) -> str:
+    robot = {"type": "franka", "arm_backend": "fake", "gripper": {"backend": "fake"}}
+    path = tmp_path / "station.yaml"
+    path.write_text(yaml.safe_dump({"robots": {"left": dict(robot), "right": dict(robot, robot_ip="10.0.0.3")}}))
+    return str(path)
+
+
+def test_cli_without_config_checks_the_station_file(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ROBOT_INFRA_CONFIG", write_config(tmp_path))
+    assert cli.main(["--mock"]) == 0
+    assert "[3/5] handshake ... OK" in capsys.readouterr().out
+
+
+def test_cli_without_any_config_is_a_usage_error(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("ROBOT_INFRA_CONFIG", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as info:
+        cli.main(["--mock"])
+    assert info.value.code == 2 and "python -m robot_infra.setup" in capsys.readouterr().err
+
+
+def test_cli_checks_every_robot_of_a_station_or_one(tmp_path, capsys):
+    path = write_station(tmp_path)
+    assert cli.main(["--config", path, "--mock"]) == 0
+    text = capsys.readouterr().out
+    assert "== robot 'left' ==" in text and "== robot 'right' ==" in text
+    assert text.count("summary:") == 2 and "overall: 2 robots, all passed" in text
+    assert cli.main(["--config", path, "--mock", "--robot", "right"]) == 0
+    one = capsys.readouterr().out
+    assert "== robot" not in one and one.count("summary:") == 1
+    assert cli.main(["--config", path, "--mock", "--json"]) == 0
+    assert set(json.loads(capsys.readouterr().out)) == {"left", "right"}
+
+
+def test_cli_station_exit_code_fails_when_one_robot_fails(tmp_path, monkeypatch, capsys):
+    path = write_station(tmp_path)
+    monkeypatch.setattr(
+        cli, "run_doctor", lambda config, mock, fix: [CheckResult(1, "sdk:arm", config.name == "left", "checked")]
+    )
+    assert cli.main(["--config", path]) == 1
+    assert "overall: 2 robots, failures on ['right']" in capsys.readouterr().out
 
 
 def test_fake_backends_skip_os_probes_and_pass(monkeypatch):

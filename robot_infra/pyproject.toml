@@ -51,3 +51,6 @@ dev = ["pytest"]
 
 [tool.setuptools.packages.find]
 include = ["robot_infra*"]
+
+[tool.setuptools.package-data]
+robot_infra = ["setup/*.yaml"]

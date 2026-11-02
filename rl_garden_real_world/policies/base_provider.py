@@ -12,6 +12,7 @@ string ``kind[:path][?key=value&key=value]``::
     zero
     checkpoint:/runs/bc/checkpoints/final.pt?algo=real_world_bc
     checkpoint:/runs/sim/checkpoints/final.pt?algo=rlpd_hybrid
+    checkpoint:/runs/bimanual/checkpoints/final.pt?algo=rlpd_hybrid&num_grippers=2
     act:/data/act/policy_best.ckpt?temporal_agg=1&temporal_agg_k=0.01
 """
 from __future__ import annotations
@@ -28,7 +29,7 @@ from rl_garden.common.types import Obs
 
 PROVIDER_KINDS = ("zero", "checkpoint", "act")
 _SPEC_USAGE = (
-    "expected 'zero', 'checkpoint:<path>?algo=<registered algorithm>' or "
+    "expected 'zero', 'checkpoint:<path>?algo=<registered algorithm>[&num_grippers=<k>]' or "
     "'act:<path>[?temporal_agg=1&temporal_agg_k=0.01&state_dict_key=ema_agent]'"
 )
 
@@ -142,10 +143,11 @@ def _restore_real_world_bc_agent(path: str, env: _SpacesOnlyEnv) -> Any:
     return build_bc(training_args, env, None, eval_env=None)
 
 
-def _restore_online_agent(path: str, algo: str, env: _SpacesOnlyEnv) -> Any:
+def _restore_online_agent(path: str, algo: str, env: _SpacesOnlyEnv, **builder_kwargs: Any) -> Any:
     """An rl-garden online-registry agent (``rlpd``, ``rlpd_hybrid``, ...), rebuilt the way
     ``deploy`` rebuilds one: the entry's Args from the run's ``config.json`` and the
-    checkpoint's hyperparameters, then the entry's ``build_agent``."""
+    checkpoint's hyperparameters, then the entry's ``build_agent`` (``builder_kwargs``, e.g.
+    ``num_grippers`` for a multi-arm ``rlpd_hybrid``, go to it)."""
     from rl_garden_real_world.deploy import (
         DeployArgs,
         _resolve_build_agent,
@@ -153,7 +155,9 @@ def _restore_online_agent(path: str, algo: str, env: _SpacesOnlyEnv) -> Any:
     )
 
     training_args = restore_training_args(DeployArgs(checkpoint=path, algo=algo))
-    return _resolve_build_agent(algo)(training_args, env, None, logger=None, checkpoint_dir=None)
+    return _resolve_build_agent(algo)(
+        training_args, env, None, logger=None, checkpoint_dir=None, **builder_kwargs
+    )
 
 
 class CheckpointBaseProvider:
@@ -163,7 +167,12 @@ class CheckpointBaseProvider:
     online-registry name with an agent builder (``rlpd``, ``rlpd_hybrid``, ...). The
     checkpoint must have been trained on the same observation and action spaces (the load
     checks them). The run's ``config.json`` next to ``checkpoints/`` is read when present.
+    ``num_grippers`` (default 1) rebuilds an ``rlpd_hybrid`` checkpoint of a multi-arm env,
+    whose discrete head covers the last ``num_grippers`` action dims; a spaces-only rebuild
+    cannot infer it, so the spec names it (``?algo=rlpd_hybrid&num_grippers=2``).
     """
+
+    _GRIPPER_COUNT_ALGOS = ("rlpd_hybrid",)
 
     def __init__(
         self,
@@ -172,17 +181,27 @@ class CheckpointBaseProvider:
         *,
         observation_space: spaces.Space,
         action_space: spaces.Box,
+        num_grippers: int = 1,
         device: torch.device | str = "cpu",
     ) -> None:
         self.path = str(path)
         self.algo = algo
+        self.num_grippers = int(num_grippers)
+        if self.num_grippers < 1:
+            raise ValueError(f"num_grippers must be >= 1, got {num_grippers}")
+        if self.num_grippers != 1 and algo not in self._GRIPPER_COUNT_ALGOS:
+            raise ValueError(
+                f"num_grippers={self.num_grippers} only applies to {list(self._GRIPPER_COUNT_ALGOS)} "
+                f"checkpoints, not algo={algo!r}"
+            )
         self.action_dim = int(action_space.shape[0])
         self.device = torch.device(device)
         env = _SpacesOnlyEnv(observation_space, action_space)
         if algo == "real_world_bc":
             agent = _restore_real_world_bc_agent(self.path, env)
         else:
-            agent = _restore_online_agent(self.path, algo, env)
+            builder_kwargs = {} if self.num_grippers == 1 else {"num_grippers": self.num_grippers}
+            agent = _restore_online_agent(self.path, algo, env, **builder_kwargs)
         agent.load(self.path, load_replay_buffer=False, load_optimizers=False)
         self._policy = agent.policy.to(self.device).eval()
 
@@ -200,7 +219,10 @@ class CheckpointBaseProvider:
         return self
 
     def spec(self) -> dict[str, Any]:
-        return {"kind": "checkpoint", "path": self.path, "options": {"algo": self.algo}}
+        options: dict[str, Any] = {"algo": self.algo}
+        if self.num_grippers != 1:
+            options["num_grippers"] = self.num_grippers
+        return {"kind": "checkpoint", "path": self.path, "options": options}
 
 
 class ACTBaseProvider:
@@ -314,12 +336,14 @@ def make_base_provider(
         algo = options.pop("algo", None)
         if not algo:
             raise ValueError(f"a 'checkpoint' base provider needs ?algo=<name>; {_SPEC_USAGE}")
+        num_grippers = int(options.pop("num_grippers", 1))
         _reject_unknown_options(kind, options)
         return CheckpointBaseProvider(
             path,
             algo,
             observation_space=observation_space,
             action_space=action_space,
+            num_grippers=num_grippers,
             device=device,
         )
     temporal_agg = _parse_bool(options.pop("temporal_agg", "1"), name="temporal_agg")

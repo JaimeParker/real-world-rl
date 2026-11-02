@@ -61,7 +61,8 @@ class DeployArgs:
     # Path to a checkpoint_<step>.pt written by a SERL/HIL-SERL learner (or any online run).
     checkpoint: str
     # Online-registry algorithm that produced the checkpoint ("rlpd" for serl,
-    # "rlpd_hybrid" for hil_serl).
+    # "rlpd_hybrid" for hil_serl, "residual_hil_serl" or "residual_hil_serl_hybrid" for
+    # residual_hil_serl).
     algo: str = "rlpd"
     # Robot connection and env settings (exactly one of --real_robot.robot / .remote).
     real_robot: RealRobotEnvConfig = field(default_factory=RealRobotEnvConfig)
@@ -77,6 +78,9 @@ class DeployArgs:
     seed: int = 0
     # Training run's config.json; defaults to <checkpoint dir>/../config.json when present.
     config_path: Optional[str] = None
+    # Residual checkpoints only: base action provider spec ("zero", "checkpoint:<path>?algo=...",
+    # "act:<path>") replacing the one recorded at training (e.g. the base checkpoint moved).
+    base_provider: Optional[str] = None
 
 
 @dataclass
@@ -273,7 +277,29 @@ def restore_policy(args: DeployArgs, training_args: Any, env: Any):
     agent = build_agent(training_args, env, None, logger=None, checkpoint_dir=None)
     agent.load(args.checkpoint, load_replay_buffer=False, load_optimizers=False)
     # Online builders construct on device "auto"; inference runs where --device says.
-    return agent.policy.to(torch.device(args.device))
+    policy = agent.policy.to(torch.device(args.device))
+    return _compose_with_base_provider(args, agent, policy, env)
+
+
+def _compose_with_base_provider(args: DeployArgs, agent: Any, policy: Any, env: Any) -> Any:
+    """A residual agent's policy acts on top of its base provider: rebuild the provider from
+    ``--base-provider`` or the spec the checkpoint recorded. Other policies pass through."""
+    from rl_garden_real_world.algorithms.residual import ResidualMixin
+
+    if not isinstance(agent, ResidualMixin):
+        return policy
+    from rl_garden_real_world.policies.base_provider import (
+        ResidualPolicyWithBase,
+        make_base_provider,
+    )
+
+    provider = make_base_provider(
+        args.base_provider or agent.base_provider_spec,
+        device=args.device,
+        observation_space=env.single_observation_space,
+        action_space=env.single_action_space,
+    )
+    return ResidualPolicyWithBase(policy, provider)
 
 
 # -- episode loop ---------------------------------------------------------------------
@@ -308,6 +334,10 @@ def _env_device(obs: Any) -> torch.device:
 
 
 def _run_episode(args: DeployArgs, env: Any, policy: Any, device: torch.device, seed) -> EpisodeResult:
+    from rl_garden_real_world.policies.base_provider import ResidualPolicyWithBase
+
+    if isinstance(policy, ResidualPolicyWithBase):
+        policy.reset_episode()
     obs, _ = env.reset(seed=seed)
     steps, episode_return, truncated = 0, 0.0, False
     rtts: list[float] = []

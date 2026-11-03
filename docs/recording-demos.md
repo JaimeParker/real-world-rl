@@ -2,7 +2,7 @@
 
 `examples/record_real_demos.py` records teleoperated demonstrations on the real robot into the
 pkl format that `--demo-dataset-paths` loads (`hil_serl`, `residual_hil_serl`, `silri` and
-`real_world_bc`). The logic lives in `rl_garden_real_world/demos/record.py`.
+`real_world_bc`). The logic lives in `real_world_rl/demos/record.py`.
 
 The recorder builds the env exactly as the HIL actor does (`build_hil_env(args, role="actor")`),
 so it takes the same env, teleop and observation flags, and the same `--config` preset, as

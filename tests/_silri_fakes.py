@@ -8,8 +8,8 @@ import numpy as np
 import torch
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
-from rl_garden_real_world.algorithms.silri import SiLRI
-from rl_garden_real_world.buffers.intervention_replay_buffer import InterventionSample
+from real_world_rl.algorithms.silri import SiLRI
+from real_world_rl.buffers.intervention_replay_buffer import InterventionSample
 
 from rl_garden.encoders.config import EncoderConfig
 

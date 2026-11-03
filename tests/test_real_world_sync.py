@@ -10,7 +10,7 @@ import urllib.request
 import pytest
 import torch
 
-from rl_garden_real_world.loops.sync import ActorSyncClient, LearnerSyncServer
+from real_world_rl.loops.sync import ActorSyncClient, LearnerSyncServer
 
 
 def _start_server(on_transition):

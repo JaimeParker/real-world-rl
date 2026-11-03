@@ -13,8 +13,8 @@ from rl_garden.envs.backend_registry import EnvRequest, _validate_env_observatio
 from rl_garden.observations.config import ObservationConfig
 from rl_garden.observations.schema import ObservationContractError
 
-from rl_garden_real_world.envs.backends.real_robot import RealRobotBackend
-from rl_garden_real_world.envs.real_robot import RealRobotEnvConfig
+from real_world_rl.envs.backends.real_robot import RealRobotBackend
+from real_world_rl.envs.real_robot import RealRobotEnvConfig
 
 FAKE_FRANKA = {
     "type": "franka",

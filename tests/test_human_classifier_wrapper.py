@@ -5,7 +5,7 @@ import gymnasium as gym
 import pytest
 import torch
 
-from rl_garden_real_world.envs.wrappers.human_classifier import HumanClassifierWrapper
+from real_world_rl.envs.wrappers.human_classifier import HumanClassifierWrapper
 
 
 class _FakeEnv(gym.Env):

@@ -1,4 +1,4 @@
-"""Tests for the eval-only real-robot deploy entrypoint (rl_garden_real_world/deploy.py)."""
+"""Tests for the eval-only real-robot deploy entrypoint (real_world_rl/deploy.py)."""
 from __future__ import annotations
 
 import gymnasium as gym
@@ -11,7 +11,7 @@ from gymnasium.vector.utils import batch_space
 import robot_infra.devices.claims as claims
 from robot_infra.devices.errors import DeviceFault
 
-from rl_garden_real_world.deploy import (
+from real_world_rl.deploy import (
     DEVICE_ERROR_EXIT_CODE,
     DeployArgs,
     EpisodeResult,
@@ -21,7 +21,7 @@ from rl_garden_real_world.deploy import (
     restore_training_args,
     run_deploy,
 )
-from rl_garden_real_world.envs.real_robot import RealRobotEnvConfig
+from real_world_rl.envs.real_robot import RealRobotEnvConfig
 
 FAKE_FRANKA = {
     "type": "franka",

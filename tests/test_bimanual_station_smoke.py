@@ -31,40 +31,40 @@ from rl_garden.observations import ObservationConfig
 from robot_infra.devices.robots.franka import FRANKA_HOME_JOINTS
 from robot_infra.discovery.autoconfig import load_station
 
-import rl_garden_real_world.envs.backends.real_robot_bimanual  # noqa: F401  (registers the backend)
-from rl_garden_real_world.action_contract import (
+import real_world_rl.envs.backends.real_robot_bimanual  # noqa: F401  (registers the backend)
+from real_world_rl.action_contract import (
     demo_contract_of,
     get_env_action_contract,
     read_contract_sidecar,
 )
-from rl_garden_real_world.algorithms.residual import ResidualRLPDHybrid
-from rl_garden_real_world.demos.record import (
+from real_world_rl.algorithms.residual import ResidualRLPDHybrid
+from real_world_rl.demos.record import (
     RecordDemosArgs,
     hold_action_fn_for,
     record_demos,
     save_demos,
 )
-from rl_garden_real_world.deploy import DeployArgs, restore_training_args, run_deploy
-from rl_garden_real_world.envs.bimanual import BimanualRealRobotEnvConfig
-from rl_garden_real_world.envs.real_robot import RealRobotEnvConfig
-from rl_garden_real_world.loops.hil_serl import HilSerlActorLoop, HilSerlLearnerLoop
-from rl_garden_real_world.loops.residual import ResidualActorLoop, ResidualLearnerLoop
-from rl_garden_real_world.loops.silri import SilriActorLoop, SilriLearnerLoop
-from rl_garden_real_world.policies.base_provider import ZeroBaseProvider
-from rl_garden_real_world.teleop.bimanual import BimanualTeleopSource
-from rl_garden_real_world.teleop.leader_arm import LeaderArmPartSource
-from rl_garden_real_world.training import env_building
-from rl_garden_real_world.training.entrypoints import hil_serl
-from rl_garden_real_world.training.entrypoints.bc import (
+from real_world_rl.deploy import DeployArgs, restore_training_args, run_deploy
+from real_world_rl.envs.bimanual import BimanualRealRobotEnvConfig
+from real_world_rl.envs.real_robot import RealRobotEnvConfig
+from real_world_rl.loops.hil_serl import HilSerlActorLoop, HilSerlLearnerLoop
+from real_world_rl.loops.residual import ResidualActorLoop, ResidualLearnerLoop
+from real_world_rl.loops.silri import SilriActorLoop, SilriLearnerLoop
+from real_world_rl.policies.base_provider import ZeroBaseProvider
+from real_world_rl.teleop.bimanual import BimanualTeleopSource
+from real_world_rl.teleop.leader_arm import LeaderArmPartSource
+from real_world_rl.training import env_building
+from real_world_rl.training.entrypoints import hil_serl
+from real_world_rl.training.entrypoints.bc import (
     RealWorldBCArgs,
     run_real_world_bc,
 )
-from rl_garden_real_world.training.entrypoints.hil_serl import HilSerlArgs
-from rl_garden_real_world.training.entrypoints.residual_hil_serl import (
+from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
+from real_world_rl.training.entrypoints.residual_hil_serl import (
     ResidualHilSerlArgs,
     build_residual_hil_serl,
 )
-from rl_garden_real_world.training.entrypoints.silri import SilriArgs, build_silri
+from real_world_rl.training.entrypoints.silri import SilriArgs, build_silri
 
 BIMANUAL = "real_robot_bimanual"
 ARMS = ("left", "right")

@@ -11,11 +11,11 @@ import pytest
 import torch
 from _teleop_fakes import ContractEnv
 
-from rl_garden_real_world.envs.wrappers import TeleopEventRewardWrapper, teleop_event_reward
-from rl_garden_real_world.envs.wrappers.intervention import InterventionWrapper
-from rl_garden_real_world.teleop import TeleopReading
-from rl_garden_real_world.teleop.fake import ScriptedTeleopSource
-from rl_garden_real_world.training import env_building
+from real_world_rl.envs.wrappers import TeleopEventRewardWrapper, teleop_event_reward
+from real_world_rl.envs.wrappers.intervention import InterventionWrapper
+from real_world_rl.teleop import TeleopReading
+from real_world_rl.teleop.fake import ScriptedTeleopSource
+from real_world_rl.training import env_building
 
 
 class _StepEnv(gym.Env):
@@ -133,13 +133,13 @@ def test_reads_the_events_the_intervention_wrapper_writes():
 
 
 def _hil_serl():
-    from rl_garden_real_world.training.entrypoints import hil_serl
+    from real_world_rl.training.entrypoints import hil_serl
 
     return hil_serl, hil_serl.run_hil_serl, hil_serl.HilSerlArgs
 
 
 def _residual():
-    from rl_garden_real_world.training.entrypoints import residual_hil_serl
+    from real_world_rl.training.entrypoints import residual_hil_serl
 
     def args(**kwargs):
         return residual_hil_serl.ResidualHilSerlArgs(residual_variant="hybrid", base_provider="zero", **kwargs)
@@ -148,7 +148,7 @@ def _residual():
 
 
 def _silri():
-    from rl_garden_real_world.training.entrypoints import silri
+    from real_world_rl.training.entrypoints import silri
 
     return silri, silri.run_silri, silri.SilriArgs
 

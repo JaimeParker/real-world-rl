@@ -13,23 +13,23 @@ from _teleop_fakes import TwoArmContractEnv
 import robot_infra.devices.claims as claims
 from robot_infra.devices.teleop import TeleopConfig
 
-from rl_garden_real_world.envs.bimanual import BimanualRealRobotEnv, BimanualRealRobotVectorEnv
-from rl_garden_real_world.envs.wrappers.intervention import (
+from real_world_rl.envs.bimanual import BimanualRealRobotEnv, BimanualRealRobotVectorEnv
+from real_world_rl.envs.wrappers.intervention import (
     InterventionWrapper,
     TeleopInterventionWrapper,
 )
-from rl_garden_real_world.teleop import TeleopReading, make_teleop_source
-from rl_garden_real_world.teleop.bimanual import (
+from real_world_rl.teleop import TeleopReading, make_teleop_source
+from real_world_rl.teleop.bimanual import (
     BimanualTeleopSource,
     find_bimanual_env,
     normalized_joint_target,
 )
-from rl_garden_real_world.teleop.composite import (
+from real_world_rl.teleop.composite import (
     CompositeTeleopSource,
     ToggleableTeleopSource,
 )
-from rl_garden_real_world.teleop.fake import ScriptedTeleopSource
-from rl_garden_real_world.teleop.leader_arm import LeaderArmPartSource
+from real_world_rl.teleop.fake import ScriptedTeleopSource
+from real_world_rl.teleop.leader_arm import LeaderArmPartSource
 
 CART = 6
 LEFT_ARM = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]

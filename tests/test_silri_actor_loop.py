@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Optional, Sequence
 
 import torch
-from rl_garden_real_world.loops.hil_serl import HilSerlActorLoop
-from rl_garden_real_world.loops.silri import SilriActorLoop
+from real_world_rl.loops.hil_serl import HilSerlActorLoop
+from real_world_rl.loops.silri import SilriActorLoop
 
 _POLICY_ACTION = torch.full((1, 3), 0.25)
 _HUMAN_ACTION = torch.full((1, 3), -0.5)
@@ -162,7 +162,7 @@ def test_episode_end_flushes_and_onset_never_crosses_episodes():
 
 
 def test_actor_loop_calls_the_run_end_hook_before_stopping_even_on_errors():
-    from rl_garden_real_world.loops.actor import ActorLoop
+    from real_world_rl.loops.actor import ActorLoop
 
     events = []
 

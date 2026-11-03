@@ -8,8 +8,8 @@ import pytest
 import torch
 
 from rl_garden.training.algorithm_registry import BaseAlgorithmRegistry
-from rl_garden_real_world.training import rlgarden_algorithms
-from rl_garden_real_world.training.rlgarden_algorithms import register_real_world_algorithms
+from real_world_rl.training import rlgarden_algorithms
+from real_world_rl.training.rlgarden_algorithms import register_real_world_algorithms
 
 
 class _Registry(BaseAlgorithmRegistry):
@@ -96,7 +96,7 @@ def test_pyproject_declares_the_entry_point():
     pyproject = pathlib.Path(__file__).resolve().parents[1] / "pyproject.toml"
     declared = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["entry-points"]
     assert declared["rlgarden.algorithms"] == {
-        "real_world": "rl_garden_real_world.training.rlgarden_algorithms"
+        "real_world": "real_world_rl.training.rlgarden_algorithms"
     }
 
 
@@ -129,7 +129,7 @@ def _patch_online_registry(monkeypatch, entries):
 
 
 def test_deploy_uses_the_registry_entry_builder_when_present(monkeypatch):
-    from rl_garden_real_world.deploy import _resolve_build_agent
+    from real_world_rl.deploy import _resolve_build_agent
 
     fake = _patch_online_registry(monkeypatch, {"custom": _FakeEntry(_build)})
     assert _resolve_build_agent("custom") is _build
@@ -138,7 +138,7 @@ def test_deploy_uses_the_registry_entry_builder_when_present(monkeypatch):
 
 def test_deploy_falls_back_to_the_in_tree_builder_without_one(monkeypatch):
     from rl_garden.training.online.entrypoints.rlpd import build_rlpd
-    from rl_garden_real_world.deploy import _resolve_build_agent
+    from real_world_rl.deploy import _resolve_build_agent
 
     _patch_online_registry(monkeypatch, {"rlpd": _FakeEntry(None)})
     assert _resolve_build_agent("rlpd") is build_rlpd
@@ -150,14 +150,14 @@ def test_deploy_falls_back_to_the_in_tree_builder_without_one(monkeypatch):
 def test_deploy_resolves_the_in_tree_builders_through_the_real_registry(algo):
     import importlib
 
-    from rl_garden_real_world.deploy import _resolve_build_agent
+    from real_world_rl.deploy import _resolve_build_agent
 
     module = importlib.import_module(f"rl_garden.training.online.entrypoints.{algo}")
     assert _resolve_build_agent(algo) is getattr(module, f"build_{algo}")
 
 
 def test_restore_policy_builds_and_loads_through_the_resolved_builder(monkeypatch):
-    from rl_garden_real_world.deploy import DeployArgs, restore_policy
+    from real_world_rl.deploy import DeployArgs, restore_policy
 
     calls = {}
 

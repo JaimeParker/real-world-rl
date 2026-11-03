@@ -22,13 +22,13 @@ from _teleop_fakes import ContractEnv, TwoArmContractEnv
 
 import robot_infra.devices.claims as claims
 
-from rl_garden_real_world.action_contract import (
+from real_world_rl.action_contract import (
     contract_sidecar_path,
     demo_contract_of,
     validate_transitions_against_contract,
 )
-from rl_garden_real_world.demos import record
-from rl_garden_real_world.demos.record import (
+from real_world_rl.demos import record
+from real_world_rl.demos.record import (
     LeaderFollowerGapError,
     RecordDemosArgs,
     check_leader_near_follower,
@@ -37,19 +37,19 @@ from rl_garden_real_world.demos.record import (
     run_recorder,
     save_demos,
 )
-from rl_garden_real_world.envs.bimanual import BimanualRealRobotEnv, BimanualRealRobotVectorEnv
-from rl_garden_real_world.envs.wrappers.intervention import InterventionWrapper
-from rl_garden_real_world.envs.wrappers.teleop_event_reward import TeleopEventRewardWrapper
-from rl_garden_real_world.teleop import TeleopReading
-from rl_garden_real_world.teleop.bimanual import normalized_joint_target
-from rl_garden_real_world.teleop.composite import CompositeTeleopSource
-from rl_garden_real_world.teleop.fake import ScriptedTeleopSource
-from rl_garden_real_world.teleop.leader_arm import (
+from real_world_rl.envs.bimanual import BimanualRealRobotEnv, BimanualRealRobotVectorEnv
+from real_world_rl.envs.wrappers.intervention import InterventionWrapper
+from real_world_rl.envs.wrappers.teleop_event_reward import TeleopEventRewardWrapper
+from real_world_rl.teleop import TeleopReading
+from real_world_rl.teleop.bimanual import normalized_joint_target
+from real_world_rl.teleop.composite import CompositeTeleopSource
+from real_world_rl.teleop.fake import ScriptedTeleopSource
+from real_world_rl.teleop.leader_arm import (
     TELEOP_SYNCING_EVENT,
     LeaderArmPartSource,
 )
-from rl_garden_real_world.training import env_building
-from rl_garden_real_world.training.demo_loading import load_demo_pkls
+from real_world_rl.training import env_building
+from real_world_rl.training.demo_loading import load_demo_pkls
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 Q1 = [0.2, -0.1, 0.0, 0.3, 0.0, 0.1, 0.0]
@@ -590,7 +590,7 @@ def test_example_parses_the_hil_env_flags_over_a_training_preset(example, monkey
         encoding="utf-8",
     )
     received = []
-    monkeypatch.setattr("rl_garden_real_world.demos.__main__.run_recorder", received.append)
+    monkeypatch.setattr("real_world_rl.demos.__main__.run_recorder", received.append)
     example.main(
         [
             "--config", str(preset),
@@ -631,7 +631,7 @@ def test_example_parses_the_two_arm_flags_over_a_training_preset(example, monkey
         encoding="utf-8",
     )
     received = []
-    monkeypatch.setattr("rl_garden_real_world.demos.__main__.run_recorder", received.append)
+    monkeypatch.setattr("real_world_rl.demos.__main__.run_recorder", received.append)
     example.main(
         [
             "--config", str(preset),
@@ -664,7 +664,7 @@ def test_example_parses_the_two_arm_flags_over_a_training_preset(example, monkey
 
 def test_example_parses_the_teleop_event_reward_flags(example, monkeypatch):
     received = []
-    monkeypatch.setattr("rl_garden_real_world.demos.__main__.run_recorder", received.append)
+    monkeypatch.setattr("real_world_rl.demos.__main__.run_recorder", received.append)
     example.main(["--output-path", "demos/task.pkl", "--reward-from-teleop-events", "--teleop-success-reward", "2.0"])
     (args,) = received
     assert args.reward_from_teleop_events and args.teleop_success_reward == 2.0
@@ -680,7 +680,7 @@ def test_recorder_defaults():
 
 def test_example_turns_the_teleop_event_reward_off_with_the_negated_flag(example, monkeypatch):
     received = []
-    monkeypatch.setattr("rl_garden_real_world.demos.__main__.run_recorder", received.append)
+    monkeypatch.setattr("real_world_rl.demos.__main__.run_recorder", received.append)
     example.main(["--output-path", "demos/task.pkl", "--no-reward-from-teleop-events"])
     (args,) = received
     assert not args.reward_from_teleop_events

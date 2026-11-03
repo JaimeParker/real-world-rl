@@ -9,12 +9,12 @@ import torch
 from _teleop_fakes import ContractEnv, FakeEnv, make_pyspacemouse
 from robot_infra.devices import SdkMissing
 
-from rl_garden_real_world.envs.wrappers.intervention import (
+from real_world_rl.envs.wrappers.intervention import (
     InterventionWrapper,
     TeleopInterventionWrapper,
 )
-from rl_garden_real_world.teleop import make_teleop_source
-from rl_garden_real_world.teleop.spacemouse import SpaceMouseTeleopSource
+from real_world_rl.teleop import make_teleop_source
+from real_world_rl.teleop.spacemouse import SpaceMouseTeleopSource
 
 TWIST = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6)  # x, y, z, roll, pitch, yaw
 MAPPED_TWIST = [-0.2, 0.1, 0.3, -0.4, -0.5, -0.6]  # [-y, x, z, -roll, -pitch, -yaw]

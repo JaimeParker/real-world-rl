@@ -3,7 +3,7 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rlgarden-real-world"
+name = "real-world-rl"
 version = "0.0.1"
 description = "Real-world RL orchestration for rl-garden: ActorLoop/LearnerLoop, the franka_real env backend, and SERL/HIL-SERL training loops. Imports rl_garden as a library; overrides/extends it here rather than living inside its repo."
 requires-python = ">=3.10"
@@ -20,7 +20,7 @@ dependencies = [
     # Device layer for the generic real_robot env backend (envs/real_robot).
     # Lives in this repository under robot_infra/ (torch-free). For development:
     #   pip install -e rl-garden -e robot_infra -e .
-    "rlgarden-robot-infra @ git+https://github.com/JaimeParker/rlgarden-real-world.git#subdirectory=robot_infra",
+    "rlgarden-robot-infra @ git+https://github.com/JaimeParker/real-world-rl.git#subdirectory=robot_infra",
 ]
 
 [project.optional-dependencies]
@@ -29,7 +29,7 @@ dependencies = [
 # itself, required only on the machine running
 # robot_infra/controller/real/franka_bridge.py, is not pip-installable --
 # see that module's docstring.
-robot-infra = ["rlgarden-robot-infra @ git+https://github.com/JaimeParker/rlgarden-real-world.git#subdirectory=robot_infra"]
+robot-infra = ["rlgarden-robot-infra @ git+https://github.com/JaimeParker/real-world-rl.git#subdirectory=robot_infra"]
 # collect_data.py's global success/failure keyboard listener.
 reward-collection = ["pynput"]
 # examples/record_teleop_wsrl.py, run_teleop_demo.py: ManiSkill sim envs.
@@ -37,21 +37,21 @@ examples = ["mani_skill"]
 dev = ["pytest", "scipy"]
 
 [project.scripts]
-rlgarden-real-train = "rl_garden_real_world.training.__main__:main"
-rlgarden-real-record = "rl_garden_real_world.demos.__main__:main"
-rlgarden-real-deploy = "rl_garden_real_world.deploy:run_cli"
-rlgarden-real-collect-reward = "rl_garden_real_world.reward.collect_data:main"
+real-world-rl-train = "real_world_rl.training.__main__:main"
+real-world-rl-record = "real_world_rl.demos.__main__:main"
+real-world-rl-deploy = "real_world_rl.deploy:run_cli"
+real-world-rl-collect-reward = "real_world_rl.reward.collect_data:main"
 
 [project.entry-points."rlgarden.env_backends"]
-franka_real = "rl_garden_real_world.envs.backends.franka_real"
-real_robot = "rl_garden_real_world.envs.backends.real_robot"
-real_robot_bimanual = "rl_garden_real_world.envs.backends.real_robot_bimanual"
+franka_real = "real_world_rl.envs.backends.franka_real"
+real_robot = "real_world_rl.envs.backends.real_robot"
+real_robot_bimanual = "real_world_rl.envs.backends.real_robot_bimanual"
 
 [project.entry-points."rlgarden.algorithms"]
-real_world = "rl_garden_real_world.training.rlgarden_algorithms"
+real_world = "real_world_rl.training.rlgarden_algorithms"
 
 [tool.setuptools.packages.find]
-include = ["rl_garden_real_world*"]
+include = ["real_world_rl*"]
 
 [tool.setuptools.package-data]
-rl_garden_real_world = ["py.typed"]
+real_world_rl = ["py.typed"]

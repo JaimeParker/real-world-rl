@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 import torch
 from _residual_fakes import ACTION_DIM, TWO_ARM_ACTION_DIM, DictEnv, add_rows, residual_agent
-from rl_garden_real_world.algorithms.residual import ResidualRLPD, ResidualRLPDHybrid
-from rl_garden_real_world.buffers import InterventionReplayBuffer, InterventionSample
+from real_world_rl.algorithms.residual import ResidualRLPD, ResidualRLPDHybrid
+from real_world_rl.buffers import InterventionReplayBuffer, InterventionSample
 
 from rl_garden.common.checkpoint import load_checkpoint_file
 

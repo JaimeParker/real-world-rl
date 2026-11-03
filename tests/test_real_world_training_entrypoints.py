@@ -9,7 +9,7 @@ import torch
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
 
-from rl_garden_real_world.training.entrypoints.serl import SerlArgs
+from real_world_rl.training.entrypoints.serl import SerlArgs
 
 
 class _FakeEnv(gym.Env):
@@ -56,9 +56,9 @@ def test_run_actor_builds_scratch_agent_with_tiny_buffer_and_starts_actor_loop(m
         def run(self):
             captured["ran"] = True
 
-    monkeypatch.setattr("rl_garden_real_world.loops.serl.SerlActorLoop", _FakeActorLoop)
+    monkeypatch.setattr("real_world_rl.loops.serl.SerlActorLoop", _FakeActorLoop)
 
-    from rl_garden_real_world.training.entrypoints.serl import _run_actor
+    from real_world_rl.training.entrypoints.serl import _run_actor
 
     args = SerlArgs(role="actor", buffer_size=1_000_000, sync_host="10.0.0.1", sync_port=7000)
     _run_actor(args)
@@ -100,9 +100,9 @@ def test_run_learner_builds_full_agent_and_starts_learner_loop(monkeypatch, tmp_
         def run(self):
             captured["ran"] = True
 
-    monkeypatch.setattr("rl_garden_real_world.loops.serl.SerlLearnerLoop", _FakeLearnerLoop)
+    monkeypatch.setattr("real_world_rl.loops.serl.SerlLearnerLoop", _FakeLearnerLoop)
 
-    from rl_garden_real_world.training.entrypoints.serl import _run_learner
+    from real_world_rl.training.entrypoints.serl import _run_learner
 
     args = SerlArgs(
         role="learner",
@@ -143,9 +143,9 @@ def test_serl_args_parse_real_robot_backend():
 def test_serl_default_env_request_is_franka_real():
     import dataclasses
 
-    from rl_garden_real_world.envs.real_robot import RealRobotEnvConfig
-    from rl_garden_real_world.training.args import FrankaRealConfig
-    from rl_garden_real_world.training.entrypoints.serl import _serl_env_request
+    from real_world_rl.envs.real_robot import RealRobotEnvConfig
+    from real_world_rl.training.args import FrankaRealConfig
+    from real_world_rl.training.entrypoints.serl import _serl_env_request
 
     args = SerlArgs()
     assert args.env_backend == "franka_real"
@@ -175,7 +175,7 @@ def test_serl_default_env_request_is_franka_real():
 
 
 def test_serl_actor_builds_real_robot_env_with_real_robot_config(monkeypatch):
-    from rl_garden_real_world.envs.real_robot import RealRobotEnvConfig
+    from real_world_rl.envs.real_robot import RealRobotEnvConfig
 
     captured = {}
 
@@ -198,9 +198,9 @@ def test_serl_actor_builds_real_robot_env_with_real_robot_config(monkeypatch):
         def run(self):
             pass
 
-    monkeypatch.setattr("rl_garden_real_world.loops.serl.SerlActorLoop", _FakeActorLoop)
+    monkeypatch.setattr("real_world_rl.loops.serl.SerlActorLoop", _FakeActorLoop)
 
-    from rl_garden_real_world.training.entrypoints.serl import _run_actor
+    from real_world_rl.training.entrypoints.serl import _run_actor
 
     config = RealRobotEnvConfig(remote="127.0.0.1:1", num_joints=6)
     _run_actor(SerlArgs(role="actor", env_backend="real_robot", real_robot=config))

@@ -10,13 +10,13 @@ import pytest
 import torch
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
-from rl_garden_real_world.algorithms.residual import ResidualRLPD, ResidualRLPDHybrid
-from rl_garden_real_world.policies.base_provider import (
+from real_world_rl.algorithms.residual import ResidualRLPD, ResidualRLPDHybrid
+from real_world_rl.policies.base_provider import (
     ResidualPolicyWithBase,
     ZeroBaseProvider,
 )
-from rl_garden_real_world.training.entrypoints.hil_serl import HilSerlArgs
-from rl_garden_real_world.training.entrypoints.residual_hil_serl import (
+from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
+from real_world_rl.training.entrypoints.residual_hil_serl import (
     ResidualHilSerlArgs,
     ResidualHilSerlHybridArgs,
     build_residual_hil_serl,
@@ -73,7 +73,7 @@ def _args(**overrides) -> ResidualHilSerlArgs:
 def fake_backend(monkeypatch):
     # The env request resolves the franka_real backend's config: register it even when
     # this file runs on its own (the entry point is not loaded without an install).
-    import rl_garden_real_world.envs.backends.franka_real  # noqa: F401
+    import real_world_rl.envs.backends.franka_real  # noqa: F401
 
     envs = []
 
@@ -155,7 +155,7 @@ def test_hybrid_accepts_the_grasp_penalty():
 
 
 def test_registered_on_the_real_world_registry():
-    from rl_garden_real_world.training.registry import registry
+    from real_world_rl.training.registry import registry
 
     registry.discover()
     entry = registry.entries()["residual_hil_serl"]
@@ -165,7 +165,7 @@ def test_registered_on_the_real_world_registry():
 
 
 def test_registered_on_the_online_registry_with_one_name_per_class():
-    import rl_garden_real_world.training.rlgarden_algorithms  # noqa: F401  (registers the table)
+    import real_world_rl.training.rlgarden_algorithms  # noqa: F401  (registers the table)
 
     from rl_garden.training.online.registry import registry
 
@@ -189,7 +189,7 @@ def test_actor_builds_the_provider_and_the_residual_loop(monkeypatch, fake_backe
         def run(self):
             captured["ran"] = True
 
-    monkeypatch.setattr("rl_garden_real_world.loops.residual.ResidualActorLoop", _FakeActorLoop)
+    monkeypatch.setattr("real_world_rl.loops.residual.ResidualActorLoop", _FakeActorLoop)
     run_residual_hil_serl(
         _args(
             role="actor",
@@ -222,8 +222,8 @@ def test_learner_builds_the_full_agent_without_a_provider(monkeypatch, fake_back
     def _no_provider(*args, **kwargs):
         raise AssertionError("the learner must not build the base provider")
 
-    monkeypatch.setattr("rl_garden_real_world.loops.residual.ResidualLearnerLoop", _FakeLearnerLoop)
-    monkeypatch.setattr("rl_garden_real_world.policies.base_provider.make_base_provider", _no_provider)
+    monkeypatch.setattr("real_world_rl.loops.residual.ResidualLearnerLoop", _FakeLearnerLoop)
+    monkeypatch.setattr("real_world_rl.policies.base_provider.make_base_provider", _no_provider)
     run_residual_hil_serl(
         _args(
             role="learner",
@@ -247,7 +247,7 @@ def test_learner_builds_the_full_agent_without_a_provider(monkeypatch, fake_back
 
 
 def test_eval_composes_the_policy_with_the_provider(monkeypatch, fake_backend, capsys):
-    import rl_garden_real_world.training.entrypoints.residual_hil_serl as entrypoint
+    import real_world_rl.training.entrypoints.residual_hil_serl as entrypoint
 
     built = {}
     original_build = entrypoint.build_residual_hil_serl
@@ -288,8 +288,8 @@ class _DeployEnv(_FakeEnv):
 
 @pytest.mark.parametrize("algo, variant", [("residual_hil_serl", "continuous"), ("residual_hil_serl_hybrid", "hybrid")])
 def test_deploy_restores_a_residual_checkpoint_with_its_recorded_provider(tmp_path, algo, variant):
-    import rl_garden_real_world.training.rlgarden_algorithms  # noqa: F401  (registers the table)
-    from rl_garden_real_world.deploy import (
+    import real_world_rl.training.rlgarden_algorithms  # noqa: F401  (registers the table)
+    from real_world_rl.deploy import (
         DeployArgs,
         restore_policy,
         restore_training_args,
@@ -323,7 +323,7 @@ def test_deploy_restores_a_residual_checkpoint_with_its_recorded_provider(tmp_pa
 
 
 def test_deploy_base_provider_flag_overrides_the_recorded_spec(tmp_path):
-    from rl_garden_real_world.deploy import DeployArgs, _compose_with_base_provider
+    from real_world_rl.deploy import DeployArgs, _compose_with_base_provider
 
     agent = build_residual_hil_serl(_args(base_provider="act:/missing.ckpt"), _FakeEnv(), None, None, None)
     args = DeployArgs(checkpoint="unused.pt", algo="residual_hil_serl", base_provider="zero")

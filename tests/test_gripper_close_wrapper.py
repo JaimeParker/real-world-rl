@@ -7,7 +7,7 @@ import pytest
 import torch
 from gymnasium import spaces
 
-from rl_garden_real_world.envs.wrappers.gripper_close import GripperCloseEnv
+from real_world_rl.envs.wrappers.gripper_close import GripperCloseEnv
 
 
 class _FakeEnv(gym.Env):

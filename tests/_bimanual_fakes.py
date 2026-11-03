@@ -7,8 +7,8 @@ import robot_infra.devices.backends  # noqa: F401  (registers the fake backends)
 from robot_infra.devices import CameraConfig, GripperConfig
 from robot_infra.devices.robots.franka import FrankaConfig, FrankaRobot
 
-from rl_garden_real_world.envs.bimanual import BimanualRealRobotEnvConfig
-from rl_garden_real_world.envs.real_robot import RealRobotEnvConfig
+from real_world_rl.envs.bimanual import BimanualRealRobotEnvConfig
+from real_world_rl.envs.real_robot import RealRobotEnvConfig
 
 ARMS = ("left", "right")
 ZERO_HOME = [0.0] * 7

@@ -9,9 +9,9 @@ import torch
 from gymnasium import spaces
 from scipy.spatial.transform import Rotation
 
-from rl_garden_real_world.envs.franka_real.config import FrankaRealEnvConfig
-from rl_garden_real_world.envs.franka_real.env import FrankaRealEnv
-from rl_garden_real_world.envs.wrappers.rotvec_obs import RotvecObsWrapper, quat_xyzw_to_rotvec
+from real_world_rl.envs.franka_real.config import FrankaRealEnvConfig
+from real_world_rl.envs.franka_real.env import FrankaRealEnv
+from real_world_rl.envs.wrappers.rotvec_obs import RotvecObsWrapper, quat_xyzw_to_rotvec
 
 from test_franka_real_env import _FakeBridgeClient
 

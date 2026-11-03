@@ -5,7 +5,7 @@ import gymnasium as gym
 import pytest
 import torch
 
-from rl_garden_real_world.envs.wrappers.grasp_penalty import GraspPenaltyWrapper
+from real_world_rl.envs.wrappers.grasp_penalty import GraspPenaltyWrapper
 
 
 class _FakeEnv(gym.Env):

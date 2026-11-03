@@ -50,7 +50,7 @@ arm's robot serves a camera, so set `--real_robot_bimanual.<arm>.cameras`.
 
 ## Action
 
-The action-contract layout (`rl_garden_real_world/action_contract.py`) with `num_arms=2`:
+The action-contract layout (`real_world_rl/action_contract.py`) with `num_arms=2`:
 
 ```
 [left arm block, right arm block, left gripper, right gripper]

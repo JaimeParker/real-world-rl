@@ -1,4 +1,4 @@
-# rlgarden-real-world
+# real-world-rl
 
 Real-world RL orchestration split out of
 [rl-garden](https://github.com/JaimeParker/rl-garden): `ActorLoop`/
@@ -28,9 +28,9 @@ online registry through the `rlgarden.algorithms` entry point, so `examples/depl
 can rebuild their agents from a checkpoint (`rl-garden-eval` cannot evaluate residual checkpoints:
 they need a base provider).
 The training, recording and deploy scripts in `examples/` are thin wrappers over console scripts of the installed package:
-`rlgarden-real-train` / `python -m rl_garden_real_world.training`, `rlgarden-real-record` /
-`python -m rl_garden_real_world.demos`, `rlgarden-real-deploy` / `python -m rl_garden_real_world.deploy`,
-plus `rlgarden-real-collect-reward` / `python -m rl_garden_real_world.reward.collect_data` for reward-classifier data.
+`real-world-rl-train` / `python -m real_world_rl.training`, `real-world-rl-record` /
+`python -m real_world_rl.demos`, `real-world-rl-deploy` / `python -m real_world_rl.deploy`,
+plus `real-world-rl-collect-reward` / `python -m real_world_rl.reward.collect_data` for reward-classifier data.
 
 | Method | What it is | Guide |
 |---|---|---|
@@ -43,10 +43,10 @@ plus `rlgarden-real-collect-reward` / `python -m rl_garden_real_world.reward.col
 ## Repository layout
 
 ```
-rlgarden-real-world/             repository rlgarden-real-world (top level)
-  pyproject.toml                 distribution rlgarden-real-world (imports rl_garden)
+real-world-rl/                   repository real-world-rl (top level)
+  pyproject.toml                 distribution real-world-rl (imports rl_garden)
   rl-garden/                     git submodule: rl-garden, pinned to the tested commit
-  rl_garden_real_world/          package rl_garden_real_world
+  real_world_rl/                 package real_world_rl
     loops/                       actor/learner/sync: base classes (actor, learner, sync) and one module per method (serl, hil_serl, residual, silri)
     algorithms/ policies/        real-world algorithms and policies (residual, SiLRI, base action providers)
     buffers/                     InterventionReplayBuffer (residual, SiLRI)
@@ -68,15 +68,17 @@ rlgarden-real-world/             repository rlgarden-real-world (top level)
 
 `robot_infra/` is the device-layer distribution kept inside this repository (it was the separate
 `rlgarden-robot-infra` repository; its history is preserved). It does not import `rl_garden` or
-`rl_garden_real_world`.
+`real_world_rl`.
+
+Formerly `rlgarden-real-world` (package `rl_garden_real_world`, console scripts `rlgarden-real-*`); renamed in November 2026.
 
 ## Installation
 
 Clone with the rl-garden submodule:
 
 ```bash
-git clone --recurse-submodules https://github.com/JaimeParker/rlgarden-real-world.git
-cd rlgarden-real-world
+git clone --recurse-submodules https://github.com/JaimeParker/real-world-rl.git
+cd real-world-rl
 # in an existing clone: git submodule update --init
 ```
 
@@ -391,7 +393,7 @@ any roscore running on the env node.
 **RLinf**: RLinf drives this package through Gymnasium registration, not
 through rl-garden's adapter. In an RLinf real-world config set the env block's
 `env_type: real` and `init_params.id:
-"rl_garden_real_world.integrations.rlinf.register:RLGardenReal-v0"`; RLinf's
+"real_world_rl.integrations.rlinf.register:RLGardenReal-v0"`; RLinf's
 `RealWorldEnv` then `gym.make`s `RealRobotEnv` (one robot per env worker) with
 `override_cfg` as its config. See
 [`configs/rlinf/realworld_rlgarden_franka.yaml`](configs/rlinf/realworld_rlgarden_franka.yaml)

@@ -10,9 +10,9 @@ from _leader_teleop_fakes import make_pynput
 from _teleop_fakes import ContractEnv, FakeEnv
 from robot_infra.devices import DeviceFault, SdkMissing
 
-from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
-from rl_garden_real_world.teleop import make_teleop_source
-from rl_garden_real_world.teleop.keyboard import KeyboardTeleopSource
+from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
+from real_world_rl.teleop import make_teleop_source
+from real_world_rl.teleop.keyboard import KeyboardTeleopSource
 
 
 @pytest.fixture

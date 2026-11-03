@@ -9,9 +9,9 @@ from pathlib import Path
 import pytest
 from _teleop_fakes import FakeEnv, make_pyspacemouse
 
-from rl_garden_real_world.teleop import make_teleop_source
-from rl_garden_real_world.teleop.fake import ScriptedTeleopSource
-from rl_garden_real_world.teleop.spacemouse import SpaceMouseTeleopSource
+from real_world_rl.teleop import make_teleop_source
+from real_world_rl.teleop.fake import ScriptedTeleopSource
+from real_world_rl.teleop.spacemouse import SpaceMouseTeleopSource
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 

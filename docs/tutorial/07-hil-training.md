@@ -167,7 +167,7 @@ the GELLO as usual, press `s` when the object is in the bin and move around insi
 `f` when leaving it (`s` latches success labels until `f` or the episode end):
 
 ```bash
-python -m rl_garden_real_world.reward.collect_data --env-backend real_robot --config hil.yaml \
+python -m real_world_rl.reward.collect_data --env-backend real_robot --config hil.yaml \
     --teleop-device leader_arm --robot-teleop-action-mode joint_delta --teleop-event-device keyboard \
     --output-dir classifier_data --exp-name pick-and-place --successes-needed 200
 python -m rl_garden.models.reward.success.train --success_paths 'classifier_data/*success*.pkl' \
@@ -183,7 +183,7 @@ The trainer's frozen ResNet needs its pretrained weights (`--pretrained_weights`
 
 - `DeviceFault: the daemon watchdog stopped the arm ...` on the first step after a reset: the
   daemon's `--watchdog-s` is too small.
-- `Unknown env backend 'real_robot'`: the `rlgarden-real-world` package is not installed.
+- `Unknown env backend 'real_robot'`: the `real-world-rl` package is not installed.
 - `TransportError: robot daemon unreachable at <addr>`: the daemon is not running or `remote` in
   `hil.yaml` is wrong.
 - The actor stops with a `DeviceFault` from the teleop: the GELLO read failed (it is never silently

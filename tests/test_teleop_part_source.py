@@ -15,9 +15,9 @@ from robot_infra.server import RemoteRobot
 from robot_infra.server.service import RobotService
 from robot_infra.server.transport import LocalClient
 
-from rl_garden_real_world.envs.real_robot import RealRobotEnv, RealRobotEnvConfig, RealRobotVectorEnv
-from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
-from rl_garden_real_world.teleop.part import TeleopPartSource
+from real_world_rl.envs.real_robot import RealRobotEnv, RealRobotEnvConfig, RealRobotVectorEnv
+from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
+from real_world_rl.teleop.part import TeleopPartSource
 
 ZERO_HOME = [0.0] * 7
 FRAME_HW = (24, 32)
@@ -465,7 +465,7 @@ class _StateVecEnv:
 
 def test_remote_actor_loop_pushes_scripted_interventions_and_learner_routes_them(tmp_path):
     from rl_garden.algorithms.rlpd_hybrid import RLPDHybrid
-    from rl_garden_real_world.loops.hil_serl import HilSerlActorLoop, HilSerlLearnerLoop
+    from real_world_rl.loops.hil_serl import HilSerlActorLoop, HilSerlLearnerLoop
 
     script = [
         {"action": [0.0] * 7, "active": False, "hold": 2},

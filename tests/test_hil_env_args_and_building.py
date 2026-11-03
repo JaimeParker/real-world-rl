@@ -12,15 +12,15 @@ from gymnasium.vector.utils import batch_space
 
 from rl_garden.encoders.config import EncoderConfig
 from rl_garden.training.online.entrypoints.rlpd_hybrid import RLPDHybridArgs
-from rl_garden_real_world.envs.bimanual.config import BimanualRealRobotEnvConfig
-from rl_garden_real_world.envs.real_robot.config import RealRobotEnvConfig
-from rl_garden_real_world.training import env_building
-from rl_garden_real_world.training.args import (
+from real_world_rl.envs.bimanual.config import BimanualRealRobotEnvConfig
+from real_world_rl.envs.real_robot.config import RealRobotEnvConfig
+from real_world_rl.training import env_building
+from real_world_rl.training.args import (
     FrankaRealConfig,
     HilEnvArgs,
     RealWorldFrankaArgs,
 )
-from rl_garden_real_world.training.entrypoints.hil_serl import HilSerlArgs
+from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
 
 # Every HilSerlArgs field that is not inherited from RLPDHybridArgs, with the default it had
 # when it was declared on HilSerlArgs / RealWorldFrankaArgs directly.
@@ -161,7 +161,7 @@ def fake_backend(monkeypatch):
         "rl_garden.envs.backend_registry.make_training_envs", lambda backend, req: (base, None)
     )
     monkeypatch.setattr(
-        "rl_garden_real_world.envs.wrappers.intervention.TeleopInterventionWrapper",
+        "real_world_rl.envs.wrappers.intervention.TeleopInterventionWrapper",
         _RecordingTeleopWrapper,
     )
     _RecordingTeleopWrapper.instances = []
@@ -187,7 +187,7 @@ def test_build_hil_env_without_teleop_skips_the_intervention_wrapper(fake_backen
 
 def test_build_hil_env_without_teleop_keeps_the_outer_wrappers(fake_backend, monkeypatch):
     from rl_garden.envs.wrappers.fwbw_reset_free import FWBWResetFreeWrapper
-    from rl_garden_real_world.envs.wrappers.grasp_penalty import GraspPenaltyWrapper
+    from real_world_rl.envs.wrappers.grasp_penalty import GraspPenaltyWrapper
 
     monkeypatch.setattr(env_building, "hil_env_request", lambda args, run_name: None)
     env = env_building.build_hil_env(
@@ -216,7 +216,7 @@ def test_build_hil_env_names_the_request_after_the_role_unless_given(fake_backen
 
 
 def test_hil_serl_keeps_its_private_aliases():
-    from rl_garden_real_world.training.entrypoints import hil_serl
+    from real_world_rl.training.entrypoints import hil_serl
 
     assert hil_serl._hil_serl_env_request is env_building.hil_env_request
     assert hil_serl._robot_teleop_kwargs is env_building.robot_teleop_kwargs
@@ -224,7 +224,7 @@ def test_hil_serl_keeps_its_private_aliases():
 
 
 def test_compose_hil_env_with_teleop_matches_the_hil_serl_alias(fake_backend):
-    from rl_garden_real_world.training.entrypoints.hil_serl import _build_env
+    from real_world_rl.training.entrypoints.hil_serl import _build_env
 
     env = _build_env(HilSerlArgs(), env_request=None)
     assert isinstance(env, _RecordingTeleopWrapper) and env.env is fake_backend
@@ -242,8 +242,8 @@ def test_teleop_event_reward_sits_right_outside_the_intervention_wrapper(fake_ba
     import torch
     from rl_garden.envs.wrappers.fwbw_reset_free import FWBWResetFreeWrapper
     from rl_garden.envs.wrappers.reward_classifier import RewardClassifierWrapper
-    from rl_garden_real_world.envs.wrappers import TeleopEventRewardWrapper
-    from rl_garden_real_world.envs.wrappers.grasp_penalty import GraspPenaltyWrapper
+    from real_world_rl.envs.wrappers import TeleopEventRewardWrapper
+    from real_world_rl.envs.wrappers.grasp_penalty import GraspPenaltyWrapper
 
     monkeypatch.setattr(env_building, "hil_env_request", lambda args, run_name: None)
     monkeypatch.setattr(
@@ -274,7 +274,7 @@ def test_teleop_event_reward_sits_right_outside_the_intervention_wrapper(fake_ba
 
 
 def test_teleop_event_reward_is_off_by_default(fake_backend, monkeypatch):
-    from rl_garden_real_world.envs.wrappers import TeleopEventRewardWrapper
+    from real_world_rl.envs.wrappers import TeleopEventRewardWrapper
 
     monkeypatch.setattr(env_building, "hil_env_request", lambda args, run_name: None)
     env = env_building.build_hil_env(HilSerlArgs(), role="actor")
@@ -406,7 +406,7 @@ def test_options_yaml_device_index_opens_that_spacemouse(tmp_path, monkeypatch):
 
     from _teleop_fakes import FakeEnv, make_pyspacemouse
 
-    from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
+    from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
 
     pyspacemouse = make_pyspacemouse()
     monkeypatch.setitem(sys.modules, "pyspacemouse", pyspacemouse)
@@ -573,7 +573,7 @@ def bimanual_backend_env(tmp_path, monkeypatch):
     from _bimanual_fakes import bimanual_config, fake_franka
     from robot_infra.devices.teleop import TeleopConfig
 
-    from rl_garden_real_world.envs.bimanual import BimanualRealRobotEnv, BimanualRealRobotVectorEnv
+    from real_world_rl.envs.bimanual import BimanualRealRobotEnv, BimanualRealRobotVectorEnv
 
     monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
     leader = {"action_space": "joint_abs", "num_joints": 7, "script": [{"action": [0.0] * 7}]}
@@ -586,9 +586,9 @@ def bimanual_backend_env(tmp_path, monkeypatch):
 
 
 def test_bimanual_args_build_the_bimanual_source_over_the_two_arm_env(bimanual_backend_env):
-    from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
-    from rl_garden_real_world.teleop.bimanual import BimanualTeleopSource
-    from rl_garden_real_world.teleop.leader_arm import LeaderArmPartSource
+    from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
+    from real_world_rl.teleop.bimanual import BimanualTeleopSource
+    from real_world_rl.teleop.leader_arm import LeaderArmPartSource
 
     args = _bimanual_args(real_robot_bimanual=bimanual_backend_env.env.config)
     wrapped = TeleopInterventionWrapper(bimanual_backend_env, **env_building.teleop_wrapper_kwargs(args))

@@ -17,9 +17,9 @@ from _residual_fakes import (
     residual_agent,
     residual_row,
 )
-from rl_garden_real_world.algorithms.residual import ResidualRLPD, ResidualRLPDHybrid
-from rl_garden_real_world.loops.hil_serl import HilSerlActorLoop, HilSerlLearnerLoop
-from rl_garden_real_world.loops.residual import ResidualActorLoop, ResidualLearnerLoop
+from real_world_rl.algorithms.residual import ResidualRLPD, ResidualRLPDHybrid
+from real_world_rl.loops.hil_serl import HilSerlActorLoop, HilSerlLearnerLoop
+from real_world_rl.loops.residual import ResidualActorLoop, ResidualLearnerLoop
 
 
 def _actor_loop(policy, *, env=None, sync_client=None, provider=None, **kwargs) -> ResidualActorLoop:

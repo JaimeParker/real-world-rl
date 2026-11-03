@@ -18,12 +18,12 @@ from _leader_teleop_fakes import (
 from _teleop_fakes import ContractEnv
 from robot_infra.devices import DeviceFault
 
-from rl_garden_real_world.envs.wrappers.intervention import (
+from real_world_rl.envs.wrappers.intervention import (
     InterventionWrapper,
     TeleopInterventionWrapper,
 )
-from rl_garden_real_world.teleop import TeleopReading, leader_arm, make_teleop_source
-from rl_garden_real_world.teleop.leader_arm import (
+from real_world_rl.teleop import TeleopReading, leader_arm, make_teleop_source
+from real_world_rl.teleop.leader_arm import (
     TELEOP_SYNCING_EVENT,
     LeaderArmPartSource,
 )

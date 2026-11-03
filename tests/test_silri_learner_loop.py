@@ -9,9 +9,9 @@ from types import SimpleNamespace
 
 import torch
 from _silri_fakes import ACTION_DIM, STATE_DIM, silri_agent
-from rl_garden_real_world.loops.hil_serl import HilSerlLearnerLoop
-from rl_garden_real_world.loops.learner import LearnerLoop
-from rl_garden_real_world.loops.silri import SilriLearnerLoop
+from real_world_rl.loops.hil_serl import HilSerlLearnerLoop
+from real_world_rl.loops.learner import LearnerLoop
+from real_world_rl.loops.silri import SilriLearnerLoop
 
 
 def _agent(**overrides):

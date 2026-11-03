@@ -11,8 +11,8 @@ from _residual_fakes import (
     RecordingProvider,
     residual_agent,
 )
-from rl_garden_real_world.algorithms.residual import ResidualRLPD
-from rl_garden_real_world.policies.base_provider import (
+from real_world_rl.algorithms.residual import ResidualRLPD
+from real_world_rl.policies.base_provider import (
     BaseActionProvider,
     CheckpointBaseProvider,
     ResidualPolicyWithBase,
@@ -83,7 +83,7 @@ def test_factory_rejects_incomplete_specs(spec, match):
 
 
 def test_checkpoint_provider_on_a_real_world_bc_checkpoint(tmp_path):
-    from rl_garden_real_world.training.entrypoints.bc import RealWorldBCArgs
+    from real_world_rl.training.entrypoints.bc import RealWorldBCArgs
 
     from rl_garden.training.offline.entrypoints.bc import build_bc
 

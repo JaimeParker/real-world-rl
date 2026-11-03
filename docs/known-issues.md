@@ -22,16 +22,16 @@ In dispatch order.
 - **Impact**: data loss (up to `--buffer-period` - 1 rows, 999 by default, about 100 s at 10 Hz) and
   duplicated rows that skew sampling.
 - **Where**: `HilSerlLearnerLoop._on_transition` writes the crash-recovery snapshot only when a full
-  `--buffer-period` of rows has arrived (`rl_garden_real_world/loops/hil_serl.py:376`, `_snapshot` at
+  `--buffer-period` of rows has arrived (`real_world_rl/loops/hil_serl.py:376`, `_snapshot` at
   `:379`); `LearnerLoop.run` saves `final.pt` on the way out but never flushes the pending rows
-  (`rl_garden_real_world/loops/learner.py:254`). Since the tutorial stops the actor first, no further
+  (`real_world_rl/loops/learner.py:254`). Since the tutorial stops the actor first, no further
   row arrives to trigger a snapshot, so the tail is always lost. A restart loads the checkpoint's
   online buffer when `--load-replay-buffer` is set (`agent.load` in the builder,
   `rl-garden/rl_garden/training/online/entrypoints/rlpd_hybrid.py:121`, `rlpd.py:108`,
-  `rl_garden_real_world/training/entrypoints/silri.py:168`) and then reloads every snapshot in the
-  same directory (`rl_garden_real_world/loops/hil_serl.py:270`, `_reload_snapshots` at `:292`). The
-  periodic checkpoint runs after the buffer lock is released (`rl_garden_real_world/loops/learner.py:150`,
-  `_maybe_save_periodic_checkpoint` at `:153`; SiLRI `rl_garden_real_world/loops/silri.py:200`), so with
+  `real_world_rl/training/entrypoints/silri.py:168`) and then reloads every snapshot in the
+  same directory (`real_world_rl/loops/hil_serl.py:270`, `_reload_snapshots` at `:292`). The
+  periodic checkpoint runs after the buffer lock is released (`real_world_rl/loops/learner.py:150`,
+  `_maybe_save_periodic_checkpoint` at `:153`; SiLRI `real_world_rl/loops/silri.py:200`), so with
   `--save-replay-buffer` the network thread can add rows while the buffer is being written (static
   analysis, not measured).
 - **Workaround today**: use a small `--buffer-period` (for example 100) for the first runs; stop the
@@ -50,16 +50,16 @@ In dispatch order.
 - **Impact**: safety (the arm keeps its last servo target for `--watchdog-s`, 0.5 s by default) and
   data loss at every stop.
 - **Where**: the actor entrypoints never call `env.close()`
-  (`rl_garden_real_world/training/entrypoints/hil_serl.py:36`, `residual_hil_serl.py:95`,
+  (`real_world_rl/training/entrypoints/hil_serl.py:36`, `residual_hil_serl.py:95`,
   `silri.py:187`; the eval loops, `hil_serl.py:185`, `residual_hil_serl.py:183`, `silri.py:263`,
-  neither). `ActorLoop.run` only stops the sync client (`rl_garden_real_world/loops/actor.py:171`).
+  neither). `ActorLoop.run` only stops the sync client (`real_world_rl/loops/actor.py:171`).
   `env.close()` would send `robot.disconnect` to the daemon
-  (`rl_garden_real_world/envs/wrappers/intervention.py:182`,
-  `rl_garden_real_world/envs/real_robot/env.py:418`, `robot_infra/robot_infra/server/remote.py:440`).
+  (`real_world_rl/envs/wrappers/intervention.py:182`,
+  `real_world_rl/envs/real_robot/env.py:418`, `robot_infra/robot_infra/server/remote.py:440`).
   The watchdog default is `robot_infra/robot_infra/server/daemon.py:51`. `ActorSyncClient.stop` sets
   the stop event before the push worker has drained the queue, and the worker checks that event before
-  each item (`rl_garden_real_world/loops/sync.py:285`, `:323`), so the rows SiLRI flushes in
-  `_on_run_end` (`rl_garden_real_world/loops/silri.py:76`) can be dropped.
+  each item (`real_world_rl/loops/sync.py:285`, `:323`), so the rows SiLRI flushes in
+  `_on_run_end` (`real_world_rl/loops/silri.py:76`) can be dropped.
 - **Workaround today**: end the current episode with Esc and let the arm reach a safe pose before
   Ctrl-C; keep a hand on the emergency stop; do not raise the daemon's `--watchdog-s` above
   what the resets need.
@@ -74,11 +74,11 @@ In dispatch order.
   towards the middle of `joint_limits` as soon as the actor starts.
 - **Impact**: a regression in the done flag would be silent (data corruption); unexpected motion
   (safety).
-- **Where**: `ActorLoop._build_transition` stores `done = terminated` (`rl_garden_real_world/loops/actor.py:113`),
+- **Where**: `ActorLoop._build_transition` stores `done = terminated` (`real_world_rl/loops/actor.py:113`),
   but the only direct test passes `terminated=True, truncated=False`
   (`tests/test_real_world_actor_loop_hooks.py:86`); `tests/test_single_arm_station_smoke.py:461` runs a
   truncated episode without checking its `done`. `joint_abs` maps an action near 0 onto the midpoint
-  of `joint_limits` (`rl_garden_real_world/envs/real_robot/env.py:337`), bounded per step only by
+  of `joint_limits` (`real_world_rl/envs/real_robot/env.py:337`), bounded per step only by
   `max_delta_per_step` (`:167`). `hil_serl` and `silri` start from an untrained policy;
   `residual_hil_serl` adds to its base policy.
 - **Workaround today**: use `joint_delta` (the tutorial's main line); with `joint_abs`, commission with
@@ -93,14 +93,14 @@ In dispatch order.
   `joint_scale_rad` per step, and those saturated rows train the policy as if they were demonstrations.
 - **Impact**: data corruption (the demo buffer holds catch-up motion, not the task).
 - **Where**: only the `joint_abs` ramp tags rows `teleop_syncing`
-  (`rl_garden_real_world/teleop/leader_arm.py:212`, set in `events` at `:167`); `joint_delta` returns
+  (`real_world_rl/teleop/leader_arm.py:212`, set in `events` at `:167`); `joint_delta` returns
   untagged (`:208`). The actor does not forward the tag (`_extra_transition_fields`,
-  `rl_garden_real_world/loops/hil_serl.py:145`) and the learners route on `intervened` alone (`:360`).
+  `real_world_rl/loops/hil_serl.py:145`) and the learners route on `intervened` alone (`:360`).
   `tests/test_leader_arm_hil_loops.py:216` pins that ramp rows reach the demo buffer. Only the recorder
-  drops them (`rl_garden_real_world/demos/record.py:381`).
+  drops them (`real_world_rl/demos/record.py:381`).
 - **Workaround today**: `--teleop-onset arm` in HIL training too: control starts only once the leader
   is within `--teleop-arm-tolerance-rad` of the follower
-  (`rl_garden_real_world/teleop/leader_arm.py:200`), at the cost of
+  (`real_world_rl/teleop/leader_arm.py:200`), at the cost of
   matching the GELLO by hand before each takeover.
 - **Planned fix**: tag saturated onset rows in `joint_delta`, forward the tag, and add
   `--demo-skip-syncing` to the learners. Test: onset rows of both modes stay out of the demo buffer
@@ -112,8 +112,8 @@ In dispatch order.
 - **Symptom**: the policy holds the object, you press Space with the trigger released, and the
   gripper opens at once.
 - **Impact**: safety (a dropped object) and a bad intervened row.
-- **Where**: the trigger maps straight to `2w - 1` (`rl_garden_real_world/teleop/part.py:273`); the
-  onset policies act on the joints only (`rl_garden_real_world/teleop/leader_arm.py:161`, gripper added
+- **Where**: the trigger maps straight to `2w - 1` (`real_world_rl/teleop/part.py:273`); the
+  onset policies act on the joints only (`real_world_rl/teleop/leader_arm.py:161`, gripper added
   at `:164`).
 - **Workaround today**: before Space, set the trigger to the gripper's current state (squeezed if it
   holds the object).
@@ -127,8 +127,8 @@ In dispatch order.
   `hil_serl --fwbw` run.
 - **Impact**: interventions are executed and stored as online rows but never reach the demo buffer.
 - **Where**: `hil_serl --fwbw` drives the plain `FWBWActorLoop`
-  (`rl_garden_real_world/training/entrypoints/hil_serl.py:82`), whose `_extra_transition_fields` is
-  empty (`rl_garden_real_world/loops/actor.py:228`). `residual_hil_serl` and `silri` refuse `--fwbw`
+  (`real_world_rl/training/entrypoints/hil_serl.py:82`), whose `_extra_transition_fields` is
+  empty (`real_world_rl/loops/actor.py:228`). `residual_hil_serl` and `silri` refuse `--fwbw`
   (`residual_hil_serl.py:64`, `silri.py:173`).
 - **Workaround today**: do not use `--fwbw` on the first runs.
 - **Planned fix**: an FWBW actor that tags `intervened` and posts episode statistics. Test: an
@@ -141,14 +141,14 @@ In dispatch order.
   as long as the behaviour model pretrains; `actor/dropped_transitions` may then rise.
 - **Impact**: data loss if the stall outlasts the actor's queue.
 - **Where**: `SilriLearnerLoop._train_step` runs `pretrain()` (`--bc-pretrain-steps`, default 500,
-  `rl_garden_real_world/training/entrypoints/silri.py:69`) and the behaviour refreshes under the buffer
-  lock (`rl_garden_real_world/loops/silri.py:189`). Each request thread of the sync server waits for
-  that lock in `_on_transition` (`rl_garden_real_world/loops/silri.py:155`,
-  `rl_garden_real_world/loops/sync.py:133`); the actor's push times out after 5 s (`sync.py:336`), so it
+  `real_world_rl/training/entrypoints/silri.py:69`) and the behaviour refreshes under the buffer
+  lock (`real_world_rl/loops/silri.py:189`). Each request thread of the sync server waits for
+  that lock in `_on_transition` (`real_world_rl/loops/silri.py:155`,
+  `real_world_rl/loops/sync.py:133`); the actor's push times out after 5 s (`sync.py:336`), so it
   sends one row per 5 s while it produces 10 per second, and its 600-row queue drops the oldest rows
   after about a minute (`sync.py:204`, `:296`; static analysis, not measured). A row whose request
   timed out is still added once the lock frees. Pretraining cannot be finished before the actor
-  starts: it waits for `--learning-starts` (10) online rows (`rl_garden_real_world/loops/silri.py:171`).
+  starts: it waits for `--learning-starts` (10) online rows (`real_world_rl/loops/silri.py:171`).
 - **Workaround today**: start the learner, then the actor, and keep control (Space) until the
   warnings stop; if they last more than a minute, lower `--bc-pretrain-steps`. Check
   `actor/dropped_transitions` stays 0.
@@ -162,8 +162,8 @@ In dispatch order.
   during eval.
 - **Impact**: a misleading evaluation.
 - **Where**: `--role eval` builds the env with the teleop wrapper
-  (`rl_garden_real_world/training/env_building.py:373`) and counts every terminated episode as a
-  success (`rl_garden_real_world/training/entrypoints/hil_serl.py:224`, `residual_hil_serl.py:209`,
+  (`real_world_rl/training/env_building.py:373`) and counts every terminated episode as a
+  success (`real_world_rl/training/entrypoints/hil_serl.py:224`, `residual_hil_serl.py:209`,
   `silri.py:286`).
 - **Workaround today**: do not press Space during eval
   ([06](tutorial/06-intervening.md#the-sequence)); use Esc to end a hopeless episode (a failure).
@@ -190,10 +190,10 @@ Status: open (docs).
   by mistake. Use Space, or a foot pedal through the GELLO's `event_device` option
   ([teleop.md](teleop.md#leader-arms-gello)).
 - **The actor stops on a teleop read fault**: by design. A failed read propagates
-  (`rl_garden_real_world/teleop/base.py:86`, polled before every step at
-  `rl_garden_real_world/envs/wrappers/intervention.py:147`), so a dropped reading is never mistaken
+  (`real_world_rl/teleop/base.py:86`, polled before every step at
+  `real_world_rl/envs/wrappers/intervention.py:147`), so a dropped reading is never mistaken
   for a policy step. S6's `env.close()` is the fix for the arm.
-- **`policy.load_state_dict` on every actor step** (`rl_garden_real_world/loops/actor.py:72`):
+- **`policy.load_state_dict` on every actor step** (`real_world_rl/loops/actor.py:72`):
   `actor/param_refresh_ms_*` measures it; decide after hardware numbers.
 
 ## C. Unverified on hardware

@@ -11,15 +11,15 @@ import torch
 from _teleop_fakes import ContractEnv
 from gymnasium import spaces
 
-from rl_garden_real_world.envs.wrappers.intervention import InterventionWrapper
-from rl_garden_real_world.reward import collect_data, collect_real_robot
-from rl_garden_real_world.reward.collect_real_robot import (
+from real_world_rl.envs.wrappers.intervention import InterventionWrapper
+from real_world_rl.reward import collect_data, collect_real_robot
+from real_world_rl.reward.collect_real_robot import (
     RealRobotCollectArgs,
     run_real_robot_collector,
 )
-from rl_garden_real_world.teleop import TeleopReading
-from rl_garden_real_world.teleop.fake import ScriptedTeleopSource
-from rl_garden_real_world.training import env_building
+from real_world_rl.teleop import TeleopReading
+from real_world_rl.teleop.fake import ScriptedTeleopSource
+from real_world_rl.training import env_building
 
 OPEN, CLOSED = 1.0, -1.0
 

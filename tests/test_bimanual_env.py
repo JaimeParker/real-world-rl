@@ -23,8 +23,8 @@ from robot_infra.server import RemoteRobot
 from robot_infra.server.service import RobotService
 from robot_infra.server.transport import LocalClient
 
-from rl_garden_real_world.envs.bimanual import BimanualRealRobotEnv, BimanualRealRobotEnvConfig
-from rl_garden_real_world.envs.real_robot import RealRobotEnv
+from real_world_rl.envs.bimanual import BimanualRealRobotEnv, BimanualRealRobotEnvConfig
+from real_world_rl.envs.real_robot import RealRobotEnv
 
 CARTESIAN_DIM = 2 * 6 + 2
 

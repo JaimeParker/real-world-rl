@@ -5,13 +5,13 @@ test (base-class behavior is covered by test_real_world_actor_loop.py /
 test_real_world_learner_loop.py / test_real_world_sync.py)."""
 from __future__ import annotations
 
-from rl_garden_real_world import (
+from real_world_rl import (
     ActorSyncClient,
     LearnerSyncServer,
 )
-from rl_garden_real_world.loops.actor import ActorLoop
-from rl_garden_real_world.loops.learner import LearnerLoop
-from rl_garden_real_world.loops.serl import (
+from real_world_rl.loops.actor import ActorLoop
+from real_world_rl.loops.learner import LearnerLoop
+from real_world_rl.loops.serl import (
     SerlActorLoop,
     SerlActorSyncClient,
     SerlLearnerLoop,

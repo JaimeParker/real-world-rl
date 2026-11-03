@@ -24,13 +24,13 @@ from gymnasium import spaces
 from rl_garden.algorithms.rlpd_hybrid import RLPDHybrid, _discrete_labels_from_actions
 from robot_infra.devices.backends.teleops.gello import gripper_width_from_raw
 
-from rl_garden_real_world.algorithms.residual import ResidualRLPDHybrid
-from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
-from rl_garden_real_world.loops.hil_serl import HilSerlActorLoop, HilSerlLearnerLoop
-from rl_garden_real_world.loops.residual import ResidualActorLoop, ResidualLearnerLoop
-from rl_garden_real_world.loops.silri import SilriActorLoop
-from rl_garden_real_world.policies.base_provider import ZeroBaseProvider
-from rl_garden_real_world.teleop.leader_arm import TELEOP_SYNCING_EVENT
+from real_world_rl.algorithms.residual import ResidualRLPDHybrid
+from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
+from real_world_rl.loops.hil_serl import HilSerlActorLoop, HilSerlLearnerLoop
+from real_world_rl.loops.residual import ResidualActorLoop, ResidualLearnerLoop
+from real_world_rl.loops.silri import SilriActorLoop
+from real_world_rl.policies.base_provider import ZeroBaseProvider
+from real_world_rl.teleop.leader_arm import TELEOP_SYNCING_EVENT
 
 NUM_JOINTS = 7
 ACTION_DIM = NUM_JOINTS + 1
@@ -451,7 +451,7 @@ def bimanual_leaders(tmp_path, monkeypatch):
     from _bimanual_fakes import bimanual_config, fake_franka
     from robot_infra.devices.teleop import TeleopConfig
 
-    from rl_garden_real_world.envs.bimanual import BimanualRealRobotEnv, BimanualRealRobotVectorEnv
+    from real_world_rl.envs.bimanual import BimanualRealRobotEnv, BimanualRealRobotVectorEnv
 
     monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
     scripts = {

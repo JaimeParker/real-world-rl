@@ -9,7 +9,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import tyro
 
-from rl_garden_real_world.common.tree import index_tree
+from real_world_rl.common.tree import index_tree
 
 
 @dataclass
@@ -81,7 +81,7 @@ def build_teleop_kwargs(args: Args) -> dict:
 def reset_teleop(teleop, *, episode_end_pressed: bool = False) -> None:
     """Resets the source; after a manual episode end the Pico button is still held, so it is told
     not to report it again (other sources have no such state)."""
-    from rl_garden_real_world.teleop.pico import PicoTeleopSource
+    from real_world_rl.teleop.pico import PicoTeleopSource
 
     if episode_end_pressed and isinstance(teleop, PicoTeleopSource):
         teleop.reset(episode_end_pressed=True)
@@ -97,7 +97,7 @@ def main():
     from rl_garden.datasets import PolicySource, WSRLTrajectoryWriter
     from rl_garden.envs import ManiSkillEnvConfig, make_maniskill_env
 
-    from rl_garden_real_world.teleop import make_teleop_source
+    from real_world_rl.teleop import make_teleop_source
 
     env_kwargs = load_env_kwargs(args)
     env_cfg = ManiSkillEnvConfig(

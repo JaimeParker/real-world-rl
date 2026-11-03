@@ -1,4 +1,4 @@
-# RLinf `env` block driving rl_garden_real_world's RealRobotEnv (a robot_infra daemon-served
+# RLinf `env` block driving real_world_rl's RealRobotEnv (a robot_infra daemon-served
 # Franka) through Gymnasium registration. Structure copied from RLinf's
 # examples/embodiment/config/env/realworld_peg_insertion.yaml.
 #
@@ -12,9 +12,9 @@
 #   - actor.model.action_dim = 7 (cartesian_delta: xyz + rotvec + gripper).
 #
 # Hazards:
-#   - rl_garden_real_world (and rl_garden, robot_infra) must be importable in the Ray env-worker
+#   - real_world_rl (and rl_garden, robot_infra) must be importable in the Ray env-worker
 #     process on the env node (pip install -e, or PYTHONPATH exported before `ray start`):
-#     gym.make imports `rl_garden_real_world.integrations.rlinf.register`, which registers the id.
+#     gym.make imports `real_world_rl.integrations.rlinf.register`, which registers the id.
 #   - RLinf's load_tasks() runs RealWorldEnv.realworld_setup(), which KILLS any roscore /
 #     rosmaster / rosout process on the env node. Do not co-locate a ROS master you need.
 
@@ -39,10 +39,10 @@ video_cfg:
   video_base_dir: ${runner.logger.log_path}/video/train
 
 init_params:
-  id: "rl_garden_real_world.integrations.rlinf.register:RLGardenReal-v0"
+  id: "real_world_rl.integrations.rlinf.register:RLGardenReal-v0"
   num_envs: null
 
-# Passed (as a plain dict) to rl_garden_real_world.integrations.rlinf.register.make_rlinf_env.
+# Passed (as a plain dict) to real_world_rl.integrations.rlinf.register.make_rlinf_env.
 override_cfg:
   task_description: "pick up the cube"
   main_image_key: wrist  # same as main_image_key above; checked at env construction
@@ -52,7 +52,7 @@ override_cfg:
   #                threshold: 0.5, terminate_on_success: true, device: auto}
   # image_keys use the rl-garden backend names (rgb_<camera>), as in hil_serl training.
   reward: none
-  # RealRobotEnvConfig fields (rl_garden_real_world/envs/real_robot/config.py).
+  # RealRobotEnvConfig fields (real_world_rl/envs/real_robot/config.py).
   real_robot:
     remote: "ROBOT_PC_IP:50051"  # robot_infra daemon (python -m robot_infra.server ...)
     num_joints: 7

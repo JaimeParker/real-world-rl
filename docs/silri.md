@@ -9,9 +9,9 @@ distance constraint whose tolerance grows with the spread of the human model. Th
 and a first run are walked through in
 [tutorial 07](tutorial/07-hil-training.md#silri) (two arms: [bimanual.md](bimanual.md#two-arms-the-tutorial-steps)).
 
-Code: `rl_garden_real_world/policies/silri_policy.py` (`SiLRIPolicy`),
-`rl_garden_real_world/algorithms/silri.py` (`SiLRI`), `rl_garden_real_world/loops/silri.py`
-(`SilriActorLoop`, `SilriLearnerLoop`), `rl_garden_real_world/training/entrypoints/silri.py`
+Code: `real_world_rl/policies/silri_policy.py` (`SiLRIPolicy`),
+`real_world_rl/algorithms/silri.py` (`SiLRI`), `real_world_rl/loops/silri.py`
+(`SilriActorLoop`, `SilriLearnerLoop`), `real_world_rl/training/entrypoints/silri.py`
 (`SilriArgs`, `build_silri`, `run_silri`).
 
 ## Method

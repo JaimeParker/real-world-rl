@@ -1,7 +1,7 @@
 """Real-robot RL entry point.
 
 Algorithm is selected via a subcommand, mirroring ``examples/train_online.py``
--- see ``rl_garden_real_world/training/entrypoints/<method>.py`` for each registered
+-- see ``real_world_rl/training/entrypoints/<method>.py`` for each registered
 training method (``serl``, ``hil_serl``, ``residual_hil_serl``, ``silri``, ``real_world_bc``).
 
 Run as two separate processes (optionally on two separate machines):
@@ -20,7 +20,7 @@ observation/action spaces match.
 """
 from __future__ import annotations
 
-from rl_garden_real_world.training.__main__ import main
+from real_world_rl.training.__main__ import main
 
 if __name__ == "__main__":
     main()

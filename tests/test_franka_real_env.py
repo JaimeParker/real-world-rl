@@ -6,9 +6,9 @@ import pytest
 import torch
 from scipy.spatial.transform import Rotation
 
-from rl_garden_real_world.envs.franka_real.bridge_client import FrankaBridgeClient
-from rl_garden_real_world.envs.franka_real.config import FrankaRealEnvConfig
-from rl_garden_real_world.envs.franka_real.env import FrankaRealEnv
+from real_world_rl.envs.franka_real.bridge_client import FrankaBridgeClient
+from real_world_rl.envs.franka_real.config import FrankaRealEnvConfig
+from real_world_rl.envs.franka_real.env import FrankaRealEnv
 
 
 class _FakeBridgeClient(FrankaBridgeClient):

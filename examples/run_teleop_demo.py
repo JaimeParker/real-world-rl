@@ -63,7 +63,7 @@ def main():
     import torch
     from rl_garden.envs import ManiSkillEnvConfig, make_maniskill_env
 
-    from rl_garden_real_world.teleop import make_teleop_source
+    from real_world_rl.teleop import make_teleop_source
 
     env_cfg = ManiSkillEnvConfig(
         env_id=args.env_id,

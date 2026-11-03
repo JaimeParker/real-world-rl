@@ -16,10 +16,10 @@ from rl_garden.common.checkpoint import load_checkpoint_file
 from rl_garden.observations import ObservationConfig
 from robot_infra.devices.teleop import TeleopConfig
 
-import rl_garden_real_world.envs.backends.real_robot_bimanual  # noqa: F401  (registers the backend)
-from rl_garden_real_world.action_contract import demo_contract_of
-from rl_garden_real_world.demos.record import save_demos
-from rl_garden_real_world.deploy import (
+import real_world_rl.envs.backends.real_robot_bimanual  # noqa: F401  (registers the backend)
+from real_world_rl.action_contract import demo_contract_of
+from real_world_rl.demos.record import save_demos
+from real_world_rl.deploy import (
     DeployArgs,
     _gripper_count_kwargs,
     _resolve_build_agent,
@@ -28,24 +28,24 @@ from rl_garden_real_world.deploy import (
     restore_training_args,
     run_deploy,
 )
-from rl_garden_real_world.envs.bimanual import (
+from real_world_rl.envs.bimanual import (
     BimanualRealRobotEnv,
     BimanualRealRobotVectorEnv,
 )
-from rl_garden_real_world.policies.base_provider import ZeroBaseProvider
-from rl_garden_real_world.teleop.bimanual import BimanualTeleopSource
-from rl_garden_real_world.teleop.leader_arm import LeaderArmPartSource
-from rl_garden_real_world.training.entrypoints.bc import (
+from real_world_rl.policies.base_provider import ZeroBaseProvider
+from real_world_rl.teleop.bimanual import BimanualTeleopSource
+from real_world_rl.teleop.leader_arm import LeaderArmPartSource
+from real_world_rl.training.entrypoints.bc import (
     RealWorldBCArgs,
     build_real_world_bc,
     run_real_world_bc,
 )
-from rl_garden_real_world.training.entrypoints.hil_serl import HilSerlArgs, run_hil_serl
-from rl_garden_real_world.training.entrypoints.residual_hil_serl import (
+from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs, run_hil_serl
+from real_world_rl.training.entrypoints.residual_hil_serl import (
     ResidualHilSerlArgs,
     run_residual_hil_serl,
 )
-from rl_garden_real_world.training.entrypoints.silri import SilriArgs, run_silri
+from real_world_rl.training.entrypoints.silri import SilriArgs, run_silri
 
 BIMANUAL = "real_robot_bimanual"
 NUM_JOINTS = 7
@@ -68,13 +68,13 @@ _SILRI_SIZES = dict(
 )
 # method -> (run function, Args factory, module holding its loops)
 _METHODS = {
-    "hil_serl": (run_hil_serl, lambda **kw: HilSerlArgs(**_RLPD_SIZES, **kw), "rl_garden_real_world.loops.hil_serl"),
+    "hil_serl": (run_hil_serl, lambda **kw: HilSerlArgs(**_RLPD_SIZES, **kw), "real_world_rl.loops.hil_serl"),
     "residual_hil_serl": (
         run_residual_hil_serl,
         lambda **kw: ResidualHilSerlArgs(**_RLPD_SIZES, residual_variant="hybrid", base_provider="zero", **kw),
-        "rl_garden_real_world.loops.residual",
+        "real_world_rl.loops.residual",
     ),
-    "silri": (run_silri, lambda **kw: SilriArgs(**_SILRI_SIZES, **kw), "rl_garden_real_world.loops.silri"),
+    "silri": (run_silri, lambda **kw: SilriArgs(**_SILRI_SIZES, **kw), "real_world_rl.loops.silri"),
 }
 _ACTOR_LOOPS = {"hil_serl": "HilSerlActorLoop", "residual_hil_serl": "ResidualActorLoop", "silri": "SilriActorLoop"}
 _LEARNER_LOOPS = {
@@ -314,8 +314,8 @@ def test_only_rlpd_hybrid_takes_the_gripper_count_and_only_past_one_gripper():
 
 
 def test_the_training_cli_reaches_the_two_arm_backend_and_teleop_flags():
-    from rl_garden_real_world.training import env_building
-    from rl_garden_real_world.training.registry import registry
+    from real_world_rl.training import env_building
+    from real_world_rl.training.registry import registry
 
     command = registry.parse_command(
         [

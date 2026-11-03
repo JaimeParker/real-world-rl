@@ -49,8 +49,8 @@ Clone with the rl-garden submodule, then install by role. The extras come from
 
 <!-- tutorial-test: skip -->
 ```bash
-git clone --recurse-submodules https://github.com/JaimeParker/rlgarden-real-world.git
-cd rlgarden-real-world
+git clone --recurse-submodules https://github.com/JaimeParker/real-world-rl.git
+cd real-world-rl
 
 # Robot PC: wizard, doctor, discovery and the daemon.
 pip install -e 'robot_infra[franky,grpc,realsense,gello]'
@@ -77,9 +77,9 @@ On one machine that does everything:
 pip install -e rl-garden -e 'robot_infra[franky,grpc,realsense,gello]' -e '.[reward-collection]'
 ```
 
-With the package installed, `rlgarden-real-train` (or `python -m rl_garden_real_world.training`) is
-the same as `python examples/train_real_world.py`, `rlgarden-real-record` the same as
-`python examples/record_real_demos.py` and `rlgarden-real-deploy` the same as
+With the package installed, `real-world-rl-train` (or `python -m real_world_rl.training`) is
+the same as `python examples/train_real_world.py`, `real-world-rl-record` the same as
+`python examples/record_real_demos.py` and `real-world-rl-deploy` the same as
 `python examples/deploy_real_robot.py`. The tutorial writes the `examples/` form.
 
 *You should see* the install finish without errors. Check it without hardware with the fake-backed

@@ -11,8 +11,8 @@ import stat
 import gymnasium as gym
 import torch
 
-from rl_garden_real_world.envs.wrappers import video_recorder as video_recorder_module
-from rl_garden_real_world.envs.wrappers.video_recorder import VideoRecorderWrapper
+from real_world_rl.envs.wrappers import video_recorder as video_recorder_module
+from real_world_rl.envs.wrappers.video_recorder import VideoRecorderWrapper
 
 
 class _FakeEnv(gym.Env):

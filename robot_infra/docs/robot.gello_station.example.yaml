@@ -2,7 +2,7 @@
 # robot daemon so the actor reads the leader over the network as this robot's teleop part:
 #   python -m robot_infra.server --config robot.gello_station.example.yaml --bind 0.0.0.0:50052
 # Used by the franka_real stack (SERL HTTP bridge, cartesian only), whose actor converts the
-# leader joints to a cartesian twist with rl_garden_real_world's leader_cartesian teleop source.
+# leader joints to a cartesian twist with real_world_rl's leader_cartesian teleop source.
 # The arm is the fake backend: it holds no hardware and nothing ever commands it. Run it on a
 # port other than a real robot's daemon on the same host.
 type: franka                  # 7 joints; the GELLO must mirror the Panda's joint order

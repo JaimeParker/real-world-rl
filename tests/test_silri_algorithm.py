@@ -7,7 +7,7 @@ import math
 import pytest
 import torch
 from _silri_fakes import TWO_ARM_ACTION_DIM, fill, silri_agent
-from rl_garden_real_world.buffers.intervention_replay_buffer import (
+from real_world_rl.buffers.intervention_replay_buffer import (
     InterventionReplayBuffer,
     InterventionSample,
 )

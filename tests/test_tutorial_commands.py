@@ -226,20 +226,20 @@ COMMANDS, EXTRACTION_ERRORS = _collect()
 
 def _check_base_provider(spec: str) -> None:
     if spec:
-        from rl_garden_real_world.policies.base_provider import parse_base_provider_spec
+        from real_world_rl.policies.base_provider import parse_base_provider_spec
 
         parse_base_provider_spec(spec)
 
 
 def parse_training(argv: Sequence[str]) -> None:
-    from rl_garden_real_world.training.registry import registry
+    from real_world_rl.training.registry import registry
 
     command = registry.parse_command(list(argv))
     _check_base_provider(getattr(command.args, "base_provider", ""))
 
 
 def parse_recorder(argv: Sequence[str]) -> None:
-    from rl_garden_real_world.demos.record import parse_record_args
+    from real_world_rl.demos.record import parse_record_args
 
     parse_record_args(list(argv))
 
@@ -247,17 +247,17 @@ def parse_recorder(argv: Sequence[str]) -> None:
 def parse_deploy(argv: Sequence[str]) -> None:
     import tyro
 
-    from rl_garden_real_world.deploy import DeployArgs
+    from real_world_rl.deploy import DeployArgs
 
     args = tyro.cli(DeployArgs, args=list(argv))
     _check_base_provider(args.base_provider or "")
 
 
 def parse_collector(argv: Sequence[str]) -> None:
-    from rl_garden_real_world.reward.collect_data import Args, selects_real_robot
+    from real_world_rl.reward.collect_data import Args, selects_real_robot
 
     if selects_real_robot(argv):
-        from rl_garden_real_world.reward.collect_real_robot import parse_collect_args
+        from real_world_rl.reward.collect_real_robot import parse_collect_args
 
         parse_collect_args(list(argv))
         return
@@ -332,10 +332,10 @@ SCRIPT_PARSERS: dict[str, Callable[[Sequence[str]], None]] = {
     "examples/deploy_real_robot.py": parse_deploy,
 }
 MODULE_PARSERS: dict[str, Callable[[Sequence[str]], None]] = {
-    "rl_garden_real_world.training": parse_training,
-    "rl_garden_real_world.demos": parse_recorder,
-    "rl_garden_real_world.deploy": parse_deploy,
-    "rl_garden_real_world.reward.collect_data": parse_collector,
+    "real_world_rl.training": parse_training,
+    "real_world_rl.demos": parse_recorder,
+    "real_world_rl.deploy": parse_deploy,
+    "real_world_rl.reward.collect_data": parse_collector,
     "rl_garden.models.act.train_trajectories": parse_act_trainer,
     "rl_garden.models.reward.success.train": parse_classifier_trainer,
     "robot_infra.setup": parse_setup,
@@ -344,10 +344,10 @@ MODULE_PARSERS: dict[str, Callable[[Sequence[str]], None]] = {
     "robot_infra.discovery": parse_discovery,
 }
 CONSOLE_SCRIPT_PARSERS: dict[str, Callable[[Sequence[str]], None]] = {
-    "rlgarden-real-train": parse_training,
-    "rlgarden-real-record": parse_recorder,
-    "rlgarden-real-deploy": parse_deploy,
-    "rlgarden-real-collect-reward": parse_collector,
+    "real-world-rl-train": parse_training,
+    "real-world-rl-record": parse_recorder,
+    "real-world-rl-deploy": parse_deploy,
+    "real-world-rl-collect-reward": parse_collector,
 }
 
 

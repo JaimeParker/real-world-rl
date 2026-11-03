@@ -5,12 +5,12 @@ from __future__ import annotations
 import gymnasium as gym
 import numpy as np
 import pytest
-import rl_garden_real_world.envs.backends.franka_real  # noqa: F401  (registers the backend)
+import real_world_rl.envs.backends.franka_real  # noqa: F401  (registers the backend)
 from _silri_fakes import SpacesEnv
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
-from rl_garden_real_world.algorithms.silri import SiLRI
-from rl_garden_real_world.training.entrypoints.silri import (
+from real_world_rl.algorithms.silri import SiLRI
+from real_world_rl.training.entrypoints.silri import (
     SilriArgs,
     build_silri,
     run_silri,
@@ -139,7 +139,7 @@ def test_run_learner_builds_the_agent_with_a_demo_buffer_and_starts_the_loop(mon
         def run(self):
             captured["ran"] = True
 
-    monkeypatch.setattr("rl_garden_real_world.loops.silri.SilriLearnerLoop", _FakeLearnerLoop)
+    monkeypatch.setattr("real_world_rl.loops.silri.SilriLearnerLoop", _FakeLearnerLoop)
 
     args = _args(
         role="learner",
@@ -182,13 +182,13 @@ def test_run_actor_starts_the_silri_actor_loop(monkeypatch):
         def run(self):
             captured["ran"] = True
 
-    monkeypatch.setattr("rl_garden_real_world.loops.silri.SilriActorLoop", _FakeActorLoop)
+    monkeypatch.setattr("real_world_rl.loops.silri.SilriActorLoop", _FakeActorLoop)
 
     args = _args(role="actor", teleop_device="fake", sync_host="10.0.0.1", sync_port=7000)
     run_silri(args)
 
-    from rl_garden_real_world.envs.wrappers.intervention import InterventionWrapper
-    from rl_garden_real_world.policies.silri_policy import SiLRIPolicy
+    from real_world_rl.envs.wrappers.intervention import InterventionWrapper
+    from real_world_rl.policies.silri_policy import SiLRIPolicy
 
     assert captured["ran"] is True
     assert isinstance(captured["env"], InterventionWrapper)
@@ -203,7 +203,7 @@ def test_run_eval_requires_a_checkpoint():
 
 
 def test_silri_is_registered_on_the_real_world_cli():
-    from rl_garden_real_world.training.registry import registry
+    from real_world_rl.training.registry import registry
 
     registry.discover()
     entry = registry.entries()["silri"]
@@ -211,8 +211,8 @@ def test_silri_is_registered_on_the_real_world_cli():
 
 
 def test_silri_row_registers_on_the_online_registry_for_deploy_and_eval():
-    from rl_garden_real_world.deploy import _resolve_build_agent
-    from rl_garden_real_world.training import rlgarden_algorithms
+    from real_world_rl.deploy import _resolve_build_agent
+    from real_world_rl.training import rlgarden_algorithms
 
     from rl_garden.training.online.registry import registry as online_registry
 

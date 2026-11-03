@@ -1,12 +1,12 @@
 # Teleoperation
 
-Human-in-the-loop intervention in `rl_garden_real_world`: a `TeleopSource` reads one operator
+Human-in-the-loop intervention in `real_world_rl`: a `TeleopSource` reads one operator
 device, `InterventionWrapper` swaps the operator's action in for the policy's, and the demo
 scripts in `examples/` use the same sources.
 
 ## The `TeleopSource` contract
 
-`rl_garden_real_world.teleop` (`teleop/base.py`):
+`real_world_rl.teleop` (`teleop/base.py`):
 
 ```python
 @dataclass(frozen=True)
@@ -121,7 +121,7 @@ hil_serl on `--env-backend real_robot` can also take interventions from the tele
 the robot itself (the robot yaml's `teleop:` section: spacemouse, the `gello` leader arm or the
 `fake` backend, served locally or by the robot daemon; a leader arm is better read with
 `--teleop-device leader_arm`, see [Leader arms](#leader-arms-gello)). `TeleopPartSource`
-(`rl_garden_real_world/teleop/part.py`) adapts it, mapping cartesian or joint
+(`real_world_rl/teleop/part.py`) adapts it, mapping cartesian or joint
 (`joint_abs`/`joint_delta`) teleop actions into the env's `[-1, 1]` action space and forwarding
 the device's `success`/`failure`/`rerecord` events; see the README's "Action contract" and
 "Teleop (`--teleop-device robot`)" sections for the mapping, the `--robot-teleop-action-mode`
@@ -135,7 +135,7 @@ with the setup wizard, BC, ACT and deployment is the
 [tutorial](tutorial/00-overview.md). This section describes the sources.
 
 A leader arm reports absolute leader joint positions. `LeaderArmPartSource`
-(`rl_garden_real_world/teleop/leader_arm.py`) maps them into the env's joint action mode like
+(`real_world_rl/teleop/leader_arm.py`) maps them into the env's joint action mode like
 `TeleopPartSource` (`joint_abs`: normalized onto `joint_limits`; `joint_delta`:
 `(q_leader - q_follower) / joint_scale_rad`, saturating at one `joint_scale_rad` per step) and
 adds an onset policy for the moment the operator takes over. Two ways to read a GELLO:
@@ -207,7 +207,7 @@ button) rather than a toggle.
 
 A GELLO leader arm reports joint angles. Envs that only accept a cartesian twist get those
 angles through Panda forward kinematics: `LeaderArmCartesianSource`
-(`rl_garden_real_world/teleop/leader_cartesian.py`, `device="leader_cartesian"`) turns the
+(`real_world_rl/teleop/leader_cartesian.py`, `device="leader_cartesian"`) turns the
 leader's joints into an end-effector target and emits the twist that moves the follower there.
 
 #### Why
@@ -230,9 +230,9 @@ The same source serves `real_robot` in `cartesian_delta` mode (for example a dae
 
 | Piece | Where | What |
 | --- | --- | --- |
-| `PandaKinematics` | `rl_garden_real_world/kinematics/panda.py` | numpy forward kinematics, Craig modified DH; `flange_pose(q)`, `ee_pose(q)` (xyz, quat xyzw), `ee_transform(q)` (4x4). EE defaults: Franka Hand, 0.1034 m along the flange z and -pi/4 about it (`ee_offset_m`, `ee_yaw_rad`). |
-| `LeaderArmCartesianSource` | `rl_garden_real_world/teleop/leader_cartesian.py` | the teleop source; any `joint_abs` 7-joint teleop part is a valid leader. |
-| `FrankaRealEnv.last_tcp_pose` | `rl_garden_real_world/envs/franka_real/env.py` | the measured TCP pose (`O_T_EE`, xyz + quat xyzw) of the latest reset/step; the source's follower pose. |
+| `PandaKinematics` | `real_world_rl/kinematics/panda.py` | numpy forward kinematics, Craig modified DH; `flange_pose(q)`, `ee_pose(q)` (xyz, quat xyzw), `ee_transform(q)` (4x4). EE defaults: Franka Hand, 0.1034 m along the flange z and -pi/4 about it (`ee_offset_m`, `ee_yaw_rad`). |
+| `LeaderArmCartesianSource` | `real_world_rl/teleop/leader_cartesian.py` | the teleop source; any `joint_abs` 7-joint teleop part is a valid leader. |
+| `FrankaRealEnv.last_tcp_pose` | `real_world_rl/envs/franka_real/env.py` | the measured TCP pose (`O_T_EE`, xyz + quat xyzw) of the latest reset/step; the source's follower pose. |
 | stub-robot yaml | `robot_infra/docs/robot.gello_station.example.yaml` | serves the GELLO from the robot host through the robot daemon. |
 
 #### The stub-robot daemon on the robot host
@@ -268,7 +268,7 @@ The follower pose and the per-step scales come from the env: `FrankaRealEnv.last
 Pass `follower_pose_getter=`, `pos_scale_m=` and `rot_scale_rad=` to override them.
 
 ```python
-from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
+from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
 
 env = TeleopInterventionWrapper(
     franka_real_env,
@@ -361,8 +361,8 @@ about `(0.307, 0, 0.590)`), but has not been compared with a real robot yet. Bef
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from rl_garden_real_world.envs.franka_real.bridge_client import FrankaBridgeClient
-from rl_garden_real_world.kinematics import PandaKinematics
+from real_world_rl.envs.franka_real.bridge_client import FrankaBridgeClient
+from real_world_rl.kinematics import PandaKinematics
 
 state = FrankaBridgeClient("http://robot-host:5000").get_state()  # q and pose (O_T_EE)
 position, quat = PandaKinematics().ee_pose(state["q"])
@@ -382,7 +382,7 @@ both.
 On `--env-backend real_robot_bimanual` (see [bimanual.md](bimanual.md)) the action is
 `[left arm, right arm, left gripper, right gripper]`, and the single-arm devices (`robot`,
 `leader_arm`, `gello`, `leader_cartesian`, `spacemouse`, `pico`) are rejected. `--teleop-device
-bimanual` (`BimanualTeleopSource`, `rl_garden_real_world/teleop/bimanual.py`) builds one
+bimanual` (`BimanualTeleopSource`, `real_world_rl/teleop/bimanual.py`) builds one
 single-arm source per arm over that arm's own `RealRobotEnv`, so each one reads its own robot and
 follower, and assembles their readings into the two-arm action. `--teleop-arm-device` picks the
 per-arm device:
@@ -448,7 +448,7 @@ without an operator.
 
 ## `InterventionWrapper`
 
-`rl_garden_real_world/envs/wrappers/intervention.py`. `InterventionWrapper(env, source)` takes a
+`real_world_rl/envs/wrappers/intervention.py`. `InterventionWrapper(env, source)` takes a
 `TeleopSource`; `TeleopInterventionWrapper(env, teleop=None, device="pico", **kwargs)` builds one
 by device name (or adapts the object passed as `teleop`). Both expose the source as `.source`
 (alias `.teleop`).
@@ -484,7 +484,7 @@ without a gripper on an env with one holds it instead of dropping a grasped obje
 Subclass `TeleopSource`, declare the action space, implement `poll()`, and register it:
 
 ```python
-from rl_garden_real_world.teleop import TeleopReading, TeleopSource, register_teleop_source
+from real_world_rl.teleop import TeleopReading, TeleopSource, register_teleop_source
 
 @register_teleop_source("joystick")
 class JoystickTeleopSource(TeleopSource):
@@ -502,11 +502,11 @@ class JoystickTeleopSource(TeleopSource):
 
 `make_teleop_source("joystick", env, port=...)` then calls `JoystickTeleopSource.from_env(env,
 port=...)`, which defaults to `cls(**kwargs)`; override `from_env` to read the env's action
-contract (`rl_garden_real_world.action_contract.get_env_action_contract(env)`). Unknown names
+contract (`real_world_rl.action_contract.get_env_action_contract(env)`). Unknown names
 raise `ValueError` listing the registered ones. Registration must happen before the name is used,
 so a downstream package imports its module (or exposes it through its own entry point) before
 building the env. Built-in sources are imported on first use of their name, so importing
-`rl_garden_real_world.teleop` pulls in neither `zmq` nor `pyspacemouse`.
+`real_world_rl.teleop` pulls in neither `zmq` nor `pyspacemouse`.
 
 Actions are in the env's normalized `[-1, 1]` space, gripper last. For a cartesian device whose
 twist is in physical units (as the Pico's), see how the demo scripts normalize it.

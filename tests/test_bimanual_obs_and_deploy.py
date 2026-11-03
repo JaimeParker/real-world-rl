@@ -17,24 +17,24 @@ from gymnasium.vector.utils import batch_space
 import robot_infra.devices.claims as claims
 from rl_garden.observations.config import ObservationConfig
 
-import rl_garden_real_world.envs.backends.real_robot_bimanual  # noqa: F401  (registers the backend)
-from rl_garden_real_world.deploy import (
+import real_world_rl.envs.backends.real_robot_bimanual  # noqa: F401  (registers the backend)
+from real_world_rl.deploy import (
     DeployArgs,
     build_deploy_env,
     resolve_deploy_bimanual_config,
     restore_training_args,
     run_deploy,
 )
-from rl_garden_real_world.envs.bimanual import BimanualRealRobotEnvConfig
-from rl_garden_real_world.envs.real_robot import RealRobotEnvConfig
-from rl_garden_real_world.envs.wrappers.obs_chain import (
+from real_world_rl.envs.bimanual import BimanualRealRobotEnvConfig
+from real_world_rl.envs.real_robot import RealRobotEnvConfig
+from real_world_rl.envs.wrappers.obs_chain import (
     apply_obs_chain,
     tcp_pose_quat_slice,
     tcp_pose_quat_slices,
 )
-from rl_garden_real_world.envs.wrappers.rotvec_obs import RotvecObsWrapper
-from rl_garden_real_world.training import env_building
-from rl_garden_real_world.training.entrypoints.hil_serl import HilSerlArgs
+from real_world_rl.envs.wrappers.rotvec_obs import RotvecObsWrapper
+from real_world_rl.training import env_building
+from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
 
 BIMANUAL = "real_robot_bimanual"
 
@@ -106,7 +106,7 @@ def test_obs_chain_skips_an_empty_slice_list(caplog):
 
 
 def test_training_args_parse_the_bimanual_backend_and_resolve_its_config():
-    from rl_garden_real_world.training.entrypoints.serl import SerlArgs
+    from real_world_rl.training.entrypoints.serl import SerlArgs
 
     args = tyro.cli(
         SerlArgs,

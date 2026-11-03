@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation
 
-from rl_garden_real_world.kinematics import (
+from real_world_rl.kinematics import (
     PandaKinematics,
     invert_transform,
     matrix_to_quat_xyzw,

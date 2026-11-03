@@ -7,14 +7,14 @@ import torch
 from _leader_teleop_fakes import JointEnv, connected_joint_part
 from _teleop_fakes import ContractEnv
 
-from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
-from rl_garden_real_world.teleop import TeleopReading, make_teleop_source
-from rl_garden_real_world.teleop.composite import (
+from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
+from real_world_rl.teleop import TeleopReading, make_teleop_source
+from real_world_rl.teleop.composite import (
     CompositeTeleopSource,
     ToggleableTeleopSource,
 )
-from rl_garden_real_world.teleop.fake import ScriptedTeleopSource
-from rl_garden_real_world.teleop.leader_arm import LeaderArmPartSource
+from real_world_rl.teleop.fake import ScriptedTeleopSource
+from real_world_rl.teleop.leader_arm import LeaderArmPartSource
 
 
 def _reading(value=0.0, intervened=False, episode_end=False, events=(), dim=8) -> TeleopReading:

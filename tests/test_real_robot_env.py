@@ -14,7 +14,7 @@ from robot_infra.server import RemoteRobot
 from robot_infra.server.service import RobotService
 from robot_infra.server.transport import LocalClient
 
-from rl_garden_real_world.envs.real_robot import RealRobotEnv, RealRobotEnvConfig
+from real_world_rl.envs.real_robot import RealRobotEnv, RealRobotEnvConfig
 
 ZERO_HOME = [0.0] * 7
 FRAME_HW = (24, 32)

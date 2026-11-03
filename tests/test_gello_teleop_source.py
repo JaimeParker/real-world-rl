@@ -14,13 +14,13 @@ from _leader_teleop_fakes import (
 from _teleop_fakes import ContractEnv
 from robot_infra.devices.teleop import Teleop
 
-from rl_garden_real_world.envs.wrappers.intervention import (
+from real_world_rl.envs.wrappers.intervention import (
     InterventionWrapper,
     TeleopInterventionWrapper,
 )
-from rl_garden_real_world.teleop import make_teleop_source
-from rl_garden_real_world.teleop.gello import GelloTeleopSource
-from rl_garden_real_world.teleop.leader_arm import TELEOP_SYNCING_EVENT
+from real_world_rl.teleop import make_teleop_source
+from real_world_rl.teleop.gello import GelloTeleopSource
+from real_world_rl.teleop.leader_arm import TELEOP_SYNCING_EVENT
 
 DEVICE = dict(
     port="/dev/serial/by-id/usb-FTDI_gello",
@@ -128,8 +128,8 @@ def test_wrapper_starts_resets_and_closes_the_device(fake_gello):
 def test_options_yaml_supplies_the_device_options_from_the_cli(fake_gello, tmp_path):
     import yaml
 
-    from rl_garden_real_world.training import env_building
-    from rl_garden_real_world.training.entrypoints.hil_serl import HilSerlArgs
+    from real_world_rl.training import env_building
+    from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
 
     options = tmp_path / "gello.yaml"
     options.write_text(yaml.safe_dump({**DEVICE, "hold_s": 0.1, "intervention": "toggle"}), encoding="utf-8")

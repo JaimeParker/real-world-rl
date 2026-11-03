@@ -9,7 +9,7 @@ import gymnasium as gym
 import torch
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
-from rl_garden_real_world.algorithms.residual import ResidualRLPD, ResidualRLPDHybrid
+from real_world_rl.algorithms.residual import ResidualRLPD, ResidualRLPDHybrid
 
 STATE_DIM = 4
 ACTION_DIM = 3  # two arm dims + the gripper

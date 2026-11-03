@@ -39,7 +39,7 @@ The worked example throughout is **pick and place**: one object, one bin. Runs a
 | actor machine | the machine with the keyboard that runs the actor and the recorder (often the robot PC) |
 
 On a single machine use `127.0.0.1` wherever a command says `ROBOT_PC` or `LEARNER_IP`. Run every
-command from the repository root (`rlgarden-real-world/`).
+command from the repository root (`real-world-rl/`).
 
 ## Action mode
 

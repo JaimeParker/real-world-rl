@@ -5,8 +5,8 @@ import pytest
 
 from rl_garden.envs.backend_registry import EnvRequest
 from rl_garden.observations import ObservationConfig
-from rl_garden_real_world.envs.backends.franka_real import FrankaRealBackend
-from rl_garden_real_world.training.args import FrankaRealConfig
+from real_world_rl.envs.backends.franka_real import FrankaRealBackend
+from real_world_rl.training.args import FrankaRealConfig
 
 
 def _req(**overrides) -> EnvRequest:
@@ -63,7 +63,7 @@ def test_make_train_env_and_make_eval_env_both_build_the_same_style_env(monkeypa
         return "sentinel-env"
 
     monkeypatch.setattr(
-        "rl_garden_real_world.envs.franka_real.make_franka_real_env", _fake_make_franka_real_env
+        "real_world_rl.envs.franka_real.make_franka_real_env", _fake_make_franka_real_env
     )
     req = _req()
     assert FrankaRealBackend.make_train_env(req) == "sentinel-env"

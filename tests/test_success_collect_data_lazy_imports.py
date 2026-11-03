@@ -5,7 +5,7 @@ from __future__ import annotations
 
 
 def test_module_imports_without_pynput_installed():
-    import rl_garden_real_world.reward.collect_data as m
+    import real_world_rl.reward.collect_data as m
 
     assert hasattr(m, "Args")
     assert hasattr(m, "main")

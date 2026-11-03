@@ -1,7 +1,7 @@
 # rlgarden-robot-infra
 
 `robot_infra` is the real-robot layer of [rl-garden](https://github.com/JaimeParker/rl-garden).
-It now lives inside the [rlgarden-real-world](https://github.com/JaimeParker/rlgarden-real-world)
+It now lives inside the [real-world-rl](https://github.com/JaimeParker/real-world-rl)
 repository, as its `robot_infra/` directory (a separate, torch-free distribution; it was
 the standalone `rlgarden-robot-infra` repository, whose history is kept). To install it alone on
 the robot PC, clone that repository and run `pip install -e robot_infra` (or
@@ -20,7 +20,7 @@ It provides:
 - `RemoteRobot`, a client-side mirror of that robot for use on a GPU machine.
 
 The gym environment for real-world RL lives in
-[rlgarden-real-world](https://github.com/JaimeParker/rlgarden-real-world), which imports
+[real-world-rl](https://github.com/JaimeParker/real-world-rl), which imports
 this package. `robot_infra` itself does not depend on `rl_garden`.
 
 ## Install
@@ -589,7 +589,7 @@ Without `import robot_infra.server`, `Robot.from_dict` raises
   `SafetyViolation` is a `DeviceError` (not a `DeviceFault`): it does not latch a fault, does
   not need `recover()`, and does not refresh the daemon watchdog. `robot.health()` is a
   `Health`; the per-arm counters live in `robot.arm.health()` and `robot.remote_health()`.
-- `rlgarden-real-world` wraps this robot in a gym environment.
+- `real-world-rl` wraps this robot in a gym environment.
 
 ### 6. Use the robot locally (no daemon)
 
@@ -894,5 +894,5 @@ These modules predate the device layer and are kept for existing users. Planned 
 - **`teleop/`**: the pre-device-layer teleop (`teleop/spacemouse/` on the old `pyspacemouse`
   `read_all()` API, extra `real`; `teleop/utils/` twist teleop for Pico over ZeroMQ;
   `teleop/examples/`). The `Teleop` part ([step 7](#7-add-a-teleop-device)) supersedes the
-  SpaceMouse code. The Pico path is not migrated yet and `rlgarden-real-world`'s
+  SpaceMouse code. The Pico path is not migrated yet and `real-world-rl`'s
   `--teleop-device pico|spacemouse` still imports these modules, so they stay until it is.

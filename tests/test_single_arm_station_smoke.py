@@ -37,33 +37,33 @@ from rl_garden.encoders.config import EncoderConfig
 from robot_infra.devices.robots.franka import FRANKA_HOME_JOINTS
 from robot_infra.discovery.autoconfig import load_station
 
-import rl_garden_real_world.envs.backends.real_robot  # noqa: F401  (registers the backend)
-from rl_garden_real_world.action_contract import (
+import real_world_rl.envs.backends.real_robot  # noqa: F401  (registers the backend)
+from real_world_rl.action_contract import (
     demo_contract_of,
     get_env_action_contract,
     read_contract_sidecar,
 )
-from rl_garden_real_world.algorithms.residual import ResidualRLPDHybrid
-from rl_garden_real_world.demos.record import parse_record_args, run_recorder
-from rl_garden_real_world.deploy import DeployArgs, restore_training_args, run_deploy
-from rl_garden_real_world.envs.real_robot import RealRobotEnvConfig
-from rl_garden_real_world.loops.hil_serl import HilSerlActorLoop, HilSerlLearnerLoop
-from rl_garden_real_world.loops.residual import ResidualActorLoop
-from rl_garden_real_world.loops.silri import SilriActorLoop
-from rl_garden_real_world.reward import collect_data
-from rl_garden_real_world.teleop.leader_arm import LeaderArmPartSource
-from rl_garden_real_world.training import env_building
-from rl_garden_real_world.training.entrypoints import hil_serl
-from rl_garden_real_world.training.entrypoints import (
+from real_world_rl.algorithms.residual import ResidualRLPDHybrid
+from real_world_rl.demos.record import parse_record_args, run_recorder
+from real_world_rl.deploy import DeployArgs, restore_training_args, run_deploy
+from real_world_rl.envs.real_robot import RealRobotEnvConfig
+from real_world_rl.loops.hil_serl import HilSerlActorLoop, HilSerlLearnerLoop
+from real_world_rl.loops.residual import ResidualActorLoop
+from real_world_rl.loops.silri import SilriActorLoop
+from real_world_rl.reward import collect_data
+from real_world_rl.teleop.leader_arm import LeaderArmPartSource
+from real_world_rl.training import env_building
+from real_world_rl.training.entrypoints import hil_serl
+from real_world_rl.training.entrypoints import (
     residual_hil_serl as residual_entrypoint,
 )
-from rl_garden_real_world.training.entrypoints import silri as silri_entrypoint
-from rl_garden_real_world.training.entrypoints.bc import (
+from real_world_rl.training.entrypoints import silri as silri_entrypoint
+from real_world_rl.training.entrypoints.bc import (
     RealWorldBCArgs,
     run_real_world_bc,
 )
-from rl_garden_real_world.training.entrypoints.hil_serl import HilSerlArgs
-from rl_garden_real_world.training.registry import registry as training_registry
+from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
+from real_world_rl.training.registry import registry as training_registry
 
 ROBOT_NAME = "franka"
 TOKEN = "station-token"
@@ -214,7 +214,7 @@ def _hil_flags(preset: Path, role: str) -> list[str]:
 
 
 def _training_args(*argv: str) -> Any:
-    """What ``rlgarden-real-train <argv>`` would run with."""
+    """What ``real-world-rl-train <argv>`` would run with."""
     training_registry.discover()
     return training_registry.parse_command(list(argv)).args
 
@@ -376,7 +376,7 @@ class RecordedDemos:
 
 @pytest.fixture(scope="module")
 def recorded_demos(station, preset, workdir) -> RecordedDemos:
-    """``rlgarden-real-record $ENV_FLAGS --teleop-onset arm --output-path demos/task.pkl
+    """``real-world-rl-record $ENV_FLAGS --teleop-onset arm --output-path demos/task.pkl
     --num-successes 1``."""
     demo_path = workdir / "demos" / "task.pkl"
     args = parse_record_args(
@@ -393,7 +393,7 @@ def recorded_demos(station, preset, workdir) -> RecordedDemos:
 
 @pytest.fixture(scope="module")
 def bc_checkpoint(recorded_demos, preset, workdir) -> Path:
-    """``rlgarden-real-train real_world_bc --config hil.yaml --demo-dataset-paths ... --log-dir runs
+    """``real-world-rl-train real_world_bc --config hil.yaml --demo-dataset-paths ... --log-dir runs
     --exp-name bc --buffer-size ... --num-offline-steps ... --no-tanh-squash``."""
     log_dir = workdir / "runs"
     args = _training_args(

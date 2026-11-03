@@ -22,15 +22,15 @@ from robot_infra.server import RemoteRobot
 from robot_infra.server.service import RobotService
 from robot_infra.server.transport import LocalClient
 
-from rl_garden_real_world.envs.franka_real.bridge_client import FrankaBridgeClient
-from rl_garden_real_world.envs.franka_real.config import FrankaRealEnvConfig
-from rl_garden_real_world.envs.franka_real.env import make_franka_real_env
-from rl_garden_real_world.envs.wrappers.intervention import (
+from real_world_rl.envs.franka_real.bridge_client import FrankaBridgeClient
+from real_world_rl.envs.franka_real.config import FrankaRealEnvConfig
+from real_world_rl.envs.franka_real.env import make_franka_real_env
+from real_world_rl.envs.wrappers.intervention import (
     InterventionWrapper,
     TeleopInterventionWrapper,
 )
-from rl_garden_real_world.kinematics import PandaKinematics
-from rl_garden_real_world.teleop.leader_cartesian import LeaderArmCartesianSource
+from real_world_rl.kinematics import PandaKinematics
+from real_world_rl.teleop.leader_cartesian import LeaderArmCartesianSource
 
 READY_Q = [0.0, -math.pi / 4, 0.0, -3 * math.pi / 4, 0.0, math.pi / 2, math.pi / 4]
 SMALL_DQ = np.array([0.006, -0.004, 0.006, 0.004, -0.006, 0.004, 0.006])

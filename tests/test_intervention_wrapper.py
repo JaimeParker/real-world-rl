@@ -6,12 +6,12 @@ import pytest
 import torch
 from _teleop_fakes import ContractEnv, FakeEnv, TwoArmContractEnv
 
-from rl_garden_real_world.envs.wrappers.intervention import (
+from real_world_rl.envs.wrappers.intervention import (
     InterventionWrapper,
     TeleopInterventionWrapper,
 )
-from rl_garden_real_world.teleop import TeleopReading
-from rl_garden_real_world.teleop.fake import ScriptedTeleopSource
+from real_world_rl.teleop import TeleopReading
+from real_world_rl.teleop.fake import ScriptedTeleopSource
 
 
 def _reading(intervened: bool, value: float = 5.0, episode_end: bool = False, events=None) -> TeleopReading:

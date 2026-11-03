@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from rl_garden_real_world.loops.actor import ActorLoop
+from real_world_rl.loops.actor import ActorLoop
 
 
 class _FakeEnv:

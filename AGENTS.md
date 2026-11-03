@@ -1,15 +1,15 @@
 # AGENTS.md
 
-Operating guide for coding agents working on `rlgarden-real-world`. Read
+Operating guide for coding agents working on `real-world-rl`. Read
 [README.md](README.md) for the methods, layout, installation and hardware guides.
 
 ## Layout
 
-- This repository is the top level for real-robot work. `rl_garden_real_world/`
+- This repository is the top level for real-robot work. `real_world_rl/`
   is the real-robot RL package; `robot_infra/` is the torch-free device layer
   (a second distribution, `rlgarden-robot-infra`, that never imports
-  `rl_garden` or `rl_garden_real_world`).
-- Package layering: `rl_garden_real_world/loops/` holds the actor, learner and sync
+  `rl_garden` or `real_world_rl`).
+- Package layering: `real_world_rl/loops/` holds the actor, learner and sync
   classes (base modules `actor`, `learner`, `sync`, then one module per method);
   `algorithms/`, `policies/`, `envs/`, `teleop/` and `training/entrypoints/` are
   laid out as in rl-garden.
@@ -20,7 +20,7 @@ Operating guide for coding agents working on `rlgarden-real-world`. Read
 - Inside `rl-garden/`, rl-garden's own [AGENTS.md](rl-garden/AGENTS.md) and its
   `.agents/` rules and runbooks apply. Changes to rl-garden are committed in the
   submodule first, then picked up here by bumping the gitlink.
-- `rl_garden_real_world` extends rl-garden only through the contract in
+- `real_world_rl` extends rl-garden only through the contract in
   `rl-garden/docs/guides/extending.md` (subclassing and the
   `rlgarden.env_backends` / `rlgarden.algorithms` entry points). Do not edit
   rl-garden to suit this package unless the change is a general rl-garden

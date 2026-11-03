@@ -14,18 +14,18 @@ import torch
 from gymnasium import spaces
 
 from rl_garden.algorithms.rlpd_hybrid import RLPDHybrid
-from rl_garden_real_world import (
+from real_world_rl import (
     ActorSyncClient,
     LearnerSyncServer,
 )
-from rl_garden_real_world.loops.actor import ActorLoop
-from rl_garden_real_world.loops.hil_serl import (
+from real_world_rl.loops.actor import ActorLoop
+from real_world_rl.loops.hil_serl import (
     HilSerlActorLoop,
     HilSerlActorSyncClient,
     HilSerlLearnerLoop,
     HilSerlLearnerSyncServer,
 )
-from rl_garden_real_world.loops.learner import LearnerLoop
+from real_world_rl.loops.learner import LearnerLoop
 
 
 class _DummyVecEnv:

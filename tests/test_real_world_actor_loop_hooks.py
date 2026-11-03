@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import torch
 
-from rl_garden_real_world.loops.actor import ActorLoop
+from real_world_rl.loops.actor import ActorLoop
 
 
 class _Env:

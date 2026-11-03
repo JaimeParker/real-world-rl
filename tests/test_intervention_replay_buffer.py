@@ -14,7 +14,7 @@ from gymnasium import spaces
 from rl_garden.algorithms.sac_core import SACCore
 from rl_garden.buffers.prior_data_replay import PriorDataReplayMixin
 from rl_garden.common.types import ReplayBufferSample
-from rl_garden_real_world.buffers.intervention_replay_buffer import (
+from real_world_rl.buffers.intervention_replay_buffer import (
     InterventionReplayBuffer,
     InterventionSample,
 )

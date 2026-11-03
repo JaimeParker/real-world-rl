@@ -15,11 +15,11 @@ from rl_garden.envs.backend_registry import EnvRequest, _validate_env_observatio
 from rl_garden.observations.config import ObservationConfig
 from rl_garden.observations.schema import ObservationContractError
 
-from rl_garden_real_world.envs.backends.real_robot_bimanual import RealRobotBimanualBackend
-from rl_garden_real_world.envs.real_robot import RealRobotEnvConfig
-from rl_garden_real_world.envs.wrappers.intervention import InterventionWrapper
-from rl_garden_real_world.teleop import TeleopReading
-from rl_garden_real_world.teleop.fake import ScriptedTeleopSource
+from real_world_rl.envs.backends.real_robot_bimanual import RealRobotBimanualBackend
+from real_world_rl.envs.real_robot import RealRobotEnvConfig
+from real_world_rl.envs.wrappers.intervention import InterventionWrapper
+from real_world_rl.teleop import TeleopReading
+from real_world_rl.teleop.fake import ScriptedTeleopSource
 
 CAMERAS = (camera_name("left"), camera_name("right"))
 ACTION_DIM = 2 * 6 + 2
@@ -71,7 +71,7 @@ def test_entry_point_declared_in_pyproject_resolves_to_backend():
 
 def test_registered_under_real_robot_bimanual_next_to_real_robot():
     from rl_garden.envs.backend_registry import _REGISTRY
-    from rl_garden_real_world.envs.backends.real_robot import RealRobotBackend
+    from real_world_rl.envs.backends.real_robot import RealRobotBackend
 
     assert _REGISTRY["real_robot_bimanual"] is RealRobotBimanualBackend
     assert _REGISTRY["real_robot"] is RealRobotBackend

@@ -6,8 +6,8 @@ import pytest
 import torch
 import torch.nn as nn
 from _residual_fakes import ACTION_DIM, STATE_DIM, residual_agent
-from rl_garden_real_world.algorithms.residual import ResidualRLPD, ResidualRLPDHybrid
-from rl_garden_real_world.policies.residual_policy import (
+from real_world_rl.algorithms.residual import ResidualRLPD, ResidualRLPDHybrid
+from real_world_rl.policies.residual_policy import (
     ResidualRLPDHybridPolicy,
     ResidualRLPDPolicy,
 )

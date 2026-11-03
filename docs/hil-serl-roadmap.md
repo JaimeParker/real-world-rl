@@ -118,7 +118,7 @@ demo/prior volume). `tests/test_real_world_hil_serl_loops.py`'s
 `test_hil_serl_learner_loop_preloads_demo_dataset_paths` asserted
 `received_transitions == 3` after preloading with zero live transitions --
 the test encoded this behavior rather than catching it. **Fixed**:
-`_load_demo_datasets()` in `rl_garden_real_world/loops/hil_serl.py` no longer counts preloaded
+`_load_demo_datasets()` in `real_world_rl/loops/hil_serl.py` no longer counts preloaded
 demos toward `received_transitions`, so `learning_starts` waits for online transitions as in
 HIL-SERL, and the test now asserts `received_transitions == 0` after the preload.
 
@@ -240,7 +240,7 @@ Now built as a third `hil_serl`-only role (kept out of the shared
 
 ### 11. `grasp_penalty` reward-shaping term -- LANDED
 
-Built: `rl_garden_real_world/envs/wrappers/grasp_penalty.py::GraspPenaltyWrapper`
+Built: `real_world_rl/envs/wrappers/grasp_penalty.py::GraspPenaltyWrapper`
 (ported from the task-specific `usb_pickup_insertion/wrapper.py::
 GripperPenaltyWrapper`, which is what HIL-SERL's own `train_rlpd.py`/
 `sac_hybrid_single.py` actually consume via `info["grasp_penalty"]` -- not
@@ -283,12 +283,12 @@ already fully registered (an `OfflineRLAlgorithm`, pure NLL loss, no
 critic) by the time this item's original text was written -- the actual gap
 was only a real-world entrypoint, not the algorithm itself.
 
-Now built: `rl_garden_real_world/training/entrypoints/bc.py::run_real_world_bc`. BC is
+Now built: `real_world_rl/training/entrypoints/bc.py::run_real_world_bc`. BC is
 structurally an offline-style training loop over a static demo dataset --
 unlike `serl`/`hil_serl`, it has no actor/learner HTTP split at all (no
 `sync.py`, no `LearnerLoop`/`ActorLoop`), since `BC` is an
 `OfflineRLAlgorithm`, not an `OffPolicyAlgorithm`. Demo pkls are loaded via a
-new shared helper, `rl_garden_real_world/training/demo_loading.py::
+new shared helper, `real_world_rl/training/demo_loading.py::
 load_demo_pkls` (factored out of `HilSerlLearnerLoop._load_demo_datasets`,
 which now calls it too instead of duplicating the glob+pickle loop).
 
@@ -550,7 +550,7 @@ special-casing and stays consistent with this repo's own action convention"),
 wired into `training/env_building.py::compose_hil_env` (formerly `hil_serl.py::_build_env`) behind `--convert_obs_rotation` (off by
 default). Nothing to build; noted here only so this doesn't get re-flagged.
 Moved from `rl_garden/envs/wrappers/rotvec_obs.py` to
-`rl_garden_real_world/envs/wrappers/rotvec_obs.py` during a later placement
+`real_world_rl/envs/wrappers/rotvec_obs.py` during a later placement
 audit (it hardcodes `FrankaRealEnv`'s exact 20-dim state layout, so it never
 belonged in the general `rl_garden/` wrappers package -- its own test was
 already correctly in `real_world/tests/`).
@@ -558,14 +558,14 @@ already correctly in `real_world/tests/`).
 ### 15. Missing `franka_env` wrapper variants: `HumanClassifierWrapper`, `MultiStageBinaryRewardClassifierWrapper`, `GripperCloseEnv` -- LANDED
 
 Built, batched-torch, following `RewardClassifierWrapper`'s convention:
-`HumanClassifierWrapper` (`rl_garden_real_world/envs/wrappers/
+`HumanClassifierWrapper` (`real_world_rl/envs/wrappers/
 human_classifier.py` -- lives in `real_world/`, not `rl_garden/`, since
 blocking `input()` is meaningless outside a live teleop session);
 `MultiStageBinaryRewardClassifierWrapper` (`rl_garden/envs/wrappers/
 multi_stage_classifier.py` -- shape-agnostic, no action-space assumptions,
 so it lives in the general `rl_garden/` wrappers package; each stage fires
 reward exactly once, `terminated` flips once all stages received);
-`GripperCloseEnv` (`rl_garden_real_world/envs/wrappers/gripper_close.py` --
+`GripperCloseEnv` (`real_world_rl/envs/wrappers/gripper_close.py` --
 7D->6D action space, zero-pads back before forwarding, truncates
 `info["intervene_action"]` too. Originally landed under `rl_garden/`, moved
 here: the 7D/last-dim-is-gripper shape it asserts is `FrankaRealEnv`'s own
@@ -642,7 +642,7 @@ camera images without a cell-specific integration written by hand.
 
 ### 18. No real-world rollout video recording -- LANDED
 
-Built: `rl_garden_real_world/envs/wrappers/video_recorder.py::
+Built: `real_world_rl/envs/wrappers/video_recorder.py::
 VideoRecorderWrapper`, combining both upstream ideas (accumulates obs-stream
 frames like `VideoWrapper`, writes to disk on episode end like
 `VideoRecorder`). Pipes raw frames to an `ffmpeg` subprocess -- the same

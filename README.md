@@ -60,8 +60,8 @@ rlgarden-real-world/             repository rlgarden-real-world (top level)
     pyproject.toml
     robot_infra/                 devices, discovery, doctor, daemon, RemoteRobot
     tests/
-  docs/                          getting-started-hardware.md, bimanual.md, teleop.md, gello.md, recording-demos.md, residual.md, silri.md, hil-serl-roadmap.md
-  examples/                      train_real_world.py, deploy_real_robot.py, teleop demo and recording scripts
+  docs/                          README.md (index), tutorial/ (00-overview ... 08-deploy), bimanual.md, teleop.md, gello.md, recording-demos.md, residual.md, silri.md, hil-serl-roadmap.md
+  examples/                      train_real_world.py, deploy_real_robot.py, teleop demo and recording scripts; presets/hil_single_arm.yaml
   configs/                       RLinf config
   tests/
 ```
@@ -109,9 +109,11 @@ rl-garden's own suite runs inside the submodule (see `rl-garden/.agents/runbooks
 
 ## Running on hardware
 
-**New to the hardware?** [Getting started on hardware](docs/getting-started-hardware.md) is a
-first-day walkthrough for one or two Franka arms with GELLO leader arms: station setup, demo
-recording, BC, HIL-SERL / residual / SiLRI, and deployment. This section is the reference.
+**New to the hardware?** The [tutorial](docs/tutorial/00-overview.md) (index:
+[docs/README.md](docs/README.md)) is a first-day walkthrough for one Franka arm with a GELLO leader
+arm: station setup, demo recording, BC and ACT, HIL-SERL / residual / SiLRI, and deployment; two
+arms are in [docs/bimanual.md](docs/bimanual.md#two-arms-the-tutorial-steps). This section is the
+reference.
 
 Everything below drives a `real_robot` env (any `robot_infra` robot). `franka_real` (the HTTP
 bridge) is always cartesian 7-D and is not covered here. Install this package
@@ -126,13 +128,13 @@ The robot daemon runs on the robot PC (see the robot_infra README,
 [How to Start](robot_infra/README.md#how-to-start)):
 
 ```bash
-python -m robot_infra.server --config robot.yaml --bind 0.0.0.0:50051 --watchdog-s 5
+python -m robot_infra.setup                  # writes ./local/station.yaml (the setup wizard)
+python -m robot_infra.server --watchdog-s 5  # serves it: no --config needed
 ```
 
-For a Franka station, `python -m robot_infra.setup` writes the yaml instead of copying an example
-(the [setup wizard](robot_infra/README.md#setup-wizard)), and `python -m robot_infra.server
---watchdog-s 5` without `--config` then serves it: one daemon process per robot for a two-arm
-station.
+The [setup wizard](robot_infra/README.md#setup-wizard) writes the station yaml of a Franka station
+(one daemon process per robot for a two-arm station). A hand-written robot yaml is served with
+`python -m robot_infra.server --config robot.yaml --bind 0.0.0.0:50051 --watchdog-s 5`.
 
 The daemon idles a servoing arm that gets no action for `--watchdog-s` (default 0.5 s), and the
 env enters servo mode at the end of `reset()`. If the first policy step after a reset can take
@@ -141,30 +143,24 @@ longer than that (first inference, a busy learner), raise `--watchdog-s`; otherw
 
 ### Configuring the env
 
-Cameras and image size come from the observation group, not from `--real-robot.*`:
+Cameras and image size come from the observation group, not from `--real_robot.*`:
 `--obs.rgb wrist --obs.image-size 128 128` (a remote robot only reports its camera sizes after
-connecting, so `--obs.image-size` is required with cameras). `--real-robot.cameras` is filled
+connecting, so `--obs.image-size` is required with cameras). `--real_robot.cameras` is filled
 in from `--obs.rgb`; setting it to something else raises `ObservationContractError`.
-`--real-robot.joint-limits` is a list of `[lo, hi]` pairs, which the command line cannot
+`--real_robot.joint_limits` is a list of `[lo, hi]` pairs, which the command line cannot
 express (it flattens them); give it in a YAML preset passed with `--config`, which any
-`train_real_world.py` run accepts (`--print-config` validates it without touching the robot):
+`train_real_world.py` run accepts (`--print-config` validates it without touching the robot).
+
+The single-arm preset is
+[`examples/presets/hil_single_arm.yaml`](examples/presets/hil_single_arm.yaml) (`joint_delta`, one
+128 x 128 `wrist` camera, the daemon at `127.0.0.1:50051`); copy it to `hil.yaml` and edit
+`remote` and `obs.rgb` ([tutorial 02](docs/tutorial/02-station.md#the-env-preset-hilyaml)). A
+`joint_abs` preset changes the mode and adds the limits:
 
 ```yaml
-# hil.yaml
-env_backend: real_robot
-env_id: my_task
-obs:
-  rgb: [wrist]
-  image_size: [64, 64]
 real_robot:
-  remote: ROBOT_PC:50051
-  token: T
-  num_joints: 7
   action_mode: joint_abs
   joint_limits: [[-2.8, 2.8], [-1.7, 1.7], [-2.8, 2.8], [-3.0, -0.1], [-2.8, 2.8], [0.0, 3.7], [-2.8, 2.8]]
-  state_fields: [joint_pos, gripper_pos]
-  control_hz: 10
-  max_episode_steps: 100
 ```
 
 ### Action contract
@@ -271,7 +267,7 @@ teleop:
 
 ```bash
 python examples/deploy_real_robot.py --checkpoint runs/.../checkpoints/checkpoint_<step>.pt \
-    --algo rlpd_hybrid --real-robot.remote ROBOT_PC:50051 --real-robot.token T \
+    --algo rlpd_hybrid --real_robot.remote ROBOT_PC:50051 --real_robot.token T \
     --episodes 5 --max-steps-per-episode 100
 ```
 
@@ -286,12 +282,12 @@ contract:
   `xyz_scale_m`, `rot_scale_rad`, `joint_scale_rad`, `state_fields`, `image_size`, `control_hz`
   and `max_episode_steps` from the run. It re-applies the run's observation wrappers by itself:
   `obs.frame_stack` (stacking the run's `classifier_image_keys`) and `convert_obs_rotation`.
-  `--real-robot.*` only supplies connection fields (`robot`, `remote`, `token`, `home_joints`,
+  `--real_robot.*` only supplies connection fields (`robot`, `remote`, `token`, `home_joints`,
   `safety_box`, `reset_settle_s`, ...).
 - A contract field given on the CLI that differs from the run's is an error (exit with a
   `ValueError`: `--real_robot.* contradicts the training run's real_robot config ...`).
   **Limitation:** a CLI value equal to the dataclass default cannot be told apart from an unset
-  one, so `--real-robot.action-mode cartesian_delta` against a `joint_abs` run silently uses
+  one, so `--real_robot.action_mode cartesian_delta` against a `joint_abs` run silently uses
   the run's `joint_abs`.
 - Runs without a `real_robot` config (older runs, `franka_real`) fall back to the CLI with a
   warning, and the contract is then not verified.
@@ -351,7 +347,8 @@ python -m robot_infra.server --config robot.yaml --bind 127.0.0.1:50061 --token 
     --jpeg-quality 90 --watchdog-s 5 --no-preflight
 ```
 
-Learner and actor (two terminals; `hil.yaml` as above with `remote: 127.0.0.1:50061`):
+Learner and actor (two terminals; `hil.yaml` is the preset above with `remote: 127.0.0.1:50061`,
+`token: T`, and the `joint_abs` mode and limits):
 
 ```bash
 COMMON="--config hil.yaml --teleop-device robot --robot-teleop-action-mode joint_abs \
@@ -366,7 +363,7 @@ Stop both with Ctrl-C. The learner writes `runs/smoke/config.json` and
 
 ```bash
 python examples/deploy_real_robot.py --checkpoint runs/smoke/checkpoints/checkpoint_<update>.pt \
-    --algo rlpd_hybrid --real-robot.remote 127.0.0.1:50061 --real-robot.token T \
+    --algo rlpd_hybrid --real_robot.remote 127.0.0.1:50061 --real_robot.token T \
     --episodes 2 --max-steps-per-episode 15
 ```
 
@@ -380,7 +377,7 @@ Two-process real-robot training for SERL (state-only or image) uses the same fla
 ```bash
 python examples/train_real_world.py serl --role learner ...
 python examples/train_real_world.py serl --role actor --env-backend real_robot \
-    --real-robot.remote ROBOT_PC:50051 --real-robot.num-joints 7 \
+    --real_robot.remote ROBOT_PC:50051 --real_robot.num_joints 7 \
     --obs.rgb wrist --obs.image-size 128 128 ...
 ```
 

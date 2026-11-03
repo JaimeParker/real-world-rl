@@ -7,8 +7,8 @@ hardware and permissions, calibration, the robot yaml, demo recording and the `h
 policies, the `info` keys of the intervention wrapper) are in [teleop.md](teleop.md); demo
 recording has its own guide, [recording-demos.md](recording-demos.md). For a first-day walkthrough
 that uses the setup wizard (it runs the calibration of section 2 inline and writes the yaml of
-section 3) and continues through BC and deployment, see
-[getting-started-hardware.md](getting-started-hardware.md).
+section 3) and continues through BC, ACT, HIL training and deployment, see the
+[tutorial](tutorial/00-overview.md).
 
 The hardware design comes from GELLO (MIT license, Philipp Wu,
 https://github.com/wuphilipp/gello_software). `robot_infra`'s `gello` teleop backend is a
@@ -18,7 +18,7 @@ Which path to use:
 
 | Follower stack | Action mode | Teleop device | GELLO plugged into |
 | --- | --- | --- | --- |
-| `real_robot` (robot_infra, franky) | `joint_delta` for HIL RL, `joint_abs` for BC demos | `--teleop-device leader_arm` (the robot daemon serves the GELLO as the robot's `teleop:` part) | the robot PC |
+| `real_robot` (robot_infra, franky) | `joint_delta` (the tutorial's, for every stage) or `joint_abs`; demos, base policy and HIL runs must share one | `--teleop-device leader_arm` (the robot daemon serves the GELLO as the robot's `teleop:` part) | the robot PC |
 | `real_robot` | same | `--teleop-device gello` (`GelloTeleopSource`, opened locally) | the actor's machine |
 | `franka_real` (SERL HTTP bridge, cartesian only) | `cartesian_delta` | `--teleop-device leader_cartesian` (Panda forward kinematics) | the robot host, through a stub-robot daemon |
 
@@ -183,7 +183,7 @@ real_robot:
   remote: ROBOT_PC:50051
   token: T
   num_joints: 7
-  action_mode: joint_delta          # joint_abs for BC demos
+  action_mode: joint_delta          # or joint_abs; the same for demos, base policy and HIL runs
   joint_scale_rad: 0.05
   joint_limits: [[-2.8, 2.8], [-1.7, 1.7], [-2.8, 2.8], [-3.0, -0.1], [-2.8, 2.8], [0.0, 3.7], [-2.8, 2.8]]
   state_fields: [joint_pos, gripper_pos]
@@ -217,8 +217,8 @@ The actor turns the leader joints into a cartesian twist with Panda forward kine
 `examples/record_real_demos.py` builds the env exactly like the actor and records only the
 intervened steps, in the demo pkl format the learners load (`--demo-dataset-paths`), with the
 action-contract sidecar. Record in the action mode of the run that will load the demos: the
-learner rejects a pkl whose sidecar does not match its env (`joint_abs` demos for
-`real_world_bc`, `joint_delta` demos to seed a `joint_delta` HIL run).
+learner rejects a pkl whose sidecar does not match its env (`joint_delta` demos for every stage of
+a `joint_delta` pipeline, a separate `joint_abs` set for a `joint_abs` one; [tutorial 04](tutorial/04-record-demos.md)).
 
 ```bash
 python examples/record_real_demos.py --config hil.yaml \
@@ -236,32 +236,14 @@ The three HIL methods take the same teleop flags. `--robot-teleop-action-mode jo
 declares the robot's teleop part before the remote robot connects; for a leader arm it only has to
 name a joint space, the env's `action_mode` decides what is emitted.
 
-```bash
-TELEOP="--teleop-device leader_arm --robot-teleop-action-mode joint_delta \
-    --teleop-event-device keyboard --teleop-onset ramp"
-COMMON="--config hil.yaml $TELEOP --sync-host LEARNER_IP --sync-port 6000 --log-dir runs"
-
-# hil_serl (RLPDHybrid: continuous arm, DQN gripper)
-python examples/train_real_world.py hil_serl --role learner $COMMON --exp-name hil_gello \
-    --demo-dataset-paths 'demos/*.pkl'
-python examples/train_real_world.py hil_serl --role actor $COMMON --exp-name hil_gello
-
-# residual_hil_serl (base policy plus a bounded residual; docs/residual.md)
-BASE='checkpoint:runs/bc/checkpoints/final.pt?algo=real_world_bc'
-python examples/train_real_world.py residual_hil_serl --role learner $COMMON --exp-name residual_gello \
-    --residual-variant hybrid --base-provider "$BASE"
-python examples/train_real_world.py residual_hil_serl --role actor $COMMON --exp-name residual_gello \
-    --residual-variant hybrid --base-provider "$BASE"
-
-# silri (docs/silri.md)
-python examples/train_real_world.py silri --role learner $COMMON --exp-name silri_gello \
-    --demo-dataset-paths 'demos/*.pkl'
-python examples/train_real_world.py silri --role actor $COMMON --exp-name silri_gello
-```
+The full learner and actor commands for `hil_serl`, `residual_hil_serl` (BC or ACT base) and
+`silri`, with `--teleop-device leader_arm --robot-teleop-action-mode joint_delta
+--teleop-event-device keyboard`, are in [tutorial 07](tutorial/07-hil-training.md); the operator's
+keys and the onset choice are in [tutorial 06](tutorial/06-intervening.md).
 
 Where the intervention toggle comes from:
 
-- `--teleop-event-device keyboard` (above): the actor machine's keyboard through `pynput` (Space
+- `--teleop-event-device keyboard` (the tutorial's route): the actor machine's keyboard through `pynput` (Space
   toggles the intervention, Esc ends the episode, `s`/`f`/`r` raise success/failure/rerecord;
   `pynput` needs the desktop session of that machine). `spacemouse` works too; the intervention
   then follows SpaceMouse activity. Leave the yaml at `intervention: always`; the event device's

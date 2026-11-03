@@ -1,14 +1,17 @@
 """HIL-SERL's actor, learner and sync classes.
 
-``HilSerlActorLoop`` tags pushed transitions with the intervention flag,
-``HilSerlLearnerLoop`` routes them into the online and demo buffers and snapshots both
-for crash recovery, and the sync classes are the base ones under HIL-SERL names.
+``HilSerlActorLoop`` tags pushed transitions with the intervention flag and posts
+per-episode statistics to the learner, ``HilSerlLearnerLoop`` routes transitions into the
+online and demo buffers and snapshots both for crash recovery, and the sync classes are
+the base ones under HIL-SERL names.
 """
 from __future__ import annotations
 
 import glob
 import os
 import pickle
+import time
+from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional, Sequence
 
 import torch
@@ -35,22 +38,164 @@ __all__ = [
 ]
 
 
+def _optional_float(value: Any) -> Optional[float]:
+    """``float(value)`` for a number or a one-element array/tensor, else ``None``."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError, RuntimeError):
+        return None
+
+
+def _add_mean_and_max(stats: dict[str, float], name: str, values: list[float]) -> None:
+    if values:
+        stats[f"{name}_mean"] = sum(values) / len(values)
+        stats[f"{name}_max"] = max(values)
+
+
+@dataclass
+class _EpisodeStatistics:
+    """Accumulates one actor episode for :meth:`HilSerlActorLoop._on_episode_end`."""
+
+    # Cumulative device safety-clip count the episode's increase is measured from:
+    # the last reading of the previous episode, else this episode's first reading.
+    safety_clips_baseline: Optional[int] = None
+    reward_sum: float = 0.0
+    length: int = 0
+    intervened_steps: int = 0
+    intervention_count: int = 0
+    previously_intervened: bool = False
+    terminated: bool = False
+    human_episode_end: bool = False
+    safety_clips: Optional[int] = None
+    rtt_ms: list[float] = field(default_factory=list)
+    step_time_ms: list[float] = field(default_factory=list)
+    param_refresh_ms: list[float] = field(default_factory=list)
+
+    def record_step(self, reward: Any, terminated: Any, intervened: bool, info: dict) -> None:
+        self.reward_sum += float(torch.as_tensor(reward, dtype=torch.float64).sum())
+        self.length += 1
+        if intervened:
+            self.intervened_steps += 1
+            if not self.previously_intervened:
+                self.intervention_count += 1
+        self.previously_intervened = intervened
+        self.terminated = bool(terminated)
+        self.human_episode_end = bool(info.get("human_episode_end", False))
+        rtt_ms = _optional_float(info.get("rtt_ms"))
+        if rtt_ms is not None:
+            self.rtt_ms.append(rtt_ms)
+        safety_clips = _optional_float(info.get("safety_clips"))
+        if safety_clips is not None:
+            self.safety_clips = int(safety_clips)
+            if self.safety_clips_baseline is None:
+                self.safety_clips_baseline = self.safety_clips
+
+    def summary(self) -> dict[str, float]:
+        """The stats message posted to the learner (all values JSON numbers)."""
+        stats: dict[str, float] = {
+            "return": self.reward_sum,
+            "length": self.length,
+            "intervened_steps": self.intervened_steps,
+            "intervention_count": self.intervention_count,
+            "intervention_rate": self.intervened_steps / self.length if self.length else 0.0,
+            "success": float(self.terminated),
+            "human_episode_end": float(self.human_episode_end),
+        }
+        if self.safety_clips is not None:
+            stats["safety_clips"] = self.safety_clips - self.safety_clips_baseline
+            stats["safety_clips_total"] = self.safety_clips
+        _add_mean_and_max(stats, "rtt_ms", self.rtt_ms)
+        _add_mean_and_max(stats, "step_time_ms", self.step_time_ms)
+        _add_mean_and_max(stats, "param_refresh_ms", self.param_refresh_ms)
+        return stats
+
+
 class HilSerlActorLoop(ActorLoop):
     """HIL-SERL's ActorLoop. HITL intervention and the hybrid continuous+discrete
     action are handled by the env wrapper stack and the policy respectively, so
-    the only overrides needed are tagging pushed transitions with whether a human
+    the transition overrides are tagging pushed transitions with whether a human
     was intervening -- ``HilSerlLearnerLoop`` uses this to route the transition
     into the online replay buffer or the growing demo buffer -- and forwarding
     ``grasp_penalty`` when ``GraspPenaltyWrapper`` is in the env stack (it flows
     straight through to ``DictReplayBuffer.add(grasp_penalty=...)`` once
     received, no further routing needed).
+
+    Also accumulates per-episode statistics and posts them with
+    ``sync_client.post_stats`` at every episode end (skipped for a client without
+    ``post_stats``); the learner logs them as ``actor/<key>``. Keys: ``episode``,
+    ``return``, ``length``, ``intervened_steps``, ``intervention_count`` (takeover
+    onsets), ``intervention_rate``, ``success`` (the episode terminated),
+    ``human_episode_end`` (the operator ended it), ``safety_clips`` (increase of the
+    device clip counter) and ``safety_clips_total`` when the env reports it,
+    ``rtt_ms_mean/max`` when the env reports ``rtt_ms``, ``step_time_ms_mean/max`` (from
+    the policy refresh to ``env.step`` returning), ``param_refresh_ms_mean/max`` (the
+    per-step policy ``load_state_dict``) and the client's cumulative
+    ``dropped_transitions``. Subclasses that override ``_build_transition`` or
+    ``_on_episode_end`` call ``super()`` so the statistics stay complete.
     """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._episode_statistics = _EpisodeStatistics()
+        self._episodes_ended = 0
+        self._step_started_at: Optional[float] = None
 
     def _extra_transition_fields(self, info: dict) -> dict:
         fields = {"intervened": "intervene_action" in info}
         if "grasp_penalty" in info:
             fields["grasp_penalty"] = info["grasp_penalty"]
         return fields
+
+    def _maybe_refresh_policy(self) -> None:
+        # First call of every control step: starts the step timer.
+        self._step_started_at = time.perf_counter()
+        super()._maybe_refresh_policy()
+        self._episode_statistics.param_refresh_ms.append(
+            1000.0 * (time.perf_counter() - self._step_started_at)
+        )
+
+    def _build_transition(
+        self,
+        obs,
+        next_obs,
+        policy_action: torch.Tensor,
+        reward: torch.Tensor,
+        terminated: torch.Tensor,
+        truncated: torch.Tensor,
+        info: dict,
+        ctx: dict,
+    ) -> dict:
+        transition = super()._build_transition(
+            obs, next_obs, policy_action, reward, terminated, truncated, info, ctx
+        )
+        statistics = self._episode_statistics
+        if self._step_started_at is not None:
+            statistics.step_time_ms.append(1000.0 * (time.perf_counter() - self._step_started_at))
+            self._step_started_at = None
+        statistics.record_step(reward, terminated, transition["intervened"], info)
+        return transition
+
+    def _on_episode_end(self, info: dict) -> None:
+        self._post_episode_statistics()
+        super()._on_episode_end(info)
+
+    def _post_episode_statistics(self) -> None:
+        finished = self._episode_statistics
+        last_safety_clips = (
+            finished.safety_clips if finished.safety_clips is not None else finished.safety_clips_baseline
+        )
+        self._episode_statistics = _EpisodeStatistics(safety_clips_baseline=last_safety_clips)
+        self._episodes_ended += 1
+        post_stats = getattr(self.sync_client, "post_stats", None)
+        if post_stats is None:
+            return
+        stats = {"episode": self._episodes_ended, **finished.summary()}
+        dropped = getattr(self.sync_client, "dropped_transitions", None)
+        if dropped is not None:
+            stats["dropped_transitions"] = int(dropped)
+        post_stats(stats)
 
 
 class HilSerlLearnerLoop(LearnerLoop):
@@ -92,6 +237,10 @@ class HilSerlLearnerLoop(LearnerLoop):
     the rest, which is what ``DictReplayBuffer`` accepts (e.g. ``grasp_penalty``).
     ``ResidualLearnerLoop`` and ``SilriLearnerLoop`` override it to keep ``intervened``,
     ``policy_action`` and their own columns for ``InterventionReplayBuffer``.
+
+    Logged learner scalars add ``learner/demo_buffer_size`` (demo buffer rows) and
+    ``learner/intervened_received`` (intervened transitions received over the network
+    by this process; snapshot reloads are not counted) to the base ones.
     """
 
     def __init__(
@@ -116,8 +265,17 @@ class HilSerlLearnerLoop(LearnerLoop):
         self._pending_online: list[dict[str, Any]] = []
         self._pending_demo: list[dict[str, Any]] = []
         self._step_since_snapshot = 0
+        self._intervened_received = 0
         self._load_demo_datasets(demo_dataset_paths)
         self._reload_snapshots()
+
+    def _learner_scalars(self) -> dict[str, float]:
+        scalars = super()._learner_scalars()
+        demo_buffer = self.agent.offline_replay_buffer
+        with self._lock:
+            scalars["demo_buffer_size"] = 0 if demo_buffer is None else len(demo_buffer)
+            scalars["intervened_received"] = self._intervened_received
+        return scalars
 
     def _load_demo_datasets(self, paths: Sequence[str]) -> None:
         # Not counted toward `_received`/`received_transitions` -- that
@@ -210,6 +368,7 @@ class HilSerlLearnerLoop(LearnerLoop):
             if intervened:
                 self._add_transition(self.agent.add_demo_transition, stored, device)
                 self._pending_demo.append(stored)
+                self._intervened_received += 1
             self._received += 1
             key = actor_id if actor_id is not None else "unknown"
             self._received_by_actor[key] = self._received_by_actor.get(key, 0) + 1

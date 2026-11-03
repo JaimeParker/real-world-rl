@@ -17,6 +17,7 @@ from rl_garden_real_world.training.env_building import (
     hil_env_request,
     robot_teleop_kwargs,
     tcp_pose_quat_slice,
+    warn_if_no_reward_source,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -237,6 +238,8 @@ def _run_eval(args) -> None:
 
 
 def run_hil_serl(args: "HilSerlArgs") -> None:
+    if args.role in ("actor", "learner"):
+        warn_if_no_reward_source(args, "hil_serl")
     if args.role == "actor":
         _run_actor(args)
     elif args.role == "learner":

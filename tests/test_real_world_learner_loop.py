@@ -29,6 +29,9 @@ class _FakeReplayBuffer:
             dict(obs=obs, next_obs=next_obs, action=action, reward=reward, done=done, **kwargs)
         )
 
+    def __len__(self):
+        return len(self.add_calls)
+
 
 class _FakePolicy:
     def __init__(self):
@@ -276,3 +279,143 @@ def test_run_does_not_save_final_checkpoint_when_disabled():
         thread.join(timeout=5.0)
 
     assert agent.save_calls == []
+
+
+# -- metrics -----------------------------------------------------------------------------
+
+
+class _RecordingLogger:
+    def __init__(self):
+        self.scalars: list[tuple[str, float, int]] = []
+
+    def add_scalar(self, tag, value, step):
+        self.scalars.append((tag, value, step))
+
+    def tags(self) -> set[str]:
+        return {tag for tag, _, _ in self.scalars}
+
+    def value(self, tag: str) -> tuple[float, int]:
+        """The latest ``(value, step)`` logged under ``tag``."""
+        matches = [(value, step) for name, value, step in self.scalars if name == tag]
+        assert matches, tag
+        return matches[-1]
+
+
+class _LoggingFakeAgent(_FakeAgent):
+    """``_FakeAgent`` plus the logging surface of ``BaseAlgorithm``: ``logger``,
+    ``log_freq`` and ``_log_update_metrics`` (recorded)."""
+
+    def __init__(self, log_freq: int = 3, logger=None, **kwargs):
+        super().__init__(**kwargs)
+        self.log_freq = log_freq
+        self.logger = logger
+        self.compute_info_calls: list[bool] = []
+        self.update_metric_calls: list[tuple[dict, int]] = []
+
+    def train(self, gradient_steps: int, compute_info: bool = False):
+        super().train(gradient_steps)
+        self.compute_info_calls.append(compute_info)
+        return {"critic_loss": 0.5} if compute_info else {}
+
+    def _log_update_metrics(self, metrics, step):
+        self.update_metric_calls.append((metrics, step))
+
+
+def _receive_and_train(loop: LearnerLoop, transitions: int, iterations_per_transition: int = 2):
+    for _ in range(transitions):
+        loop._on_transition(_transition())
+        for _ in range(iterations_per_transition):
+            loop._train_iteration(loop.received_transitions)
+
+
+def test_update_metrics_are_logged_once_per_log_freq_boundary_of_received_transitions():
+    logger = _RecordingLogger()
+    agent = _LoggingFakeAgent(log_freq=3, logger=logger)
+    loop = LearnerLoop(agent, "127.0.0.1", 0)
+
+    _receive_and_train(loop, 7)
+
+    assert agent.update_metric_calls == [({"critic_loss": 0.5}, 3), ({"critic_loss": 0.5}, 6)]
+    assert agent.compute_info_calls.count(True) == 2
+    assert len(agent.compute_info_calls) == 14
+    assert logger.value("learner/received") == (6.0, 6)
+    assert logger.value("learner/buffer_size") == (6.0, 6)
+    update, _ = logger.value("learner/update")
+    assert update == 11.0  # two iterations per transition, the 11th trained at step 6
+    assert {tag for tag in logger.tags() if tag.startswith("learner/")} == {
+        "learner/received",
+        "learner/update",
+        "learner/buffer_size",
+        "learner/train_time_s",
+    }
+    assert [step for tag, _, step in logger.scalars if tag == "learner/train_time_s"] == [3, 6]
+
+
+def test_no_metrics_without_a_logger_and_train_never_computes_info():
+    agent = _LoggingFakeAgent(log_freq=1, logger=None)
+    loop = LearnerLoop(agent, "127.0.0.1", 0)
+
+    _receive_and_train(loop, 4)
+
+    assert agent.update_metric_calls == []
+    assert agent.compute_info_calls == [False] * 8
+
+
+def test_log_freq_zero_disables_update_metrics():
+    agent = _LoggingFakeAgent(log_freq=0, logger=_RecordingLogger())
+    loop = LearnerLoop(agent, "127.0.0.1", 0)
+
+    _receive_and_train(loop, 4)
+
+    assert agent.update_metric_calls == []
+    assert agent.logger.scalars == []
+
+
+def test_log_freq_falls_back_to_the_default_for_an_agent_without_one():
+    assert LearnerLoop(_FakeAgent(), "127.0.0.1", 0).log_freq == 1_000
+    assert LearnerLoop(_LoggingFakeAgent(log_freq=7), "127.0.0.1", 0).log_freq == 7
+
+
+def test_actor_stats_are_logged_under_actor_with_the_actor_id_as_a_sub_prefix():
+    logger = _RecordingLogger()
+    loop = LearnerLoop(_LoggingFakeAgent(logger=logger), "127.0.0.1", 0)
+    loop._server._record_stats({"return": 2.5, "success": 1.0, "note": "text"})
+    loop._server._record_stats({"return": 1.0, "actor_id": "robot_a"})
+
+    loop._log_actor_stats(42)
+
+    assert sorted(logger.scalars) == [
+        ("actor/return", 2.5, 42),
+        ("actor/robot_a/return", 1.0, 42),
+        ("actor/success", 1.0, 42),
+    ]
+    assert loop._server.drain_stats() == []
+
+
+def test_actor_stats_stay_queued_without_a_logger():
+    loop = LearnerLoop(_LoggingFakeAgent(logger=None), "127.0.0.1", 0)
+    loop._server._record_stats({"return": 2.5})
+
+    loop._log_actor_stats(1)
+
+    assert loop._server.drain_stats() == [{"return": 2.5}]
+
+
+def test_run_logs_actor_stats_while_waiting_for_learning_starts():
+    logger = _RecordingLogger()
+    agent = _LoggingFakeAgent(logger=logger, learning_starts=100)
+    loop = LearnerLoop(agent, "127.0.0.1", 0, idle_poll_interval=0.02)
+    loop._on_transition(_transition())
+    loop._server._record_stats({"return": 3.0})
+
+    thread = threading.Thread(target=loop.run, daemon=True)
+    thread.start()
+    try:
+        deadline = time.time() + 5.0
+        while "actor/return" not in logger.tags() and time.time() < deadline:
+            time.sleep(0.02)
+        assert logger.value("actor/return") == (3.0, 1)
+        assert agent.train_calls == []
+    finally:
+        loop.stop()
+        thread.join(timeout=5.0)

@@ -25,6 +25,7 @@ from robot_infra.setup.render import (
 )
 from robot_infra.setup.wizard import (
     GELLO_OPTION_ORDER,
+    NEW_GELLO_GRIPPER_BINARIZE_THRESHOLD,
     PANDA_JOINT_LIMITS,
     SUGGESTED_SAFETY_BOX,
     Answers,
@@ -213,6 +214,19 @@ def test_non_interactive_flags_write_an_uncalibrated_gello_with_a_todo(tmp_path)
     gello_backend.GelloTeleop(robot.config.teleop)  # the placeholders still build a teleop
 
 
+def test_a_new_gello_gripper_channel_is_binarized_and_none_without_a_gripper(tmp_path):
+    out = tmp_path / "station.yaml"
+    assert run([*FLAGGED_ONE_ARM, "--output", out], never_asked)[0] == 0
+    teleop = load_station(out).select().config.teleop
+    assert teleop.options["gripper_binarize_threshold"] == NEW_GELLO_GRIPPER_BINARIZE_THRESHOLD == 0.5
+    assert gello_backend.GelloTeleop(teleop)._gripper_binarize_threshold == 0.5  # the backend honours it
+
+    without = tmp_path / "no_gripper.yaml"
+    argv = [arg if arg != "8" else "none" for arg in FLAGGED_ONE_ARM]
+    assert run([*argv, "--output", without], never_asked)[0] == 0
+    assert load_station(without).select().config.teleop.options["gripper_binarize_threshold"] is None
+
+
 def test_unprobed_values_need_allow_unprobed(tmp_path):
     argv = [*FLAGGED_ONE_ARM, "--robot-ip", "10.1.2.3", "--output", tmp_path / "station.yaml"]
     code, output = run(argv, never_asked)
@@ -396,6 +410,29 @@ def test_from_round_trip_keeps_an_uncalibrated_gello(tmp_path):
     original = out.read_text()
     assert run(["--mock", "--non-interactive", "--from", out, "--output", tmp_path / "again.yaml"], never_asked)[0] == 0
     assert (tmp_path / "again.yaml").read_text() == original
+
+
+@pytest.mark.parametrize("only", [[], ["--only", "teleop"]], ids=["all", "only-teleop"])
+@pytest.mark.parametrize("key_written", [True, False], ids=["null", "absent"])
+def test_from_keeps_an_existing_gellos_continuous_gripper(tmp_path, only, key_written):
+    # A station written before the binarize default, with the key at null or without it: it
+    # keeps the backend default (continuous width) on regeneration instead of turning into 0.5.
+    out = tmp_path / "station.yaml"
+    assert run([*FLAGGED_ONE_ARM, "--output", out], never_asked)[0] == 0
+    edited = []
+    for line in out.read_text().splitlines(keepends=True):
+        if "gripper_binarize_threshold:" in line:
+            if key_written:
+                edited.append(line.replace(": 0.5", ": null", 1))
+            continue
+        edited.append(line)
+    out.write_text("".join(edited))
+    assert load_station(out).select().config.teleop.options.get("gripper_binarize_threshold") is None
+
+    again = tmp_path / "again.yaml"
+    code, output = run(["--mock", "--non-interactive", "--from", out, *only, "--output", again], never_asked)
+    assert code == 0, output
+    assert load_station(again).select().config.teleop.options["gripper_binarize_threshold"] is None
 
 
 def test_only_cameras_reruns_one_section_and_keeps_the_rest(tmp_path):

@@ -15,13 +15,21 @@ dependencies are deliberately kept out of the env itself and out of the
 ``camera_capture=None``): the CLI entrypoint below has no camera wired up,
 run it as a library (``main(camera_capture=...)``) with a cell-specific
 capture callable to actually record images.
+
+With ``--env-backend real_robot`` on the command line the collector runs on a robot_infra robot
+instead (``rl_garden_real_world.reward.collect_real_robot``): the HIL actor's env and flags
+(``--teleop-device leader_arm --teleop-event-device keyboard``, ``--real-robot.*``, ``--obs.*``,
+``--config``), cameras from the robot config, and frames labelled with the ``s``/``f`` events
+rather than the spacebar; ``--env-backend real_robot --help`` lists its flags.
 """
 from __future__ import annotations
 
 import datetime
 import os
 import pickle
+import sys
 from dataclasses import dataclass, field
+from typing import Optional, Sequence
 
 import torch
 import tyro
@@ -47,8 +55,30 @@ class Args:
     teleop_device: str = "pico"
 
 
-def main(camera_capture=None) -> None:
-    args = tyro.cli(Args)
+_ENV_BACKEND_FLAGS = ("--env-backend", "--env_backend")
+
+
+def selects_real_robot(argv: Sequence[str]) -> bool:
+    """Whether the command line names an env backend (``--env-backend real_robot``): ``Args`` has
+    no such flag, so it selects the ``real_robot`` collector, whose parser checks the value."""
+    return any(token.split("=", 1)[0] in _ENV_BACKEND_FLAGS for token in argv)
+
+
+def main(camera_capture=None, argv: Optional[Sequence[str]] = None) -> None:
+    cli_args = list(sys.argv[1:] if argv is None else argv)
+    if selects_real_robot(cli_args):
+        if camera_capture is not None:
+            raise ValueError(
+                "the real_robot collector reads its cameras from the robot config; drop camera_capture"
+            )
+        from rl_garden_real_world.reward.collect_real_robot import (
+            parse_collect_args,
+            run_real_robot_collector,
+        )
+
+        run_real_robot_collector(parse_collect_args(cli_args))
+        return
+    args = tyro.cli(Args, args=argv)
 
     from pynput import keyboard
 
@@ -102,18 +132,25 @@ def main(camera_capture=None) -> None:
         listener.stop()
         env.close()
 
-    os.makedirs(args.output_dir, exist_ok=True)
+    save_classifier_data(args.output_dir, args.exp_name, args.successes_needed, successes, failures)
+
+
+def save_classifier_data(
+    output_dir: str, exp_name: str, success_count: int, successes: list, failures: list
+) -> tuple[str, str]:
+    """Pickles ``successes`` and ``failures`` to ``<exp_name>_<success_count>_success_images_<time>.pkl``
+    and ``<exp_name>_failure_images_<time>.pkl`` under ``output_dir``; returns both paths."""
+    os.makedirs(output_dir, exist_ok=True)
     uuid = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    success_path = os.path.join(
-        args.output_dir, f"{args.exp_name}_{args.successes_needed}_success_images_{uuid}.pkl"
-    )
-    failure_path = os.path.join(args.output_dir, f"{args.exp_name}_failure_images_{uuid}.pkl")
+    success_path = os.path.join(output_dir, f"{exp_name}_{success_count}_success_images_{uuid}.pkl")
+    failure_path = os.path.join(output_dir, f"{exp_name}_failure_images_{uuid}.pkl")
     with open(success_path, "wb") as f:
         pickle.dump(successes, f)
     with open(failure_path, "wb") as f:
         pickle.dump(failures, f)
     print(f"saved {len(successes)} successes to {success_path}", flush=True)
     print(f"saved {len(failures)} failures to {failure_path}", flush=True)
+    return success_path, failure_path
 
 
 if __name__ == "__main__":

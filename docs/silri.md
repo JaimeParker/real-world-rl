@@ -6,8 +6,8 @@ and its reference implementation (github.com/nuomizai/HIL-RL, policy `silri`). T
 off-policy actor-critic. Its actor is pulled towards a learned model of the human's actions,
 but only as far as the human is consistent: a state-wise Lagrange multiplier enforces a
 distance constraint whose tolerance grows with the spread of the human model. The hardware setup
-and a first run on one or two arms are walked through in
-[getting-started-hardware.md](getting-started-hardware.md#8c-silri).
+and a first run are walked through in
+[tutorial 07](tutorial/07-hil-training.md#silri) (two arms: [bimanual.md](bimanual.md#two-arms-the-tutorial-steps)).
 
 Code: `rl_garden_real_world/policies/silri_policy.py` (`SiLRIPolicy`),
 `rl_garden_real_world/algorithms/silri.py` (`SiLRI`), `rl_garden_real_world/loops/silri.py`
@@ -149,26 +149,20 @@ Other differences:
 
 ## CLI
 
-Learner (GPU box), then actor (robot PC), with the same env and observation flags:
+The full commands (learner, actor and eval, the env preset and the teleop flags) are in
+[tutorial 07](tutorial/07-hil-training.md#silri); deployment is in
+[tutorial 08](tutorial/08-deploy.md) (`--algo silri`: the `silri` entry of rl-garden's online
+registry rebuilds the agent). The minimal shape, for a GELLO served by the robot daemon on a
+`joint_delta` env:
 
 ```bash
-COMMON="--env-backend real_robot --real-robot.remote ROBOT_PC:50051 --real-robot.token T \
-    --obs.rgb wrist --obs.image-size 128 128 --teleop-device spacemouse \
-    --sync-host LEARNER_IP --sync-port 6000 --log-dir runs --exp-name silri_task"
-python examples/train_real_world.py silri --role learner $COMMON \
-    --demo-dataset-paths 'demos/*.pkl' --checkpoint-freq 1000
-python examples/train_real_world.py silri --role actor $COMMON
+python examples/train_real_world.py silri --role learner --config hil.yaml --demo-dataset-paths 'demos/*.pkl'
+python examples/train_real_world.py silri --role actor --config hil.yaml --teleop-device leader_arm \
+    --robot-teleop-action-mode joint_delta --teleop-event-device keyboard --reward-from-teleop-events
 ```
 
-Evaluation on the robot (deterministic, success read from `terminated`):
-
-```bash
-python examples/train_real_world.py silri --role eval $COMMON \
-    --load-checkpoint runs/silri_task/checkpoints/checkpoint_<update>.pt --eval-n-trajs 10
-```
-
-Deployment without the training stack: `python examples/deploy_real_robot.py --algo silri
---checkpoint ...` (the `silri` entry of rl-garden's online registry rebuilds the agent).
+Evaluation on the robot (`--role eval --load-checkpoint ...`) is deterministic and reads success
+from `terminated`.
 
 ## Limitations
 

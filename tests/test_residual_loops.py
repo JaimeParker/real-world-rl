@@ -323,3 +323,27 @@ def test_demo_pkls_with_base_actions_load_as_human_actions_without_a_warning(tmp
     torch.testing.assert_close(demo.policy_actions[:3], demo.actions[:3])
     torch.testing.assert_close(demo.base_actions[:3], torch.full((3, 1, ACTION_DIM), 0.2))
     assert not any("demo transitions without" in str(w.message) for w in recwarn)
+
+
+def test_episode_end_resets_the_provider_and_posts_the_episode_statistics():
+    class _StatsSyncClient(FakeSyncClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.posted: list[dict] = []
+
+        def post_stats(self, stats):
+            self.posted.append(stats)
+
+    provider = RecordingProvider()
+    sync_client = _StatsSyncClient()
+    env = DictEnv(terminate_every=2, intervene_steps=(2,))
+    _actor_loop(residual_agent(ResidualRLPD).policy, env=env, sync_client=sync_client, provider=provider).run(
+        total_steps=4
+    )
+
+    # Two episode-end resets plus the resync after the intervened step 2.
+    assert provider.reset_calls == 3
+    assert [stats["episode"] for stats in sync_client.posted] == [1, 2]
+    assert [stats["length"] for stats in sync_client.posted] == [2, 2]
+    assert [stats["intervened_steps"] for stats in sync_client.posted] == [1, 0]
+    assert [stats["success"] for stats in sync_client.posted] == [1.0, 1.0]

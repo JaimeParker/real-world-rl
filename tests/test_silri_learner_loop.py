@@ -259,3 +259,59 @@ def test_each_iteration_runs_train_freq_gradient_steps(tmp_path, monkeypatch):
 
     assert train_calls[0][0] == (3,)
     assert agent.global_update == 3
+
+
+class _RecordingLogger:
+    def __init__(self):
+        self.scalars: list[tuple[str, float, int]] = []
+
+    def add_scalar(self, tag, value, step):
+        self.scalars.append((tag, value, step))
+
+    def at(self, prefix: str) -> dict[str, tuple[float, int]]:
+        return {tag: (value, step) for tag, value, step in self.scalars if tag.startswith(prefix)}
+
+
+def test_behaviour_phases_are_logged_when_they_run(tmp_path):
+    agent, loop = _ready_loop(tmp_path, behavior_refresh_every=2)
+    logger = _RecordingLogger()
+    agent.logger = logger  # log_freq=0: only the behaviour phases log
+
+    loop._train_iteration(loop.received_transitions)
+
+    logged = logger.at("behavior/")
+    assert set(logged) == {
+        "behavior/pretrained",
+        "behavior/pretrain/behavior_nll",
+        "behavior/pretrain/behavior_sigma_sum",
+        "behavior/pretrain/actor_bc_nll",
+        "behavior/pretrain/discrete_ce",
+    }
+    assert logged["behavior/pretrained"] == (1.0, 4)
+    assert loop._learner_scalars()["intervened_received"] == 2
+
+    logger.scalars.clear()
+    loop._train_iteration(loop.received_transitions)
+    assert logger.scalars == []  # pretraining is considered once, no refresh due
+
+    loop._on_transition(_transition(intervened=True))
+    loop._on_transition(_transition(intervened=True))
+    loop._train_iteration(loop.received_transitions)
+
+    logged = logger.at("behavior/")
+    assert set(logged) == {
+        "behavior/refresh/behavior_nll",
+        "behavior/refresh/behavior_sigma_sum",
+        "behavior/refresh_count",
+    }
+    assert logged["behavior/refresh_count"] == (1.0, 6)
+
+
+def test_a_restored_pretrained_agent_logs_the_flag_without_pretrain_losses(tmp_path):
+    agent, loop = _ready_loop(tmp_path)
+    agent.pretrained = True
+    agent.logger = _RecordingLogger()
+
+    loop._train_iteration(loop.received_transitions)
+
+    assert agent.logger.at("behavior/") == {"behavior/pretrained": (1.0, 4)}

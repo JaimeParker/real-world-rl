@@ -131,8 +131,8 @@ declaration and an example yaml.
 
 The end-to-end guide (hardware, calibration, robot yaml, demo recording and the HIL commands for
 `hil_serl`, `residual_hil_serl` and `silri`) is [gello.md](gello.md); the first-day walkthrough
-with the setup wizard, BC and deployment is
-[getting-started-hardware.md](getting-started-hardware.md). This section describes the sources.
+with the setup wizard, BC, ACT and deployment is the
+[tutorial](tutorial/00-overview.md). This section describes the sources.
 
 A leader arm reports absolute leader joint positions. `LeaderArmPartSource`
 (`rl_garden_real_world/teleop/leader_arm.py`) maps them into the env's joint action mode like
@@ -173,7 +173,7 @@ name a joint space for a leader arm, it declares the part before the remote robo
 
 ```bash
 python examples/train_real_world.py hil_serl --role actor --env-backend real_robot \
-    --real-robot.remote ROBOT_PC:50051 --real-robot.action-mode joint_delta \
+    --real_robot.remote ROBOT_PC:50051 --real_robot.action_mode joint_delta \
     --teleop-device leader_arm --robot-teleop-action-mode joint_delta \
     --teleop-onset ramp --teleop-event-device keyboard
 ```

@@ -40,6 +40,8 @@ HIL_SERL_OWN_DEFAULTS = {
     "classifier_checkpoint": None,
     "classifier_threshold": 0.5,
     "classifier_image_keys": (),
+    "reward_from_teleop_events": False,
+    "teleop_success_reward": 1.0,
     "use_grasp_penalty": False,
     "grasp_penalty_value": -0.05,
     "record_video_dir": None,
@@ -95,6 +97,8 @@ def test_hil_env_args_holds_exactly_the_env_teleop_classifier_and_demo_fields():
         "classifier_checkpoint",
         "classifier_threshold",
         "classifier_image_keys",
+        "reward_from_teleop_events",
+        "teleop_success_reward",
         "use_grasp_penalty",
         "grasp_penalty_value",
         "record_video_dir",
@@ -224,6 +228,57 @@ def test_compose_hil_env_with_teleop_matches_the_hil_serl_alias(fake_backend):
 
     env = _build_env(HilSerlArgs(), env_request=None)
     assert isinstance(env, _RecordingTeleopWrapper) and env.env is fake_backend
+
+
+def _chain(env) -> list:
+    chain = [env]
+    while isinstance(env, gym.Wrapper):
+        env = env.env
+        chain.append(env)
+    return chain
+
+
+def test_teleop_event_reward_sits_right_outside_the_intervention_wrapper(fake_backend, monkeypatch):
+    import torch
+    from rl_garden.envs.wrappers.fwbw_reset_free import FWBWResetFreeWrapper
+    from rl_garden.envs.wrappers.reward_classifier import RewardClassifierWrapper
+    from rl_garden_real_world.envs.wrappers import TeleopEventRewardWrapper
+    from rl_garden_real_world.envs.wrappers.grasp_penalty import GraspPenaltyWrapper
+
+    monkeypatch.setattr(env_building, "hil_env_request", lambda args, run_name: None)
+    monkeypatch.setattr(
+        "rl_garden.models.reward.success.model.load_classifier_fn",
+        lambda checkpoint, observation_space, image_keys, device: (lambda obs: torch.zeros(1)),
+    )
+    args = HilSerlArgs(
+        classifier_checkpoint="/tmp/classifier.pt",
+        reward_from_teleop_events=True,
+        teleop_success_reward=2.0,
+        use_grasp_penalty=True,
+        fwbw=True,
+    )
+    chain = _chain(env_building.build_hil_env(args, role="actor"))
+
+    assert [type(env) for env in chain] == [
+        FWBWResetFreeWrapper,
+        GraspPenaltyWrapper,
+        TeleopEventRewardWrapper,
+        _RecordingTeleopWrapper,
+        RewardClassifierWrapper,
+        type(fake_backend),
+    ]
+    assert chain[2].success_reward == 2.0
+
+    learner = _chain(env_building.build_hil_env(args, role="learner", enable_teleop=False))
+    assert not any(isinstance(env, TeleopEventRewardWrapper) for env in learner)
+
+
+def test_teleop_event_reward_is_off_by_default(fake_backend, monkeypatch):
+    from rl_garden_real_world.envs.wrappers import TeleopEventRewardWrapper
+
+    monkeypatch.setattr(env_building, "hil_env_request", lambda args, run_name: None)
+    env = env_building.build_hil_env(HilSerlArgs(), role="actor")
+    assert not any(isinstance(wrapper, TeleopEventRewardWrapper) for wrapper in _chain(env))
 
 
 # -- teleop wrapper arguments --------------------------------------------------------------

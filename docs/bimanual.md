@@ -4,8 +4,9 @@
 `RealRobotEnv` per arm (each a local robot or its own daemon), stepped concurrently, with one
 action and one observation for both. `real_robot` (one arm) is unchanged.
 
-For a first-day walkthrough of a two-arm station (the setup wizard, demos, BC, HIL training and
-deploy in order) see [getting-started-hardware.md](getting-started-hardware.md).
+The [tutorial](tutorial/00-overview.md) walks one arm from the setup wizard to deployment;
+[Two arms: the tutorial steps](#two-arms-the-tutorial-steps) below lists what changes at each of
+its steps for a two-arm station.
 
 ## Config
 
@@ -180,6 +181,120 @@ gripper unchanged; that the demo pkl and its `.contract.json` sidecar (`num_arms
 per-arm `joint_limits`) load into the hil_serl, residual and SiLRI learners; that the agents get
 a 9-way gripper head (`num_grippers=2`, from the env contract); and that the BC checkpoint deploys
 on both daemons. The test is skipped when `grpc` is not installed.
+
+## Two arms: the tutorial steps
+
+What changes, step by step, when the [tutorial](tutorial/00-overview.md) runs on two Franka arms with
+one GELLO each. Everything else (keys, onset, reward rule, metrics) is the same.
+
+**Hardware ([01](tutorial/01-install.md)).** One Franka Panda with the Franka Hand, one GELLO with its
+bus adapter and one wrist camera per arm. The second arm's FCI address must differ (the wizard also
+probes `172.16.1.2`).
+
+**Station ([02](tutorial/02-station.md)).** Answer `2` to `number of arms`; the default names are
+`left right`. The wizard then asks every per-arm question twice (`-- arm 'left' (1/2) --`,
+`-- arm 'right' (2/2) --`):
+
+- the second arm needs a different robot IP, GELLO port and daemon port (it refuses a repeat, and
+  tags earlier picks `(used by another arm)`); the daemon ports default to 50051 and 50052;
+- the suggested cameras give each arm the next free camera as its wrist camera (`wrist_left`,
+  `wrist_right`); the last arm also takes the rest (`front`, ...);
+- every GELLO is calibrated in turn.
+
+The result is one file with a `robots:` mapping, each robot with its own cameras, `teleop:` section
+and `daemon:` block (abbreviated here; the real file is annotated and complete, see
+[`station.bimanual.example.yaml`](../robot_infra/docs/station.bimanual.example.yaml)):
+
+```yaml
+robots:
+  left:
+    type: franka
+    robot_ip: 172.16.0.2
+    cameras: [{name: wrist_left, serial: "..."}]
+    teleop: {name: gello, backend: gello, options: {port: /dev/serial/by-id/...LEFT..., ...}}
+    daemon: {bind: 0.0.0.0:50051, token: null}
+  right:
+    type: franka
+    robot_ip: 172.16.1.2
+    cameras: [{name: wrist_right, serial: "..."}, {name: front, serial: "..."}]
+    teleop: {name: gello, backend: gello, options: {port: /dev/serial/by-id/...RIGHT..., ...}}
+    daemon: {bind: 0.0.0.0:50052, token: null}
+```
+
+Check the safety limits on both robots; the two boxes should not overlap unless the task needs it
+(there is no inter-arm collision check). The wizard's last lines name the env backend for two arms,
+`real_robot_bimanual`. `--mock` also stands in for a two-arm station: its canned probe has two
+Frankas, three cameras and two GELLO buses.
+
+The env preset is `bimanual.yaml` instead of `hil.yaml`. `obs.rgb` lists every camera in arm order
+(left's, then right's), each arm lists its own cameras, the daemon addresses come from the ports in
+the station file, and the two arms must agree on `action_mode`, `state_fields` and the other shared
+fields ([Config](#config)):
+
+```yaml
+# bimanual.yaml (two arms)
+env_backend: real_robot_bimanual
+env_id: my_bimanual_task
+obs:
+  rgb: [wrist_left, wrist_right, front]
+  image_size: [128, 128]
+real_robot_bimanual:
+  max_episode_steps: 200
+  left:
+    remote: ROBOT_PC:50051
+    cameras: [wrist_left]
+    action_mode: joint_delta
+    state_fields: [joint_pos, gripper_pos]
+  right:
+    remote: ROBOT_PC:50052
+    cameras: [wrist_right, front]
+    action_mode: joint_delta
+    state_fields: [joint_pos, gripper_pos]
+```
+
+**Daemon ([03](tutorial/03-daemon.md)).** The doctor prints `== robot 'left' ==` and
+`== robot 'right' ==` blocks and a final `overall: 2 robots, all passed`; `--robot left` checks one.
+The same `python -m robot_infra.server --watchdog-s 5` starts both daemons: it prints
+`starting 2 daemons from <path>: 'left' on 0.0.0.0:50051, 'right' on 0.0.0.0:50052`, then each daemon
+prints its own preflight and `serving ...` line. The ports come from the file's `daemon.bind` entries.
+`--robot left` serves just one; `--bind` and `--token` are errors for several robots (set them per
+robot in the file). The dry run is `tests/test_bimanual_station_smoke.py`
+([Verified hardware-free](#verified-hardware-free)).
+
+**Record demos ([04](tutorial/04-record-demos.md)).** Replace the device flags with
+`--config bimanual.yaml --teleop-device bimanual --teleop-arm-device leader_arm
+--robot-teleop-action-mode joint_delta --teleop-event-device keyboard`; each arm reads its own GELLO
+and a step is recorded when either operator intervenes (the other arm is held still).
+`--max-episode-steps` replaces `--real_robot_bimanual.max_episode_steps`.
+
+**Base policy ([05](tutorial/05-base-policy.md)).** BC: the same command with `--config bimanual.yaml`.
+
+**HIL training ([07](tutorial/07-hil-training.md)).** Only `ENV_FLAGS` changes; `num_grippers=2` is
+derived from the env's action contract for all three agents (you do not pass it):
+
+```bash
+ENV_FLAGS="--config bimanual.yaml --teleop-device bimanual --teleop-arm-device leader_arm \
+    --robot-teleop-action-mode joint_delta --teleop-event-device keyboard --reward-from-teleop-events"
+```
+
+The BC base needs nothing extra (`checkpoint:...?algo=real_world_bc`). A two-arm `hil_serl`
+(`rlpd_hybrid`) checkpoint as the base names its gripper count:
+`checkpoint:<path>?algo=rlpd_hybrid&num_grippers=2`
+([provider table](residual.md#base-action-providers)).
+
+**Deploy ([08](tutorial/08-deploy.md)).** Add `--env-backend real_robot_bimanual` and give each arm's
+connection and cameras (the cameras are not filled from the training run for two arms):
+
+```bash
+python examples/deploy_real_robot.py --checkpoint runs/bc/checkpoints/final.pt \
+    --algo real_world_bc --env-backend real_robot_bimanual \
+    --real_robot_bimanual.left.remote ROBOT_PC:50051 \
+    --real_robot_bimanual.right.remote ROBOT_PC:50052 \
+    --real_robot_bimanual.left.cameras wrist_left \
+    --real_robot_bimanual.right.cameras wrist_right front
+```
+
+The deploy daemon serves a copy of the station yaml without either robot's `teleop:` block.
 
 ## Limits
 

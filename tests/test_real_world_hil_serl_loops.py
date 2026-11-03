@@ -241,3 +241,168 @@ def test_hil_serl_learner_loop_reloads_demo_dataset_paths_on_every_restart(tmp_p
         demo_dataset_paths=[str(demo_dir / "*.pkl")],
     )
     assert len(reloaded_agent.offline_replay_buffer) == 2
+
+
+def test_hil_serl_learner_loop_learner_scalars_count_demo_rows_and_intervened_transitions(tmp_path):
+    agent = _agent()
+    agent.init_demo_buffer(buffer_size=16, demo_data_ratio=0.5)
+    loop = HilSerlLearnerLoop(agent, "127.0.0.1", 0, checkpoint_dir=str(tmp_path), buffer_period=1000)
+
+    loop._on_transition(_transition(intervened=False))
+    loop._on_transition(_transition(intervened=True))
+    loop._on_transition(_transition(intervened=True))
+
+    assert loop._learner_scalars() == {
+        "received": 3,
+        "update": 0,
+        "buffer_size": 3,
+        "demo_buffer_size": 2,
+        "intervened_received": 2,
+    }
+
+
+# -- actor episode statistics ------------------------------------------------------------
+
+
+class _ScriptedEpisodeEnv:
+    """Steps through ``script`` rows ``(intervened, terminated, human_end, safety_clips,
+    rtt_ms)``; a human end truncates the episode, as ``InterventionWrapper`` does."""
+
+    num_envs = 1
+
+    def __init__(self, script):
+        self.script = list(script)
+        self.steps = 0
+
+    def reset(self, *, seed=None):
+        del seed
+        return torch.zeros(1, 4), {}
+
+    def step(self, action):
+        intervened, terminated, human_end, safety_clips, rtt_ms = self.script[self.steps]
+        self.steps += 1
+        info = {"human_episode_end": human_end, "safety_clips": safety_clips, "rtt_ms": rtt_ms}
+        if intervened:
+            info["intervene_action"] = torch.full((1, 3), 0.5)
+        return (
+            torch.zeros(1, 4),
+            torch.ones(1),
+            torch.tensor([terminated]),
+            torch.tensor([human_end]),
+            info,
+        )
+
+
+class _ConstantPolicy:
+    def eval(self):
+        pass
+
+    def load_state_dict(self, state_dict):
+        del state_dict
+
+    def predict(self, obs, deterministic=False):
+        del obs, deterministic
+        return torch.zeros(1, 3)
+
+
+class _StatsSyncClient:
+    dropped_transitions = 4
+
+    def __init__(self):
+        self.pushed: list[dict] = []
+        self.posted: list[dict] = []
+
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
+    def push_transition(self, transition):
+        self.pushed.append(transition)
+
+    def post_stats(self, stats):
+        self.posted.append(stats)
+
+    def latest_policy_params(self):
+        return {"weights": torch.zeros(1)}
+
+
+def test_hil_serl_actor_loop_posts_episode_statistics_at_every_episode_end():
+    script = [
+        # Episode 1: takeovers on steps 2-3 and 5, success on step 5.
+        (False, False, False, 3, 10.0),
+        (True, False, False, 3, 20.0),
+        (True, False, False, 3, 30.0),
+        (False, False, False, 3, 40.0),
+        (True, True, False, 4, 50.0),
+        # Episode 2: no takeover, the operator ends it on step 2 (Esc).
+        (False, False, False, 4, None),
+        (False, False, True, 6, None),
+    ]
+    sync_client = _StatsSyncClient()
+    loop = HilSerlActorLoop(
+        _ScriptedEpisodeEnv(script), _ConstantPolicy(), sync_client, control_hz=1_000_000.0
+    )
+
+    loop.run(total_steps=len(script))
+
+    assert len(sync_client.pushed) == 7
+    first, second = sync_client.posted
+    timing_keys = {
+        "step_time_ms_mean",
+        "step_time_ms_max",
+        "param_refresh_ms_mean",
+        "param_refresh_ms_max",
+    }
+    assert {key: first[key] for key in first if key not in timing_keys} == {
+        "episode": 1,
+        "return": 5.0,
+        "length": 5,
+        "intervened_steps": 3,
+        "intervention_count": 2,
+        "intervention_rate": 0.6,
+        "success": 1.0,
+        "human_episode_end": 0.0,
+        "safety_clips": 1,
+        "safety_clips_total": 4,
+        "rtt_ms_mean": 30.0,
+        "rtt_ms_max": 50.0,
+        "dropped_transitions": 4,
+    }
+    assert {key: second[key] for key in second if key not in timing_keys} == {
+        "episode": 2,
+        "return": 2.0,
+        "length": 2,
+        "intervened_steps": 0,
+        "intervention_count": 0,
+        "intervention_rate": 0.0,
+        "success": 0.0,
+        "human_episode_end": 1.0,
+        # Measured from the last reading of episode 1.
+        "safety_clips": 2,
+        "safety_clips_total": 6,
+        "dropped_transitions": 4,
+    }
+    for stats in (first, second):
+        assert timing_keys <= set(stats)
+        assert 0.0 <= stats["param_refresh_ms_max"] <= stats["step_time_ms_max"]
+        assert stats["step_time_ms_mean"] <= stats["step_time_ms_max"]
+
+
+def test_hil_serl_actor_loop_skips_posting_for_a_client_without_post_stats():
+    class _PushOnlyClient(_StatsSyncClient):
+        post_stats = None
+
+    sync_client = _PushOnlyClient()
+    loop = HilSerlActorLoop(
+        _ScriptedEpisodeEnv([(False, True, False, None, None)]),
+        _ConstantPolicy(),
+        sync_client,
+        control_hz=1_000_000.0,
+    )
+
+    loop.run(total_steps=1)
+
+    assert len(sync_client.pushed) == 1
+    assert sync_client.posted == []

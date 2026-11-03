@@ -39,6 +39,7 @@ from rl_garden_real_world.demos.record import (
 )
 from rl_garden_real_world.envs.bimanual import BimanualRealRobotEnv, BimanualRealRobotVectorEnv
 from rl_garden_real_world.envs.wrappers.intervention import InterventionWrapper
+from rl_garden_real_world.envs.wrappers.teleop_event_reward import TeleopEventRewardWrapper
 from rl_garden_real_world.teleop import TeleopReading
 from rl_garden_real_world.teleop.bimanual import normalized_joint_target
 from rl_garden_real_world.teleop.composite import CompositeTeleopSource
@@ -379,6 +380,24 @@ def test_successful_episode_without_intervention_is_not_kept():
     assert len(transitions) == 1
 
 
+def test_teleop_event_reward_stores_the_success_step_as_a_rewarded_terminal_transition():
+    # The env never pays a reward: the success key alone gives the demo its reward and done.
+    env = RecordingEnv("joint_abs")
+    readings = [SYNC, _reading(Q1), _reading(Q2, events=("success",)), _reading(Q2)]
+    transitions, episodes = _record(TeleopEventRewardWrapper(_wrap(env, readings)))
+
+    assert [(episode.steps, episode.discarded_reason) for episode in episodes] == [(2, None)]
+    assert [float(transition["reward"]) for transition in transitions] == [0.0, 1.0]
+    assert [bool(transition["done"]) for transition in transitions] == [False, True]
+
+    # Without the wrapper the same episode stores the env's reward 0 and runs on.
+    env = RecordingEnv("joint_abs")
+    readings = [SYNC, _reading(Q1), _reading(Q2, events=("success",)), _reading(Q2, episode_end=True)]
+    transitions, _ = _record(_wrap(env, readings))
+    assert [float(transition["reward"]) for transition in transitions] == [0.0, 0.0, 0.0]
+    assert not any(bool(transition["done"]) for transition in transitions)
+
+
 # -- episode-start leader check ------------------------------------------------------------
 
 
@@ -643,7 +662,25 @@ def test_example_parses_the_two_arm_flags_over_a_training_preset(example, monkey
     assert kwargs["motion"] == "bimanual" and kwargs["motion_kwargs"]["device_per_arm"] == "leader_arm"
 
 
+def test_example_parses_the_teleop_event_reward_flags(example, monkeypatch):
+    received = []
+    monkeypatch.setattr("rl_garden_real_world.demos.__main__.run_recorder", received.append)
+    example.main(["--output-path", "demos/task.pkl", "--reward-from-teleop-events", "--teleop-success-reward", "2.0"])
+    (args,) = received
+    assert args.reward_from_teleop_events and args.teleop_success_reward == 2.0
+
+
 def test_recorder_defaults():
     args = record.RecordDemosArgs()
     assert (args.start_tolerance_rad, args.keep_syncing_steps, args.max_episode_steps) == (0.8, False, None)
+    # Unlike the training entrypoints, the recorder rewards the success key by default.
+    assert args.reward_from_teleop_events and args.teleop_success_reward == 1.0
     assert args.output_path is None and args.env_backend == "franka_real"
+
+
+def test_example_turns_the_teleop_event_reward_off_with_the_negated_flag(example, monkeypatch):
+    received = []
+    monkeypatch.setattr("rl_garden_real_world.demos.__main__.run_recorder", received.append)
+    example.main(["--output-path", "demos/task.pkl", "--no-reward-from-teleop-events"])
+    (args,) = received
+    assert not args.reward_from_teleop_events

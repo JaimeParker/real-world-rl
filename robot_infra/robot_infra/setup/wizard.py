@@ -89,6 +89,10 @@ _GELLO_OPTION_DEFAULTS: dict[str, Any] = {
     "event_device": None,
     "poll_interval_s": 0.0,
 }
+# Written for a GELLO gripper channel the wizard sets up anew (an existing file keeps its value, and
+# an absent key stays at the backend default, None): the Franka gripper runs in binary mode, so a
+# half-pressed trigger must command open or closed rather than a width the gripper rounds anyway.
+NEW_GELLO_GRIPPER_BINARIZE_THRESHOLD = 0.5
 # (open, closed) written for an uncalibrated GELLO gripper; they only need to differ.
 UNCALIBRATED_GRIPPER_RANGE_RAD = (0.0, 1.0)
 _NAME_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
@@ -911,6 +915,8 @@ def _ask_gello(
     )
     if gripper_id is None:
         options["gripper_binarize_threshold"] = None  # the backend rejects it without a gripper channel
+    elif prior_gripper is None:
+        options["gripper_binarize_threshold"] = NEW_GELLO_GRIPPER_BINARIZE_THRESHOLD
     if _wants_calibration(prompt, answers, port, calibrated):
         result = _calibrate(prompt, options, config, calibration_bus_factory)
         if result is not None:

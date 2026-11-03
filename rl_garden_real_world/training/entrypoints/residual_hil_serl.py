@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import dataclasses
 
-from rl_garden_real_world.training.env_building import build_hil_env
+from rl_garden_real_world.training.env_building import (
+    build_hil_env,
+    warn_if_no_reward_source,
+)
 
 
 def build_residual_hil_serl(args, env, eval_env, logger, checkpoint_dir):
@@ -221,6 +224,8 @@ def _run_eval(args) -> None:
 
 def run_residual_hil_serl(args: "ResidualHilSerlArgs") -> None:
     validate_residual_args(args)
+    if args.role in ("actor", "learner"):
+        warn_if_no_reward_source(args, "residual_hil_serl")
     if args.role == "actor":
         _run_actor(args)
     elif args.role == "learner":

@@ -25,13 +25,24 @@ update count, not received-transition count. Resuming weights on startup
 reuses the existing ``--load_checkpoint`` flag
 (``build_rlpd``/``build_rlpd_hybrid`` already call ``agent.load(...)`` before
 handing the agent to this loop) -- no new resume logic needed here.
+
+Metrics: when the agent has a ``logger``, every metric is logged at step = received
+transitions (the analogue of ``learn()``'s global step). On each training iteration
+whose step crosses an ``agent.log_freq`` boundary, the train step runs with
+``compute_info=True``, its info goes to ``agent._log_update_metrics`` and the
+``learner/*`` scalars of :meth:`LearnerLoop._learner_scalars` plus
+``learner/train_time_s`` are logged. Every loop iteration drains the actors'
+episode stats from the sync server and logs them as ``actor/<key>`` (or
+``actor/<actor_id>/<key>`` when the actor stamps an id). Without a logger nothing is
+logged and the stats queue is left alone.
 """
 from __future__ import annotations
 
 import threading
 import time
+from numbers import Real
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 import torch
 
@@ -39,6 +50,9 @@ from rl_garden.algorithms.off_policy import OffPolicyAlgorithm
 from rl_garden_real_world.loops.sync import LearnerSyncServer
 
 _TRANSITION_TENSOR_KEYS = ("obs", "next_obs", "action", "reward", "done")
+# Metric cadence in received transitions for an agent without ``log_freq``
+# (``OffPolicyAlgorithm``'s own default).
+_DEFAULT_LOG_FREQ = 1_000
 
 
 class LearnerLoop:
@@ -69,6 +83,10 @@ class LearnerLoop:
         self._received = 0
         self._received_by_actor: dict[str, int] = {}
         self._last_checkpoint_update = 0
+        # Received-transition count at the last update-metrics log, and the metrics
+        # step of the current training iteration (set by :meth:`_train_iteration`).
+        self._last_log_step = 0
+        self._metrics_step = 0
         self._server = LearnerSyncServer(host, port, on_transition=self._on_transition)
 
     @property
@@ -145,6 +163,74 @@ class LearnerLoop:
         )
         self._last_checkpoint_update = update
 
+    # --- metrics ---
+
+    @property
+    def log_freq(self) -> int:
+        """Update-metrics cadence in received transitions: ``agent.log_freq``
+        (``0`` disables), else ``_DEFAULT_LOG_FREQ``."""
+        log_freq = getattr(self.agent, "log_freq", None)
+        return _DEFAULT_LOG_FREQ if log_freq is None else int(log_freq)
+
+    def _metrics_logger(self) -> Any:
+        return getattr(self.agent, "logger", None)
+
+    def _log_scalars(self, prefix: str, values: Mapping[str, Any], step: int) -> None:
+        """Logs every real-number value as ``<prefix>/<key>`` at ``step``; no-op
+        without a logger."""
+        logger = self._metrics_logger()
+        if logger is None:
+            return
+        for key, value in values.items():
+            if isinstance(value, Real):
+                logger.add_scalar(f"{prefix}/{key}", float(value), step)
+
+    def _learner_scalars(self) -> dict[str, float]:
+        """The ``learner/*`` scalars logged on update-metrics steps. Subclasses
+        extend the dict with their own counters."""
+        with self._lock:
+            received = self._received
+            buffer_size = len(self.agent.replay_buffer)
+        return {
+            "received": received,
+            "update": self.agent.global_update,
+            "buffer_size": buffer_size,
+        }
+
+    def _log_actor_stats(self, step: int) -> None:
+        """Logs the episode stats the actors posted since the last call."""
+        if self._metrics_logger() is None:
+            return
+        for stats in self._server.drain_stats():
+            actor_id = stats.get("actor_id")
+            prefix = "actor" if actor_id is None else f"actor/{actor_id}"
+            self._log_scalars(
+                prefix, {key: value for key, value in stats.items() if key != "actor_id"}, step
+            )
+
+    def _train_iteration(self, step: int) -> None:
+        """One training iteration of :meth:`run` at metrics step ``step`` (received
+        transitions). Asks the train step for its info only when ``step`` crosses a
+        :attr:`log_freq` boundary and the agent has a logger, then logs it through
+        ``agent._log_update_metrics`` together with the ``learner/*`` scalars."""
+        self._metrics_step = step
+        log_freq = self.log_freq
+        should_log = (
+            self._metrics_logger() is not None
+            and log_freq > 0
+            and step // log_freq > self._last_log_step // log_freq
+        )
+        started = time.perf_counter()
+        info = self._train_step(compute_info=should_log)
+        if not should_log:
+            return
+        train_time_s = time.perf_counter() - started
+        self.agent._log_update_metrics(info, step)
+        self._log_scalars(
+            "learner", {**self._learner_scalars(), "train_time_s": train_time_s}, step
+        )
+        self._last_log_step = step
+
     def run(self, total_transitions: Optional[int] = None) -> None:
         """Runs until ``total_transitions`` have been received (or forever,
         if ``None``, until :meth:`stop` is called from another thread)."""
@@ -155,11 +241,13 @@ class LearnerLoop:
             while not self._stop:
                 if total_transitions is not None and self.received_transitions >= total_transitions:
                     break
+                step = self.received_transitions
+                self._log_actor_stats(step)
                 if not self._ready_to_train():
                     time.sleep(self.idle_poll_interval)
                     continue
                 self._refresh_offline_data()
-                self._train_step()
+                self._train_iteration(step)
                 update += 1
                 if update % self.publish_freq == 0:
                     self._server.publish_params(self.agent.policy.state_dict())
@@ -171,6 +259,7 @@ class LearnerLoop:
                     Path(agent.checkpoint_dir) / "final.pt",
                     include_replay_buffer=agent.save_replay_buffer,
                 )
+            self._log_actor_stats(self.received_transitions)
 
     def stop(self) -> None:
         self._stop = True

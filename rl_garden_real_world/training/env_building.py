@@ -1,13 +1,21 @@
 """Env construction shared by every HIL-style real-world entrypoint (hil_serl,
 residual, SiLRI): the wrapper stack that was ``hil_serl._build_env``.
 
-``build_hil_env`` composes: temporal observation stacking (innermost, optional)
--> rotvec observation conversion (optional) -> reward classifier (optional) ->
-human intervention -> gripper-flip penalty (optional) -> reset-free forward/
-backward (outermost, per ``FWBWActorLoop``/``FWBWResetFreeWrapper``'s
-documented requirement). ``args`` is any Args that carries the fields of
-``HilEnvArgs`` plus ``RealWorldFrankaArgs`` and the env-request fields of
-``rl_garden.common.env_args``.
+``build_hil_env`` composes, innermost first:
+
+1. temporal observation stacking (optional) and rotvec observation conversion (optional);
+2. reward classifier (``--classifier-checkpoint``, optional): replaces the env reward with the
+   classifier's and terminates on success;
+3. human intervention (teleop enabled only): writes ``info["teleop_events"]``;
+4. teleop-event reward (``--reward-from-teleop-events``, teleop enabled only): reads those
+   events, so it sits right outside the intervention wrapper; it only raises the classifier's
+   reward and ``terminated``, never lowers them;
+5. gripper-flip penalty (``--use-grasp-penalty``, optional): needs ``info["intervene_action"]``;
+6. reset-free forward/backward (``--fwbw``, outermost, per ``FWBWActorLoop``/
+   ``FWBWResetFreeWrapper``'s documented requirement).
+
+``args`` is any Args that carries the fields of ``HilEnvArgs`` plus ``RealWorldFrankaArgs``
+and the env-request fields of ``rl_garden.common.env_args``.
 
 ``build_hil_env(args, role=..., enable_teleop=...)`` is the entry point: the actor and eval
 processes keep the human-intervention wrapper (and so open the teleop device), the learner passes
@@ -19,7 +27,10 @@ that already hold an env request.
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Optional
+import logging
+from typing import Any, Optional, Sequence
+
+_LOGGER = logging.getLogger(__name__)
 
 _FRANKA_REAL_QUAT_SLICE = (3, 7)
 _CARTESIAN_ARM_DIM = 6
@@ -296,6 +307,34 @@ def teleop_wrapper_kwargs(args) -> dict:
     }
 
 
+def classifier_image_keys_for(args, env) -> Sequence[str]:
+    """The observation keys a reward classifier reads: ``--classifier-image-keys``, or every key
+    of ``env``'s observation space but ``state``.
+
+    FrankaRealEnv's camera keys are whatever the user configured (``cfg.camera_keys``), not
+    necessarily ``rgb*``/``depth*`` prefixed, so every non-``state`` key counts as an image.
+    """
+    return args.classifier_image_keys or tuple(
+        key for key in env.single_observation_space.spaces if key != "state"
+    )
+
+
+_NO_REWARD_SOURCE_WARNING = (
+    "%s %s: no reward source. Neither --classifier-checkpoint nor --reward-from-teleop-events is "
+    "set, so every transition carries the env's own reward (0 on the real robot) and episodes "
+    "end only on truncation (step cap or episode-end button): nothing tells the agent what success "
+    "is. Pass --reward-from-teleop-events (the operator's success/failure keys) and/or "
+    "--classifier-checkpoint."
+)
+
+
+def warn_if_no_reward_source(args, method: str) -> None:
+    """Logs a warning when ``args`` (actor or learner role) gives the env neither a reward
+    classifier nor teleop-event rewards. Never raises: a run may want neither, e.g. a dry run."""
+    if args.classifier_checkpoint is None and not args.reward_from_teleop_events:
+        _LOGGER.warning(_NO_REWARD_SOURCE_WARNING, method, args.role)
+
+
 def compose_hil_env(args, env_request, *, enable_teleop: bool = True):
     """Builds the backend env for ``env_request`` and applies the wrapper stack
     described in the module docstring. ``enable_teleop=False`` skips the
@@ -323,17 +362,10 @@ def compose_hil_env(args, env_request, *, enable_teleop: bool = True):
         from rl_garden.common.utils import get_device
         from rl_garden.models.reward.success.model import load_classifier_fn
 
-        # FrankaRealEnv's observation space is {"state": ..., <camera_key>: image, ...}
-        # (see rl_garden_real_world/envs/franka_real/env.py) -- camera keys are whatever
-        # the user configured (cfg.camera_keys), not necessarily "rgb*"/"depth*"
-        # prefixed, so every non-"state" key is an image key here.
-        image_keys = args.classifier_image_keys or tuple(
-            k for k in env.single_observation_space.spaces if k != "state"
-        )
         classifier_fn = load_classifier_fn(
             args.classifier_checkpoint,
             env.single_observation_space,
-            image_keys,
+            classifier_image_keys_for(args, env),
             device=get_device("auto"),
         )
         env = RewardClassifierWrapper(env, classifier_fn, threshold=args.classifier_threshold)
@@ -344,6 +376,12 @@ def compose_hil_env(args, env_request, *, enable_teleop: bool = True):
         # Validates the teleop source's action_mode/arm count/width against the env's action
         # contract (also rejects gripper_in_action=false, which GraspPenaltyWrapper below relies on).
         env = TeleopInterventionWrapper(env, **teleop_wrapper_kwargs(args))
+        if args.reward_from_teleop_events:
+            from rl_garden_real_world.envs.wrappers.teleop_event_reward import (
+                TeleopEventRewardWrapper,
+            )
+
+            env = TeleopEventRewardWrapper(env, success_reward=args.teleop_success_reward)
 
     if args.use_grasp_penalty:
         from rl_garden_real_world.action_contract import (

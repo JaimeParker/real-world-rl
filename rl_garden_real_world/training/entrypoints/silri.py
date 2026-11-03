@@ -22,7 +22,10 @@ from rl_garden_real_world.training.args import (
     HilEnvArgs,
     RealWorldFrankaArgs,
 )
-from rl_garden_real_world.training.env_building import build_hil_env
+from rl_garden_real_world.training.env_building import (
+    build_hil_env,
+    warn_if_no_reward_source,
+)
 from rl_garden_real_world.training.registry import registry
 
 
@@ -297,6 +300,8 @@ def _run_eval(args) -> None:
 
 def run_silri(args: SilriArgs) -> None:
     _reject_unsupported_options(args)
+    if args.role in ("actor", "learner"):
+        warn_if_no_reward_source(args, "silri")
     if args.role == "actor":
         _run_actor(args)
     elif args.role == "learner":

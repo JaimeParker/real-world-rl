@@ -20,12 +20,17 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Optional
 
 import torch
 
 logger = logging.getLogger(__name__)
+
+# Stats messages kept for ``LearnerSyncServer.drain_stats`` when nobody drains them
+# (the oldest are dropped beyond this); actors post one message per episode.
+_MAX_QUEUED_STATS = 10_000
 
 # Transitions are deserialised with ``torch.load(weights_only=True)``, so a
 # payload may only contain tensors and plain containers/primitives (dict,
@@ -57,6 +62,7 @@ class LearnerSyncServer:
         self._params_version = 0
         self._stats_lock = threading.Lock()
         self._latest_stats: dict[str, dict[str, Any]] = {}
+        self._queued_stats: deque[dict[str, Any]] = deque(maxlen=_MAX_QUEUED_STATS)
 
         handler = _make_handler(self)
         self._httpd = ThreadingHTTPServer((host, port), handler)
@@ -87,10 +93,20 @@ class LearnerSyncServer:
         with self._stats_lock:
             return {actor_id: dict(stats) for actor_id, stats in self._latest_stats.items()}
 
+    def drain_stats(self) -> list[dict[str, Any]]:
+        """Every stats dict posted since the previous call, oldest first, and clears
+        them. Independent of :meth:`latest_stats`. Without a drain only the newest
+        ``_MAX_QUEUED_STATS`` messages are kept."""
+        with self._stats_lock:
+            drained = list(self._queued_stats)
+            self._queued_stats.clear()
+        return drained
+
     def _record_stats(self, stats: dict[str, Any]) -> None:
         actor_id = str(stats.get("actor_id", "unknown"))
         with self._stats_lock:
             self._latest_stats[actor_id] = stats
+            self._queued_stats.append(dict(stats))
         logger.info("actor stats [%s]: %s", actor_id, stats)
 
     def _latest_params(self) -> tuple[int, Optional[bytes]]:
@@ -253,7 +269,8 @@ class ActorSyncClient:
 
     def post_stats(self, stats: dict[str, Any]) -> None:
         """Non-blocking: queues a JSON-serialisable stats dict for the
-        learner's ``latest_stats()`` (subject to the same drop-oldest queue)."""
+        learner's ``latest_stats()`` and ``drain_stats()`` (subject to the same
+        drop-oldest queue)."""
         self._raise_if_fatal()
         if self._actor_id is not None:
             stats = {**stats, "actor_id": self._actor_id}

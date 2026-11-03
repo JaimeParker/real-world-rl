@@ -103,8 +103,8 @@ value is required unless `--allow-unprobed`.
 
 These steps run on the robot PC (the computer wired to the arm, CAN adapter and cameras),
 except step 5, which runs on the GPU machine. For the training side (demos, BC, HIL-SERL, deploy)
-on top of a running daemon, see the real-world guide
-[`docs/getting-started-hardware.md`](../docs/getting-started-hardware.md).
+on top of a running daemon, see the real-world tutorial
+[`docs/tutorial/`](../docs/tutorial/00-overview.md).
 
 ### 1. Write `robot.yaml`
 

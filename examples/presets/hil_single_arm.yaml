@@ -1,0 +1,25 @@
+# Env preset for one Franka arm with a gripper and a wrist camera, served by the robot_infra
+# daemon (docs/tutorial/). Every command of the tutorial takes it with --config: the recorder,
+# real_world_bc, hil_serl, residual_hil_serl, silri and the classifier data collector.
+# Copy it (cp examples/presets/hil_single_arm.yaml hil.yaml) and edit the copy:
+# - remote: the robot PC's address and the daemon port from station.yaml (127.0.0.1 when the
+#   actor runs on the robot PC);
+# - obs.rgb: the camera names of station.yaml (the wizard names the wrist camera "wrist").
+# Check it without touching the robot:
+#   python examples/train_real_world.py hil_serl --config hil.yaml --print-config
+env_backend: real_robot
+env_id: pick_and_place
+obs:
+  rgb: [wrist]                 # the camera names from station.yaml
+  image_size: [128, 128]       # required with cameras: a remote robot reports its size only after connecting
+real_robot:
+  remote: 127.0.0.1:50051      # ROBOT_PC:50051 when the actor runs on another machine
+  # token: T                   # only if station.yaml sets daemon.token
+  num_joints: 7
+  action_mode: joint_delta     # the same for demos, the base policy, every HIL run and deploy
+  joint_scale_rad: 0.05
+  state_fields: [joint_pos, gripper_pos]
+  control_hz: 10
+  max_episode_steps: 200
+  # joint_abs instead of joint_delta also needs the limits (the command line cannot express them):
+  # joint_limits: [[-2.8, 2.8], [-1.7, 1.7], [-2.8, 2.8], [-3.0, -0.1], [-2.8, 2.8], [0.0, 3.7], [-2.8, 2.8]]

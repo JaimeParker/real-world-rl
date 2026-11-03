@@ -80,6 +80,13 @@ class HilEnvArgs:
     classifier_threshold: float = 0.5
     classifier_image_keys: Sequence[str] = field(default_factory=tuple)
 
+    # Reward from the operator's buttons (TeleopEventRewardWrapper, on the envs that open the
+    # teleop device: actor, eval, demo recorder): a ``success`` event pays at least
+    # teleop_success_reward and terminates the episode, a ``failure`` event truncates it. Works
+    # with or without --classifier-checkpoint (the larger reward wins).
+    reward_from_teleop_events: bool = False
+    teleop_success_reward: float = 1.0
+
     # Gripper-flip reward shaping added to RLPDHybrid's discrete critic
     # target on top of the raw env reward (HIL-SERL's grasp_penalty) --
     # see rl_garden_real_world/envs/wrappers/grasp_penalty.py.

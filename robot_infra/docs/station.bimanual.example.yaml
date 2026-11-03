@@ -55,7 +55,7 @@ robots:
         gripper_id: 8  # null = no gripper channel
         gripper_open_rad: 3.5  # raw angle of the released trigger
         gripper_closed_rad: 4.4  # raw angle of the squeezed trigger
-        gripper_binarize_threshold: null  # null = continuous width
+        gripper_binarize_threshold: 0.5  # null = continuous width
         intervention: always  # always (every poll intervenes) | toggle (event_keys.toggle starts/stops)
         event_device: null  # null, or /dev/input/by-id/...-event-kbd (pedal or keyboard)
         event_keys: {toggle: KEY_SPACE, episode_end: KEY_ESC, success: KEY_S, failure: KEY_F, rerecord: KEY_R}  # evdev key names; toggle flips on key-down, the rest are events
@@ -113,7 +113,7 @@ robots:
         gripper_id: 8  # null = no gripper channel
         gripper_open_rad: 3.5  # raw angle of the released trigger
         gripper_closed_rad: 4.4  # raw angle of the squeezed trigger
-        gripper_binarize_threshold: null  # null = continuous width
+        gripper_binarize_threshold: 0.5  # null = continuous width
         intervention: always  # always (every poll intervenes) | toggle (event_keys.toggle starts/stops)
         event_device: null  # null, or /dev/input/by-id/...-event-kbd (pedal or keyboard)
         event_keys: {toggle: KEY_SPACE, episode_end: KEY_ESC, success: KEY_S, failure: KEY_F, rerecord: KEY_R}  # evdev key names; toggle flips on key-down, the rest are events

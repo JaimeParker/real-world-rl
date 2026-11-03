@@ -15,6 +15,11 @@ Episode outcome, read from the intervention wrapper's info keys so any event pat
   classifier), and no ``failure`` event fired;
 - a ``rerecord`` event discards the episode at once and starts the next one;
 - only successful episodes with at least one recorded transition are kept.
+
+The stored ``reward``/``done`` are the env's. Without a reward classifier, pass
+``--reward-from-teleop-events`` (``TeleopEventRewardWrapper`` in the ``build_hil_env`` chain): a
+``success`` event then ends the episode at once and its transition is stored with
+``reward=--teleop-success-reward`` and ``done=True``; otherwise every transition carries reward 0.
 """
 from __future__ import annotations
 
@@ -64,7 +69,11 @@ __all__ = [
     "RecordDemosArgs",
     "RecordedEpisode",
     "check_leader_near_follower",
+    "executed_gripper_actions",
+    "gripper_actions_after_reset",
     "hold_action_fn_for",
+    "intervention_wrapper_of",
+    "parse_args_with_preset",
     "parse_record_args",
     "record_demos",
     "run_recorder",
@@ -90,6 +99,11 @@ class RecordDemosArgs(HilEnvArgs, RealWorldFrankaArgs, EnvRunArgs, ObservationAr
     franka_real: FrankaRealConfig = field(default_factory=FrankaRealConfig)
     # The recorder never evaluates; no eval env (franka_real would open a second bridge client).
     eval_freq: int = 0
+    # On by default here (off for training): the operator marks every successful demo with the
+    # success key anyway, and a success stored as reward 0 / done False cannot be relabelled later.
+    # The success key therefore also ends the episode. ``--no-reward-from-teleop-events`` restores
+    # the env's own reward.
+    reward_from_teleop_events: bool = True
 
     # Where the demo pkl goes (``<stem>.contract.json`` is written next to it). Required; an
     # existing file is never overwritten.
@@ -197,6 +211,19 @@ def follower_joint_pos(env: Any) -> np.ndarray:
     return np.asarray(state["joint_pos"], dtype=np.float64)
 
 
+def gripper_actions_after_reset(num_grippers: int) -> Any:
+    """The gripper action(s) to hold right after a reset (open): a number for one gripper, one
+    entry per gripper otherwise (see ``HoldActionFn``)."""
+    return _GRIPPER_ACTION_AFTER_RESET if num_grippers <= 1 else [_GRIPPER_ACTION_AFTER_RESET] * num_grippers
+
+
+def executed_gripper_actions(executed: Any, num_grippers: int) -> Any:
+    """The gripper action(s) of the executed action ``executed`` (its last ``num_grippers``
+    dims, clipped as the env clips them), in the form ``gripper_actions_after_reset`` returns."""
+    grippers = torch.as_tensor(executed).reshape(-1)[-num_grippers:].clamp(-1.0, 1.0).tolist()
+    return grippers[0] if num_grippers == 1 else grippers
+
+
 def _arm_envs_of(env: Any, contract: Mapping[str, Any]) -> list:
     """Each arm's ``RealRobotEnv`` of the two-arm env behind ``env``, in ``arm_names`` order."""
     bimanual = find_bimanual_env(env)
@@ -293,7 +320,7 @@ def record_demos(
     ``joint_abs``, each episode starts with ``check_leader_near_follower``
     (``args.start_tolerance_rad``). ``on_episode`` is called with every finished episode.
     """
-    wrapper = _intervention_wrapper_of(env)
+    wrapper = intervention_wrapper_of(env)
     contract = get_env_action_contract(env) or LEGACY_ACTION_CONTRACT
     num_grippers = num_grippers_of(contract)
     control_period_s = 1.0 / args.control_hz
@@ -334,10 +361,7 @@ def _record_episode(
     control_period_s: float,
 ) -> RecordedEpisode:
     transitions: list[dict] = []
-    # A number for one gripper, one entry per gripper otherwise (see HoldActionFn).
-    gripper_action: Any = (
-        _GRIPPER_ACTION_AFTER_RESET if num_grippers <= 1 else [_GRIPPER_ACTION_AFTER_RESET] * num_grippers
-    )
+    gripper_action = gripper_actions_after_reset(num_grippers)
     success = failure = False
     steps = 0
     while True:
@@ -347,8 +371,7 @@ def _record_episode(
         steps += 1
         executed = info.get("intervene_action", action)
         if num_grippers:
-            executed_grippers = torch.as_tensor(executed).reshape(-1)[-num_grippers:].clamp(-1.0, 1.0).tolist()
-            gripper_action = executed_grippers[0] if num_grippers == 1 else executed_grippers
+            gripper_action = executed_gripper_actions(executed, num_grippers)
         events = info.get("teleop_events") or {}
         if events.get("rerecord", False):
             return RecordedEpisode(index, steps, success=False, discarded_reason="rerecord")
@@ -394,7 +417,8 @@ def _transition(obs: Any, next_obs: Any, action: torch.Tensor, reward, terminate
     return transition
 
 
-def _intervention_wrapper_of(env: Any) -> InterventionWrapper:
+def intervention_wrapper_of(env: Any) -> InterventionWrapper:
+    """The intervention wrapper in ``env``'s wrapper chain (raises ``ValueError`` without one)."""
     node, seen = env, set()
     while node is not None and id(node) not in seen:
         seen.add(id(node))
@@ -402,7 +426,7 @@ def _intervention_wrapper_of(env: Any) -> InterventionWrapper:
             return node
         node = vars(node).get("env") if hasattr(node, "__dict__") else None
     raise ValueError(
-        "record_demos needs an env with the intervention wrapper (build_hil_env with teleop enabled)"
+        "recording needs an env with the intervention wrapper (build_hil_env with teleop enabled)"
     )
 
 
@@ -431,18 +455,25 @@ def parse_record_args(argv: Optional[Sequence[str]] = None) -> RecordDemosArgs:
     go there. The training run's own preset works: its top-level keys that are not recorder
     fields (algorithm hyperparameters) are skipped, nested ones are checked strictly.
     """
+    return parse_args_with_preset(RecordDemosArgs, argv)
+
+
+def parse_args_with_preset(args_cls: type, argv: Optional[Sequence[str]] = None) -> Any:
+    """``args_cls`` (a dataclass) from the command line (``sys.argv[1:]`` by default), over the
+    YAML preset of an optional ``--config PATH``: its top-level keys that are not fields of
+    ``args_cls`` are skipped, nested ones are checked strictly, and flags override it."""
     import sys
 
     import tyro
     from rl_garden.common.effective_config import apply_strict_mapping, load_preset
 
     preset_path, cli_args = _pop_config_flag(list(sys.argv[1:] if argv is None else argv))
-    defaults = RecordDemosArgs()
+    defaults = args_cls()
     if preset_path is not None:
-        recorder_fields = {item.name for item in dataclasses.fields(RecordDemosArgs)}
+        own_fields = {item.name for item in dataclasses.fields(args_cls)}
         values = load_preset(preset_path).values
-        apply_strict_mapping(defaults, {key: value for key, value in values.items() if key in recorder_fields})
-    return tyro.cli(RecordDemosArgs, default=defaults, args=cli_args)
+        apply_strict_mapping(defaults, {key: value for key, value in values.items() if key in own_fields})
+    return tyro.cli(args_cls, default=defaults, args=cli_args)
 
 
 def _pop_config_flag(cli_args: list[str]) -> tuple[Optional[str], list[str]]:

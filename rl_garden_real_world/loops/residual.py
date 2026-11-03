@@ -142,6 +142,7 @@ class ResidualActorLoop(HilSerlActorLoop):
     def _on_episode_end(self, info: dict) -> None:
         self.base_provider.reset()
         self._next_base_actions = None
+        super()._on_episode_end(info)
 
 
 class ResidualLearnerLoop(HilSerlLearnerLoop):

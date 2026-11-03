@@ -101,7 +101,7 @@ Now built:
   slot can't both be used on one `RLPDHybrid` instance) is unchanged, just no
   longer silent.
 
-**Item 8 correction**: `_load_demo_datasets()` (called from
+**Item 8 correction** (fixed; the paragraph records the original finding): `_load_demo_datasets()` (called from
 `HilSerlLearnerLoop.__init__`, before `_reload_snapshots()`) increments
 `self._received` for every preloaded demo transition, even though those only
 reach `agent.add_demo_transition` (the demo buffer), never
@@ -115,9 +115,12 @@ with `--demo_dataset_paths` supplying >= `learning_starts` transitions can
 start training with **zero** real online transitions collected, which
 HIL-SERL never allows (it always waits for genuine online data regardless of
 demo/prior volume). `tests/test_real_world_hil_serl_loops.py`'s
-`test_hil_serl_learner_loop_preloads_demo_dataset_paths` currently asserts
+`test_hil_serl_learner_loop_preloads_demo_dataset_paths` asserted
 `received_transitions == 3` after preloading with zero live transitions --
-the test encodes this behavior rather than catching it. Not yet fixed.
+the test encoded this behavior rather than catching it. **Fixed**:
+`_load_demo_datasets()` in `rl_garden_real_world/loops/hil_serl.py` no longer counts preloaded
+demos toward `received_transitions`, so `learning_starts` waits for online transitions as in
+HIL-SERL, and the test now asserts `received_transitions == 0` after the preload.
 
 **Also missing**: HIL-SERL's `examples/record_demos.py` (plain teleop
 trajectory recording, no success/failure labels, producing exactly the

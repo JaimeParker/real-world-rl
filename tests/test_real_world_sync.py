@@ -220,6 +220,27 @@ def test_stats_round_trip_keeps_latest_per_actor():
         server.stop()
 
 
+def test_drain_stats_returns_every_posted_message_once_in_order():
+    server, url = _start_server(on_transition=lambda t: None)
+    client = ActorSyncClient(url, poll_interval=10.0, actor_id="a")
+    try:
+        client.start()
+        client.post_stats({"return": 1.0})
+        client.post_stats({"return": 2.0})
+        drained: list[dict] = []
+        deadline = time.time() + 5.0
+        while len(drained) < 2 and time.time() < deadline:
+            drained += server.drain_stats()
+            time.sleep(0.02)
+        assert drained == [{"return": 1.0, "actor_id": "a"}, {"return": 2.0, "actor_id": "a"}]
+        assert server.drain_stats() == []
+        # latest_stats is independent of draining.
+        assert server.latest_stats() == {"a": {"return": 2.0, "actor_id": "a"}}
+    finally:
+        client.stop()
+        server.stop()
+
+
 def test_transition_with_plain_containers_round_trips_under_weights_only():
     payload = {
         "obs": {"state": torch.zeros(1, 3), "rgb": torch.zeros(1, 2, 2, 3, dtype=torch.uint8)},

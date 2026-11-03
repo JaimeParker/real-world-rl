@@ -12,6 +12,12 @@ from rl_garden_real_world.training.demo_loading import load_demo_pkls
 __all__ = ["SilriActorLoop", "SilriLearnerLoop"]
 
 
+def _behavior_phase_metrics(phase: str, info: Optional[dict[str, float]]) -> dict[str, float]:
+    """``pretrain()`` / ``refresh_behavior()`` info as ``<phase>/<key>`` with ``/`` in
+    the key flattened to ``_`` (``behavior/nll`` -> ``refresh/behavior_nll``)."""
+    return {f"{phase}/{key.replace('/', '_')}": value for key, value in (info or {}).items()}
+
+
 class SilriActorLoop(HilSerlActorLoop):
     """SiLRI's ActorLoop: HIL-SERL's intervention tagging plus the policy's own proposal and
     an ``intervention_onset`` tag on the transition right before a human takes over.
@@ -93,11 +99,17 @@ class SilriLearnerLoop(HilSerlLearnerLoop):
       critic updates inside each gradient step, not a multiplier of gradient steps.
     - Demo pkls without SiLRI's fields (``--demo_dataset_paths``) load as intervened,
       non-onset rows whose policy action is the recorded action.
+    - With an agent logger, behaviour phases are logged when they run, at the iteration's
+      metrics step: the first train step logs ``behavior/pretrained`` (0/1, also 1 for a
+      restored pretrained agent) and, when pretraining ran, its losses as
+      ``behavior/pretrain/<key>``; every refresh logs ``behavior/refresh/<key>`` and
+      ``behavior/refresh_count``.
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._pretrain_considered = False
+        self._behavior_refresh_count = 0
 
     def _load_demo_datasets(self, paths) -> None:
         load_demo_pkls(
@@ -147,6 +159,8 @@ class SilriLearnerLoop(HilSerlLearnerLoop):
                 self._add_transition(self.agent.add_demo_transition, stored, device)
                 self._pending_demo.append(stored)
                 self.agent.record_demo_additions(1)
+            if stored["intervened"]:
+                self._intervened_received += 1
             self._received += 1
             key = actor_id if actor_id is not None else "unknown"
             self._received_by_actor[key] = self._received_by_actor.get(key, 0) + 1
@@ -159,18 +173,30 @@ class SilriLearnerLoop(HilSerlLearnerLoop):
             self.agent.demo_transitions >= self.agent.demo_learning_starts
         )
 
-    def _maybe_pretrain(self) -> None:
+    def _maybe_pretrain(self) -> dict[str, float]:
+        """Pretrains once (see the class docstring). Returns the behaviour metrics of
+        the first call (the ``pretrained`` flag, plus the losses when it pretrained)
+        and an empty dict afterwards."""
         if self._pretrain_considered:
-            return
+            return {}
         self._pretrain_considered = True
+        metrics: dict[str, float] = {}
         if not self.agent.pretrained and self.agent.demo_transitions > 0:
-            self.agent.pretrain()
+            metrics = _behavior_phase_metrics("pretrain", self.agent.pretrain())
+        metrics["pretrained"] = float(self.agent.pretrained)
+        return metrics
 
     def _train_step(self, compute_info: bool = False) -> dict[str, float]:
         with self._lock:
-            self._maybe_pretrain()
+            behavior_metrics = self._maybe_pretrain()
             if self.agent.behavior_refresh_due:
-                self.agent.refresh_behavior()
+                behavior_metrics.update(
+                    _behavior_phase_metrics("refresh", self.agent.refresh_behavior())
+                )
+                self._behavior_refresh_count += 1
+                behavior_metrics["refresh_count"] = self._behavior_refresh_count
             info = self.agent.train(max(1, self.train_freq), compute_info=compute_info)
+        # Outside the buffer lock: logging must not hold back transition ingestion.
+        self._log_scalars("behavior", behavior_metrics, self._metrics_step)
         self._maybe_save_periodic_checkpoint()
         return info

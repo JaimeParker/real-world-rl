@@ -2,9 +2,11 @@
 
 `residual_hil_serl` trains a bounded correction on top of a frozen base policy (a BC
 policy, an earlier RL checkpoint or an ACT model) on the real robot, with HIL-SERL's
-actor / learner split, demo buffer and human intervention. The hardware setup, the BC base
-policy and a first residual run on one or two arms are walked through in
-[getting-started-hardware.md](getting-started-hardware.md#8b-residual_hil_serl-on-top-of-the-bc-policy).
+actor / learner split, demo buffer and human intervention. The hardware setup, the BC and
+ACT base policies and a first residual run are walked through in the tutorial:
+[05 Base policy](tutorial/05-base-policy.md) and
+[07 HIL training](tutorial/07-hil-training.md#residual_hil_serl-bc-base) (two arms:
+[bimanual.md](bimanual.md#two-arms-the-tutorial-steps)).
 
 ## Method
 
@@ -107,7 +109,12 @@ L_bc = mean over intervened rows of  sum_d ( u_d - clip((a_human_d - a_base_d) /
 ```
 
 summed over the dims with a non-zero scale (the denominator is guarded when a batch has no
-intervened row). The learner logs `actor/residual_bc` and `actor/intervened_fraction`.
+intervened row). On its `--log-freq` boundaries the learner logs, besides the SAC losses
+(`losses/critic_loss`, `losses/actor_loss`, `entropy/alpha`, `q/predicted`, ...), this term as
+`losses/actor/residual_bc` and the batch's share of intervened rows as
+`losses/actor/intervened_fraction` (both only on updates that train the actor, so not during
+`--critic-only-updates`). The actor's per-episode `actor/intervention_rate` is the share of
+intervened steps on the robot ([tutorial 07](tutorial/07-hil-training.md#what-to-watch)).
 
 ## Warm-up
 
@@ -120,38 +127,23 @@ intervened row). The learner logs `actor/residual_bc` and `actor/intervened_frac
 
 ## Commands
 
-Learner and actor (as for hil_serl; see the README for the env, teleop and robot flags):
+The full commands (learner, actor and eval with a BC and with an ACT base, the env preset and the
+teleop flags) are in [tutorial 07](tutorial/07-hil-training.md#residual_hil_serl-bc-base); deployment
+is in [tutorial 08](tutorial/08-deploy.md). The minimal shape, for a GELLO served by the robot daemon
+on a `joint_delta` env (every role, the learner included, takes `--base-provider`):
 
 ```bash
-BASE='checkpoint:runs/bc/checkpoints/final.pt?algo=real_world_bc'   # quoted: '?' is a glob character
-COMMON="--config hil.yaml --teleop-device spacemouse --log-dir runs --exp-name residual \
-    --residual-variant hybrid --residual-action-scale 0.1 --residual-bc-weight 0.1 \
-    --critic-only-updates 500 --sync-host 127.0.0.1 --sync-port 6055"
-python examples/train_real_world.py residual_hil_serl --role learner $COMMON --base-provider "$BASE"
-python examples/train_real_world.py residual_hil_serl --role actor $COMMON --base-provider "$BASE"
+python examples/train_real_world.py residual_hil_serl --role actor --config hil.yaml \
+    --teleop-device leader_arm --robot-teleop-action-mode joint_delta --teleop-event-device keyboard \
+    --reward-from-teleop-events --base-provider 'checkpoint:runs/bc/checkpoints/final.pt?algo=real_world_bc'
 ```
 
-Evaluation episodes on the robot (deterministic residual on top of the provider; success
-is `terminated`):
-
-```bash
-python examples/train_real_world.py residual_hil_serl --role eval $COMMON --base-provider "$BASE" \
-    --load-checkpoint runs/residual/checkpoints/checkpoint_<update>.pt --eval-n-trajs 10
-```
-
-Deploy (`--algo residual_hil_serl` for the continuous variant, `residual_hil_serl_hybrid`
-for the hybrid one; both names rebuild the class the run's `config.json` names). The
-provider comes from the checkpoint metadata; `--base-provider` replaces it, for example
-when the base checkpoint moved:
-
-```bash
-python examples/deploy_real_robot.py --checkpoint runs/residual/checkpoints/checkpoint_<update>.pt \
-    --algo residual_hil_serl_hybrid --real-robot.remote ROBOT_PC:50051 --real-robot.token T \
-    --base-provider 'checkpoint:/data/bc/final.pt?algo=real_world_bc'
-```
-
-Both names are registered on rl-garden's online registry (one name per algorithm class);
-the real-world CLI has `residual_hil_serl` only.
+Eval (`--role eval --load-checkpoint ...`) runs the deterministic residual on top of the provider;
+success is `terminated`. Deploy takes `--algo residual_hil_serl` for the continuous variant and
+`residual_hil_serl_hybrid` for the hybrid one (both names rebuild the class the run's `config.json`
+names, and both are registered on rl-garden's online registry, one name per algorithm class; the
+real-world CLI has `residual_hil_serl` only). The provider comes from the checkpoint metadata;
+`--base-provider` replaces it, for example when the base checkpoint moved.
 
 ## Limitations
 

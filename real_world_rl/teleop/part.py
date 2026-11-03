@@ -156,7 +156,7 @@ class TeleopPartSource(TeleopSource):
 
     @property
     def has_gripper(self) -> bool:
-        return self._contract.has_gripper or self._env_gripper
+        return self._env_gripper
 
     @staticmethod
     def _require_state_field(state_fields: tuple, field: str, purpose: str) -> None:
@@ -231,6 +231,7 @@ class TeleopPartSource(TeleopSource):
             episode_end=bool(sample.events.get("episode_end", False)),
             events={key: True for key in _FORWARDED_EVENTS if sample.events.get(key, False)},
             timestamp=float(getattr(sample, "timestamp", 0.0)),
+            human_action_mask=np.asarray([True] * self.arm_action_dim + ([bool(self._contract.has_gripper)] if self._env_gripper else []), dtype=bool),
         )
 
     # -- mapping -------------------------------------------------------------------

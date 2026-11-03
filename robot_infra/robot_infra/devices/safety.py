@@ -29,14 +29,18 @@ class ArmSafety:
     def __post_init__(self) -> None:
         if self.safety_box is not None:
             box = np.asarray(self.safety_box, dtype=np.float64)
-            if box.shape != (6,) or np.any(box[:3] > box[3:]):
+            if box.shape != (6,) or not np.isfinite(box).all() or np.any(box[:3] > box[3:]):
                 raise ValueError(f"safety_box must be [xmin, ymin, zmin, xmax, ymax, zmax], got {box.tolist()}")
             object.__setattr__(self, "safety_box", box)
         if self.joint_limits is not None:
             limits = np.asarray(self.joint_limits, dtype=np.float64)
-            if limits.ndim != 2 or limits.shape[1] != 2 or np.any(limits[:, 0] > limits[:, 1]):
+            if limits.ndim != 2 or limits.shape[1] != 2 or not np.isfinite(limits).all() or np.any(limits[:, 0] > limits[:, 1]):
                 raise ValueError(f"joint_limits must be [[lo, hi], ...] with lo <= hi, got {limits.tolist()}")
             object.__setattr__(self, "joint_limits", limits)
+        for name in ("max_delta_xyz_m", "max_delta_joint_rad"):
+            value = getattr(self, name)
+            if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(value) or value <= 0):
+                raise ValueError(f"{name} must be a finite positive number")
 
     @classmethod
     def from_config(cls, config: "RobotConfig") -> "ArmSafety | None":

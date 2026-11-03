@@ -273,7 +273,9 @@ def test_deploy_env_converts_both_quaternions_and_checks_both_arms_health(_claim
         trained, obs=ObservationConfig(state=True), convert_obs_rotation=True, classifier_image_keys=()
     )
     env = build_deploy_env(args, training_args)
-    assert isinstance(env, RotvecObsWrapper)
+    from real_world_rl.envs.wrappers.experiment import ExperimentContractWrapper
+    assert isinstance(env, ExperimentContractWrapper)
+    assert isinstance(env.env, RotvecObsWrapper)
     assert env.single_observation_space["state"].shape == (2 * ARM_STATE_DIM - 2,)
     assert env.single_action_space.shape == (14,)
 

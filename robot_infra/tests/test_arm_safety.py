@@ -16,6 +16,31 @@ from robot_infra.devices.errors import DeviceError, SafetyViolation
 from robot_infra.devices.robots.franka import FrankaConfig, FrankaRobot
 from robot_infra.devices.robots.piper import PiperConfig
 from robot_infra.devices.safety import ArmSafety
+
+
+@pytest.mark.parametrize("values", [
+    {"safety_box": [0, 0, 0, float("nan"), 1, 1]},
+    {"joint_limits": [[-1, float("inf")]] * 7},
+    {"home_joints": [float("nan")] * 7},
+    {"max_delta_per_step": {"xyz_m": float("inf")}},
+])
+def test_nonfinite_station_geometry_rejected_before_robot_connection(monkeypatch, values):
+    connected = []
+    monkeypatch.setattr(Robot, "connect", lambda self: connected.append(self))
+    with pytest.raises(ValueError, match="finite|positive"):
+        Robot.from_dict({"type": "franka", "arm_backend": "fake", **values})
+    assert connected == []
+
+
+@pytest.mark.parametrize("values", [
+    {"safety_box": [0, 0, 0, float("nan"), 1, 1]},
+    {"joint_limits": [[-1, float("inf")]] * 7},
+    {"max_delta_xyz_m": float("inf")},
+    {"max_delta_joint_rad": float("nan")},
+])
+def test_direct_arm_safety_rejects_nonfinite_boundaries(values):
+    with pytest.raises(ValueError):
+        ArmSafety(**values)
 from robot_infra.server import RemoteRobot
 from robot_infra.server.service import RobotService
 from robot_infra.server.transport import LocalClient

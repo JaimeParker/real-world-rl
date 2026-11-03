@@ -45,7 +45,6 @@ class RealRobotBimanualBackend(RealRobotBackend):
         config.require_robot_source()
         observation = req.observation
         unsupported = {
-            "depth": observation.depth,
             "extra_state": observation.extra_state,
             "frame_stack>1": observation.frame_stack > 1,
         }
@@ -56,6 +55,8 @@ class RealRobotBimanualBackend(RealRobotBackend):
                 "rgb only"
             )
         cameras = list(observation.rgb)
+        if config.depth_cameras != list(observation.depth):
+            raise ObservationContractError("requested depth cameras must equal per-arm depth_cameras in arm order")
         if config.cameras != cameras:
             per_arm = {arm: arm_config.cameras for arm, arm_config in config.arm_configs.items()}
             raise ObservationContractError(

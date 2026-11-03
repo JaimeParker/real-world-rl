@@ -41,6 +41,8 @@ METHODS = (
     "arm.recover",
     "arm.set_control_mode",
     "arm.control_mode",
+    "arm.configure_control",
+    "arm.control_metadata",
     "arm.health",
     "arm.preflight",
     "gripper.open",
@@ -116,6 +118,8 @@ class RobotService:
             "arm.recover": self._arm_recover,
             "arm.set_control_mode": self._arm_set_control_mode,
             "arm.control_mode": self._arm_control_mode,
+            "arm.configure_control": self._arm_configure_control,
+            "arm.control_metadata": self._arm_control_metadata,
             "arm.health": self._arm_health,
             "arm.preflight": self._arm_preflight,
             "gripper.open": self._gripper_open,
@@ -170,6 +174,7 @@ class RobotService:
                 "control_mode": arm.control_mode.value,
                 "safety": arm.safety_limits,
                 "home_joints": robot.config.home_joints,
+                "control_metadata": arm.control_metadata,
             },
             "gripper": None
             if gripper is None
@@ -287,6 +292,14 @@ class RobotService:
             if control_mode is not ControlMode.IDLE:
                 # A client that enters servo mode and never sends an action still trips the watchdog.
                 self._servo_entered_time = time.monotonic()
+
+    def _arm_configure_control(self, config: dict) -> dict:
+        with self._lock:
+            return self.robot.arm.configure_control(config)
+
+    def _arm_control_metadata(self) -> dict:
+        with self._lock:
+            return self.robot.arm.control_metadata
 
     def _arm_control_mode(self) -> str:
         return self.robot.arm.control_mode.value

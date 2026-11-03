@@ -103,8 +103,10 @@ def test_run_deploy_runs_episodes_and_prints_summary(capsys):
     args = DeployArgs(checkpoint="unused.pt", episodes=2)
     results = run_deploy(args, env=env, policy=policy)
 
+    from real_world_rl.metrics import EpisodeOutcome
     assert results == [
-        EpisodeResult(steps=3, episode_return=3.0, truncated=True, rtt_ms_mean=2.0, health_ok=True)
+        EpisodeResult(steps=3, episode_return=3.0, truncated=True, rtt_ms_mean=2.0, health_ok=True,
+                      outcome=EpisodeOutcome(None, False, 3, 0, end_reason="timeout"))
     ] * 2
     assert env.resets == 2 and env.closed
     assert policy.evaluated and policy.calls == [True] * 6
@@ -209,3 +211,16 @@ def _scratch_rlpd_args():
     from rl_garden.training.online.entrypoints.rlpd import RLPDArgs
 
     return RLPDArgs(num_envs=1, num_eval_envs=1, buffer_size=8, buffer_device="cpu")
+
+
+def test_deploy_interrupted_episode_is_reported_and_env_closed(capsys):
+    class InterruptedEnv(_FakeEnv):
+        def step(self, action):
+            raise KeyboardInterrupt()
+    env = InterruptedEnv()
+    with pytest.raises(KeyboardInterrupt):
+        run_deploy(DeployArgs(checkpoint="unused.pt"), env=env, policy=_FakePolicy())
+    assert env.closed
+    output = capsys.readouterr().out
+    assert "interrupted_episodes=1" in output
+    assert "completed_episodes=0" in output

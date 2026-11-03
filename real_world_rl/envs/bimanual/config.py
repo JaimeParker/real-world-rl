@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from real_world_rl.envs.real_robot.config import RealRobotEnvConfig
+from real_world_rl.tasks.config import TaskConfig
 
 # Per-arm config fields that must be equal on both arms: they define one shared action
 # contract (layout and scaling) and one observation layout.
@@ -45,14 +46,22 @@ class BimanualRealRobotEnvConfig:
     arm_names: tuple[str, str] = ("left", "right")
     max_episode_steps: Optional[int] = None
     reset_settle_s: float = 0.5
+    task: TaskConfig = field(default_factory=TaskConfig)
 
     def __post_init__(self) -> None:
+        from real_world_rl.tasks.config import finite
+        finite([self.reset_settle_s], "reset_settle_s")
+        if isinstance(self.task, dict): self.task = TaskConfig(**self.task)
+        if isinstance(self.left, dict): self.left = RealRobotEnvConfig(**self.left)
+        if isinstance(self.right, dict): self.right = RealRobotEnvConfig(**self.right)
+        if self.left.task.name != "none" or self.right.task.name != "none":
+            raise ValueError("set task on the bimanual config, leaving per-arm task=none")
         self.arm_names = tuple(self.arm_names)
         if len(self.arm_names) != _NUM_ARMS or len(set(self.arm_names)) != _NUM_ARMS:
             raise ValueError(f"arm_names must be two distinct names, got {list(self.arm_names)}")
         if not all(isinstance(name, str) and name for name in self.arm_names):
             raise ValueError(f"arm_names must be non-empty strings, got {list(self.arm_names)}")
-        if self.max_episode_steps is not None and self.max_episode_steps <= 0:
+        if self.max_episode_steps is not None and (type(self.max_episode_steps) is not int or self.max_episode_steps <= 0):
             raise ValueError(
                 f"max_episode_steps must be positive or None, got {self.max_episode_steps}"
             )
@@ -69,6 +78,10 @@ class BimanualRealRobotEnvConfig:
     def cameras(self) -> list[str]:
         """Every arm's cameras, in arm order: the env's camera list."""
         return [cam for config in self.arm_configs.values() for cam in config.cameras]
+
+    @property
+    def depth_cameras(self):
+        return [camera for config in self.arm_configs.values() for camera in config.depth_cameras]
 
     def arm_env_config(self, arm: str) -> RealRobotEnvConfig:
         """The config the arm's ``RealRobotEnv`` is built from: truncation is the two-arm env's
@@ -91,7 +104,7 @@ class BimanualRealRobotEnvConfig:
                 "both arms must share these fields (set them equal on both arms):\n  "
                 + "\n  ".join(mismatched)
             )
-        shared_cameras = sorted(set(self.left.cameras) & set(self.right.cameras))
+        shared_cameras = sorted(set(self.left.capture_cameras) & set(self.right.capture_cameras))
         if shared_cameras:
             raise ValueError(
                 f"camera names must be unique across arms; both arms name {shared_cameras}"

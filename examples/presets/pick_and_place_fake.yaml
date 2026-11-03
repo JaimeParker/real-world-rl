@@ -1,0 +1,60 @@
+# Hardware-free smoke preset. TCP proxy only measures tool position; object success uses manual/classifier labels.
+env_backend: real_robot
+teleop_device: fake
+buffer_device: cpu
+obs:
+  state: true
+real_robot:
+  robot:
+    type: franka
+    name: pick_place_fake
+    arm_backend: fake
+    claim: false
+    gripper:
+      backend: fake
+  home_joints:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  reset_settle_s: 0
+  control_hz: 100
+  max_episode_steps: 4
+  control:
+    translational_stiffness: 400.0
+    rotational_stiffness: 20.0
+  task:
+    name: pick_and_place
+    version: 1
+    success_source: tcp_proxy
+    targets:
+      arm:
+      - 0.2
+      - 0
+      - 0.2
+    success_hold_steps: 2
+    position_tolerance_m: 0.04
+    dense_distance_weight: 1.0
+    reset:
+      lift_m: 0.0
+      waypoints:
+      - - 0.2
+        - 0
+        - 0.2
+        - 0
+        - 0
+        - 0
+        - 1
+      xyz_jitter_m:
+      - 0.01
+      - 0.01
+      - 0.0
+      settle_s: 0
+    max_episode_steps: 4
+    terminate_on_success: true
+    terminate_on_failure: true
+    eval_episodes: 2
+    eval_seed: 7

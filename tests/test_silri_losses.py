@@ -199,3 +199,35 @@ def test_two_gripper_cross_entropy_uses_the_joint_label_of_the_last_two_dims():
 
     # Joint label = 3 * index(first gripper) + index(second gripper).
     torch.testing.assert_close(loss, F.cross_entropy(logits, torch.tensor([7, 2, 3])))
+
+
+def test_empty_supervision_does_not_advance_behavior_adam_momentum():
+    agent = silri_agent()
+    batch = hand_batch([True, True])
+    agent._behavior_step(batch)
+    parameters = [p.detach().clone() for p in agent._behavior_params]
+    steps = [state["step"].clone() for state in agent.behavior_optimizer.state.values()]
+    batch.human_action_mask = torch.zeros_like(batch.actions, dtype=torch.bool)
+    nll, _ = agent._behavior_step(batch)
+    assert nll.item() == 0
+    for param, expected in zip(agent._behavior_params, parameters):
+        torch.testing.assert_close(param, expected, rtol=0, atol=0)
+    for state, expected in zip(agent.behavior_optimizer.state.values(), steps):
+        torch.testing.assert_close(state["step"], expected, rtol=0, atol=0)
+
+
+def test_online_empty_gripper_supervision_preserves_head_but_updates_actor():
+    agent = silri_agent()
+    batch = hand_batch([True, True])
+    agent._actor_and_lambda_step(batch)
+    head = [p.detach().clone() for p in agent.policy.discrete_parameters()]
+    actor_steps = [state["step"].clone() for state in agent.actor_optimizer.state.values()]
+    gripper_steps = [state["step"].clone() for state in agent.discrete_optimizer.state.values()]
+    batch.human_action_mask = torch.zeros_like(batch.actions, dtype=torch.bool)
+    agent._actor_and_lambda_step(batch)
+    for param, expected in zip(agent.policy.discrete_parameters(), head):
+        torch.testing.assert_close(param, expected, rtol=0, atol=0)
+    for state, expected in zip(agent.discrete_optimizer.state.values(), gripper_steps):
+        torch.testing.assert_close(state["step"], expected, rtol=0, atol=0)
+    for state, previous in zip(agent.actor_optimizer.state.values(), actor_steps):
+        torch.testing.assert_close(state["step"], previous + 1)

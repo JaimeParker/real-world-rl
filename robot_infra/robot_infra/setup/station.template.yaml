@@ -23,6 +23,7 @@ home_joints: {{home_joints}}  # 7 values, rad
 safety_box: {{safety_box}}  # [xmin, ymin, zmin, xmax, ymax, zmax] m, base frame (tcp_pose = O_T_EE); must contain the home pose; suggested [0.3, -0.3, 0.05, 0.7, 0.3, 0.6]
 joint_limits: {{joint_limits}}  # 7 [lo, hi] pairs, rad (default: Panda datasheet); home_joints must lie inside
 max_delta_per_step: {{max_delta_per_step}}  # servo step cap from the measured state; default {xyz_m: 0.05, joint_rad: 0.04}
+control: {{control}}          # optional impedance settings, applied while IDLE; null keeps SDK defaults
 claim: {{claim}}              # the daemon takes an exclusive per-host lock on this robot
 {{gripper}}
 {{cameras}}

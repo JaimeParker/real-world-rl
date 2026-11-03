@@ -33,6 +33,7 @@ from real_world_rl.action_contract import (
     gripper_slice,
 )
 from real_world_rl.envs.bimanual.config import BimanualRealRobotEnvConfig
+from real_world_rl.tasks import build_task
 from real_world_rl.envs.real_robot.env import RealRobotEnv, RealRobotVectorEnv
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,7 +67,8 @@ class BimanualRealRobotEnv(gym.Env):
             arm: RealRobotEnv(config.arm_env_config(arm), robot=robots.get(arm))
             for arm in config.arm_names
         }
-        self.task_description: str = ""
+        self.task_runtime = build_task(config.task, config.arm_names)
+        self.task_description: str = "" if config.task.name == "none" else config.task.name
         self.render_mode = "rgb_array"
 
         state_space = spaces.Dict(
@@ -83,7 +85,9 @@ class BimanualRealRobotEnv(gym.Env):
                 for cam, space in env.observation_space["frames"].spaces.items()
             ]
         )
-        self.observation_space = spaces.Dict([("state", state_space), ("frames", frame_space)])
+        depth_space = spaces.Dict([(cam, space) for env in self.arms.values()
+                                  for cam, space in env.observation_space.spaces.get("depth_frames", spaces.Dict()).spaces.items()])
+        self.observation_space = spaces.Dict([("state", state_space), ("frames", frame_space)] + ([("depth_frames", depth_space)] if depth_space.spaces else []))
         contract = self.action_contract
         self.action_space = spaces.Box(-1.0, 1.0, shape=(action_dim_of(contract),), dtype=np.float32)
         self._arm_blocks = dict(zip(config.arm_names, arm_block_slices(contract)))
@@ -117,7 +121,10 @@ class BimanualRealRobotEnv(gym.Env):
 
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
         super().reset(seed=seed)
-        results = self._on_every_arm(lambda arm, env: env.reset(seed=seed, options=options))
+        if self.config.task.name != "none":
+            results = self.task_runtime.reset(self, self.np_random)
+        else:
+            results = self._on_every_arm(lambda arm, env: env.reset(seed=seed, options=options))
         self._elapsed_steps = 0
         obs = self._merge_observations({arm: obs for arm, (obs, _) in results.items()})
         return obs, self._merge_infos({arm: info for arm, (_, info) in results.items()})
@@ -128,6 +135,8 @@ class BimanualRealRobotEnv(gym.Env):
         action = np.asarray(action, dtype=np.float64).reshape(-1)
         if action.shape != self.action_space.shape:
             raise ValueError(f"expected action shape {self.action_space.shape}, got {action.shape}")
+        if not np.isfinite(action).all():
+            raise ValueError("action must contain finite numbers")
         arm_actions = self.split_action(action)
         results = self._on_every_arm(lambda arm, env: env.step(arm_actions[arm]))
 
@@ -135,6 +144,8 @@ class BimanualRealRobotEnv(gym.Env):
         obs = self._merge_observations({arm: result[0] for arm, result in results.items()})
         arm_infos = {arm: result[4] for arm, result in results.items()}
         info = self._merge_infos(arm_infos)
+        info["task_tcp_positions"] = {arm: result[4]["task_tcp_positions"]["arm"]
+                                      for arm, result in results.items() if result[4].get("task_tcp_positions")}
         rtts = [arm_info["rtt_ms"] for arm_info in arm_infos.values() if arm_info.get("rtt_ms") is not None]
         # The slower arm bounds the step's round trip.
         info["rtt_ms"] = max(rtts) if rtts else None
@@ -160,7 +171,9 @@ class BimanualRealRobotEnv(gym.Env):
             for field, value in obs["state"].items()
         }
         frames = {cam: frame for obs in arm_observations.values() for cam, frame in obs["frames"].items()}
+        depths = {cam: value for obs in arm_observations.values() for cam, value in obs.get("depth_frames", {}).items()}
         self._last_obs = {"state": state, "frames": frames}
+        if depths: self._last_obs["depth_frames"] = depths
         return self._last_obs
 
     @staticmethod
@@ -213,6 +226,18 @@ class BimanualRealRobotEnv(gym.Env):
         return next(iter(self.arms.values())).arm_action_dim
 
     @property
+    def runtime_control(self):
+        return {name: env._control_metadata for name, env in self.arms.items()}
+
+    @property
+    def requested_experiment(self):
+        import dataclasses
+        return {"task": dataclasses.asdict(self.config.task),
+                "arm_names": self.config.arm_names, "max_episode_steps": self.config.max_episode_steps,
+                "reset_settle_s": self.config.reset_settle_s,
+                "arms": {name: env.requested_experiment for name, env in self.arms.items()}}
+
+    @property
     def action_contract(self) -> dict:
         """The shared contract with ``num_arms=2``. ``joint_limits`` is per arm, in arm order
         (``(num_arms, num_joints, 2)``), or None when no arm sets them."""
@@ -222,6 +247,7 @@ class BimanualRealRobotEnv(gym.Env):
             None if shared.joint_limits is None else [config.joint_limits for config in arm_configs]
         )
         return {
+            "experiment": self.requested_experiment,
             "action_mode": shared.action_mode,
             "gripper_in_action": shared.gripper_in_action,
             "arm_action_dim": self.arm_action_dim,
@@ -251,6 +277,7 @@ class BimanualRealRobotVectorEnv(RealRobotVectorEnv):
         entries: list[tuple[str, spaces.Space]] = [
             (f"rgb_{cam}", space) for cam, space in env.observation_space["frames"].spaces.items()
         ]
+        entries.extend((f"depth_{cam}", space) for cam, space in env.observation_space.spaces.get("depth_frames", spaces.Dict()).spaces.items())
         if include_state:
             state_dim = sum(space.shape[0] for space in env.observation_space["state"].spaces.values())
             entries.append(("state", spaces.Box(-np.inf, np.inf, shape=(state_dim,), dtype=np.float32)))
@@ -265,6 +292,8 @@ class BimanualRealRobotVectorEnv(RealRobotVectorEnv):
             f"rgb_{cam}": torch.from_numpy(np.require(obs["frames"][cam], requirements=["C", "W"])).unsqueeze(0)
             for cam in self.env.observation_space["frames"].spaces
         }
+        out.update({f"depth_{cam}": torch.from_numpy(np.ascontiguousarray(value)).unsqueeze(0)
+                    for cam, value in obs.get("depth_frames", {}).items()})
         if self.include_state:
             state = np.concatenate([obs["state"][key] for key in self.env.observation_space["state"].spaces])
             out["state"] = torch.from_numpy(state.astype(np.float32, copy=False)).unsqueeze(0)

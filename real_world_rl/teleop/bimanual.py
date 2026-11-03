@@ -296,11 +296,17 @@ class BimanualTeleopSource(ToggleableTeleopSource):
             for event, fired in reading.events.items():
                 if fired:
                     events[f"{arm}_{event}"] = True
+                    events[f"{arm}.{event}"] = True
                     events[event] = True
         parts = arm_blocks + ([np.asarray(grippers, dtype=np.float64)] if self.has_gripper else [])
         return TeleopReading(
             action=np.concatenate(parts).astype(np.float32),
             intervened=bool(intervened),
+            human_action_mask=np.concatenate([
+                *[np.full(self._arm_action_dim, bool(intervened and active)) if reading.human_action_mask is None else np.asarray(reading.human_action_mask)[:self._arm_action_dim] & bool(intervened and active) for reading, active in zip(readings, arm_intervened)],
+                *([np.asarray([bool(intervened and active and self._children_have_gripper and (reading.human_action_mask is None or reading.human_action_mask[-1])) for reading, active in zip(readings, arm_intervened)])] if self.has_gripper else []),
+            ]),
+            override_mask=np.full(self.num_arms * (self._arm_action_dim + int(self.has_gripper)), bool(intervened)),
             episode_end=any(bool(reading.episode_end) for reading in readings),
             events=events,
             timestamp=max(float(reading.timestamp) for reading in readings),

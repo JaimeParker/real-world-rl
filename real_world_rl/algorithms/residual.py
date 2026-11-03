@@ -176,10 +176,10 @@ class ResidualMixin:
         human = data.actions[..., :residual_dim]
         base = data.base_actions[..., :residual_dim]
         target_unit = ((human - base) / safe_scale).clamp(-1.0, 1.0)
-        per_row = ((unit - target_unit).pow(2) * active).sum(dim=-1)
-        mask = data.intervened.reshape(-1).to(per_row.dtype)
-        loss = (per_row * mask).sum() / mask.sum().clamp_min(1.0)
-        return loss, mask.mean()
+        from real_world_rl.algorithms.masked_imitation import human_mask, masked_sum_mean
+        mask = human_mask(data, residual_dim) & active
+        loss = masked_sum_mean((unit - target_unit).pow(2), mask, reference_width=active.sum())
+        return loss, mask.any(-1).float().mean()
 
     def _actor_loss_from_batch(self, data) -> tuple[torch.Tensor, torch.Tensor]:
         alpha = self._current_alpha().detach()

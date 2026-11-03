@@ -124,7 +124,7 @@ def _restore_real_world_bc_agent(path: str, env: _SpacesOnlyEnv) -> Any:
     import json
 
     from rl_garden.common.checkpoint import load_checkpoint_file
-    from rl_garden.training.offline.entrypoints.bc import build_bc
+    from real_world_rl.training.entrypoints.bc import build_real_world_bc
     from real_world_rl.deploy import _apply_mapping
     from real_world_rl.training.registry import registry
 
@@ -140,7 +140,7 @@ def _restore_real_world_bc_agent(path: str, env: _SpacesOnlyEnv) -> Any:
     if isinstance(hyperparameters, Mapping):
         _apply_mapping(training_args, hyperparameters)
     _apply_mapping(training_args, _INFERENCE_ONLY_ARGS)
-    return build_bc(training_args, env, None, eval_env=None)
+    return build_real_world_bc(training_args, env, None, logger=None, checkpoint_dir=None)
 
 
 def _restore_online_agent(path: str, algo: str, env: _SpacesOnlyEnv, **builder_kwargs: Any) -> Any:
@@ -202,7 +202,8 @@ class CheckpointBaseProvider:
         else:
             builder_kwargs = {} if self.num_grippers == 1 else {"num_grippers": self.num_grippers}
             agent = _restore_online_agent(self.path, algo, env, **builder_kwargs)
-        agent.load(self.path, load_replay_buffer=False, load_optimizers=False)
+        from real_world_rl.checkpoint_contract import load_with_action_contract
+        load_with_action_contract(agent, self.path, load_replay_buffer=False, load_optimizers=False)
         self._policy = agent.policy.to(self.device).eval()
 
     @torch.no_grad()

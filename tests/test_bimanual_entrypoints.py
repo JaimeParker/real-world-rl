@@ -339,3 +339,8 @@ def test_the_training_cli_reaches_the_two_arm_backend_and_teleop_flags():
     kwargs = env_building.teleop_wrapper_kwargs(args)
     assert kwargs["device"] == "bimanual" and kwargs["device_per_arm"] == "leader_arm"
     assert kwargs["common_kwargs"]["teleop_contract"] == ("joint_abs", NUM_JOINTS, True)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_actor_outbox_directory(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)

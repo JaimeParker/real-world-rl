@@ -57,6 +57,7 @@ from rl_garden.observations import (
     normalize_observation_space,
     resolve_obs_groups,
 )
+from real_world_rl.algorithms.masked_imitation import human_mask, masked_sum_mean, marginal_gripper_ce
 from real_world_rl.buffers.intervention_replay_buffer import (
     InterventionReplayBuffer,
 )
@@ -101,7 +102,7 @@ class SiLRI(DemoInterventionMixin, DDPG):
     # The actor has its own encoder, trained by the actor loss (as in the reference).
     encoder_sharing: EncoderSharing = "separate"
     _compatible_checkpoint_algorithms = ("SiLRI",)
-    _extra_batch_slice_keys = ("intervened", "policy_actions", "intervention_onset")
+    _extra_batch_slice_keys = ("intervened", "policy_actions", "human_action_mask", "override_mask", "intervention_onset")
     # DDPG/OffPolicyAlgorithm hyperparameters SiLRI fixes and never reads.
     _UNUSED_PARENT_HYPERPARAMETERS = (
         "policy_lr",
@@ -409,14 +410,14 @@ class SiLRI(DemoInterventionMixin, DDPG):
 
     def _gripper_cross_entropy(self, logits: torch.Tensor, data) -> torch.Tensor:
         labels = _discrete_labels_from_actions(data.actions, self.num_grippers)
-        return _masked_mean(F.cross_entropy(logits, labels, reduction="none"), data.intervened)
+        return marginal_gripper_ce(logits, labels, human_mask(data)[..., -self.num_grippers:], self.num_grippers)
 
     def _behavior_nll(self, data) -> tuple[torch.Tensor, torch.Tensor]:
         """``-log N(a_cont; mu_b, diag(sigma_b^2))`` averaged over intervened rows, and
         the detached mean ``sum_j sigma_b,j``."""
         mean, std = self.policy.behavior(data.obs)
-        log_prob = Normal(mean, std).log_prob(self.policy.continuous_actions(data.actions)).sum(-1)
-        return _masked_mean(-log_prob, data.intervened), std.detach().sum(dim=-1).mean()
+        log_prob = Normal(mean, std).log_prob(self.policy.continuous_actions(data.actions))
+        return masked_sum_mean(-log_prob, human_mask(data, mean.shape[-1])), std.detach().sum(dim=-1).mean()
 
     def _actor_bc_nll(self, actor_features: torch.Tensor, data) -> torch.Tensor:
         """``-log N(a_cont; mu_pi, actor_noise_std^2 I)`` averaged over intervened rows."""
@@ -424,9 +425,8 @@ class SiLRI(DemoInterventionMixin, DDPG):
         log_prob = (
             Normal(mean, self.actor_noise_std)
             .log_prob(self.policy.continuous_actions(data.actions))
-            .sum(-1)
         )
-        return _masked_mean(-log_prob, data.intervened)
+        return masked_sum_mean(-log_prob, human_mask(data, mean.shape[-1]))
 
     # ------------------------------------------------------------------
     # Updates
@@ -463,7 +463,13 @@ class SiLRI(DemoInterventionMixin, DDPG):
         actor_objective = (
             terms.actor_loss if terms.gripper_loss is None else terms.actor_loss + terms.gripper_loss
         )
-        self._apply_gradients(actor_objective, self._actor_optimizers(), self._actor_params)
+        # A zero gripper loss must not advance Adam's accumulated momentum.
+        optimizers = (self.actor_optimizer,)
+        if self.discrete_optimizer is not None and human_mask(data)[..., -self.num_grippers:].any():
+            optimizers += (self.discrete_optimizer,)
+        elif self.discrete_optimizer is not None:
+            self.discrete_optimizer.zero_grad(set_to_none=True)
+        self._apply_gradients(actor_objective, optimizers, self._actor_params)
         lambda_loss = self._lambda_loss(terms.multiplier, terms.distance, terms.sigma_sum)
         self._apply_gradients(lambda_loss, (self.lambda_optimizer,), self._lambda_params)
         info = {
@@ -526,7 +532,10 @@ class SiLRI(DemoInterventionMixin, DDPG):
 
     def _behavior_step(self, data) -> tuple[torch.Tensor, torch.Tensor]:
         nll, sigma_sum = self._behavior_nll(data)
-        self._apply_gradients(nll, (self.behavior_optimizer,), self._behavior_params)
+        if human_mask(data, self.policy.continuous_actions(data.actions).shape[-1]).any():
+            self._apply_gradients(nll, (self.behavior_optimizer,), self._behavior_params)
+        else:
+            self.behavior_optimizer.zero_grad(set_to_none=True)
         return nll.detach(), sigma_sum
 
     def pretrain(self, steps: Optional[int] = None) -> dict[str, float]:
@@ -550,7 +559,18 @@ class SiLRI(DemoInterventionMixin, DDPG):
                 )
                 bc_objective = bc_objective + gripper_loss
                 logged.setdefault("discrete/ce", []).append(gripper_loss.detach())
-            self._apply_gradients(bc_objective, self._actor_optimizers(), self._actor_params)
+            optimizers = ()
+            if human_mask(data).any():
+                optimizers = (self.actor_optimizer,)
+            else:
+                self.actor_optimizer.zero_grad(set_to_none=True)
+            if self.discrete_optimizer is not None:
+                if human_mask(data)[..., -self.num_grippers:].any():
+                    optimizers += (self.discrete_optimizer,)
+                else:
+                    self.discrete_optimizer.zero_grad(set_to_none=True)
+            if optimizers:
+                self._apply_gradients(bc_objective, optimizers, self._actor_params)
             logged.setdefault("behavior/nll", []).append(nll)
             logged.setdefault("behavior/sigma_sum", []).append(sigma_sum)
             logged.setdefault("actor/bc_nll", []).append(bc_nll.detach())

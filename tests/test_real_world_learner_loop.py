@@ -14,10 +14,18 @@ from __future__ import annotations
 import threading
 import time
 
+import pytest
 import torch
 
 from real_world_rl.loops.learner import LearnerLoop
 from real_world_rl.loops.sync import ActorSyncClient
+
+
+@pytest.fixture(autouse=True)
+def fake_bundle_writer(monkeypatch):
+    # These tests isolate cadence against a minimal agent double. Actual replay
+    # persistence is covered using a real algorithm in test_p0_lifecycle.py.
+    monkeypatch.setattr("real_world_rl.loops.learner.save_bundle", lambda *args: None)
 
 
 class _FakeReplayBuffer:
@@ -347,6 +355,10 @@ def test_update_metrics_are_logged_once_per_log_freq_boundary_of_received_transi
         "learner/update",
         "learner/buffer_size",
         "learner/train_time_s",
+        "learner/journal_backlog", "learner/journal_backlog_bytes",
+        "learner/admitted_records", "learner/receive_records_per_s",
+        "learner/train_updates_per_s", "learner/ingestion_lag_s",
+        "learner/ingest_transitions_per_s", "learner/duplicate_records",
     }
     assert [step for tag, _, step in logger.scalars if tag == "learner/train_time_s"] == [3, 6]
 

@@ -165,3 +165,17 @@ def test_residual_policy_with_base_feeds_the_provider_action_and_resets_it():
     composed.reset_episode()
     assert provider.reset_calls == 1
     assert composed.state_dict().keys() == policy.state_dict().keys()
+
+
+def test_checkpoint_provider_rejects_checkpoint_action_bounds_override(tmp_path):
+    from real_world_rl.training.entrypoints.bc import RealWorldBCArgs
+    from rl_garden.training.offline.entrypoints.bc import build_bc
+    observation_space, action_space = _spaces()
+    args = RealWorldBCArgs(buffer_size=8, buffer_device="cpu", device="cpu")
+    saved = build_bc(args, _SpacesOnlyEnv(observation_space, action_space), None, eval_env=None)
+    with torch.no_grad():
+        saved.policy.actor.action_scale.mul_(0.5)
+    path = tmp_path / "run" / "checkpoints" / "final.pt"
+    saved.save(path)
+    with pytest.raises(ValueError, match="action"):
+        _make(f"checkpoint:{path}?algo=real_world_bc")

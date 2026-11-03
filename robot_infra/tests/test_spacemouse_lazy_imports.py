@@ -19,8 +19,11 @@ def test_module_imports_without_pyspacemouse_installed():
     assert hasattr(m, "SpaceMouseTeleOpWrapper")
 
 
-def test_spacemouse_expert_raises_actionable_error_without_pyspacemouse():
+def test_spacemouse_expert_raises_actionable_error_without_pyspacemouse(monkeypatch):
     from robot_infra.teleop.spacemouse import SpaceMouseExpert
 
+    # Simulate the missing optional dependency even on development machines
+    # with HID support installed; the test must never enumerate real devices.
+    monkeypatch.setitem(sys.modules, "pyspacemouse", None)
     with pytest.raises(ModuleNotFoundError, match="pyspacemouse"):
         SpaceMouseExpert()

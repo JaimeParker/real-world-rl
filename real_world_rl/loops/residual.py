@@ -97,7 +97,7 @@ class ResidualActorLoop(HilSerlActorLoop):
             base_actions = self._base_action(obs)
         self._next_base_actions = None
         with torch.no_grad():
-            if self.params_version == 0:
+            if not self.policy_ready:
                 unit = self.warmup_unit_residual * (
                     2.0 * torch.rand(base_actions.shape[0], self.policy.residual_dim, device=self.device) - 1.0
                 )
@@ -182,7 +182,7 @@ class ResidualLearnerLoop(HilSerlLearnerLoop):
         extra = {
             key: value
             for key, value in transition.items()
-            if key not in _TRANSITION_TENSOR_KEYS and key != "actor_id"
+            if key in ("intervened", "policy_action", "base_actions", "next_base_actions", "intervention_onset", "grasp_penalty", "human_action_mask", "override_mask", "episode_end")
         }
         return core, extra
 
@@ -217,6 +217,11 @@ class ResidualLearnerLoop(HilSerlLearnerLoop):
                     extra[key] = torch.zeros_like(action)
             extra.setdefault("intervened", True)
             extra.setdefault("policy_action", action)
-            adder(obs, next_obs, action, reward, done, **extra)
+            # This adapter accepts **extra, but its actual replay target has a
+            # strict add contract. Canonical demo rows also project episode_end,
+            # which ordinary residual replay does not store.
+            from real_world_rl.training.demo_loading import training_extras
+            projected = training_extras(extra, self.agent.offline_replay_buffer.add)
+            adder(obs, next_obs, action, reward, done, **projected)
 
         return add

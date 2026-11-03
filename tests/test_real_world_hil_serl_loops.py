@@ -252,7 +252,7 @@ def test_hil_serl_learner_loop_learner_scalars_count_demo_rows_and_intervened_tr
     loop._on_transition(_transition(intervened=True))
     loop._on_transition(_transition(intervened=True))
 
-    assert loop._learner_scalars() == {
+    assert {key: loop._learner_scalars()[key] for key in ("received", "update", "buffer_size", "demo_buffer_size", "intervened_received")} == {
         "received": 3,
         "update": 0,
         "buffer_size": 3,
@@ -328,6 +328,14 @@ class _StatsSyncClient:
         return {"weights": torch.zeros(1)}
 
 
+def expected_keys(stats, timing_keys):
+    outcome_keys = {"success_rate", "autonomous_success_rate", "task_success_rate",
+                    "episode_intervention_rate", "step_intervention_rate", "completed_episodes",
+                    "unknown_episodes", "interrupted_episodes", "discarded_episodes", "tcp_proxy_success_rate",
+                    "task_success", "outcome_source", "end_reason"}
+    return stats.keys() - timing_keys - outcome_keys
+
+
 def test_hil_serl_actor_loop_posts_episode_statistics_at_every_episode_end():
     script = [
         # Episode 1: takeovers on steps 2-3 and 5, success on step 5.
@@ -355,14 +363,14 @@ def test_hil_serl_actor_loop_posts_episode_statistics_at_every_episode_end():
         "param_refresh_ms_mean",
         "param_refresh_ms_max",
     }
-    assert {key: first[key] for key in first if key not in timing_keys} == {
+    assert {key: first[key] for key in expected_keys(first, timing_keys)} == {
         "episode": 1,
         "return": 5.0,
         "length": 5,
         "intervened_steps": 3,
         "intervention_count": 2,
         "intervention_rate": 0.6,
-        "success": 1.0,
+        "terminated": 1.0,
         "human_episode_end": 0.0,
         "safety_clips": 1,
         "safety_clips_total": 4,
@@ -370,20 +378,25 @@ def test_hil_serl_actor_loop_posts_episode_statistics_at_every_episode_end():
         "rtt_ms_max": 50.0,
         "dropped_transitions": 4,
     }
-    assert {key: second[key] for key in second if key not in timing_keys} == {
+    assert {key: second[key] for key in expected_keys(second, timing_keys)} == {
         "episode": 2,
         "return": 2.0,
         "length": 2,
         "intervened_steps": 0,
         "intervention_count": 0,
         "intervention_rate": 0.0,
-        "success": 0.0,
+        "terminated": 0.0,
         "human_episode_end": 1.0,
         # Measured from the last reading of episode 1.
         "safety_clips": 2,
         "safety_clips_total": 6,
         "dropped_transitions": 4,
     }
+    assert first["task_success"] is None  # Termination alone is not a task label.
+    assert first["autonomous_success_rate"] == 0
+    assert first["tcp_proxy_success_rate"] == 0
+    assert first["episode_intervention_rate"] == 1
+    assert second["unknown_episodes"] == 2
     for stats in (first, second):
         assert timing_keys <= set(stats)
         assert 0.0 <= stats["param_refresh_ms_max"] <= stats["step_time_ms_max"]

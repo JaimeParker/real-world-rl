@@ -121,6 +121,8 @@ class CompositeTeleopSource(TeleopSource):
             episode_end=bool(motion_reading.episode_end or event_reading.episode_end),
             events={**dict(event_reading.events), **dict(motion_reading.events)},
             timestamp=motion_reading.timestamp,
+            human_action_mask=None if motion_reading.human_action_mask is None else motion_reading.human_action_mask & bool(intervened),
+            override_mask=None if motion_reading.override_mask is None else motion_reading.override_mask & bool(intervened),
         )
 
     def reset(self) -> None:

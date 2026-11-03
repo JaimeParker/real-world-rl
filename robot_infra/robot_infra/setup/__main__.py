@@ -94,6 +94,8 @@ def build_parser() -> argparse.ArgumentParser:
                            help=f"per arm: servo step cap of the TCP position, m (default {DEFAULT_MAX_DELTA_XYZ_M})")
     questions.add_argument("--max-delta-joint-rad", nargs="+", default=None,
                            help=f"per arm: servo step cap per joint, rad (default {DEFAULT_MAX_DELTA_JOINT_RAD})")
+    questions.add_argument("--control", nargs="+", default=None,
+                           help="optional per-arm impedance JSON/YAML mapping; null clears the profile; omitted preserves --from")
     questions.add_argument("--cameras", nargs="+", default=None, help="per arm: SERIAL[=NAME],... or none")
     questions.add_argument("--teleop", nargs="+", default=None, help=" | ".join(TELEOP_CHOICES))
     questions.add_argument("--gello-port", nargs="+", default=None)
@@ -118,6 +120,7 @@ def answers_from_args(args: argparse.Namespace, previous: StationDraft | None) -
         home_joints=args.home_joints,
         joint_limits=args.joint_limits,
         safety_boxes=args.safety_box,
+        controls=args.control,
         max_delta_xyz_m=args.max_delta_xyz_m,
         max_delta_joint_rad=args.max_delta_joint_rad,
         cameras=args.cameras,

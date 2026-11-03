@@ -146,6 +146,64 @@ def test_the_real_robot_collector_takes_no_camera_capture():
 # -- collection ----------------------------------------------------------------------------
 
 
+def test_collection_seed_advances_between_episodes(tmp_path, monkeypatch):
+    class RandomResetEnv(CameraEnv):
+        def __init__(self):
+            super().__init__()
+            self.seeds, self.samples = [], []
+
+        def reset(self, *, seed=None, **kwargs):
+            self.seeds.append(seed)
+            if seed is not None:
+                self.rng = np.random.default_rng(seed)
+            self.samples.append(self.rng.uniform(-0.05, 0.05, size=3))
+            return super().reset(seed=seed, **kwargs)
+
+    runs = []
+    for run in range(2):
+        env = RandomResetEnv()
+        wrapped = _wrapped(env, [_reading(episode_end=True),
+                                 _reading("success", episode_end=True), _reading("success")])
+        monkeypatch.setattr(env_building, "build_hil_env", lambda args, **kwargs: wrapped)
+        run_real_robot_collector(_args(tmp_path / str(run), successes_needed=2, seed=19))
+        assert env.seeds == [19, None, None]
+        assert not np.array_equal(env.samples[0], env.samples[1])
+        assert not np.array_equal(env.samples[1], env.samples[2])
+        runs.append(np.array(env.samples))
+    np.testing.assert_array_equal(runs[0], runs[1])
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_collection_cleanup_closes_before_save_and_preserves_rollout_error(tmp_path, monkeypatch, interrupted):
+    env = CameraEnv()
+    events = []
+    rollout_error = KeyboardInterrupt("collection interrupted")
+    close_error = RuntimeError("close failed")
+
+    def collect(env, args, *, frames, **kwargs):
+        frames.successes.append({"obs": {}})
+        if interrupted:
+            raise rollout_error
+
+    def close():
+        events.append("close")
+        raise close_error
+
+    def save(*args):
+        events.append("save")
+        raise ValueError("save failed")
+
+    monkeypatch.setattr(env_building, "build_hil_env", lambda args, **kwargs: env)
+    monkeypatch.setattr(collect_real_robot, "collect_classifier_frames", collect)
+    monkeypatch.setattr("real_world_rl.demos.record.hold_action_fn_for", lambda env: None)
+    monkeypatch.setattr(env, "close", close)
+    monkeypatch.setattr(collect_data, "save_classifier_data", save)
+    with pytest.raises(BaseException) as caught:
+        run_real_robot_collector(_args(tmp_path))
+    assert caught.value is (rollout_error if interrupted else close_error)
+    assert events == ["close", "save"]
+
+
 def test_frames_are_labelled_by_the_success_and_failure_events(tmp_path, monkeypatch):
     env = CameraEnv()
     readings = [

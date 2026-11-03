@@ -30,9 +30,11 @@ FAILURE_EVENT = "failure"
 class TeleopEventRewardWrapper(gym.Wrapper):
     """Success/failure events to reward and episode end; see the module docstring."""
 
-    def __init__(self, env: gym.Env, success_reward: float = 1.0) -> None:
+    def __init__(self, env: gym.Env, success_reward: float = 1.0, *, terminate_on_success: bool = True, terminate_on_failure: bool = True) -> None:
         super().__init__(env)
         self.success_reward = float(success_reward)
+        self.terminate_on_success = terminate_on_success
+        self.terminate_on_failure = terminate_on_failure
 
     def __getattr__(self, name: str):
         # Transparent to code that reads backend attributes (num_envs, single_observation_space,
@@ -41,12 +43,22 @@ class TeleopEventRewardWrapper(gym.Wrapper):
 
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
+        original_reward = reward
+        info = dict(info)
         events = info.get("teleop_events") or {}
         if events.get(FAILURE_EVENT, False):
-            truncated = _set(truncated)
+            info["task_success_source"] = "manual"
+            info["task_success"] = False
+            info["manual_failure"] = True
+            if self.terminate_on_failure:
+                truncated = _set(truncated)
         elif events.get(SUCCESS_EVENT, False):
+            info["task_success_source"] = "manual"
+            info["task_success"] = True
             reward = _at_least(reward, self.success_reward)
-            terminated = _set(terminated)
+            if self.terminate_on_success:
+                terminated = _set(terminated)
+        info["manual_reward_adjustment"] = reward - original_reward
         return obs, reward, terminated, truncated, info
 
 

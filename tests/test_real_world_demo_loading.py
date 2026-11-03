@@ -58,3 +58,14 @@ def test_hil_serl_add_transition_wraps_legacy_flat_obs():
     obs, next_obs = received[0][:2]
     assert torch.equal(obs["state"], transition["obs"])
     assert torch.equal(next_obs["state"], transition["next_obs"])
+
+
+def test_loader_deduplicates_globs_and_projects_explicit_termination(tmp_path):
+    row = _transition(torch.zeros(1, 4), torch.ones(1, 4))
+    row.update(done=torch.ones(1, dtype=torch.bool), terminated=False, truncated=True)
+    path = tmp_path / "one.pkl"
+    path.write_bytes(pickle.dumps([row]))
+    received = []
+    assert load_demo_pkls([str(path), str(tmp_path / "*.pkl")],
+                          lambda *args, **kwargs: received.append(args), "cpu") == 1
+    assert not received[0][4]

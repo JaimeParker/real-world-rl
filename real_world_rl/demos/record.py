@@ -11,7 +11,7 @@ the pkl. See ``docs/recording-demos.md``.
 Episode outcome, read from the intervention wrapper's info keys so any event path works:
 
 - the episode ends on ``terminated`` or ``truncated`` (an operator episode-end press truncates);
-- it counts as a success when a ``success`` event fired or a reward was positive (a reward
+- it counts as a success when an explicit success outcome or ``success`` event is reported (a reward
   classifier), and no ``failure`` event fired;
 - a ``rerecord`` event discards the episode at once and starts the next one;
 - only successful episodes with at least one recorded transition are kept.
@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import dataclasses
 import pickle
+import uuid
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -43,9 +44,12 @@ from real_world_rl.action_contract import (
     num_arms_of,
     num_grippers_of,
     write_contract_sidecar,
+    validate_transitions_against_contract,
+    experiment_hash,
 )
 from real_world_rl.envs.wrappers.intervention import InterventionWrapper
 from real_world_rl.loops.actor import ActorLoop
+from real_world_rl.teleop.hold import hold_action_fn_for, follower_joint_pos, _arm_envs_of
 from real_world_rl.teleop.base import TeleopReading, TeleopSource
 from real_world_rl.teleop.bimanual import (
     find_bimanual_env,
@@ -109,6 +113,7 @@ class RecordDemosArgs(HilEnvArgs, RealWorldFrankaArgs, EnvRunArgs, ObservationAr
     # existing file is never overwritten.
     output_path: Optional[str] = None
     # Stop after this many kept (successful) episodes.
+    export_trajectory_pt: bool = False
     num_successes: int = 20
     # Episode step cap for the env: replaces --real-robot.max-episode-steps,
     # --real-robot-bimanual.max-episode-steps or --franka-real.max-episode-steps when set.
@@ -144,73 +149,6 @@ class LeaderFollowerGapError(RuntimeError):
 # -- hold action -------------------------------------------------------------------------
 
 
-def hold_action_fn_for(env: Any) -> HoldActionFn:
-    """The action that keeps ``env``'s robot still, by the env's action contract: a zero arm
-    action for ``joint_delta`` and ``cartesian_delta``, the follower's current ``joint_pos``
-    normalised onto ``joint_limits`` for ``joint_abs`` (per arm, from each arm's own follower,
-    on a two-arm env). The gripper dimensions, when the env has them (the last ``num_arms``
-    dims), are the given gripper actions (the last ones executed, one per arm), since a fixed
-    value would open or close the grippers."""
-    contract = get_env_action_contract(env) or LEGACY_ACTION_CONTRACT
-    num_arms = num_arms_of(contract)
-    arm_dim = int(contract["arm_action_dim"])
-    num_grippers = num_grippers_of(contract)
-
-    if contract["action_mode"] == "joint_abs":
-        if contract.get("joint_limits") is None:
-            raise ValueError("a joint_abs env needs joint_limits in its action contract to hold the arm")
-        if num_arms == 1:
-            low, high = np.asarray(contract["joint_limits"], dtype=np.float64).T
-
-            def arm_action() -> np.ndarray:
-                return np.clip(2.0 * (follower_joint_pos(env) - low) / (high - low) - 1.0, -1.0, 1.0)
-
-        else:
-            arm_envs = _arm_envs_of(env, contract)
-            per_arm_limits = np.asarray(contract["joint_limits"], dtype=np.float64)
-
-            def arm_action() -> np.ndarray:
-                return np.concatenate(
-                    [
-                        normalized_joint_target(follower_joint_pos(arm_env), limits)
-                        for arm_env, limits in zip(arm_envs, per_arm_limits)
-                    ]
-                )
-
-    else:
-
-        def arm_action() -> np.ndarray:
-            return np.zeros(num_arms * arm_dim)
-
-    def hold(gripper_actions: Any) -> torch.Tensor:
-        parts = [arm_action()]
-        if num_grippers:
-            held = np.asarray(gripper_actions, dtype=np.float64).reshape(-1)
-            parts.append(np.broadcast_to(held, (num_grippers,)))
-        return torch.as_tensor(np.concatenate(parts), dtype=torch.float32)
-
-    return hold
-
-
-def follower_joint_pos(env: Any) -> np.ndarray:
-    """``state["joint_pos"]`` of the latest raw observation of the ``RealRobotEnv`` behind ``env``."""
-    owner = _find_last_observation_owner(env)
-    if owner is None:
-        raise ValueError(
-            "reading the follower joints needs a real_robot env (RealRobotEnv.last_observation)"
-        )
-    observation = owner.last_observation
-    if observation is None:
-        raise RuntimeError("the follower joints are read before the env was reset")
-    state = observation["state"]
-    if "joint_pos" not in state:
-        raise ValueError(
-            "the follower joints are read from the observation's joint_pos; add joint_pos to "
-            "--real-robot.state-fields"
-        )
-    return np.asarray(state["joint_pos"], dtype=np.float64)
-
-
 def gripper_actions_after_reset(num_grippers: int) -> Any:
     """The gripper action(s) to hold right after a reset (open): a number for one gripper, one
     entry per gripper otherwise (see ``HoldActionFn``)."""
@@ -222,17 +160,6 @@ def executed_gripper_actions(executed: Any, num_grippers: int) -> Any:
     dims, clipped as the env clips them), in the form ``gripper_actions_after_reset`` returns."""
     grippers = torch.as_tensor(executed).reshape(-1)[-num_grippers:].clamp(-1.0, 1.0).tolist()
     return grippers[0] if num_grippers == 1 else grippers
-
-
-def _arm_envs_of(env: Any, contract: Mapping[str, Any]) -> list:
-    """Each arm's ``RealRobotEnv`` of the two-arm env behind ``env``, in ``arm_names`` order."""
-    bimanual = find_bimanual_env(env)
-    if bimanual is None:
-        raise ValueError(
-            f"reading each arm's follower joints (num_arms={num_arms_of(contract)}) needs a "
-            "real_robot_bimanual env (BimanualRealRobotEnv) behind the wrapper chain"
-        )
-    return [bimanual.arms[arm] for arm in contract["arm_names"]]
 
 
 # -- episode-start sync ------------------------------------------------------------------
@@ -325,11 +252,16 @@ def record_demos(
     num_grippers = num_grippers_of(contract)
     control_period_s = 1.0 / args.control_hz
 
+    from real_world_rl.trajectory import DurableArchive
+    if getattr(env, "_record_archive", None) is None:
+        import tempfile
+        archive_path = Path(args.output_path).with_suffix(".trajectory.sqlite3") if args.output_path else Path(tempfile.mkdtemp(prefix="rl-record-")) / "trajectory.sqlite3"
+        env._record_archive = DurableArchive(archive_path, run_id=args.run_id, actor_id=args.actor_id, experiment_hash=experiment_hash(env))
     kept: list[dict] = []
     num_kept = 0
     index = 0
     while num_kept < args.num_successes:
-        obs, _ = env.reset(seed=args.seed)
+        obs, _ = env.reset(seed=args.seed if index == 0 else None)
         if contract["action_mode"] == "joint_abs":
             check_leader_near_follower(env, wrapper.source, contract, args.start_tolerance_rad)
         episode = _record_episode(
@@ -360,9 +292,20 @@ def _record_episode(
     num_grippers: int,
     control_period_s: float,
 ) -> RecordedEpisode:
+    from real_world_rl.trajectory import begin_episode, transition_record, end_episode
+    archive = getattr(env, "_record_archive", None)
+    if archive is None:
+        archive = []
+        env._record_archive = archive
+    episode_id = uuid.uuid4().hex
+    from real_world_rl.action_contract import experiment_hash
+    archive.append(begin_episode(episode_id, run_id=args.run_id or "unknown", actor_id=args.actor_id, experiment_hash=experiment_hash(env), action_contract=demo_contract_of(env)))
     transitions: list[dict] = []
     gripper_action = gripper_actions_after_reset(num_grippers)
-    success = failure = False
+    from real_world_rl.metrics import EpisodeOutcomeAccumulator
+
+    outcome_accumulator = EpisodeOutcomeAccumulator()
+    failure = False
     steps = 0
     while True:
         step_start = time.perf_counter()
@@ -373,13 +316,17 @@ def _record_episode(
         if num_grippers:
             gripper_action = executed_gripper_actions(executed, num_grippers)
         events = info.get("teleop_events") or {}
+        record = transition_record(_transition(obs, next_obs, executed, reward, terminated, info), episode_id=episode_id, step_index=steps - 1, timestamp_s=time.time(), experiment_hash=experiment_hash(env), run_id=args.run_id or "unknown", actor_id=args.actor_id, terminated=terminated, truncated=truncated, policy_action=info.get("policy_action", action), human_action_mask=info.get("human_action_mask", torch.full_like(executed, bool(info.get("intervened", False)), dtype=torch.bool)), override_mask=info.get("override_mask", torch.full_like(executed, bool(info.get("intervened", False)), dtype=torch.bool)), teleop_events=dict(events), syncing=bool(events.get(TELEOP_SYNCING_EVENT, False)), task_reward=info.get("task_reward", reward), manual_reward=info.get("manual_reward", 0.0), intervention_reward=info.get("intervention_reward", 0.0), outcome_source=info.get("task_success_source", "unknown"), reward_components=info.get("reward_components", {"task": info.get("task_reward", reward), "manual": info.get("manual_reward", 0.0), "intervention": info.get("intervention_reward", 0.0)}), task_success=info.get("task_success"))
+        archive.append(record)
+        record = archive[-1]
+        outcome_accumulator.observe(info)
         if events.get("rerecord", False):
+            archive.append(end_episode(episode_id, step_count=steps, outcome=outcome_accumulator.finish(discarded=True)))
             return RecordedEpisode(index, steps, success=False, discarded_reason="rerecord")
-        success = success or bool(events.get("success", False)) or bool((torch.as_tensor(reward) > 0).any())
         failure = failure or bool(events.get("failure", False))
         syncing = bool(events.get(TELEOP_SYNCING_EVENT, False))
         if info["intervened"] and (args.keep_syncing_steps or not syncing):
-            transitions.append(_transition(obs, next_obs, executed, reward, terminated, info))
+            transitions.append(dict(record))
         if bool(terminated) or bool(truncated):
             break
         obs = next_obs
@@ -387,6 +334,13 @@ def _record_episode(
         if remaining > 0:
             time.sleep(remaining)
 
+    for row_index, row in enumerate(transitions):
+        following = transitions[row_index + 1] if row_index + 1 < len(transitions) else None
+        if following is None or following["step_index"] != row["step_index"] + 1:
+            row["training_segment_end"] = True
+    outcome = outcome_accumulator.finish(terminated=terminated, truncated=truncated)
+    archive.append(end_episode(episode_id, step_count=steps, outcome=outcome))
+    success = outcome.task_success is True
     if failure:
         reason: Optional[str] = "failure event"
     elif not success:
@@ -412,8 +366,9 @@ def _transition(obs: Any, next_obs: Any, action: torch.Tensor, reward, terminate
         "reward": reward,
         "done": terminated,
     }
-    if "grasp_penalty" in info:
-        transition["grasp_penalty"] = info["grasp_penalty"]
+    for key in ("grasp_penalty", "human_action_mask", "override_mask", "policy_action", "intervened"):
+        if key in info:
+            transition[key] = info[key]
     return transition
 
 
@@ -539,6 +494,15 @@ def run_recorder(args: RecordDemosArgs) -> Optional[Path]:
 
         env = VideoRecorderWrapper(env, save_dir=args.record_video_dir)
 
+    from real_world_rl.trajectory import DurableArchive
+    try:
+        env._record_archive = DurableArchive(output_path.with_suffix(".trajectory.sqlite3"), run_id=args.run_id, actor_id=args.actor_id, experiment_hash=experiment_hash(env))
+        for record in env._record_archive:
+            if record["record_type"] == "episode_start":
+                validate_transitions_against_contract([], demo_contract_of(env), source=str(output_path), saved=record.get("action_contract"))
+    except BaseException:
+        env.close()
+        raise
     kept: list[dict] = []
     num_kept = 0
 
@@ -558,11 +522,40 @@ def run_recorder(args: RecordDemosArgs) -> Optional[Path]:
         record_demos(env, args, hold_action_fn=hold_action_fn_for(env), on_episode=report)
     finally:
         try:
+            archive = getattr(env, "_record_archive", [])
+            if archive:
+                from real_world_rl.trajectory import end_episode
+                if archive[-1]["record_type"] != "episode_end":
+                    episode_id = archive[-1]["episode_id"]
+                    from real_world_rl.metrics import EpisodeOutcomeAccumulator
+                    interrupted_outcome = EpisodeOutcomeAccumulator()
+                    for record in archive:
+                        if record["record_type"] == "transition" and record["episode_id"] == episode_id:
+                            interrupted_outcome.observe(record)
+                    archive.append(end_episode(episode_id, step_count=interrupted_outcome.steps,
+                                               outcome=interrupted_outcome.finish(interrupted=True), interrupted=True))
+                from real_world_rl.metrics import EpisodeMetrics, EpisodeOutcome
+                metrics = EpisodeMetrics()
+                for record in archive:
+                    if record["record_type"] == "episode_end":
+                        outcome = record.get("outcome")
+                        if outcome is not None:
+                            metrics.add(EpisodeOutcome(**outcome))
+                        elif record.get("interrupted"):
+                            metrics.add(EpisodeOutcome(None, False, record.get("step_count", 0), 0,
+                                                       completed=False, interrupted=True))
+                print(f"[record] outcomes={metrics.summary()}", flush=True)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                if args.export_trajectory_pt:
+                    torch.save({"schema_version": 1, "records": list(archive), "action_contract": demo_contract_of(env)}, output_path.with_suffix(".trajectory.pt"))
             if kept:
                 save_demos(kept, output_path, demo_contract_of(env))
                 print(f"[record] saved {num_kept} episodes ({len(kept)} transitions) to {output_path}", flush=True)
             else:
                 print("[record] no episode kept; nothing saved", flush=True)
         finally:
-            env.close()
+            try:
+                env._record_archive.close()
+            finally:
+                env.close()
     return output_path if kept else None

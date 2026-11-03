@@ -65,6 +65,8 @@ class FrankaRealEnv(gym.Env):
             bridge_client if bridge_client is not None else FrankaBridgeClient(cfg.bridge_url)
         )
         self.camera_capture = camera_capture
+        self._owns_control = False
+        self._closed = False
 
         obs_spaces: dict[str, spaces.Space] = {
             "state": spaces.Box(low=-np.inf, high=np.inf, shape=(_STATE_DIM,), dtype=np.float32),
@@ -123,6 +125,11 @@ class FrankaRealEnv(gym.Env):
 
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
         del seed, options
+        if self._closed:
+            raise RuntimeError("FrankaRealEnv is closed")
+        # A reset request can start control before its HTTP response arrives. Retain
+        # responsibility even when that request fails or times out partway through.
+        self._owns_control = True
         self.bridge.reset_joints()
         state = self.bridge.get_state()
         self._t = 0
@@ -196,6 +203,19 @@ class FrankaRealEnv(gym.Env):
             [self._t >= self.cfg.max_episode_steps], dtype=torch.bool, device=self.device
         )
         return obs, reward, terminated, truncated, {}
+
+    def close(self) -> None:
+        """Stop this env's controller after a reset; construction alone owns none.
+
+        The injected camera callable remains caller-owned. The bridge client uses
+        stateless HTTP requests and has no persistent session to release.
+        """
+        self._closed = True
+        self._last_pose = None
+        if self._owns_control:
+            self.bridge.stop_impedance()
+            # Clear only after acknowledgement, allowing a failed stop to be retried.
+            self._owns_control = False
 
 
 def make_franka_real_env(

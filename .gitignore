@@ -5,3 +5,14 @@ __pycache__/
 mutagen.yml
 mutagen.yml.lock
 local/
+
+.settings
+
+*.json
+
+.vscode/
+
+reference/
+temp/
+3rd_party/
+docs/internal/

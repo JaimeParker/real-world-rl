@@ -32,7 +32,9 @@ class InterventionSample(ReplayBufferSample):
     """A mini-batch with intervention metadata (all on the sample device)."""
 
     intervened: torch.Tensor  # (B,) bool
-    policy_actions: torch.Tensor  # (B, A) the action the policy proposed
+    human_action_mask: Optional[torch.Tensor] = None
+    override_mask: Optional[torch.Tensor] = None
+    policy_actions: torch.Tensor = None  # (B, A) the action the policy proposed
     base_actions: Optional[torch.Tensor] = None  # (B, A), when store_base_actions
     next_base_actions: Optional[torch.Tensor] = None  # (B, A), when store_base_actions
     intervention_onset: Optional[torch.Tensor] = None  # (B,) bool, when store_onset
@@ -89,6 +91,8 @@ class InterventionReplayBuffer(ReplayBuffer):
         self.policy_actions = torch.zeros(
             action_shape, dtype=torch.float32, device=self.storage_device
         )
+        self.human_action_mask = torch.zeros(action_shape, dtype=torch.bool, device=self.storage_device)
+        self.override_mask = torch.zeros_like(self.human_action_mask)
         if store_base_actions:
             self.base_actions = torch.zeros(
                 action_shape, dtype=torch.float32, device=self.storage_device
@@ -104,7 +108,7 @@ class InterventionReplayBuffer(ReplayBuffer):
     def slice_keys(self) -> tuple[str, ...]:
         """The extra ``InterventionSample`` fields present on this buffer, for
         ``SACCore._extra_batch_slice_keys``."""
-        keys = ["intervened", "policy_actions"]
+        keys = ["intervened", "policy_actions", "human_action_mask", "override_mask"]
         if self.store_base_actions:
             keys += ["base_actions", "next_base_actions"]
         if self.store_onset:
@@ -122,6 +126,8 @@ class InterventionReplayBuffer(ReplayBuffer):
         done: torch.Tensor,
         *,
         intervened: torch.Tensor | bool,
+        human_action_mask: Optional[torch.Tensor] = None,
+        override_mask: Optional[torch.Tensor] = None,
         policy_action: Optional[torch.Tensor] = None,
         base_actions: Optional[torch.Tensor] = None,
         next_base_actions: Optional[torch.Tensor] = None,
@@ -134,7 +140,11 @@ class InterventionReplayBuffer(ReplayBuffer):
         self._check_extras(base_actions, next_base_actions, intervention_onset, grasp_penalty)
 
         pos = self.pos
-        self.intervened[pos] = self._flag_to_storage(intervened)
+        flags = self._flag_to_storage(intervened)
+        human = flags[..., None].expand_as(self.human_action_mask[pos]) if human_action_mask is None else torch.as_tensor(human_action_mask, dtype=torch.bool, device=self.storage_device)
+        self.human_action_mask[pos] = human
+        self.override_mask[pos] = human if override_mask is None else torch.as_tensor(override_mask, dtype=torch.bool, device=self.storage_device)
+        self.intervened[pos] = human.any(dim=-1)
         self.policy_actions[pos] = self._float_to_storage(
             action if policy_action is None else policy_action
         )
@@ -197,6 +207,8 @@ class InterventionReplayBuffer(ReplayBuffer):
             rewards=base.rewards,
             dones=base.dones,
             intervened=column(self.intervened),
+            human_action_mask=column(self.human_action_mask),
+            override_mask=column(self.override_mask),
             policy_actions=column(self.policy_actions),
             base_actions=column(getattr(self, "base_actions", None)),
             next_base_actions=column(getattr(self, "next_base_actions", None)),

@@ -24,12 +24,20 @@ class FrankaBridgeClient:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
 
-    def _post(self, path: str, json_body: Optional[dict] = None) -> dict[str, Any]:
+    def _post(self, path: str, json_body: Optional[dict] = None, *, timeout: Optional[float] = None) -> dict[str, Any]:
         import requests  # lazy: only real-robot runs need this installed
 
-        resp = requests.post(f"{self._base_url}{path}", json=json_body, timeout=self._timeout)
+        resp = requests.post(f"{self._base_url}{path}", json=json_body, timeout=self._timeout if timeout is None else timeout)
         resp.raise_for_status()
-        return resp.json() if resp.content else {}
+        if not resp.content:
+            return {}
+        try:
+            return resp.json()
+        except ValueError:
+            # Command endpoints return plain acknowledgement text; /getstate is JSON.
+            if path == "/getstate":
+                raise
+            return {}
 
     def get_state(self) -> dict[str, Any]:
         """Returns SERL's ``/getstate`` shape: ``pose`` (7), ``vel`` (6),
@@ -45,10 +53,10 @@ class FrankaBridgeClient:
         self._post("/open_gripper" if open_gripper else "/close_gripper")
 
     def reset_joints(self) -> None:
-        self._post("/jointreset")
+        self._post("/jointreset", timeout=max(self._timeout, 90.0))
 
     def start_impedance(self) -> None:
-        self._post("/startimp")
+        self._post("/startimp", timeout=max(self._timeout, 90.0))
 
     def stop_impedance(self) -> None:
         self._post("/stopimp")

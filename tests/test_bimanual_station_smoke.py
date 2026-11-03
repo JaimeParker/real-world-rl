@@ -193,6 +193,8 @@ def _bimanual_config(daemons: dict[str, StationDaemon]) -> BimanualRealRobotEnvC
             cameras=list(CAMERAS[arm]),
             image_size=(FRAME, FRAME),
             action_mode="joint_delta",
+            joint_scale_rad=0.1,
+            state_fields=("joint_pos", "gripper_pos"),
             control_hz=FAST_HZ,
             joint_limits=PANDA_JOINT_LIMITS,
         )
@@ -272,12 +274,14 @@ def _as_array(action) -> np.ndarray:
     return torch.as_tensor(action).detach().cpu().double().reshape(-1).numpy()
 
 
-def _assert_left_drives_and_right_is_held(action, right_gripper: float) -> None:
+def _assert_left_drives_and_right_is_held(action, right_gripper: float, observation) -> None:
     """An intervened two-arm action: the left leader's saturated delta, the right arm held (zero
     delta), the left trigger squeezed (closed) and the right gripper at ``right_gripper``."""
     action = _as_array(action)
     assert action.shape == (ACTION_DIM,)
-    np.testing.assert_allclose(action[:NUM_JOINTS], SATURATED_LEFT_BLOCK, atol=1e-4)
+    follower = _as_array(observation["state"])[:NUM_JOINTS]
+    expected = np.clip((np.asarray(LEFT_LEADER) - follower) / 0.1, -1.0, 1.0)
+    np.testing.assert_allclose(action[:NUM_JOINTS], expected, atol=1e-4)
     np.testing.assert_array_equal(action[NUM_JOINTS : 2 * NUM_JOINTS], np.zeros(NUM_JOINTS))
     np.testing.assert_allclose(action[-2:], [CLOSED, right_gripper], atol=1e-6)
 
@@ -326,7 +330,7 @@ def _run_hil_serl_actor(env) -> list[dict]:
     for row in rows:
         if row["intervened"]:
             # The right gripper holds the zero policy's last action, not its squeezed trigger.
-            _assert_left_drives_and_right_is_held(row["action"], right_gripper=0.0)
+            _assert_left_drives_and_right_is_held(row["action"], right_gripper=0.0, observation=row["obs"])
         else:
             np.testing.assert_array_equal(_as_array(row["action"]), np.zeros(ACTION_DIM))
     return rows
@@ -344,12 +348,12 @@ def _record(env, daemons, demo_path: Path) -> list[dict]:
     transitions = record_demos(env, args, hold_action_fn=hold_action_fn_for(env), on_episode=stop_unless_kept)
     save_demos(transitions, demo_path, demo_contract_of(env))
 
-    # One episode: reads 7-8 intervene (the first one fires success), the next two hold.
+    # A fresh connection starts the leader script: its first two active reads intervene.
     assert [(episode.steps, episode.success) for episode in episodes] == [(EPISODE_STEPS, True)]
     assert len(transitions) == 2
     for transition in transitions:
         # The right gripper holds the open gripper of the reset.
-        _assert_left_drives_and_right_is_held(transition["action"], right_gripper=OPEN)
+        _assert_left_drives_and_right_is_held(transition["action"], right_gripper=OPEN, observation=transition["obs"])
         assert set(transition["obs"]) == {"state"} | {f"rgb_{cam}" for cam in ALL_CAMERAS}
     assert demo_path.exists()
     sidecar = read_contract_sidecar(demo_path)
@@ -524,13 +528,29 @@ def test_two_arm_station_end_to_end(station_daemons, tmp_path):
     try:
         _check_actor_env(env)
         actor_rows = {"hil_serl": _run_hil_serl_actor(env)}
-        assert _robots_connected(daemons) == [True, True]
+        assert _robots_connected(daemons) == [False, False]
+    finally:
+        env.close()
+
+    # Each command owns a fresh connection and releases it when its run ends.
+    env = env_building.build_hil_env(_hil_serl_args(daemons), role="actor")
+    try:
         transitions = _record(env, daemons, demo_path)
-        actor_rows["residual"] = _run_residual_actor(env, daemons)
-        actor_rows["silri"] = _run_silri_actor(env, daemons)
+        assert _robots_connected(daemons) == [True, True]
     finally:
         env.close()
     assert _robots_connected(daemons) == [False, False]
+
+    for name, args, run_actor in (
+        ("residual", _residual_args(daemons), _run_residual_actor),
+        ("silri", _silri_args(daemons), _run_silri_actor),
+    ):
+        env = env_building.build_hil_env(args, role="actor")
+        try:
+            actor_rows[name] = run_actor(env, daemons)
+            assert _robots_connected(daemons) == [False, False]
+        finally:
+            env.close()
 
     _check_learners(daemons, demo_path, transitions, actor_rows, tmp_path)
     bc_args, checkpoint = _train_bc(daemons, demo_path, tmp_path)

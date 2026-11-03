@@ -8,6 +8,7 @@ the base ones under HIL-SERL names.
 from __future__ import annotations
 
 import glob
+import hashlib
 import os
 import pickle
 import time
@@ -23,11 +24,12 @@ from real_world_rl.action_contract import (
     write_contract_sidecar,
 )
 from real_world_rl.loops.actor import ActorLoop
-from real_world_rl.loops.learner import _TRANSITION_TENSOR_KEYS, LearnerLoop
+from real_world_rl.loops.learner import _TRANSITION_TENSOR_KEYS, _BUFFER_EXTRA_KEYS, LearnerLoop
 from real_world_rl.loops.sync import ActorSyncClient, LearnerSyncServer
 from real_world_rl.training.demo_loading import (
     as_dict_observation,
     load_demo_pkls,
+    training_extras,
 )
 
 __all__ = [
@@ -100,7 +102,7 @@ class _EpisodeStatistics:
             "intervened_steps": self.intervened_steps,
             "intervention_count": self.intervention_count,
             "intervention_rate": self.intervened_steps / self.length if self.length else 0.0,
-            "success": float(self.terminated),
+            "terminated": float(self.terminated),
             "human_episode_end": float(self.human_episode_end),
         }
         if self.safety_clips is not None:
@@ -140,10 +142,20 @@ class HilSerlActorLoop(ActorLoop):
         super().__init__(*args, **kwargs)
         self._episode_statistics = _EpisodeStatistics()
         self._episodes_ended = 0
+        from real_world_rl.metrics import EpisodeOutcomeAccumulator, EpisodeMetrics
+        self._outcome_accumulator = EpisodeOutcomeAccumulator()
+        self._outcome_metrics = EpisodeMetrics()
         self._step_started_at: Optional[float] = None
 
     def _extra_transition_fields(self, info: dict) -> dict:
         fields = {"intervened": "intervene_action" in info}
+        for key in ("human_action_mask", "override_mask"):
+            if key in info:
+                fields[key] = torch.as_tensor(info[key], dtype=torch.bool)
+        if "human_action_mask" in fields:
+            fields["intervened"] = bool(fields["human_action_mask"].any())
+        if "syncing" in info:
+            fields["syncing"] = bool(info["syncing"])
         if "grasp_penalty" in info:
             fields["grasp_penalty"] = info["grasp_penalty"]
         return fields
@@ -175,6 +187,8 @@ class HilSerlActorLoop(ActorLoop):
             statistics.step_time_ms.append(1000.0 * (time.perf_counter() - self._step_started_at))
             self._step_started_at = None
         statistics.record_step(reward, terminated, transition["intervened"], info)
+        self._outcome_accumulator.observe({"intervened": transition["intervened"], **info})
+        self._last_outcome_flags = (bool(terminated), bool(truncated))
         return transition
 
     def _on_episode_end(self, info: dict) -> None:
@@ -183,6 +197,11 @@ class HilSerlActorLoop(ActorLoop):
 
     def _post_episode_statistics(self) -> None:
         finished = self._episode_statistics
+        from real_world_rl.metrics import EpisodeOutcomeAccumulator
+        terminated, truncated = getattr(self, "_last_outcome_flags", (False, False))
+        outcome = self._outcome_accumulator.finish(terminated=terminated, truncated=truncated)
+        self._outcome_metrics.add(outcome)
+        self._outcome_accumulator = EpisodeOutcomeAccumulator()
         last_safety_clips = (
             finished.safety_clips if finished.safety_clips is not None else finished.safety_clips_baseline
         )
@@ -191,7 +210,12 @@ class HilSerlActorLoop(ActorLoop):
         post_stats = getattr(self.sync_client, "post_stats", None)
         if post_stats is None:
             return
-        stats = {"episode": self._episodes_ended, **finished.summary()}
+        transport = getattr(self.sync_client, "transport_metrics", None)
+        stats = {"episode": self._episodes_ended, **finished.summary(), **self._outcome_metrics.summary(),
+                 "task_success": outcome.task_success, "outcome_source": outcome.outcome_source,
+                 "end_reason": outcome.end_reason}
+        if transport is not None:
+            stats.update(transport())
         dropped = getattr(self.sync_client, "dropped_transitions", None)
         if dropped is not None:
             stats["dropped_transitions"] = int(dropped)
@@ -213,15 +237,14 @@ class HilSerlLearnerLoop(LearnerLoop):
     (``DemoInterventionMixin``, see ``rl_garden/buffers/demo_intervention.py``)
     -- the demo buffer is a duplicated subset of the online buffer, not a
     disjoint partition of it. Also periodically pickle-snapshots both buffers to
-    disk for crash recovery -- ``LearnerLoop.run()`` never triggers the existing
-    ``save_replay_buffer``/``include_replay_buffer`` checkpoint mechanism
-    (``rl_garden/algorithms/off_policy.py``), so this pkl snapshot is the only
-    buffer persistence path for real-world hil_serl training. Mirrors HIL-SERL's
+    disk for legacy interoperability. Durable ingestion uses the learner journal;
+    complete checkpoint bundles preserve online/demo replay and a journal cursor. Mirrors HIL-SERL's
     own mechanism (``train_rlpd.py:140-233``): transitions accumulated since the
     last snapshot are pickled to ``<checkpoint_dir>/buffer/transitions_{n}.pkl``
     (every transition) and ``<checkpoint_dir>/demo_buffer/transitions_{n}.pkl``
     (intervened only) every ``buffer_period`` received transitions, and both
-    directories are glob-reloaded on startup.
+    directories are reloaded only when no complete bundle or durable journal
+    provides the online recovery source.
 
     Also loads ``demo_dataset_paths`` (pre-collected demo transitions, HIL-SERL's
     ``--demo_path`` equivalent -- ``train_rlpd.py:458-466``) into the demo buffer
@@ -255,19 +278,36 @@ class HilSerlLearnerLoop(LearnerLoop):
         publish_freq: int = 100,
         idle_poll_interval: float = 0.1,
         action_contract: Optional[Mapping[str, Any]] = None,
+        journal_path: Optional[str] = None,
+        resume_bundle_path: Optional[str] = None,
+        resume_replay: bool = True,
+        **learner_kwargs,
     ) -> None:
-        super().__init__(agent, host, port, train_freq, publish_freq, idle_poll_interval)
+        super().__init__(agent, host, port, train_freq, publish_freq, idle_poll_interval, journal_path=journal_path or os.path.join(checkpoint_dir, "journal.sqlite3"), resume_bundle_path=resume_bundle_path, resume_replay=resume_replay, **learner_kwargs)
+        from pathlib import Path
+        self._bundle_dir = Path(checkpoint_dir)
         # ``action_contract.DEMO_CONTRACT_KEYS`` of the env; None (contract-less backends)
         # skips snapshot/demo action checks and writes no sidecars.
         self._action_contract = action_contract
         self._checkpoint_dir = checkpoint_dir
         self._buffer_period = buffer_period
+        self._seed_datasets = []
+        for pattern in demo_dataset_paths:
+            for path in sorted(glob.glob(pattern)):
+                digest = hashlib.sha256()
+                with open(path, "rb") as stream:
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                self._seed_datasets.append({"path": os.path.abspath(path), "sha256": digest.hexdigest(), "bytes": os.path.getsize(path)})
         self._pending_online: list[dict[str, Any]] = []
         self._pending_demo: list[dict[str, Any]] = []
         self._step_since_snapshot = 0
         self._intervened_received = 0
-        self._load_demo_datasets(demo_dataset_paths)
-        self._reload_snapshots()
+        has_bundle = os.path.exists(os.path.join(checkpoint_dir, "bundle_manifest.json")) or (resume_bundle_path is not None and (os.path.isdir(resume_bundle_path) or str(resume_bundle_path).endswith("bundle_manifest.json")))
+        if not has_bundle:
+            self._load_demo_datasets(demo_dataset_paths)
+            if not len(self._journal):
+                self._reload_snapshots()
 
     def _learner_scalars(self) -> dict[str, float]:
         scalars = super()._learner_scalars()
@@ -284,10 +324,15 @@ class HilSerlLearnerLoop(LearnerLoop):
         # counts the online buffer, never `--demo_path` preload.
         load_demo_pkls(
             paths,
-            self.agent.add_demo_transition,
+            self._add_preloaded_demo,
             self.agent.buffer_device,
             expected_contract=self._action_contract,
         )
+
+    def _add_preloaded_demo(self, obs, next_obs, action, reward, done, **extra):
+        buffer = self.agent.offline_replay_buffer
+        projected = training_extras(extra, buffer.add)
+        self.agent.add_demo_transition(obs, next_obs, action, reward, done, **projected)
 
     def _reload_snapshots(self) -> None:
         device = self.agent.buffer_device
@@ -301,7 +346,9 @@ class HilSerlLearnerLoop(LearnerLoop):
             (os.path.join(self._checkpoint_dir, "demo_buffer"), self.agent.add_demo_transition, False),
         )
         for directory, adder, count_received in sources:
-            for pkl_path in sorted(glob.glob(os.path.join(directory, "*.pkl"))):
+            if count_received and self._legacy_replay_selected:
+                continue
+            for pkl_path in sorted(glob.glob(os.path.join(directory, "*.pkl")), key=lambda path: (int(os.path.basename(path)[12:-4]) if os.path.basename(path)[12:-4].isdigit() else -1, path)):
                 with open(pkl_path, "rb") as f:
                     transitions = pickle.load(f)
                 validate_transitions_against_contract(
@@ -317,16 +364,29 @@ class HilSerlLearnerLoop(LearnerLoop):
 
     @staticmethod
     def _add_transition(adder, transition: dict[str, Any], device) -> None:
+        from real_world_rl.trajectory import training_projection
+        transition = {**transition, **training_projection(transition)}
         tensors = {
             k: (v.to(device) if isinstance(v, torch.Tensor) else v)
             for k, v in transition.items()
             if k in _TRANSITION_TENSOR_KEYS
         }
+        owner = getattr(adder, "__self__", None)
+        target = adder
+        demo_buffer = getattr(owner, "offline_replay_buffer", None)
+        if getattr(adder, "__name__", None) == "add_demo_transition" and demo_buffer is not None:
+            target = demo_buffer.add
         extra = {
             k: (v.to(device) if isinstance(v, torch.Tensor) else v)
-            for k, v in transition.items()
-            if k not in _TRANSITION_TENSOR_KEYS
+            for k, v in training_extras(transition, target).items()
         }
+        def move(value):
+            if isinstance(value, torch.Tensor):
+                return value.to(device)
+            if isinstance(value, dict):
+                return {key: move(item) for key, item in value.items()}
+            return value
+        tensors = {key: move(value) for key, value in tensors.items()}
         adder(
             as_dict_observation(tensors["obs"]),
             as_dict_observation(tensors["next_obs"]),
@@ -352,11 +412,13 @@ class HilSerlLearnerLoop(LearnerLoop):
         extra = {
             key: value
             for key, value in transition.items()
-            if key not in _TRANSITION_TENSOR_KEYS and key not in ("intervened", "actor_id")
+            if key in _BUFFER_EXTRA_KEYS and key != "intervened"
         }
         return core, extra
 
     def _on_transition(self, transition: dict[str, Any]) -> None:
+        from real_world_rl.trajectory import training_projection
+        transition = {**transition, **training_projection(transition)}
         intervened = bool(transition.get("intervened", False))
         actor_id = transition.get("actor_id")
         core, extra = self._buffer_kwargs(transition)
@@ -384,8 +446,12 @@ class HilSerlLearnerLoop(LearnerLoop):
         step = self._received
         for directory, pending in ((buffer_dir, self._pending_online), (demo_dir, self._pending_demo)):
             pkl_path = os.path.join(directory, f"transitions_{step}.pkl")
-            with open(pkl_path, "wb") as f:
+            temporary = pkl_path + ".tmp"
+            with open(temporary, "wb") as f:
                 pickle.dump(pending, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temporary, pkl_path)
             if self._action_contract is not None:
                 write_contract_sidecar(pkl_path, self._action_contract)
         self._pending_online = []

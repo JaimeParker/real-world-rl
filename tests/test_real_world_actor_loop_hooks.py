@@ -186,7 +186,7 @@ def test_hooks_receive_the_documented_arguments_in_order():
     assert events[2] == ("push", {"built": 2})
     # _on_episode_end gets the last step's info and runs before env.reset.
     assert events[-1][1] == info and events[-1][2] == 1
-    assert env.reset_calls == 2
+    assert env.reset_calls == 1
     # _push replaced the sync client push.
     assert sync_client.pushed == []
 

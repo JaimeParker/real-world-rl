@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import dataclasses
 
+from real_world_rl.training.runtime_paths import actor_sync_kwargs, learner_experiment_kwargs, actor_control_hz
+
 from real_world_rl.training.env_building import (
     build_hil_env,
     warn_if_no_reward_source,
@@ -23,6 +25,7 @@ def build_residual_hil_serl(args, env, eval_env, logger, checkpoint_dir):
     ``build_agent`` for ``residual_hil_serl`` and ``residual_hil_serl_hybrid``.
     ``num_grippers`` comes from ``env``'s action contract."""
     from real_world_rl.action_contract import env_num_grippers
+    from real_world_rl.checkpoint_contract import build_agent_with_action_contract
     from real_world_rl.algorithms.residual import (
         ResidualRLPD,
         ResidualRLPDHybrid,
@@ -43,14 +46,16 @@ def build_residual_hil_serl(args, env, eval_env, logger, checkpoint_dir):
         backup_entropy=args.backup_entropy,
     )
     if args.residual_variant == "hybrid":
+        if env_num_grippers(env) == 0:
+            raise ValueError("hybrid residual requires a gripper; use --residual-variant continuous")
         from rl_garden.training.online.entrypoints.rlpd_hybrid import build_rlpd_hybrid
 
-        return build_rlpd_hybrid(
+        return build_agent_with_action_contract(build_rlpd_hybrid,
             args, env, eval_env, logger, checkpoint_dir, algorithm_cls=ResidualRLPDHybrid, **residual_kwargs
         )
     from rl_garden.training.online.entrypoints.rlpd import build_rlpd
 
-    return build_rlpd(
+    return build_agent_with_action_contract(build_rlpd,
         args, env, eval_env, logger, checkpoint_dir, algorithm_cls=ResidualRLPD, **residual_kwargs
     )
 
@@ -97,32 +102,42 @@ def _run_actor(args) -> None:
     from real_world_rl.loops.hil_serl import HilSerlActorSyncClient
 
     env = build_hil_env(args, role="actor")
-    if args.record_video_dir is not None:
-        from real_world_rl.envs.wrappers.video_recorder import (
-            VideoRecorderWrapper,
+    loop_owns_env = False
+    try:
+        if args.record_video_dir is not None:
+            from real_world_rl.envs.wrappers.video_recorder import (
+                VideoRecorderWrapper,
+            )
+
+            env = VideoRecorderWrapper(env, save_dir=args.record_video_dir)
+
+        agent = _scratch_agent(args, env)
+        provider = _make_provider(args, env, agent.device)
+        sync_client = HilSerlActorSyncClient(f"http://{args.sync_host}:{args.sync_port}", **actor_sync_kwargs(args))
+        loop = residual.ResidualActorLoop(
+            env,
+            agent.policy,
+            sync_client,
+            provider,
+            warmup_unit_residual=args.residual_warmup_unit,
+            base_resync_on_intervention=args.residual_base_resync_on_intervention,
+            control_hz=actor_control_hz(args),
+            device=agent.device,
+            deterministic=args.deterministic_actor,
+            seed=args.seed,
         )
-
-        env = VideoRecorderWrapper(env, save_dir=args.record_video_dir)
-
-    agent = _scratch_agent(args, env)
-    provider = _make_provider(args, env, agent.device)
-    sync_client = HilSerlActorSyncClient(f"http://{args.sync_host}:{args.sync_port}")
-    loop = residual.ResidualActorLoop(
-        env,
-        agent.policy,
-        sync_client,
-        provider,
-        warmup_unit_residual=args.residual_warmup_unit,
-        base_resync_on_intervention=args.residual_base_resync_on_intervention,
-        control_hz=args.control_hz,
-        device=agent.device,
-        deterministic=args.deterministic_actor,
-        seed=args.seed,
-    )
-    loop.run()
+        loop_owns_env = True
+        loop.run()
+    finally:
+        if not loop_owns_env:
+            from real_world_rl.training.runtime_paths import cleanup_construction
+            clients = list(locals().get("sync_clients", {}).values())
+            cleanup_construction(env, locals().get("sync_client"), *clients)
 
 
 def _run_learner(args) -> None:
+    from real_world_rl.training.runtime_paths import resolve_control_frequency
+    resolve_control_frequency(args)
     import os
     import time
 
@@ -158,32 +173,45 @@ def _run_learner(args) -> None:
 
     # Spaces and action contract only: no teleop device and no base policy on the learner.
     env = build_hil_env(args, role="learner", enable_teleop=False, run_name=run_name)
-
-    agent = build_residual_hil_serl(args, env, None, logger=logger, checkpoint_dir=checkpoint_dir)
-    agent.init_demo_buffer(args.demo_buffer_size, args.demo_data_ratio)
-
-    loop = residual.ResidualLearnerLoop(
-        agent,
-        host=args.sync_host,
-        port=args.sync_port,
-        checkpoint_dir=checkpoint_dir,
-        buffer_period=args.buffer_period,
-        demo_dataset_paths=args.demo_dataset_paths,
-        train_freq=args.train_freq,
-        publish_freq=args.publish_freq,
-        action_contract=demo_contract_of(env),
-        allow_base_less_demos=args.allow_base_less_demos,
-    )
+    loop_owns_env = False
     try:
-        loop.run()
+
+        agent = build_residual_hil_serl(dataclasses.replace(args, load_checkpoint=None), env, None, logger=logger, checkpoint_dir=checkpoint_dir)
+        agent.init_demo_buffer(args.demo_buffer_size, args.demo_data_ratio)
+
+        loop = residual.ResidualLearnerLoop(
+            agent,
+            **learner_experiment_kwargs(env, checkpoint_dir),
+            admission_capacity=args.admission_capacity,
+            ingest_batch_size=args.ingest_batch_size,
+            resume_bundle_path=args.load_checkpoint,
+            resume_replay=args.load_replay_buffer,
+            journal_path=os.path.join(checkpoint_dir, "journal.sqlite3"),
+            host=args.sync_host,
+            port=args.sync_port,
+            checkpoint_dir=checkpoint_dir,
+            buffer_period=args.buffer_period,
+            demo_dataset_paths=args.demo_dataset_paths,
+            train_freq=args.train_freq,
+            publish_freq=args.publish_freq,
+            action_contract=demo_contract_of(env),
+            allow_base_less_demos=args.allow_base_less_demos,
+        )
+        try:
+            loop_owns_env = True
+            loop.run()
+        finally:
+            logger.close()
     finally:
-        logger.close()
+        if not loop_owns_env:
+            from real_world_rl.training.runtime_paths import cleanup_construction
+            clients = list(locals().get("sync_clients", {}).values())
+            cleanup_construction(env, locals().get("sync_client"), *clients)
+            logger.close()
 
 
 def _run_eval(args) -> None:
-    """Deterministic episodes of the checkpoint's residual policy on top of the base
-    provider (``ResidualPolicyWithBase``, the same composition deploy uses). Success
-    is ``terminated``, as in hil_serl's eval."""
+    """Evaluate explicit task success and autonomous success with human control available."""
     from real_world_rl.loops.actor import ActorLoop
     from real_world_rl.policies.base_provider import ResidualPolicyWithBase
 
@@ -191,35 +219,22 @@ def _run_eval(args) -> None:
         raise ValueError("residual_hil_serl eval requires --load_checkpoint.")
 
     env = build_hil_env(args, role="eval")
-    eval_args = dataclasses.replace(args, buffer_size=8, offline_dataset=None)
-    agent = build_residual_hil_serl(eval_args, env, None, logger=None, checkpoint_dir=None)
-    policy = ResidualPolicyWithBase(agent.policy, _make_provider(args, env, agent.device)).eval()
+    provider = None
+    try:
+        from real_world_rl.training.evaluation import resolve_eval_checkpoint
+        checkpoint = resolve_eval_checkpoint(args, env)
+        eval_args = dataclasses.replace(args, buffer_size=8, offline_dataset=None, load_checkpoint=checkpoint, load_replay_buffer=False)
+        agent = build_residual_hil_serl(eval_args, env, None, logger=None, checkpoint_dir=None)
+        provider = _make_provider(args, env, agent.device)
+        policy = ResidualPolicyWithBase(agent.policy, provider).eval()
 
-    successes = 0
-    returns: list[float] = []
-    obs, _ = env.reset(seed=args.seed)
-    for episode in range(args.eval_n_trajs):
-        policy.reset_episode()
-        episode_return = 0.0
-        while True:
-            action = policy.predict(obs, deterministic=True)
-            obs, reward, terminated, truncated, info = env.step(action.to(ActorLoop.env_device(obs)))
-            episode_return += float(reward.sum())
-            if bool(terminated) or bool(truncated):
-                success = bool(terminated)
-                successes += int(success)
-                returns.append(episode_return)
-                print(f"[eval] episode={episode} success={success} return={episode_return:.3f}", flush=True)
-                obs, _ = env.reset(seed=args.seed)
-                break
+    except BaseException:
+        from real_world_rl.training.evaluation import close_resources
+        close_resources(env, provider)
+        raise
 
-    success_rate = successes / args.eval_n_trajs
-    mean_return = sum(returns) / len(returns) if returns else 0.0
-    print(
-        f"[eval] success_rate={success_rate:.3f} mean_return={mean_return:.3f} "
-        f"n_trajs={args.eval_n_trajs}",
-        flush=True,
-    )
+    from real_world_rl.training.evaluation import evaluate_policy
+    evaluate_policy(env, policy, episodes=args.eval_n_trajs, seed=args.seed)
 
 
 def run_residual_hil_serl(args: "ResidualHilSerlArgs") -> None:

@@ -4,6 +4,8 @@ actually running a robot or a training loop (both SerlActorLoop.run()/
 SerlLearnerLoop.run() are monkeypatched to no-ops that record their args)."""
 from __future__ import annotations
 
+import pytest
+
 import gymnasium as gym
 import torch
 from gymnasium import spaces
@@ -113,7 +115,8 @@ def test_run_learner_builds_full_agent_and_starts_learner_loop(monkeypatch, tmp_
     )
     _run_learner(args)
 
-    assert captured["build_args"] is args
+    assert captured["build_args"] == args
+    assert captured["build_args"].load_checkpoint is None
     assert captured["ran"] is True
     assert captured["logger_closed"] is True
     assert captured["learner_loop_kwargs"]["host"] == "0.0.0.0"
@@ -207,3 +210,8 @@ def test_serl_actor_builds_real_robot_env_with_real_robot_config(monkeypatch):
 
     assert captured["backend"] == "real_robot"
     assert captured["request"].backend_config is config
+
+
+@pytest.fixture(autouse=True)
+def _isolate_actor_outbox_directory(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)

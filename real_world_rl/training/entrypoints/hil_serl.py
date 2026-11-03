@@ -7,6 +7,8 @@ growing-dataset problem -- see docs/hil-serl-roadmap.md.
 from __future__ import annotations
 
 import dataclasses
+
+from real_world_rl.training.runtime_paths import actor_sync_kwargs, learner_experiment_kwargs, actor_control_hz
 import logging
 
 import torch
@@ -47,48 +49,73 @@ def _run_actor(args) -> None:
     )
 
     env = build_hil_env(args, role="actor")
-    if args.record_video_dir is not None:
-        # Applied here (not inside build_hil_env) since it's actor-only --
-        # build_hil_env is shared by actor/learner/eval, and only the actor
-        # process ever calls env.step() against the real robot.
-        from real_world_rl.envs.wrappers.video_recorder import VideoRecorderWrapper
+    loop_owns_env = False
+    try:
+        if args.record_video_dir is not None:
+            # Applied here (not inside build_hil_env) since it's actor-only --
+            # build_hil_env is shared by actor/learner/eval, and only the actor
+            # process ever calls env.step() against the real robot.
+            from real_world_rl.envs.wrappers.video_recorder import VideoRecorderWrapper
 
-        env = VideoRecorderWrapper(env, save_dir=args.record_video_dir)
+            env = VideoRecorderWrapper(env, save_dir=args.record_video_dir)
 
-    if not args.fwbw:
-        agent = _rebuild_scratch_agent_for_env(args, env)
-        sync_client = HilSerlActorSyncClient(f"http://{args.sync_host}:{args.sync_port}")
-        loop = HilSerlActorLoop(
+        if not args.fwbw:
+            agent = _rebuild_scratch_agent_for_env(args, env)
+            sync_client = HilSerlActorSyncClient(f"http://{args.sync_host}:{args.sync_port}", **actor_sync_kwargs(args))
+            loop = HilSerlActorLoop(
+                env,
+                agent.policy,
+                sync_client,
+                control_hz=actor_control_hz(args),
+                device=agent.device,
+                deterministic=args.deterministic_actor,
+                seed=args.seed,
+            )
+            loop_owns_env = True
+            loop.run()
+            return
+
+        backward_port = args.sync_port_backward or (args.sync_port + 1)
+        agents = {
+            "forward": _rebuild_scratch_agent_for_env(args, env),
+            "backward": _rebuild_scratch_agent_for_env(args, env),
+        }
+        sync_clients = {}
+        sync_clients["forward"] = HilSerlActorSyncClient(
+            f"http://{args.sync_host}:{args.sync_port}", **actor_sync_kwargs(args, direction="forward")
+        )
+        sync_clients["backward"] = HilSerlActorSyncClient(
+            f"http://{args.sync_host}:{backward_port}", **actor_sync_kwargs(args, direction="backward")
+        )
+        loop = FWBWActorLoop(
             env,
-            agent.policy,
-            sync_client,
-            control_hz=args.control_hz,
-            device=agent.device,
+            {k: a.policy for k, a in agents.items()},
+            sync_clients,
+            control_hz=actor_control_hz(args),
+            device=agents["forward"].device,
             deterministic=args.deterministic_actor,
             seed=args.seed,
         )
+        loop_owns_env = True
         loop.run()
-        return
+    finally:
+        if not loop_owns_env:
+            from real_world_rl.training.runtime_paths import cleanup_construction
+            clients = list(locals().get("sync_clients", {}).values())
+            cleanup_construction(env, locals().get("sync_client"), *clients)
 
-    backward_port = args.sync_port_backward or (args.sync_port + 1)
-    agents = {
-        "forward": _rebuild_scratch_agent_for_env(args, env),
-        "backward": _rebuild_scratch_agent_for_env(args, env),
-    }
-    sync_clients = {
-        "forward": HilSerlActorSyncClient(f"http://{args.sync_host}:{args.sync_port}"),
-        "backward": HilSerlActorSyncClient(f"http://{args.sync_host}:{backward_port}"),
-    }
-    loop = FWBWActorLoop(
-        env,
-        {k: a.policy for k, a in agents.items()},
-        sync_clients,
-        control_hz=args.control_hz,
-        device=agents["forward"].device,
-        deterministic=args.deterministic_actor,
-        seed=args.seed,
-    )
-    loop.run()
+
+def build_hil_agent(args, env, eval_env, logger=None, checkpoint_dir=None, **kwargs):
+    from real_world_rl.checkpoint_contract import build_agent_with_action_contract
+    from real_world_rl.action_contract import env_num_grippers
+    if env_num_grippers(env) == 0:
+        from rl_garden.training.online.entrypoints.rlpd import build_rlpd
+        from real_world_rl.algorithms.hil_continuous import ContinuousHilRLPD
+        kwargs.pop("num_grippers", None)
+        return build_agent_with_action_contract(build_rlpd, args, env, eval_env, logger, checkpoint_dir,
+                          algorithm_cls=ContinuousHilRLPD, **kwargs)
+    from rl_garden.training.online.entrypoints.rlpd_hybrid import build_rlpd_hybrid
+    return build_agent_with_action_contract(build_rlpd_hybrid, args, env, eval_env, logger, checkpoint_dir, **kwargs)
 
 
 def _gripper_kwargs(env) -> dict:
@@ -106,7 +133,7 @@ def _rebuild_scratch_agent_for_env(args, env):
     scratch_args = dataclasses.replace(
         args, buffer_size=8, load_checkpoint=None, offline_dataset=None
     )
-    return build_rlpd_hybrid(
+    return build_hil_agent(
         scratch_args, env, None, logger=None, checkpoint_dir=None, **_gripper_kwargs(env)
     )
 
@@ -118,6 +145,8 @@ def _run_learner(args) -> None:
     forward|backward``), each bound to its own sync port -- matching the
     SERL v1 design's "two full actor/learner pairs" for reset-free
     training. Non-FWBW: identical shape to ``serl.py``'s ``_run_learner``."""
+    from real_world_rl.training.runtime_paths import resolve_control_frequency
+    resolve_control_frequency(args)
     import os
     import time
 
@@ -137,10 +166,10 @@ def _run_learner(args) -> None:
     )
 
     start_time = time.strftime("%Y%m%d_%H%M%S", time.localtime())
-    run_name = (
-        args.exp_name or f"{args.env_id}__hil_serl_real_world{direction_suffix}__{args.seed}__{int(time.time())}"
+    from real_world_rl.training.runtime_paths import hil_learner_paths
+    run_name, checkpoint_dir = hil_learner_paths(
+        args, f"{args.env_id}__hil_serl_real_world{direction_suffix}__{args.seed}__{int(time.time())}"
     )
-    checkpoint_dir = args.checkpoint_dir or os.path.join(args.log_dir, run_name, "checkpoints")
 
     resolved_config = persist_resolved_config(
         args, training_phase="real_world", algorithm="hil_serl", run_name=run_name, log_dir=args.log_dir
@@ -159,40 +188,46 @@ def _run_learner(args) -> None:
 
     # The learner only needs the env's spaces and action contract: no teleop device here.
     env = build_hil_env(args, role="learner", enable_teleop=False, run_name=run_name)
-
-    agent = build_rlpd_hybrid(
-        args, env, None, logger=logger, checkpoint_dir=checkpoint_dir, **_gripper_kwargs(env)
-    )
-    agent.init_demo_buffer(args.demo_buffer_size, args.demo_data_ratio)
-
-    loop = HilSerlLearnerLoop(
-        agent,
-        host=args.sync_host,
-        port=port,
-        checkpoint_dir=checkpoint_dir,
-        buffer_period=args.buffer_period,
-        demo_dataset_paths=args.demo_dataset_paths,
-        train_freq=args.train_freq,
-        publish_freq=args.publish_freq,
-        action_contract=demo_contract_of(env),
-    )
+    loop_owns_env = False
     try:
-        loop.run()
+
+        agent = build_hil_agent(
+            dataclasses.replace(args, load_checkpoint=None), env, None, logger=logger, checkpoint_dir=checkpoint_dir, **_gripper_kwargs(env)
+        )
+        agent.init_demo_buffer(args.demo_buffer_size, args.demo_data_ratio)
+
+        loop = HilSerlLearnerLoop(
+            agent,
+            **learner_experiment_kwargs(env, checkpoint_dir),
+            admission_capacity=args.admission_capacity,
+            ingest_batch_size=args.ingest_batch_size,
+            resume_bundle_path=args.load_checkpoint,
+            resume_replay=args.load_replay_buffer,
+            journal_path=os.path.join(checkpoint_dir, "journal.sqlite3"),
+            host=args.sync_host,
+            port=port,
+            checkpoint_dir=checkpoint_dir,
+            buffer_period=args.buffer_period,
+            demo_dataset_paths=args.demo_dataset_paths,
+            train_freq=args.train_freq,
+            publish_freq=args.publish_freq,
+            action_contract=demo_contract_of(env),
+        )
+        try:
+            loop_owns_env = True
+            loop.run()
+        finally:
+            logger.close()
     finally:
-        logger.close()
+        if not loop_owns_env:
+            from real_world_rl.training.runtime_paths import cleanup_construction
+            clients = list(locals().get("sync_clients", {}).values())
+            cleanup_construction(env, locals().get("sync_client"), *clients)
+            logger.close()
 
 
 def _run_eval(args) -> None:
-    """Loads a checkpoint and runs deterministic evaluation episodes directly
-    on the real robot -- no sync client, no learner process, no data
-    collection (item 10 of docs/hil-serl-roadmap.md, HIL-SERL's own
-    ``--eval_checkpoint_step``/``--eval_n_trajs``, ``train_rlpd.py:71-110``).
-    Per-episode success is read off ``terminated``: ``RewardClassifierWrapper``
-    sets it True exactly when the classifier judges success
-    (``rl_garden/envs/wrappers/reward_classifier.py``); a ``truncated`` episode
-    (timeout) counts as a failure. FWBW is out of scope this round -- same
-    "single-arm only" boundary already documented elsewhere in the real-world
-    RL stack."""
+    """Evaluate explicit task success and autonomous success with human control available."""
     from rl_garden.training.online.entrypoints.rlpd_hybrid import build_rlpd_hybrid
     from real_world_rl.loops.actor import ActorLoop
 
@@ -202,38 +237,25 @@ def _run_eval(args) -> None:
         raise ValueError("hil_serl eval requires --load_checkpoint.")
 
     env = build_hil_env(args, role="eval")
+    try:
+        from real_world_rl.training.evaluation import resolve_eval_checkpoint
+        checkpoint = resolve_eval_checkpoint(args, env)
 
-    eval_args = dataclasses.replace(args, buffer_size=8, offline_dataset=None)
-    agent = build_rlpd_hybrid(
-        eval_args, env, None, logger=None, checkpoint_dir=None, **_gripper_kwargs(env)
-    )
-    agent.policy.eval()
+        eval_args = dataclasses.replace(args, buffer_size=8, offline_dataset=None, load_checkpoint=checkpoint, load_replay_buffer=False)
+        agent = build_hil_agent(
+            eval_args, env, None, logger=None, checkpoint_dir=None, **_gripper_kwargs(env)
+        )
+        agent.policy.eval()
 
-    successes = 0
-    returns: list[float] = []
-    obs, _ = env.reset(seed=args.seed)
-    for episode in range(args.eval_n_trajs):
-        episode_return = 0.0
-        while True:
-            with torch.no_grad():
-                action = agent.policy.predict(agent._obs_to_policy_device(obs), deterministic=True)
-            env_action = action.to(ActorLoop.env_device(obs))
-            obs, reward, terminated, truncated, info = env.step(env_action)
-            episode_return += float(reward.sum())
-            if bool(terminated) or bool(truncated):
-                success = bool(terminated)
-                successes += int(success)
-                returns.append(episode_return)
-                print(f"[eval] episode={episode} success={success} return={episode_return:.3f}", flush=True)
-                obs, _ = env.reset(seed=args.seed)
-                break
+    except BaseException:
+        from real_world_rl.training.evaluation import close_env
+        close_env(env)
+        raise
 
-    success_rate = successes / args.eval_n_trajs
-    mean_return = sum(returns) / len(returns) if returns else 0.0
-    print(
-        f"[eval] success_rate={success_rate:.3f} mean_return={mean_return:.3f} "
-        f"n_trajs={args.eval_n_trajs}",
-        flush=True,
+    from real_world_rl.training.evaluation import evaluate_policy
+    evaluate_policy(
+        env, agent.policy, episodes=args.eval_n_trajs, seed=args.seed,
+        predict=lambda obs: agent.policy.predict(agent._obs_to_policy_device(obs), deterministic=True),
     )
 
 

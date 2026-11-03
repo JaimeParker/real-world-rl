@@ -60,6 +60,9 @@ def test_describe(services):
     description = services().dispatch("robot.describe", {})
     assert description["type"] == "franka"
     assert description["describe"]["type"] == "franka"
+    control_metadata = description["arm"].pop("control_metadata")
+    assert control_metadata["backend"] == "FakeArm"
+    assert "max_delta_tau" in control_metadata["capabilities"]
     assert description["arm"] == {
         "num_joints": 7,
         "supported_state_fields": [

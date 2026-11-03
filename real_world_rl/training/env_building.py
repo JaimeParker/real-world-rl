@@ -66,6 +66,10 @@ def tcp_pose_quat_slice(args) -> tuple[int, int] | list[tuple[int, int]] | None:
 def hil_env_request(args, run_name: str):
     from rl_garden.common.env_args import make_env_request
 
+    ensure_real_world_backend(args.env_backend)
+    from real_world_rl.training.runtime_paths import resolve_control_frequency
+    resolve_control_frequency(args)
+
     env_request = make_env_request(args, run_name)
     if args.env_backend in _ROBOT_INFRA_BACKENDS:
         # The backend cannot stack frames; apply_obs_chain stacks them (as deploy does).
@@ -296,14 +300,18 @@ def teleop_wrapper_kwargs(args) -> dict:
     """``TeleopInterventionWrapper`` arguments: ``--teleop-device`` alone, or, with
     ``--teleop-event-device``, a composite taking motion from the former and intervention plus
     events from the latter."""
+    part_options = {}
+    if args.teleop_selected_parts: part_options["selected_parts"] = args.teleop_selected_parts
+    if args.teleop_idle_behavior != "hold": part_options["idle_behavior"] = args.teleop_idle_behavior
     if args.teleop_event_device is None:
-        return {"device": args.teleop_device, **motion_teleop_kwargs(args)}
+        return {"device": args.teleop_device, **motion_teleop_kwargs(args), **part_options}
     return {
         "device": "composite",
         "motion": args.teleop_device,
         "events": args.teleop_event_device,
         "intervention_from": "events",
         "motion_kwargs": motion_teleop_kwargs(args),
+        **part_options,
     }
 
 
@@ -336,71 +344,110 @@ def warn_if_no_reward_source(args, method: str) -> None:
 
 
 def compose_hil_env(args, env_request, *, enable_teleop: bool = True):
-    """Builds the backend env for ``env_request`` and applies the wrapper stack
-    described in the module docstring. ``enable_teleop=False`` skips the
-    intervention wrapper (and so never opens a teleop device or checks the
-    teleop source against the env's action contract)."""
     from rl_garden.envs.backend_registry import make_training_envs
+    env, _ = make_training_envs(args.env_backend, env_request)
+    config = getattr(env_request, "backend_config", None)
+    if config is None:
+        config = getattr(args, "real_robot_bimanual" if args.env_backend == _BIMANUAL_BACKEND else "real_robot", None)
+    return compose_hil_wrappers(args, env, config, enable_teleop=enable_teleop)
+
+
+def compose_hil_wrappers(args, env, backend_config, *, enable_teleop=True, source_config=None):
+    """One wrapper builder for train, record, evaluation and task deployment."""
     from rl_garden.envs.wrappers.fwbw_reset_free import FWBWResetFreeWrapper
-    from rl_garden.envs.wrappers.reward_classifier import RewardClassifierWrapper
+    from real_world_rl.reward.outcome import ExplicitRewardClassifierWrapper
     from real_world_rl.envs.wrappers.grasp_penalty import GraspPenaltyWrapper
     from real_world_rl.envs.wrappers.obs_chain import apply_obs_chain
-
-    env, _ = make_training_envs(args.env_backend, env_request)
-
-    env = apply_obs_chain(
-        env,
-        frame_stack=args.obs.frame_stack,
-        # Reuses classifier_image_keys: the same "which keys are cameras" question the
-        # classifier wrapper below answers.
-        image_keys=args.classifier_image_keys,
-        convert_obs_rotation=args.convert_obs_rotation,
-        quat_slice=tcp_pose_quat_slice(args),
-    )
-
-    if args.classifier_checkpoint is not None:
-        from rl_garden.common.utils import get_device
-        from rl_garden.models.reward.success.model import load_classifier_fn
-
-        classifier_fn = load_classifier_fn(
-            args.classifier_checkpoint,
-            env.single_observation_space,
-            classifier_image_keys_for(args, env),
-            device=get_device("auto"),
+    try:
+        env = apply_obs_chain(
+            env,
+            frame_stack=args.obs.frame_stack,
+            # Reuses classifier_image_keys: the same "which keys are cameras" question the
+            # classifier wrapper below answers.
+            image_keys=args.classifier_image_keys,
+            convert_obs_rotation=args.convert_obs_rotation,
+            quat_slice=tcp_pose_quat_slice(args),
         )
-        env = RewardClassifierWrapper(env, classifier_fn, threshold=args.classifier_threshold)
 
-    if enable_teleop:
-        from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
+        task = getattr(backend_config, "task", None)
+        task_active = task is not None and task.name != "none"
+        if task_active and task.success_source == "classifier":
+            arm_names = tuple(getattr(backend_config, "arm_names", ("arm",)))
+            if len(arm_names) > 1 and set(task.classifier_checkpoints) != set(arm_names):
+                raise ValueError("parallel classifier task requires a classifier checkpoint for every arm")
+            if len(arm_names) == 1 and not args.classifier_checkpoint and not task.classifier_checkpoints:
+                raise ValueError("classifier task requires a classifier checkpoint")
+        if args.classifier_checkpoint is not None:
+            from rl_garden.common.utils import get_device
+            from rl_garden.models.reward.success.model import load_classifier_fn
 
-        # Validates the teleop source's action_mode/arm count/width against the env's action
-        # contract (also rejects gripper_in_action=false, which GraspPenaltyWrapper below relies on).
-        env = TeleopInterventionWrapper(env, **teleop_wrapper_kwargs(args))
-        if args.reward_from_teleop_events:
-            from real_world_rl.envs.wrappers.teleop_event_reward import (
-                TeleopEventRewardWrapper,
+            classifier_fn = load_classifier_fn(
+                args.classifier_checkpoint,
+                env.single_observation_space,
+                classifier_image_keys_for(args, env),
+                device=get_device("auto"),
+            )
+            env = ExplicitRewardClassifierWrapper(env, classifier_fn, threshold=args.classifier_threshold,
+                                                 terminate_on_success=not task_active)
+
+        if task_active and task.classifier_checkpoints:
+            from real_world_rl.reward.outcome import ArmClassifiersWrapper
+            from rl_garden.models.reward.success.model import load_classifier_fn
+            from rl_garden.common.utils import get_device
+            arms = tuple(getattr(backend_config, "arm_names", ("arm",)))
+            if set(task.classifier_checkpoints) != set(arms):
+                raise ValueError("classifier_checkpoints must name every task arm")
+            classifiers = {name: load_classifier_fn(path, env.single_observation_space,
+                            task.classifier_image_keys.get(name) or classifier_image_keys_for(args, env),
+                            device=get_device("auto")) for name, path in task.classifier_checkpoints.items()}
+            env = ArmClassifiersWrapper(env, classifiers, args.classifier_threshold)
+
+        if enable_teleop:
+            from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
+
+            # Validates the teleop source's action_mode/arm count/width against the env's action
+            # contract (also rejects gripper_in_action=false, which GraspPenaltyWrapper below relies on).
+            env = TeleopInterventionWrapper(env, **teleop_wrapper_kwargs(args))
+            if args.reward_from_teleop_events:
+                from real_world_rl.envs.wrappers.teleop_event_reward import (
+                    TeleopEventRewardWrapper,
+                )
+
+                env = TeleopEventRewardWrapper(env, success_reward=args.teleop_success_reward,
+                                              terminate_on_success=not task_active,
+                                              terminate_on_failure=not task_active or task.terminate_on_failure)
+
+        if args.use_grasp_penalty:
+            from real_world_rl.action_contract import env_num_grippers
+            if env_num_grippers(env) == 0:
+                raise ValueError("grasp penalty requires a gripper in the action contract")
+            from real_world_rl.action_contract import (
+                get_env_action_contract,
+                gripper_slice,
             )
 
-            env = TeleopEventRewardWrapper(env, success_reward=args.teleop_success_reward)
+            # Must wrap outside TeleopInterventionWrapper so
+            # info["intervene_action"] (the actually-executed action under
+            # human intervention) is already present when this runs. One gripper per
+            # arm by the env's contract; a contract-less env has its gripper last.
+            contract = get_env_action_contract(env)
+            gripper_kwargs = {} if contract is None else {"gripper_slice": gripper_slice(contract)}
+            env = GraspPenaltyWrapper(env, penalty=args.grasp_penalty_value, **gripper_kwargs)
 
-    if args.use_grasp_penalty:
-        from real_world_rl.action_contract import (
-            get_env_action_contract,
-            gripper_slice,
-        )
+        from real_world_rl.tasks.outcome import apply_task_outcome
+        from real_world_rl.envs.wrappers.experiment import apply_experiment_contract
+        env = apply_task_outcome(env, backend_config)
+        env = apply_experiment_contract(env, frame_stack=args.obs.frame_stack,
+                                        convert_obs_rotation=args.convert_obs_rotation,
+                                        source_config=reward_sources_spec(args, task) if source_config is None else source_config)
+        if args.fwbw:
+            env = FWBWResetFreeWrapper(env)
 
-        # Must wrap outside TeleopInterventionWrapper so
-        # info["intervene_action"] (the actually-executed action under
-        # human intervention) is already present when this runs. One gripper per
-        # arm by the env's contract; a contract-less env has its gripper last.
-        contract = get_env_action_contract(env)
-        gripper_kwargs = {} if contract is None else {"gripper_slice": gripper_slice(contract)}
-        env = GraspPenaltyWrapper(env, penalty=args.grasp_penalty_value, **gripper_kwargs)
-
-    if args.fwbw:
-        env = FWBWResetFreeWrapper(env)
-
-    return env
+        return env
+    except BaseException:
+        from real_world_rl.training.evaluation import close_env
+        close_env(env)
+        raise
 
 
 def build_hil_env(
@@ -418,3 +465,61 @@ def build_hil_env(
     """
     env_request = hil_env_request(args, run_name or f"real_world_{role}")
     return compose_hil_env(args, env_request, enable_teleop=enable_teleop)
+
+
+def ensure_real_world_backend(name):
+    """Support source-checkout entrypoints without installed package metadata."""
+    if name in ("franka_real", "real_robot", "real_robot_bimanual"):
+        import importlib
+        importlib.import_module(f"real_world_rl.envs.backends.{name}")
+
+
+def reward_sources_spec(args, task=None):
+    import hashlib
+    from pathlib import Path
+    def model(path):
+        if path is None: return None
+        file = Path(path)
+        return {"path": str(path), "content_sha256": hashlib.sha256(file.read_bytes()).hexdigest() if file.is_file() else None}
+    return {"classifier": model(args.classifier_checkpoint), "classifier_threshold": args.classifier_threshold,
+            "arm_classifiers": {name: model(path) for name, path in (task.classifier_checkpoints.items() if task else ())},
+            "classifier_image_keys": list(args.classifier_image_keys),
+            "reward_from_teleop_events": args.reward_from_teleop_events,
+            "teleop_success_reward": args.teleop_success_reward,
+            "use_grasp_penalty": args.use_grasp_penalty, "grasp_penalty_value": args.grasp_penalty_value,
+            "grasp_penalty_semantics": "critic_target_side_channel",
+            "teleop_selected_parts": args.teleop_selected_parts, "teleop_idle_behavior": args.teleop_idle_behavior}
+
+
+def build_offline_experiment_env(env, config, observation, saved_contract=None):
+    """Build a space-only offline view without opening reward or teleop devices."""
+    from types import SimpleNamespace
+    from real_world_rl.envs.wrappers.obs_chain import apply_obs_chain
+    from real_world_rl.envs.wrappers.experiment import apply_experiment_contract
+    from real_world_rl.action_contract import demo_contract_of, validate_transitions_against_contract
+    import gymnasium as gym
+    spec = (saved_contract or {}).get("experiment", {})
+    observed = spec.get("observation", {})
+    converted = bool(observed.get("convert_obs_rotation", False))
+    backend = "real_robot_bimanual" if hasattr(config, "arm_names") else "real_robot" if hasattr(config, "state_fields") else "franka_real"
+    namespace = SimpleNamespace(env_backend=backend, real_robot=config, real_robot_bimanual=config)
+    env = apply_obs_chain(env, frame_stack=observation.frame_stack, image_keys=observation.image_keys,
+                          convert_obs_rotation=converted, quat_slice=tcp_pose_quat_slice(namespace))
+    env = apply_experiment_contract(env, frame_stack=observation.frame_stack,
+                                    convert_obs_rotation=converted, source_config=spec.get("sources", {}))
+    expected = demo_contract_of(env)
+    if saved_contract and "experiment" in saved_contract and "observation" not in saved_contract["experiment"]:
+        from real_world_rl.action_contract import _requires_experiment_metadata
+        import warnings
+        if _requires_experiment_metadata(expected["experiment"]):
+            raise ValueError("legacy metadata cannot verify task/control/crop/depth observation processing")
+        warnings.warn("legacy raw contract has no final observation/source metadata; using configured default observation view", stacklevel=2)
+        saved_contract = {**saved_contract, "experiment": {**saved_contract["experiment"],
+                           "sources": expected["experiment"].get("sources", {}),
+                           "observation": expected["experiment"]["observation"]}}
+    validate_transitions_against_contract([], expected, source="offline demos", saved=saved_contract)
+    class OfflineSpaceOnly(gym.Wrapper):
+        def __getattr__(self, name): return getattr(self.env, name)
+        def reset(self, **kwargs): raise RuntimeError("offline environment supplies spaces only; deploy for live evaluation")
+        def step(self, action): raise RuntimeError("offline environment supplies spaces only; deploy for live evaluation")
+    return OfflineSpaceOnly(env)

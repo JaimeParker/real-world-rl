@@ -40,6 +40,7 @@ from real_world_rl.action_contract import (
     describe_contract,
     get_env_action_contract,
     num_arms_of,
+    num_grippers_of,
     with_arm_layout,
 )
 from real_world_rl.teleop.base import TeleopSource, as_teleop_source
@@ -58,16 +59,32 @@ class InterventionWrapper(gym.Wrapper):
     ``source`` is validated against the env's action contract, then started (``source.start()``).
     """
 
-    def __init__(self, env: gym.Env, source: TeleopSource) -> None:
+    def __init__(self, env: gym.Env, source: TeleopSource, *, selected_parts=None, idle_behavior="hold") -> None:
         super().__init__(env)
         # Set before anything reads them: __getattr__ forwards unknown attributes to the env.
         # One gripper per arm: the env must have gripper_in_action (checked below).
-        self._num_grippers = num_arms_of(get_env_action_contract(env) or LEGACY_ACTION_CONTRACT)
-        self._last_gripper_action = self._gripper_actions_after_reset()
-        self._previously_intervened = False
         self.source = as_teleop_source(source)
-        self._action_dim = self._validate_against_env(env, self.source)
-        self.source.start()
+        try:
+            self._num_grippers = num_grippers_of(get_env_action_contract(env) or LEGACY_ACTION_CONTRACT)
+            from real_world_rl.teleop.action_parts import part_mask
+            self._selected_mask = part_mask(get_env_action_contract(env) or LEGACY_ACTION_CONTRACT, selected_parts)
+            if idle_behavior not in ("hold", "policy"):
+                raise ValueError("idle_behavior must be hold or policy")
+            self.idle_behavior = idle_behavior
+            self._last_gripper_action = self._gripper_actions_after_reset()
+            self._previously_intervened = False
+            self._action_dim = self._validate_against_env(env, self.source)
+            from real_world_rl.teleop.hold import hold_action_fn_for
+            self._hold_action = hold_action_fn_for(env)
+            self.source.start()
+        except BaseException:
+            import logging
+            for release in (self.source.close, env.close):
+                try:
+                    release()
+                except BaseException:
+                    logging.getLogger(__name__).exception("intervention construction cleanup failed")
+            raise
 
     @property
     def teleop(self) -> TeleopSource:
@@ -108,12 +125,6 @@ class InterventionWrapper(gym.Wrapper):
                 f"teleop source drives arms {source_arm_names} but the env's arms are {env_arm_names} "
                 f"({describe_contract(contract)}); build the source for the env's arm_names, in order."
             )
-        if not contract["gripper_in_action"]:
-            raise ValueError(
-                "the intervention wrapper requires gripper_in_action=true (hil_serl, "
-                "residual_hil_serl and silri treat the last num_arms action dims as the grippers); "
-                f"gripper-less envs are not supported yet. Env contract: {describe_contract(contract)}"
-            )
         action_space = getattr(env, "single_action_space", None)
         if action_space is not None and source_dim != action_space.shape[-1]:
             arms = f" per arm, {source_num_arms} arms" if source_num_arms != 1 else ""
@@ -145,7 +156,12 @@ class InterventionWrapper(gym.Wrapper):
 
     def step(self, action: torch.Tensor):
         reading = self.source.poll()
-        intervened = bool(reading.intervened)
+        requested = bool(reading.intervened)
+        human_mask = torch.as_tensor(self._selected_mask.copy())
+        if reading.human_action_mask is not None:
+            human_mask &= torch.as_tensor(reading.human_action_mask.copy())
+        human_mask &= requested
+        intervened = bool(human_mask.any())
         onset = intervened and not self._previously_intervened
         self._previously_intervened = intervened
         policy_action = action if isinstance(action, torch.Tensor) else torch.as_tensor(action)
@@ -155,14 +171,31 @@ class InterventionWrapper(gym.Wrapper):
             action = torch.as_tensor(reading.action, device=device, dtype=torch.float32).reshape(
                 1, -1 if self._action_dim is None else self._action_dim
             )
+            human_mask = human_mask.to(action.device).reshape(1, -1)
+            proposed = policy_action.to(action.device)
+            if self.idle_behavior == "hold" and not bool(human_mask.all()):
+                held = self._hold_action(self._last_gripper_action).to(action.device).reshape(1, -1)
+                action = torch.where(human_mask, action, held)
+                override_mask = torch.ones_like(human_mask)
+            else:
+                action = torch.where(human_mask, action, proposed)
+                override_mask = human_mask.clone()
             info_extra["intervene_action"] = action
+        if not intervened:
+            human_mask = human_mask.reshape(1, -1).to(policy_action.device)
+            override_mask = torch.zeros_like(human_mask)
         obs, reward, terminated, truncated, info = self.env.step(action)
         # The env clips actions to [-1, 1], so these are the gripper actions it actually sent.
         self._last_gripper_action = (
             torch.as_tensor(action).detach().reshape(-1)[-self._num_grippers :].clamp(-1.0, 1.0).cpu()
         )
+        if not self._num_grippers:
+            self._last_gripper_action = torch.empty(0)
         info = {
             **info,
+            "human_action_mask": human_mask,
+            "syncing": bool(reading.events.get("teleop_syncing", False)),
+            "override_mask": override_mask,
             **info_extra,
             "policy_action": policy_action,
             "intervened": intervened,
@@ -171,6 +204,10 @@ class InterventionWrapper(gym.Wrapper):
         }
         if reading.events:
             info["teleop_events"] = dict(reading.events)
+            names = list(with_arm_layout(get_env_action_contract(self.env) or LEGACY_ACTION_CONTRACT)["arm_names"])
+            arm_events = {name: {event: True for event in ("success", "failure") if reading.events.get(f"{name}.{event}", reading.events.get(f"{name}_{event}", False))} for name in names}
+            if any(arm_events.values()):
+                info["teleop_arm_events"] = arm_events
         if reading.episode_end:
             truncated = (
                 torch.ones_like(truncated, dtype=torch.bool)
@@ -209,6 +246,8 @@ class TeleopInterventionWrapper(InterventionWrapper):
         device: str = "pico",
         **teleop_kwargs: Any,
     ) -> None:
+        selected_parts = teleop_kwargs.pop("selected_parts", None)
+        idle_behavior = teleop_kwargs.pop("idle_behavior", "hold")
         if teleop is not None:
             source = as_teleop_source(teleop)
         else:
@@ -220,4 +259,4 @@ class TeleopInterventionWrapper(InterventionWrapper):
                 motion_kwargs = dict(teleop_kwargs.get("motion_kwargs") or {})
                 teleop_kwargs["motion_kwargs"] = {**hold_gripper, **motion_kwargs}
             source = make_teleop_source(device, env, **teleop_kwargs)
-        super().__init__(env, source)
+        super().__init__(env, source, selected_parts=selected_parts, idle_behavior=idle_behavior)

@@ -18,7 +18,8 @@ The training run is the source of truth for the action/observation contract: the
 from the run's ``real_robot`` config (``resolve_deploy_robot_config``; the CLI only supplies
 connection fields and an explicit, conflicting contract field is an error) and the
 training-time observation wrappers (HIL-SERL frame stacking / rotvec conversion) are re-applied.
-Training-only wrappers (teleop intervention, classifier, grasp penalty, FWBW) are not.
+Task deployment uses the shared classifier, intervention and reward-source composition.
+Saved model contents identify reward sources; local file paths remain replaceable provenance.
 
 A run trained on two arms deploys with ``--env-backend real_robot_bimanual``: the env is built
 from the run's ``real_robot_bimanual`` config the same way (``resolve_deploy_bimanual_config``),
@@ -50,6 +51,10 @@ _LOGGER = logging.getLogger(__name__)
 # Everything else on RealRobotEnvConfig (robot, remote, token, home_joints, cameras, safety_box,
 # reset_settle_s) describes this deployment's connection and stays under CLI control.
 _CONTRACT_FIELDS = (
+    "task",
+    "control",
+    "preprocess",
+    "depth_cameras",
     "action_mode",
     "gripper_in_action",
     "num_joints",
@@ -64,8 +69,8 @@ _CONTRACT_FIELDS = (
 )
 # The two-arm config splits the same fields: max_episode_steps (and the arm names, which name
 # the observation keys) on the two-arm config, the rest on each arm.
-_BIMANUAL_CONTRACT_FIELDS = ("arm_names", "max_episode_steps")
-_BIMANUAL_ARM_CONTRACT_FIELDS = tuple(name for name in _CONTRACT_FIELDS if name != "max_episode_steps")
+_BIMANUAL_CONTRACT_FIELDS = ("arm_names", "max_episode_steps", "task")
+_BIMANUAL_ARM_CONTRACT_FIELDS = tuple(name for name in _CONTRACT_FIELDS if name not in ("max_episode_steps", "task"))
 _BIMANUAL_ARMS = ("left", "right")
 # The real-world registry's offline BC method: restored from that registry, not the online one.
 _REAL_WORLD_BC = "real_world_bc"
@@ -92,6 +97,10 @@ class DeployArgs:
     real_robot_bimanual: BimanualRealRobotEnvConfig = field(default_factory=BimanualRealRobotEnvConfig)
     # Number of reset/step episodes to run.
     episodes: int = 5
+    enable_teleop: bool = True
+    teleop_device: Optional[str] = None
+    teleop_event_device: Optional[str] = None
+    classifier_checkpoint: Optional[str] = None
     # Use the policy's deterministic (mean) action.
     deterministic: bool = True
     # Per-episode step cap on top of real_robot.max_episode_steps; None means no extra cap.
@@ -114,6 +123,7 @@ class EpisodeResult:
     truncated: bool
     rtt_ms_mean: Optional[float]
     health_ok: Optional[bool]
+    outcome: Any = None
 
 
 # -- policy restore -------------------------------------------------------------------
@@ -143,9 +153,35 @@ def _apply_mapping(target: Any, values: Mapping[str, Any]) -> None:
         _set_existing_attr(target, key, value)
 
 
+def _checkpoint_file(args):
+    path = Path(args.checkpoint)
+    if path.is_dir(): path = path / "bundle_manifest.json"
+    if path.name == "bundle_manifest.json":
+        manifest = json.loads(path.read_text())
+        generation = path.parent / manifest["generation"]
+        if manifest.get("version") != 1 or generation.parent.resolve() != path.parent.resolve():
+            raise ValueError("invalid checkpoint bundle manifest")
+        return generation / "agent.pt"
+    return path
+
+
+def _saved_experiment(args):
+    file = _checkpoint_file(args)
+    candidates = [file.parent / "experiment.json", _config_path(args).parent / "experiment.json"]
+    for path in candidates:
+        if path.is_file():
+            saved = json.loads(path.read_text())
+            return saved.get("effective_experiment") or saved.get("experiment_contract")
+    return None
+
+
 def _config_path(args: DeployArgs) -> Path:
     if args.config_path is not None:
         return Path(args.config_path)
+    checkpoint = _checkpoint_file(args)
+    for directory in list(checkpoint.parents)[:4]:
+        candidate = directory / "config.json"
+        if candidate.is_file(): return candidate
     return Path(args.checkpoint).parent.parent / "config.json"
 
 
@@ -188,7 +224,7 @@ def restore_training_args(args: DeployArgs) -> Any:
             )
         _apply_mapping(training_args, saved)
         _restore_real_world_fields(training_args, saved)
-    checkpoint = load_checkpoint_file(args.checkpoint, map_location="cpu")
+    checkpoint = load_checkpoint_file(_checkpoint_file(args), map_location="cpu")
     hyperparameters = checkpoint.get("metadata", {}).get("hyperparameters", {})
     if isinstance(hyperparameters, Mapping):
         _apply_mapping(training_args, hyperparameters)
@@ -257,10 +293,12 @@ def _bimanual_config_from_saved(saved_bimanual: Mapping[str, Any]) -> BimanualRe
 
 def _contract_conflicts(cli: Any, trained: Any, defaults: Any, names: tuple[str, ...], prefix: str = "") -> list[str]:
     """The contract fields given on the CLI (differing from ``defaults``) that contradict training."""
+    from real_world_rl.action_contract import _contract_values_match, json_normalize
     return [
         f"{prefix}{name}: training={getattr(trained, name)!r}, cli={getattr(cli, name)!r}"
         for name in names
-        if getattr(cli, name) != getattr(defaults, name) and getattr(cli, name) != getattr(trained, name)
+        if not _contract_values_match(json_normalize(getattr(cli, name)), json_normalize(getattr(defaults, name)))
+        and not _contract_values_match(json_normalize(getattr(cli, name)), json_normalize(getattr(trained, name)))
     ]
 
 
@@ -286,7 +324,10 @@ def resolve_deploy_robot_config(args: DeployArgs, training_args: Any) -> RealRob
             "is the source of truth for these fields (drop them from the CLI):\n  "
             + "\n  ".join(conflicts)
         )
-    return replace(cli, **{name: getattr(trained, name) for name in _CONTRACT_FIELDS})
+    values = {name: getattr(trained, name) for name in _CONTRACT_FIELDS}
+    if cli.task.classifier_checkpoints:
+        values["task"] = replace(trained.task, classifier_checkpoints=cli.task.classifier_checkpoints)
+    return replace(cli, **values)
 
 
 def resolve_deploy_bimanual_config(args: DeployArgs, training_args: Any) -> BimanualRealRobotEnvConfig:
@@ -321,7 +362,10 @@ def resolve_deploy_bimanual_config(args: DeployArgs, training_args: Any) -> Bima
         )
         for arm in _BIMANUAL_ARMS
     }
-    return replace(cli, **arms, **{name: getattr(trained, name) for name in _BIMANUAL_CONTRACT_FIELDS})
+    values = {name: getattr(trained, name) for name in _BIMANUAL_CONTRACT_FIELDS}
+    if cli.task.classifier_checkpoints:
+        values["task"] = replace(trained.task, classifier_checkpoints=cli.task.classifier_checkpoints)
+    return replace(cli, **arms, **values)
 
 
 def build_deploy_env(args: DeployArgs, training_args: Any):
@@ -336,6 +380,8 @@ def build_deploy_env(args: DeployArgs, training_args: Any):
         tcp_pose_quat_slices,
     )
 
+    from real_world_rl.training.runtime_paths import resolve_control_frequency
+    if training_args is not None: resolve_control_frequency(training_args)
     if args.env_backend == _BIMANUAL_BACKEND:
         import real_world_rl.envs.backends.real_robot_bimanual  # noqa: F401  (registers the backend)
 
@@ -360,13 +406,41 @@ def build_deploy_env(args: DeployArgs, training_args: Any):
         backend_config=robot_config,
     )
     env, _ = make_training_envs(args.env_backend, request)
-    return apply_obs_chain(
-        env,
-        frame_stack=observation.frame_stack,
-        image_keys=tuple(getattr(training_args, "classifier_image_keys", ())),
-        convert_obs_rotation=bool(getattr(training_args, "convert_obs_rotation", False)),
-        quat_slice=quat_slice,
-    )
+    from types import SimpleNamespace
+    from real_world_rl.training.args import HilEnvArgs
+    from real_world_rl.training.env_building import compose_hil_wrappers
+    values = dataclasses.asdict(HilEnvArgs())
+    if training_args is not None: values.update(vars(training_args))
+    values.update(obs=observation, env_backend=args.env_backend,
+                  real_robot=robot_config if args.env_backend != _BIMANUAL_BACKEND else args.real_robot,
+                  real_robot_bimanual=robot_config if args.env_backend == _BIMANUAL_BACKEND else args.real_robot_bimanual)
+    saved_experiment = _saved_experiment(args)
+    saved_spec = (saved_experiment or {}).get("experiment", {})
+    sources = (saved_experiment or {}).get("provenance", saved_spec).get("sources", {})
+    if sources:
+        classifier = sources.get("classifier")
+        values["classifier_checkpoint"] = classifier.get("path") if classifier else None
+        for key in ("classifier_threshold", "classifier_image_keys", "reward_from_teleop_events",
+                    "teleop_success_reward", "use_grasp_penalty", "grasp_penalty_value",
+                    "teleop_selected_parts", "teleop_idle_behavior"):
+            if key in sources: values[key] = sources[key]
+        values["convert_obs_rotation"] = saved_spec.get("observation", {}).get("convert_obs_rotation", False)
+    if args.classifier_checkpoint is not None: values["classifier_checkpoint"] = args.classifier_checkpoint
+    if args.teleop_device is not None: values["teleop_device"] = args.teleop_device
+    if args.teleop_event_device is not None: values["teleop_event_device"] = args.teleop_event_device
+    task_active = robot_config.task.name != "none"
+    # A task deployment follows the same source and intervention composition as evaluation.
+    env = compose_hil_wrappers(SimpleNamespace(**values), env, robot_config,
+                              enable_teleop=args.enable_teleop and (task_active or args.teleop_device is not None),
+                              source_config={} if saved_spec.get("sources") == {} else None)
+    from real_world_rl.action_contract import validate_experiment
+    try:
+        validate_experiment(env, saved_experiment)
+    except BaseException:
+        from real_world_rl.training.evaluation import close_env
+        close_env(env)
+        raise
+    return env
 
 
 def _resolve_build_agent(algo: str):
@@ -407,10 +481,15 @@ def restore_policy(args: DeployArgs, training_args: Any, env: Any):
 
     seed_everything(args.seed)
     build_agent = _resolve_build_agent(args.algo)
+    from real_world_rl.action_contract import env_num_grippers
+    if args.algo == "rlpd_hybrid" and env_num_grippers(env) == 0:
+        from real_world_rl.training.entrypoints.hil_serl import build_hil_agent
+        build_agent = build_hil_agent
     agent = build_agent(
         training_args, env, None, logger=None, checkpoint_dir=None, **_gripper_count_kwargs(args.algo, env)
     )
-    agent.load(args.checkpoint, load_replay_buffer=False, load_optimizers=False)
+    from real_world_rl.checkpoint_contract import load_with_action_contract
+    load_with_action_contract(agent, str(_checkpoint_file(args)), load_replay_buffer=False, load_optimizers=False)
     # Online builders construct on device "auto"; inference runs where --device says.
     policy = agent.policy.to(torch.device(args.device))
     return _compose_with_base_provider(args, agent, policy, env)
@@ -470,34 +549,44 @@ def _env_device(obs: Any) -> torch.device:
     return sample.device
 
 
-def _run_episode(args: DeployArgs, env: Any, policy: Any, device: torch.device, seed) -> EpisodeResult:
+def _run_episode(args: DeployArgs, env: Any, policy: Any, device: torch.device, seed, *, failed_outcomes=None) -> EpisodeResult:
     from real_world_rl.policies.base_provider import ResidualPolicyWithBase
 
     if isinstance(policy, ResidualPolicyWithBase):
         policy.reset_episode()
     obs, _ = env.reset(seed=seed)
+    from real_world_rl.metrics import EpisodeOutcomeAccumulator
+
+    accumulator = EpisodeOutcomeAccumulator()
     steps, episode_return, truncated = 0, 0.0, False
     rtts: list[float] = []
-    while True:
-        # Same call as ActorLoop._predict.
-        with torch.no_grad():
-            action = policy.predict(_obs_to_device(obs, device), deterministic=args.deterministic)
-        obs, reward, terminated, env_truncated, info = env.step(action.to(_env_device(obs)))
-        steps += 1
-        episode_return += float(torch.as_tensor(reward).sum())
-        rtt = info.get("rtt_ms") if isinstance(info, Mapping) else None
-        if rtt is not None:
-            rtts.append(float(rtt))
-        hit_cap = args.max_steps_per_episode is not None and steps >= args.max_steps_per_episode
-        if bool(torch.as_tensor(terminated).any()) or bool(torch.as_tensor(env_truncated).any()) or hit_cap:
-            truncated = bool(torch.as_tensor(env_truncated).any()) or hit_cap
-            break
+    try:
+        while True:
+            # Same call as ActorLoop._predict.
+            with torch.no_grad():
+                action = policy.predict(_obs_to_device(obs, device), deterministic=args.deterministic)
+            obs, reward, terminated, env_truncated, info = env.step(action.to(_env_device(obs)))
+            accumulator.observe(info)
+            steps += 1
+            episode_return += float(torch.as_tensor(reward).sum())
+            rtt = info.get("rtt_ms") if isinstance(info, Mapping) else None
+            if rtt is not None:
+                rtts.append(float(rtt))
+            hit_cap = args.max_steps_per_episode is not None and steps >= args.max_steps_per_episode
+            if bool(torch.as_tensor(terminated).any()) or bool(torch.as_tensor(env_truncated).any()) or hit_cap:
+                truncated = bool(torch.as_tensor(env_truncated).any()) or hit_cap
+                break
+    except BaseException:
+        if failed_outcomes is not None:
+            failed_outcomes.append(accumulator.finish(interrupted=True))
+        raise
     return EpisodeResult(
         steps=steps,
         episode_return=episode_return,
         truncated=truncated,
         rtt_ms_mean=sum(rtts) / len(rtts) if rtts else None,
         health_ok=_health_ok(env),
+        outcome=accumulator.finish(terminated=terminated, truncated=truncated),
     )
 
 
@@ -513,14 +602,19 @@ def run_deploy(args: DeployArgs, *, env: Any = None, policy: Any = None) -> list
     training_args = restore_training_args(args) if env is None or policy is None else None
     if env is None:
         env = build_deploy_env(args, training_args)
+    results: list[EpisodeResult] = []
+    failed_outcomes = []
     try:
         if policy is None:
             policy = restore_policy(args, training_args, env)
         policy.eval()
         device = torch.device(args.device)
-        results: list[EpisodeResult] = []
-        for episode in range(args.episodes):
-            result = _run_episode(args, env, policy, device, seed=args.seed if episode == 0 else None)
+        task = getattr(env, "task_config", None)
+        episodes = task.eval_episodes if task is not None and task.eval_episodes is not None else args.episodes
+        seed = task.eval_seed if task is not None and task.eval_seed is not None else args.seed
+        for episode in range(episodes):
+            result = _run_episode(args, env, policy, device, seed=seed if episode == 0 else None,
+                                  failed_outcomes=failed_outcomes)
             results.append(result)
             print(
                 f"[deploy] episode={episode} steps={result.steps} "
@@ -530,11 +624,25 @@ def run_deploy(args: DeployArgs, *, env: Any = None, policy: Any = None) -> list
             )
         _print_summary(results)
         return results
+    except BaseException:
+        if failed_outcomes:
+            _print_summary(results, extra_outcomes=failed_outcomes)
+        raise
     finally:
-        env.close()
+        from real_world_rl.training.evaluation import close_resources
+        close_resources(env, getattr(policy, "provider", getattr(policy, "base_provider", None)))
 
 
-def _print_summary(results: list[EpisodeResult]) -> None:
+def _print_summary(results: list[EpisodeResult], *, extra_outcomes=()) -> None:
+    from real_world_rl.metrics import EpisodeMetrics
+
+    metrics = EpisodeMetrics()
+    for result in results:
+        if result.outcome is not None:
+            metrics.add(result.outcome)
+    for outcome in extra_outcomes:
+        metrics.add(outcome)
+    outcome_summary = " ".join(f"{key}={value}" for key, value in metrics.summary().items())
     count = len(results)
     mean_steps = sum(r.steps for r in results) / count if count else 0.0
     mean_return = sum(r.episode_return for r in results) / count if count else 0.0
@@ -543,7 +651,7 @@ def _print_summary(results: list[EpisodeResult]) -> None:
     print(
         f"[deploy] summary episodes={count} mean_steps={mean_steps:.1f} "
         f"mean_return={mean_return:.3f} rtt_ms={_format_rtt(sum(rtts) / len(rtts) if rtts else None)} "
-        f"all_healthy={all_healthy}",
+        f"all_healthy={all_healthy} {outcome_summary}",
         flush=True,
     )
 

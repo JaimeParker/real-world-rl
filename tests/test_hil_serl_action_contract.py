@@ -134,10 +134,10 @@ def test_teleop_rejects_piper_joint_delta_even_though_widths_match():
         TeleopInterventionWrapper(env, teleop=_Teleop())
 
 
-def test_teleop_rejects_env_without_gripper_in_action():
+def test_teleop_supports_env_without_gripper_in_action():
     env = _ContractEnv("cartesian_delta", 6, gripper_in_action=False)
-    with pytest.raises(ValueError, match="gripper_in_action=true.*gripper-less"):
-        TeleopInterventionWrapper(env, teleop=_Teleop())
+    wrapped = TeleopInterventionWrapper(env, teleop=_Teleop(has_gripper=False))
+    assert wrapped._num_grippers == 0
 
 
 def test_teleop_rejects_same_mode_width_mismatch():
@@ -162,8 +162,8 @@ def test_teleop_over_real_robot_vector_env_checks_action_mode():
     TeleopInterventionWrapper(_real_env(), teleop=_Teleop())
     with pytest.raises(ValueError, match="joint_delta"):
         TeleopInterventionWrapper(_real_env(action_mode="joint_delta", num_joints=6), teleop=_Teleop())
-    with pytest.raises(ValueError, match="gripper_in_action"):
-        TeleopInterventionWrapper(_real_env(gripper_in_action=False), teleop=_Teleop())
+    wrapped = TeleopInterventionWrapper(_real_env(gripper_in_action=False), teleop=_Teleop(has_gripper=False))
+    assert wrapped._num_grippers == 0
 
 
 # -- observation offsets ---------------------------------------------------------------

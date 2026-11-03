@@ -94,17 +94,16 @@ def test_push_transition_survives_learner_being_down_temporarily():
         client.stop()
 
 
-def test_push_transition_drops_oldest_when_queue_full():
-    # No server/threads needed -- push_transition() enqueues synchronously,
-    # so filling the bounded queue and inspecting it is deterministic.
-    client = ActorSyncClient("http://127.0.0.1:1", poll_interval=10.0, max_queue_size=4)
+def test_push_transition_preserves_all_rows_beyond_legacy_queue_limit():
+    from real_world_rl.loops.durable import decode
+    client = ActorSyncClient("http://127.0.0.1:1", max_queue_size=4)
     for seq in range(10):
         client.push_transition({"seq": seq})
-
-    assert client._queue.qsize() == 4
-    assert client.dropped_transitions == 6
-    remaining_seqs = [t["seq"] for t in client._queue.queue if t is not None]
-    assert remaining_seqs == [6, 7, 8, 9]
+    rows = client._outbox.read()
+    assert len(rows) == 10
+    assert client.dropped_transitions == 0
+    assert [decode(row[2])["data"]["seq"] for row in rows] == list(range(10))
+    client.stop(flush=False)
 
 
 def test_stop_does_not_block_when_queue_full():

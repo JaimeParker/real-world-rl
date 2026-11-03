@@ -410,3 +410,9 @@ Run training with `python examples/train_real_world.py serl --role ...`
 shape). See [`docs/teleop.md`](docs/teleop.md) for the teleop demo/recording
 workflow, and [`docs/hil-serl-roadmap.md`](docs/hil-serl-roadmap.md) for what
 HIL-SERL capability was and wasn't migrated, and why.
+
+
+Experiment recovery, autonomous/assisted metrics, part takeover and trajectory archives are
+documented in [Real-world experiments](docs/real-world-experiments.md). Human action masks
+keep partial demonstrations aligned through BC, residual and SiLRI training; no-gripper
+HIL configurations use continuous policies. Hardware validation remains pending.

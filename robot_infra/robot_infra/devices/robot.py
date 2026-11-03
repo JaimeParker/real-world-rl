@@ -55,10 +55,19 @@ class RobotConfig:
     safety_box: list[float] | None = None
     joint_limits: list[list[float]] | None = None  # (NUM_JOINTS, 2) [lo, hi] in rad
     max_delta_per_step: dict | None = None  # {"xyz_m": float, "joint_rad": float}, servo only
+    control: dict | None = None
     claim: bool = True
     teleop: TeleopConfig | None = None
 
     def __post_init__(self) -> None:
+        import math
+        from robot_infra.control import ArmControlConfig
+        values = [*(self.home_joints or []), *(self.safety_box or []),
+                  *(value for row in (self.joint_limits or []) for value in row)]
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) for value in values):
+            raise ValueError("home_joints, safety_box and joint_limits must contain finite numbers")
+        if self.control is not None:
+            self.control = ArmControlConfig.from_dict(self.control).to_dict()
         if self.home_joints is not None and len(self.home_joints) != self.NUM_JOINTS:
             raise ValueError(
                 f"home_joints must have {self.NUM_JOINTS} entries, got {len(self.home_joints)}"
@@ -98,6 +107,7 @@ class RobotConfig:
                     )
 
     def _check_max_delta_per_step(self) -> None:
+        import math
         if self.max_delta_per_step is None:
             return
         for key, value in self.max_delta_per_step.items():
@@ -105,7 +115,7 @@ class RobotConfig:
                 raise ValueError(
                     f"unknown max_delta_per_step key '{key}'; known: {list(_MAX_DELTA_KEYS)}"
                 )
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not value > 0:
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not value > 0:
                 raise ValueError(f"max_delta_per_step.{key} must be a positive number, got {value!r}")
 
     @classmethod
@@ -228,6 +238,7 @@ class Robot(PartGroup, ABC):
     def _build_standard(self) -> None:
         cfg = self.config
         arm = Arm.backend(cfg.arm_backend).from_config(cfg)
+        arm.set_station_control(cfg.control)
         self.add("arm", arm)
         if cfg.gripper:
             owner = arm if cfg.gripper.shares_arm_session else None

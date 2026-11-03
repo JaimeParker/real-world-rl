@@ -17,6 +17,8 @@ are everything before them (``arm_block_slices``); consumers read the grippers a
 from __future__ import annotations
 
 import json
+import dataclasses
+import hashlib
 import warnings
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
@@ -28,9 +30,9 @@ import torch
 _PHYSICAL_KEYS = ("joint_limits", "xyz_scale_m", "rot_scale_rad", "joint_scale_rad", "state_fields")
 _ARM_LAYOUT_KEYS = ("num_arms", "arm_names")
 DEMO_CONTRACT_KEYS = (
-    ("action_mode", "arm_action_dim", "gripper_in_action", "num_joints") + _ARM_LAYOUT_KEYS + _PHYSICAL_KEYS
+    ("action_mode", "arm_action_dim", "gripper_in_action", "num_joints") + _ARM_LAYOUT_KEYS + _PHYSICAL_KEYS + ("contract_version", "experiment", "effective_control")
 )
-_COMPARED_KEYS = ("action_mode", "arm_action_dim", "gripper_in_action") + _ARM_LAYOUT_KEYS + _PHYSICAL_KEYS
+_COMPARED_KEYS = ("action_mode", "arm_action_dim", "gripper_in_action") + _ARM_LAYOUT_KEYS + _PHYSICAL_KEYS + ("experiment",)
 # Pre-contract convention: a 6-D cartesian twist plus a trailing gripper dimension.
 LEGACY_ACTION_CONTRACT: Mapping[str, Any] = {
     "action_mode": "cartesian_delta",
@@ -113,13 +115,21 @@ def contract_sidecar_path(pkl_path: str | Path) -> Path:
 
 def write_contract_sidecar(pkl_path: str | Path, contract: Mapping[str, Any]) -> None:
     contract_sidecar_path(pkl_path).write_text(
-        json.dumps({key: contract[key] for key in DEMO_CONTRACT_KEYS if key in contract}, sort_keys=True)
+        json.dumps(json_normalize({key: contract[key] for key in DEMO_CONTRACT_KEYS if key in contract}), sort_keys=True)
         + "\n",
         encoding="utf-8",
     )
 
 
 def _contract_values_match(saved: Any, expected: Any) -> bool:
+    if isinstance(saved, Mapping) and isinstance(expected, Mapping):
+        saved, expected = semantic_experiment(saved), semantic_experiment(expected)
+    if isinstance(saved, Mapping) or isinstance(expected, Mapping):
+        return (isinstance(saved, Mapping) and isinstance(expected, Mapping)
+                and set(saved) == set(expected)
+                and all(_contract_values_match(saved[key], expected[key]) for key in saved))
+    if isinstance(saved, (list, tuple)) and isinstance(expected, (list, tuple)):
+        return len(saved) == len(expected) and all(_contract_values_match(a, b) for a, b in zip(saved, expected))
     if saved is None or expected is None:
         return saved is None and expected is None
     if isinstance(saved, str) or isinstance(expected, str):
@@ -158,8 +168,18 @@ def validate_transitions_against_contract(
     expected = with_arm_layout(expected)
     if saved is not None:
         saved = with_arm_layout(saved)
+        saved_spec = saved.get("experiment", {})
+        expected_spec = expected.get("experiment", {})
+        if saved_spec and "observation" not in saved_spec and "observation" in expected_spec:
+            if _requires_experiment_metadata(expected_spec):
+                raise ValueError(f"{source}: legacy metadata cannot verify task/control/crop/depth observation processing")
+            warnings.warn(f"{source}: legacy raw metadata has no final observation/source contract; checking configured default view", stacklevel=2)
+            saved = {**saved, "experiment": {**saved_spec, "observation": expected_spec["observation"],
+                                             "sources": expected_spec.get("sources", {})}}
         compared = [key for key in _COMPARED_KEYS if key in expected]
         missing = [key for key in compared if key not in saved]
+        if "experiment" in missing and _requires_experiment_metadata(expected.get("experiment", {})):
+            raise ValueError(f"{source}: legacy metadata cannot verify task/control/crop/depth experiment")
         mismatched = [
             key
             for key in compared
@@ -179,6 +199,8 @@ def validate_transitions_against_contract(
                 f"{source}'s action-contract metadata predates {missing}; those were not checked",
                 stacklevel=2,
             )
+    if saved is None and _requires_experiment_metadata(expected.get("experiment", {})):
+        raise ValueError(f"{source}: missing metadata cannot verify task/control/crop/depth experiment")
     expected_dim = action_dim_of(expected)
     for index, transition in enumerate(transitions):
         actual_dim = int(torch.as_tensor(transition["action"]).shape[-1])
@@ -194,3 +216,100 @@ def validate_transitions_against_contract(
             "different action_mode would go unnoticed",
             stacklevel=2,
         )
+
+
+def json_normalize(value):
+    """Canonical JSON representation shared by configs, wire metadata and sidecars."""
+    if dataclasses.is_dataclass(value): value = dataclasses.asdict(value)
+    if isinstance(value, Mapping): return {str(key): json_normalize(item) for key, item in sorted(value.items())}
+    if isinstance(value, (tuple, list)): return [json_normalize(item) for item in value]
+    if isinstance(value, np.ndarray): return value.tolist()
+    if isinstance(value, torch.Tensor): return value.detach().cpu().tolist()
+    if isinstance(value, np.generic): return value.item()
+    if isinstance(value, float) and not np.isfinite(value): return str(value)
+    return value
+
+
+def _requires_experiment_metadata(spec):
+    if not isinstance(spec, Mapping): return False
+    sources = spec.get("sources", {})
+    if sources.get("classifier") or sources.get("arm_classifiers"):
+        return True
+    task = spec.get("task", {})
+    if task.get("name", "none") != "none" or spec.get("control") or spec.get("depth_cameras"):
+        return True
+    for preprocessing in spec.get("preprocess", {}).values():
+        if any(value is not None for value in preprocessing.values()): return True
+    return any(_requires_experiment_metadata(value) for value in spec.get("arms", {}).values())
+
+
+def experiment_contract_of(env):
+    contract = get_env_action_contract(env)
+    if contract is None: return None
+    return semantic_experiment(json_normalize({"schema_version": 2,
+                           "action": {key: contract[key] for key in DEMO_CONTRACT_KEYS
+                                      if key in contract and key not in ("experiment", "effective_control", "contract_version")},
+                           "experiment": contract.get("experiment", {})}))
+
+
+def experiment_hash(env):
+    contract = experiment_contract_of(env)
+    if contract is None: return None
+    return hashlib.sha256(json.dumps(contract, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+
+
+def effective_experiment_of(env):
+    contract = experiment_contract_of(env)
+    if contract is None: return None
+    raw = get_env_action_contract(env) or {}
+    return {**contract, "runtime_control": json_normalize(getattr(env, "runtime_control", {})),
+            "provenance": json_normalize(raw.get("experiment", {}))}
+
+
+def validate_experiment(env, saved):
+    """Validate a saved requested contract now; enforce effective control before reset moves."""
+    if saved is None:
+        contract = get_env_action_contract(env) or {}
+        if _requires_experiment_metadata(contract.get("experiment", {})):
+            raise ValueError("saved experiment metadata is missing for task/control/crop/depth configuration")
+        return
+    expected = {key: value for key, value in saved.items() if key not in ("runtime_control", "provenance")}
+    if not _contract_values_match(expected, experiment_contract_of(env)):
+        raise ValueError("saved experiment contract/hash differs from the constructed environment")
+    metadata = saved.get("runtime_control", {})
+    current = env
+    while getattr(current, "env", None) is not None:
+        current = current.env
+    arms = current.arms if hasattr(current, "arms") else {"arm": current}
+    for name, arm in arms.items():
+        if metadata.get(name): arm._expected_control_metadata = metadata[name]
+
+
+def save_experiment_metadata(env, path):
+    """Atomically save requested identity and resolved runtime provenance beside artifacts."""
+    import os
+    import tempfile
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"experiment_hash": experiment_hash(env), "experiment_contract": experiment_contract_of(env),
+               "effective_experiment": effective_experiment_of(env)}
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w") as stream:
+            json.dump(json_normalize(payload), stream, sort_keys=True, allow_nan=False)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary): os.unlink(temporary)
+    return payload
+
+
+def semantic_experiment(value):
+    """Model contents identify an experiment; filesystem locations remain provenance."""
+    if isinstance(value, Mapping):
+        return {key: semantic_experiment(item) for key, item in value.items()
+                if key != "classifier_checkpoints" and not (key == "path" and "content_sha256" in value)}
+    if isinstance(value, (tuple, list)): return [semantic_experiment(item) for item in value]
+    return value

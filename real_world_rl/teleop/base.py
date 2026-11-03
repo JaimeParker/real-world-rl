@@ -39,12 +39,21 @@ class TeleopReading:
     episode_end: bool = False
     events: Mapping[str, bool] = field(default_factory=dict)
     timestamp: float = 0.0
+    human_action_mask: Any = None
+    override_mask: Any = None
 
     def __post_init__(self) -> None:
         action = np.asarray(self.action, dtype=np.float32)
         if action.ndim != 1:
             raise ValueError(f"TeleopReading.action must be 1-D, got shape {action.shape}")
         object.__setattr__(self, "action", action)
+        for name in ("human_action_mask", "override_mask"):
+            value = getattr(self, name)
+            if value is not None:
+                value = np.asarray(value, dtype=bool)
+                if value.shape != action.shape:
+                    raise ValueError(f"{name} shape must match action")
+                object.__setattr__(self, name, value)
 
     @classmethod
     def idle(cls, action_dim: int) -> "TeleopReading":

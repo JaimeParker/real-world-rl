@@ -104,11 +104,11 @@ def test_actor_loop_resets_env_after_termination():
 
     loop.run(total_steps=2)
 
-    # step 2 terminates -> loop must reset before returning.
-    assert env.reset_calls == 2
+    # The completed final step releases the robot without an extra reset.
+    assert env.reset_calls == 1
 
 
-def test_actor_loop_refreshes_policy_params_each_step():
+def test_actor_loop_loads_unchanged_policy_params_once():
     env = _FakeEnv()
     policy = _FakePolicy()
     params = {"w": torch.tensor([1.0])}
@@ -117,7 +117,7 @@ def test_actor_loop_refreshes_policy_params_each_step():
 
     loop.run(total_steps=2)
 
-    assert len(policy.loaded_state_dicts) == 2
+    assert len(policy.loaded_state_dicts) == 1
     assert policy.loaded_state_dicts[0] is params
 
 

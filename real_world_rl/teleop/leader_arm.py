@@ -171,6 +171,7 @@ class LeaderArmPartSource(TeleopPartSource, ToggleableTeleopSource):
             episode_end=bool(sample.events.get("episode_end", False)),
             events=events,
             timestamp=float(getattr(sample, "timestamp", 0.0)),
+            human_action_mask=np.asarray([True] * self.arm_action_dim + ([bool(self._contract.has_gripper)] if self._env_gripper else []), dtype=bool),
         )
 
     def _read_leader(self) -> Tuple[Any, Any]:
@@ -206,7 +207,8 @@ class LeaderArmPartSource(TeleopPartSource, ToggleableTeleopSource):
                 self._armed = True
             return True, leader, False
         if self.action_mode != "joint_abs":
-            return True, leader, False  # joint_delta saturates at joint_scale_rad by itself
+            syncing = float(np.abs(leader - self._follower_joints()).max()) > float(self._joint_scale_rad) + 1e-6
+            return True, leader, syncing
         follower = self._follower_joints()
         gap = leader - follower
         syncing = float(np.abs(gap).max()) > self._ramp_step_rad

@@ -346,4 +346,34 @@ def test_episode_end_resets_the_provider_and_posts_the_episode_statistics():
     assert [stats["episode"] for stats in sync_client.posted] == [1, 2]
     assert [stats["length"] for stats in sync_client.posted] == [2, 2]
     assert [stats["intervened_steps"] for stats in sync_client.posted] == [1, 0]
-    assert [stats["success"] for stats in sync_client.posted] == [1.0, 1.0]
+    assert [stats["terminated"] for stats in sync_client.posted] == [1.0, 1.0]
+    assert [stats["task_success"] for stats in sync_client.posted] == [None, None]
+
+
+@pytest.mark.parametrize("terminated", [False, True])
+def test_canonical_residual_demo_projects_boundary_and_keeps_partial_base_fields(tmp_path, terminated):
+    row = residual_row(intervened=True, base=0.2, human_offset=0.4)
+    row.update(record_id="episode/step/0", episode_id="episode", step_index=0,
+               terminated=terminated, truncated=not terminated,
+               done=torch.tensor([not terminated]),
+               human_action_mask=torch.zeros_like(row["action"], dtype=torch.bool),
+               override_mask=torch.ones_like(row["action"], dtype=torch.bool))
+    row["human_action_mask"][..., 0] = True
+    path = tmp_path / "canonical.pkl"
+    with path.open("wb") as stream:
+        pickle.dump([row], stream)
+    agent = _demo_agent()
+    loop = _learner_loop(agent, tmp_path / "checkpoint", demo_dataset_paths=[str(path)])
+    try:
+        demo = agent.offline_replay_buffer
+        assert len(demo) == 1
+        assert bool(demo.dones[0].any()) == terminated
+        torch.testing.assert_close(demo.actions[0], row["action"])
+        torch.testing.assert_close(demo.base_actions[0], row["base_actions"])
+        torch.testing.assert_close(demo.next_base_actions[0], row["next_base_actions"])
+        torch.testing.assert_close(demo.policy_actions[0], row["policy_action"])
+        torch.testing.assert_close(demo.human_action_mask[0], row["human_action_mask"])
+        torch.testing.assert_close(demo.override_mask[0], row["override_mask"])
+    finally:
+        loop._server.stop()
+        loop._journal.close()

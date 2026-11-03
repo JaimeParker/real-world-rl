@@ -3,11 +3,16 @@ from __future__ import annotations
 
 import dataclasses
 
+from real_world_rl.training.runtime_paths import actor_sync_kwargs, learner_experiment_kwargs, actor_control_hz
+
 
 def _serl_env_request(args, run_name):
     from rl_garden.common.env_args import make_env_request
 
-    return make_env_request(args, run_name)
+    from real_world_rl.training.env_building import ensure_real_world_backend
+    ensure_real_world_backend(args.env_backend)
+    from real_world_rl.training.env_building import hil_env_request
+    return hil_env_request(args, run_name)
 
 
 def _run_actor(args) -> None:
@@ -25,23 +30,37 @@ def _run_actor(args) -> None:
 
     env_request = _serl_env_request(args, run_name="real_world_actor")
     env, _ = make_training_envs(args.env_backend, env_request)
+    from real_world_rl.training.env_building import compose_hil_wrappers
+    from real_world_rl.training.args import HilEnvArgs
+    from types import SimpleNamespace
+    values = dataclasses.asdict(HilEnvArgs())
+    values.update(vars(args))
+    env = compose_hil_wrappers(SimpleNamespace(**values), env, env_request.backend_config, enable_teleop=False)
+    loop_owns_env = False
+    try:
 
-    scratch_args = dataclasses.replace(
-        args, buffer_size=8, load_checkpoint=None, offline_dataset=None
-    )
-    agent = build_rlpd(scratch_args, env, None, logger=None, checkpoint_dir=None)
+        scratch_args = dataclasses.replace(
+            args, buffer_size=8, load_checkpoint=None, offline_dataset=None
+        )
+        agent = build_rlpd(scratch_args, env, None, logger=None, checkpoint_dir=None)
 
-    sync_client = SerlActorSyncClient(f"http://{args.sync_host}:{args.sync_port}")
-    loop = SerlActorLoop(
-        env,
-        agent.policy,
-        sync_client,
-        control_hz=args.control_hz,
-        device=agent.device,
-        deterministic=args.deterministic_actor,
-        seed=args.seed,
-    )
-    loop.run()
+        sync_client = SerlActorSyncClient(f"http://{args.sync_host}:{args.sync_port}", **actor_sync_kwargs(args))
+        loop = SerlActorLoop(
+            env,
+            agent.policy,
+            sync_client,
+            control_hz=actor_control_hz(args),
+            device=agent.device,
+            deterministic=args.deterministic_actor,
+            seed=args.seed,
+        )
+        loop_owns_env = True
+        loop.run()
+    finally:
+        if not loop_owns_env:
+            from real_world_rl.training.runtime_paths import cleanup_construction
+            clients = list(locals().get("sync_clients", {}).values())
+            cleanup_construction(env, locals().get("sync_client"), *clients)
 
 
 def _run_learner(args) -> None:
@@ -54,6 +73,8 @@ def _run_learner(args) -> None:
     building it is safe even when the learner machine (e.g. a remote GPU box)
     has no network route to the robot at all.
     """
+    from real_world_rl.training.runtime_paths import resolve_control_frequency
+    resolve_control_frequency(args)
     import os
     import time
 
@@ -86,20 +107,41 @@ def _run_learner(args) -> None:
 
     env_request = _serl_env_request(args, run_name=run_name)
     env, _ = make_training_envs(args.env_backend, env_request)
-
-    agent = build_rlpd(args, env, None, logger=logger, checkpoint_dir=checkpoint_dir)
-
-    loop = SerlLearnerLoop(
-        agent,
-        host=args.sync_host,
-        port=args.sync_port,
-        train_freq=args.train_freq,
-        publish_freq=args.publish_freq,
-    )
+    from real_world_rl.training.env_building import compose_hil_wrappers
+    from real_world_rl.training.args import HilEnvArgs
+    from types import SimpleNamespace
+    values = dataclasses.asdict(HilEnvArgs())
+    values.update(vars(args))
+    env = compose_hil_wrappers(SimpleNamespace(**values), env, env_request.backend_config, enable_teleop=False)
+    loop_owns_env = False
     try:
-        loop.run()
+
+        agent = build_rlpd(dataclasses.replace(args, load_checkpoint=None), env, None, logger=logger, checkpoint_dir=checkpoint_dir)
+
+        loop = SerlLearnerLoop(
+            agent,
+            **learner_experiment_kwargs(env, checkpoint_dir),
+            admission_capacity=args.admission_capacity,
+            ingest_batch_size=args.ingest_batch_size,
+            resume_bundle_path=args.load_checkpoint,
+            resume_replay=args.load_replay_buffer,
+            journal_path=os.path.join(checkpoint_dir, "journal.sqlite3"),
+            host=args.sync_host,
+            port=args.sync_port,
+            train_freq=args.train_freq,
+            publish_freq=args.publish_freq,
+        )
+        try:
+            loop_owns_env = True
+            loop.run()
+        finally:
+            logger.close()
     finally:
-        logger.close()
+        if not loop_owns_env:
+            from real_world_rl.training.runtime_paths import cleanup_construction
+            clients = list(locals().get("sync_clients", {}).values())
+            cleanup_construction(env, locals().get("sync_client"), *clients)
+            logger.close()
 
 
 def run_serl(args: "SerlArgs") -> None:

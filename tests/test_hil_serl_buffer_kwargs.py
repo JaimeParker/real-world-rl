@@ -17,6 +17,7 @@ class _RecordingAgent:
 
     buffer_device = torch.device("cpu")
     learning_starts = 0
+    global_update = 0
     utd = 1
 
     def __init__(self):

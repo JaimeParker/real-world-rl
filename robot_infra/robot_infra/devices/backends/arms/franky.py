@@ -6,6 +6,7 @@ runs, so every mode change joins the running motion and recovers before starting
 """
 from __future__ import annotations
 
+import inspect
 import contextlib
 import importlib.metadata
 from dataclasses import dataclass
@@ -91,6 +92,7 @@ class _FrankyHandle:
 @Arm.register("franky")
 class FrankyArm(Arm):
     SDK = "franky"
+    CONTROL_CAPABILITIES = ("translational_stiffness", "rotational_stiffness", "cartesian_damping", "joint_stiffness", "joint_damping", "translational_error_clip", "rotational_error_clip", "max_delta_tau", "gains_time_constant")
     SUPPORTED_STATE_FIELDS = ("tcp_pose", "tcp_vel", "joint_pos", "joint_vel", "tcp_force", "tcp_torque")
 
     def __init__(
@@ -278,6 +280,40 @@ class FrankyArm(Arm):
 
     # --- helpers ---
 
+    @property
+    def control_metadata(self) -> dict:
+        metadata = {**super().control_metadata, "sdk_version": franky_version(), "sdk_defaults": {}}
+        if self.is_connected:
+            franky = self.require_sdk()
+            for mode, tracker in (("cartesian_servo", franky.CartesianImpedanceTracker), ("joint_servo", franky.JointImpedanceTracker)):
+                try:
+                    parameters = inspect.signature(tracker).parameters
+                except (TypeError, ValueError):
+                    continue
+                defaults = {name: parameter.default for name, parameter in parameters.items()
+                            if name not in ("self", "robot") and parameter.default is not inspect.Parameter.empty
+                            and isinstance(parameter.default, (int, float, bool, str))}
+                metadata["sdk_defaults"][mode] = defaults
+        return metadata
+
+    def _check_control_backend(self, config) -> None:
+        if not config.to_dict():
+            return
+        franky = self.require_sdk()
+        for mode, cls in ((ControlMode.CARTESIAN_SERVO, franky.CartesianImpedanceTracker),
+                          (ControlMode.JOINT_SERVO, franky.JointImpedanceTracker)):
+            requested = config.for_mode(mode.value)
+            if not requested:
+                continue
+            try:
+                parameters = inspect.signature(cls).parameters
+            except (TypeError, ValueError):
+                raise VersionMismatch("cannot inspect installed franky tracker control capabilities", device=self.name) from None
+            if not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values()):
+                unsupported = requested.keys() - parameters.keys()
+                if unsupported:
+                    raise VersionMismatch(f"installed franky tracker does not support {sorted(unsupported)}", device=self.name)
+
     def _new_tracker(self, robot: Any, mode: ControlMode) -> Any:
         """Constructing a franky tracker seeds the current pose and starts the torque motion."""
         franky = self.require_sdk()
@@ -287,7 +323,10 @@ class FrankyArm(Arm):
             else franky.JointImpedanceTracker
         )
         with self._control_exceptions_as_faults(f"starting the {mode.value} tracker"):
-            return tracker_cls(robot)
+            self._check_control_backend(self._control_config)
+            kwargs = self._control_config.for_mode(mode.value)
+            kwargs = {key: np.asarray(value, dtype=np.float64) if isinstance(value, list) else value for key, value in kwargs.items()}
+            return tracker_cls(robot, **kwargs)
 
     @contextlib.contextmanager
     def _control_exceptions_as_faults(self, operation: str) -> Iterator[None]:

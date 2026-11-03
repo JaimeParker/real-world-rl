@@ -36,6 +36,17 @@ class RealWorldFrankaArgs:
     # network-reachable address for a two-machine deployment.
     sync_host: str = "127.0.0.1"
     sync_port: int = 6000
+    # Durable actor identity; the outbox retains a generated run id when unset.
+    run_id: Optional[str] = None
+    actor_id: str = "actor"
+    actor_outbox_path: Optional[str] = None
+    sync_startup_timeout: float = 30.0
+    sync_drain_timeout: float = 30.0
+    outbox_max_records: int = 100_000
+    outbox_max_bytes: int = 1_073_741_824
+    sync_batch_size: int = 32
+    admission_capacity: int = 10_000
+    ingest_batch_size: int = 256
 
     control_hz: float = 10.0
     deterministic_actor: bool = False
@@ -107,6 +118,8 @@ class HilEnvArgs:
     # the --teleop-onset policy. "gello": a GELLO on this machine. "fake": a scripted source for
     # dry runs without hardware. "bimanual": one --teleop-arm-device per arm of a
     # real_robot_bimanual env. See docs/teleop.md for every device.
+    teleop_selected_parts: list[str] = field(default_factory=list)
+    teleop_idle_behavior: Literal["hold", "policy"] = "hold"
     teleop_device: Literal[
         "pico",
         "spacemouse",

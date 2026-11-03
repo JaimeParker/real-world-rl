@@ -213,12 +213,12 @@ def feed_hil_serl_learner(pushed, tmp_path) -> RLPDHybrid:
 # -- hil_serl ------------------------------------------------------------------------------
 
 
-def test_hil_serl_ramp_rows_store_the_executed_targets_and_reach_the_demo_buffer(leader_env, tmp_path):
+def test_hil_serl_ramp_rows_execute_but_only_aligned_rows_supervise_demos(leader_env, tmp_path):
     env, logged = leader_env("joint_abs", toggle_script())
     _, pushed = run_loop(HilSerlActorLoop, logged, total_steps=POLICY_STEPS + 4)
 
     assert [t["intervened"] for t in pushed] == [False, False, True, True, True, True]
-    # Syncing steps are intervened (and so demo rows), flagged in info for a downstream filter.
+    # Syncing remains actual intervention and online data; imitation uses the aligned step.
     assert syncing_flags(logged.infos) == [False, False, True, True, True, False]
     expected_targets = [
         [0.05, -0.05, 0.03, 0.0, 0.0, 0.0, 0.05],
@@ -237,9 +237,9 @@ def test_hil_serl_ramp_rows_store_the_executed_targets_and_reach_the_demo_buffer
 
     agent = feed_hil_serl_learner(pushed, tmp_path)
     assert len(agent.replay_buffer) == POLICY_STEPS + 4
-    assert len(agent.offline_replay_buffer) == 4
-    demo_actions = agent.offline_replay_buffer.actions[:4, 0]
-    torch.testing.assert_close(demo_actions, torch.cat([row["action"] for row in pushed[POLICY_STEPS:]]))
+    assert len(agent.offline_replay_buffer) == 1
+    torch.testing.assert_close(agent.offline_replay_buffer.actions[:1, 0], pushed[-1]["action"])
+    torch.testing.assert_close(agent.replay_buffer.actions[:len(pushed), 0], torch.cat([row["action"] for row in pushed]))
 
 
 def test_hil_serl_arm_onset_intervenes_only_once_the_leader_is_within_tolerance(leader_env, tmp_path):
@@ -271,7 +271,7 @@ def test_hil_serl_joint_delta_rows_store_the_saturated_leader_minus_follower(lea
     _, pushed = run_loop(HilSerlActorLoop, logged, total_steps=POLICY_STEPS + 5)
 
     assert [t["intervened"] for t in pushed] == [False] * POLICY_STEPS + [True] * 5
-    assert syncing_flags(logged.infos) == [False] * (POLICY_STEPS + 5)  # joint_delta saturates instead
+    assert syncing_flags(logged.infos) == [False] * POLICY_STEPS + [True] * 3 + [False] * 2
     for index in range(POLICY_STEPS, POLICY_STEPS + 5):
         np.testing.assert_allclose(
             as_array(pushed[index]["action"])[:NUM_JOINTS],
@@ -285,7 +285,8 @@ def test_hil_serl_joint_delta_rows_store_the_saturated_leader_minus_follower(lea
     np.testing.assert_allclose(env.follower, LEADER, atol=1e-6)
 
     agent = feed_hil_serl_learner(pushed, tmp_path)
-    assert len(agent.offline_replay_buffer) == 5
+    assert len(agent.offline_replay_buffer) == 2
+    torch.testing.assert_close(agent.offline_replay_buffer.actions[:2, 0], torch.cat([row["action"] for row in pushed[-2:]]))
 
 
 @pytest.mark.parametrize(
@@ -349,17 +350,17 @@ def test_residual_rows_store_the_human_total_action_next_to_the_base_action(lead
             expected_arm_action(action_mode, env.followers_before_step[index]),
             atol=1e-5,
         )
-    assert syncing_flags(logged.infos)[POLICY_STEPS] == (action_mode == "joint_abs")
+    assert syncing_flags(logged.infos)[POLICY_STEPS] is True
 
     learner = ResidualLearnerLoop(agent, "127.0.0.1", 0, checkpoint_dir=str(tmp_path), buffer_period=1000)
     for transition in pushed:
         learner._on_transition(transition)
     demo = agent.offline_replay_buffer
-    assert len(demo) == 3
-    assert bool(demo.intervened[:3].all())
-    intervened = pushed[POLICY_STEPS:]
-    torch.testing.assert_close(demo.actions[:3, 0], torch.cat([row["action"] for row in intervened]))
-    torch.testing.assert_close(demo.base_actions[:3, 0], torch.cat([row["base_actions"] for row in intervened]))
+    assert len(demo) == 0
+    # Executed catch-up and corresponding base proposals remain in online replay.
+    assert len(agent.replay_buffer) == len(pushed)
+    torch.testing.assert_close(agent.replay_buffer.actions[:len(pushed), 0], torch.cat([row["action"] for row in pushed]))
+    torch.testing.assert_close(agent.replay_buffer.base_actions[:len(pushed), 0], torch.cat([row["base_actions"] for row in pushed]))
 
 
 # -- SiLRI ---------------------------------------------------------------------------------
@@ -527,5 +528,6 @@ def test_residual_bimanual_rows_store_the_human_total_action_with_both_grippers(
     for transition in pushed:
         learner._on_transition(transition)
     demo = agent.offline_replay_buffer
-    assert len(demo) == 2 and bool(demo.intervened[:2].all())
-    torch.testing.assert_close(demo.actions[:2, 0], torch.cat([row["action"] for row in pushed[POLICY_STEPS:]]))
+    assert len(demo) == 0
+    assert len(agent.replay_buffer) == len(pushed)
+    torch.testing.assert_close(agent.replay_buffer.actions[:len(pushed), 0], torch.cat([row["action"] for row in pushed]))

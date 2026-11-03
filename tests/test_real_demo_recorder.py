@@ -133,6 +133,41 @@ def _sent(env, index) -> np.ndarray:
     return torch.as_tensor(env.step_actions[index]).reshape(-1).numpy()
 
 
+def test_recording_seed_advances_after_discarded_attempt(tmp_path, monkeypatch):
+    class RandomResetEnv(RecordingEnv):
+        def __init__(self):
+            super().__init__("joint_delta")
+            self.seeds, self.samples = [], []
+
+        def reset(self, *, seed=None, **kwargs):
+            self.seeds.append(seed)
+            if seed is not None:
+                self.rng = np.random.default_rng(seed)
+            self.samples.append(self.rng.uniform(-0.05, 0.05, size=3))
+            return super().reset(seed=seed, **kwargs)
+
+    def episode(env, obs, args, hold_action_fn, *, index, **kwargs):
+        return record.RecordedEpisode(index=index, steps=1, success=index > 0,
+                                      discarded_reason="discarded" if index == 0 else None)
+
+    monkeypatch.setattr(record, "_record_episode", episode)
+    runs = []
+    for run in range(2):
+        env = RandomResetEnv()
+        wrapped = _wrap(env, [IDLE])
+        args = _args(num_successes=2, seed=19, output_path=str(tmp_path / f"run_{run}.pkl"))
+        try:
+            record_demos(wrapped, args, hold_action_fn=hold_action_fn_for(wrapped))
+            assert env.seeds == [19, None, None]
+            assert not np.array_equal(env.samples[0], env.samples[1])
+            assert not np.array_equal(env.samples[1], env.samples[2])
+            runs.append(np.array(env.samples))
+        finally:
+            wrapped._record_archive.close()
+            wrapped.close()
+    np.testing.assert_array_equal(runs[0], runs[1])
+
+
 # -- hold action and recorded steps ------------------------------------------------------
 
 
@@ -158,7 +193,10 @@ def test_joint_abs_holds_the_follower_and_records_only_intervened_steps():
     np.testing.assert_allclose(second["action"].reshape(-1).numpy(), readings[4].action)
     assert first["obs"]["state"][0, 0] == 1.0 and first["next_obs"]["state"][0, 0] == 2.0
     assert second["obs"]["state"][0, 0] == 3.0 and not bool(second["done"])
-    assert set(first) == {"obs", "next_obs", "action", "reward", "done"}
+    assert {"obs", "next_obs", "action", "reward", "done", "human_action_mask", "override_mask", "policy_action", "intervened", "record_id", "episode_id", "step_index", "terminated", "truncated"} <= set(first)
+    assert first["episode_id"] == second["episode_id"]
+    assert first["step_index"] == 1 and second["step_index"] == 3
+    assert first["training_segment_end"] and second["training_segment_end"]
 
 
 def test_joint_delta_holds_with_a_zero_arm_action_and_skips_the_start_check():
@@ -193,7 +231,7 @@ def test_two_arm_joint_abs_hold_needs_each_arms_follower():
     env = TwoArmContractEnv("joint_abs", 7)
     env.action_contract["joint_limits"] = [[[-2.0, 2.0]] * 7] * 2
     with pytest.raises(ValueError, match="real_robot_bimanual"):
-        hold_action_fn_for(env)
+        hold_action_fn_for(env)([OPEN, OPEN])
 
 
 # -- two arms in joint_abs over the two-arm env -----------------------------------------------
@@ -342,15 +380,30 @@ def test_rerecord_drops_the_episode_and_starts_the_next_one():
         _reading(Q1, intervened=False),  # next episode's leader read: the follower is at Q1
         _reading(Q2, events=("success",), episode_end=True),
     ]
-    transitions, episodes = _record(_wrap(env, readings))
-
+    wrapped = _wrap(env, readings)
+    transitions, episodes = _record(wrapped)
+    from real_world_rl.metrics import EpisodeMetrics, EpisodeOutcome
+    ends = [row for row in wrapped._record_archive if row["record_type"] == "episode_end"]
+    discarded = ends[0]["outcome"]
+    assert ends[0]["step_count"] == discarded["steps"] == 2
+    assert discarded["intervention_steps"] == 2
+    assert discarded["task_success"] is True
+    assert discarded["outcome_source"] == "manual"
+    assert discarded["discarded"] and not discarded["completed"]
+    metrics = EpisodeMetrics()
+    for end in ends:
+        metrics.add(EpisodeOutcome(**end["outcome"]))
+    assert metrics.summary()["completed_episodes"] == 1
+    assert metrics.summary()["discarded_episodes"] == 1
+    wrapped._record_archive.close()
+    wrapped.close()
     assert [episode.discarded_reason for episode in episodes] == ["rerecord", None]
     assert env.reset_calls == 2
     assert len(transitions) == 1
     np.testing.assert_allclose(transitions[0]["action"].reshape(-1).numpy(), readings[4].action)
 
 
-def test_stops_after_num_successes_counting_success_events_and_positive_rewards():
+def test_positive_reward_and_termination_do_not_imply_success():
     # One step per episode (the reading before each is the episode-start leader read); episode 3
     # is global step 3, where the env pays a reward and terminates.
     env = RecordingEnv("joint_abs", rewards={3: 1.0}, terminate_steps={3})
@@ -360,13 +413,14 @@ def test_stops_after_num_successes_counting_success_events_and_positive_rewards(
         SYNC, _reading(),
         SYNC, _reading(events=("success",), episode_end=True),
     ]
-    transitions, episodes = _record(_wrap(env, readings), num_successes=2)
+    transitions, episodes = _record(_wrap(env, readings), num_successes=1)
 
-    assert [episode.discarded_reason for episode in episodes] == ["no success", "failure event", None, None]
-    assert [episode.success for episode in episodes] == [False, False, True, True]
+    assert [episode.discarded_reason for episode in episodes] == ["no success", "failure event", "no success", None]
+    assert [episode.success for episode in episodes] == [False, False, False, True]
     assert env.reset_calls == 4
-    assert len(transitions) == 2
-    assert bool(transitions[0]["done"]) and float(transitions[0]["reward"]) == 1.0
+    assert len(transitions) == 1
+    assert not bool(transitions[0]["done"])
+    assert float(transitions[0]["reward"]) == 0.0
 
 
 def test_successful_episode_without_intervention_is_not_kept():
@@ -526,6 +580,24 @@ def test_run_recorder_builds_the_actor_env_saves_and_closes(tmp_path, monkeypatc
     assert run_recorder(args) == output
     assert built["role"] == "actor" and built["args"].real_robot.max_episode_steps == 40
     assert output.exists() and contract_sidecar_path(output).exists()
+    archive_path = output.with_suffix(".trajectory.sqlite3")
+    assert archive_path.exists() and not output.with_suffix(".trajectory.pt").exists()
+    from real_world_rl.trajectory import DurableArchive
+    archive = DurableArchive(archive_path)
+    try:
+        records = list(archive)
+        assert [row["record_type"] for row in records] == ["episode_start", "transition", "episode_end"]
+        assert len({row["run_id"] for row in records}) == 1
+        assert all(row["run_id"] != "unknown" and row["session_id"] and row["timestamp_s"] > 0 for row in records)
+        assert [row["sequence"] for row in records] == [0, 1, 2]
+        assert all(row["policy_version"] == 0 and row["stage"] == "teleop" for row in records)
+    finally:
+        archive.close()
+    loaded = []
+    def add(obs, next_obs, action, reward, done, **extra):
+        loaded.append(extra)
+    assert load_demo_pkls([str(archive_path)], add, "cpu", expected_contract=demo_contract_of(env)) == 1
+    assert torch.as_tensor(loaded[0]["human_action_mask"]).any()
     assert env.close_calls == 1
 
     with pytest.raises(ValueError, match="exists"):
@@ -684,3 +756,31 @@ def test_example_turns_the_teleop_event_reward_off_with_the_negated_flag(example
     example.main(["--output-path", "demos/task.pkl", "--no-reward-from-teleop-events"])
     (args,) = received
     assert not args.reward_from_teleop_events
+
+
+def test_run_recorder_interrupted_outcome_and_saved_trace_are_visible(tmp_path, monkeypatch, capsys):
+    env = RecordingEnv("joint_delta")
+    wrapped = _wrap(env, [_reading(delta=[0.0] * 7, events=("success",))])
+    original_step = wrapped.step
+    calls = 0
+    def interrupt_second_step(action):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise KeyboardInterrupt
+        return original_step(action)
+    monkeypatch.setattr(wrapped, "step", interrupt_second_step)
+    monkeypatch.setattr(env_building, "build_hil_env", lambda args, **kwargs: wrapped)
+    output = tmp_path / "interrupted.pkl"
+    with pytest.raises(KeyboardInterrupt):
+        run_recorder(_args(output_path=str(output)))
+    from real_world_rl.trajectory import DurableArchive
+    archive = DurableArchive(output.with_suffix(".trajectory.sqlite3"))
+    try:
+        rows = list(archive)
+    finally:
+        archive.close()
+    outcome = rows[-1]["outcome"]
+    assert outcome["interrupted"] and not outcome["completed"]
+    assert outcome["steps"] == outcome["intervention_steps"] == 1
+    assert "interrupted_episodes" in capsys.readouterr().out

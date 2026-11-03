@@ -2,6 +2,8 @@
 and training/env_building.build_hil_env."""
 from __future__ import annotations
 
+from real_world_rl.envs.wrappers.experiment import ExperimentContractWrapper
+
 import dataclasses
 from pathlib import Path
 
@@ -28,6 +30,18 @@ HIL_SERL_OWN_DEFAULTS = {
     "role": "actor",
     "sync_host": "127.0.0.1",
     "sync_port": 6000,
+    "run_id": None,
+    "actor_id": "actor",
+    "actor_outbox_path": None,
+    "sync_startup_timeout": 30.0,
+    "sync_drain_timeout": 30.0,
+    "outbox_max_records": 100_000,
+    "outbox_max_bytes": 1_073_741_824,
+    "sync_batch_size": 32,
+    "admission_capacity": 10_000,
+    "ingest_batch_size": 256,
+    "teleop_selected_parts": [],
+    "teleop_idle_behavior": "hold",
     "control_hz": 10.0,
     "deterministic_actor": False,
     "train_freq": 1,
@@ -104,6 +118,8 @@ def test_hil_env_args_holds_exactly_the_env_teleop_classifier_and_demo_fields():
         "record_video_dir",
         "memory_efficient_buffer",
         "teleop_device",
+        "teleop_selected_parts",
+        "teleop_idle_behavior",
         "teleop_arm_device",
         "robot_teleop_action_mode",
         "robot_teleop_has_gripper",
@@ -171,6 +187,9 @@ def fake_backend(monkeypatch):
 def test_build_hil_env_wraps_teleop_by_default(fake_backend, monkeypatch):
     monkeypatch.setattr(env_building, "hil_env_request", lambda args, run_name: None)
     env = env_building.build_hil_env(HilSerlArgs(teleop_device="spacemouse"), role="actor")
+    from real_world_rl.envs.wrappers.experiment import ExperimentContractWrapper
+    assert isinstance(env, ExperimentContractWrapper)
+    env = env.env
 
     assert isinstance(env, _RecordingTeleopWrapper)
     assert env.env is fake_backend
@@ -180,6 +199,9 @@ def test_build_hil_env_wraps_teleop_by_default(fake_backend, monkeypatch):
 def test_build_hil_env_without_teleop_skips_the_intervention_wrapper(fake_backend, monkeypatch):
     monkeypatch.setattr(env_building, "hil_env_request", lambda args, run_name: None)
     env = env_building.build_hil_env(HilSerlArgs(), role="learner", enable_teleop=False)
+    from real_world_rl.envs.wrappers.experiment import ExperimentContractWrapper
+    assert isinstance(env, ExperimentContractWrapper)
+    env = env.env
 
     assert env is fake_backend
     assert _RecordingTeleopWrapper.instances == []
@@ -195,8 +217,8 @@ def test_build_hil_env_without_teleop_keeps_the_outer_wrappers(fake_backend, mon
     )
 
     assert isinstance(env, FWBWResetFreeWrapper)
-    assert isinstance(env.env, GraspPenaltyWrapper)
-    assert env.env.env is fake_backend
+    assert isinstance(env.env.env, GraspPenaltyWrapper)
+    assert env.env.env.env is fake_backend
     assert _RecordingTeleopWrapper.instances == []
 
 
@@ -227,6 +249,9 @@ def test_compose_hil_env_with_teleop_matches_the_hil_serl_alias(fake_backend):
     from real_world_rl.training.entrypoints.hil_serl import _build_env
 
     env = _build_env(HilSerlArgs(), env_request=None)
+    from real_world_rl.envs.wrappers.experiment import ExperimentContractWrapper
+    assert isinstance(env, ExperimentContractWrapper)
+    env = env.env
     assert isinstance(env, _RecordingTeleopWrapper) and env.env is fake_backend
 
 
@@ -241,7 +266,7 @@ def _chain(env) -> list:
 def test_teleop_event_reward_sits_right_outside_the_intervention_wrapper(fake_backend, monkeypatch):
     import torch
     from rl_garden.envs.wrappers.fwbw_reset_free import FWBWResetFreeWrapper
-    from rl_garden.envs.wrappers.reward_classifier import RewardClassifierWrapper
+    from real_world_rl.reward.outcome import ExplicitRewardClassifierWrapper
     from real_world_rl.envs.wrappers import TeleopEventRewardWrapper
     from real_world_rl.envs.wrappers.grasp_penalty import GraspPenaltyWrapper
 
@@ -261,13 +286,14 @@ def test_teleop_event_reward_sits_right_outside_the_intervention_wrapper(fake_ba
 
     assert [type(env) for env in chain] == [
         FWBWResetFreeWrapper,
+        ExperimentContractWrapper,
         GraspPenaltyWrapper,
         TeleopEventRewardWrapper,
         _RecordingTeleopWrapper,
-        RewardClassifierWrapper,
+        ExplicitRewardClassifierWrapper,
         type(fake_backend),
     ]
-    assert chain[2].success_reward == 2.0
+    assert chain[3].success_reward == 2.0
 
     learner = _chain(env_building.build_hil_env(args, role="learner", enable_teleop=False))
     assert not any(isinstance(env, TeleopEventRewardWrapper) for env in learner)
@@ -346,6 +372,9 @@ def test_build_hil_env_wraps_a_composite_when_an_event_device_is_set(fake_backen
     monkeypatch.setattr(env_building, "hil_env_request", lambda args, run_name: None)
     args = HilSerlArgs(teleop_device="spacemouse", teleop_event_device="keyboard")
     env = env_building.build_hil_env(args, role="actor")
+    from real_world_rl.envs.wrappers.experiment import ExperimentContractWrapper
+    assert isinstance(env, ExperimentContractWrapper)
+    env = env.env
 
     assert isinstance(env, _RecordingTeleopWrapper) and env.env is fake_backend
     assert env.device == "composite"

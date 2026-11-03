@@ -30,6 +30,8 @@ from typing import Any, Callable, Literal, Optional, Sequence
 from rl_garden.common.cli_args import ObservationArgs
 from rl_garden.common.env_args import EnvBackendArgs, EnvRunArgs
 
+from real_world_rl.metrics import EpisodeMetrics, EpisodeOutcomeAccumulator
+
 from real_world_rl.envs.wrappers.teleop_event_reward import (
     FAILURE_EVENT,
     SUCCESS_EVENT,
@@ -78,6 +80,7 @@ class LabelledFrames:
 
     successes: list = field(default_factory=list)
     failures: list = field(default_factory=list)
+    metrics: EpisodeMetrics = field(default_factory=EpisodeMetrics)
 
 
 def parse_collect_args(argv: Optional[Sequence[str]] = None) -> RealRobotCollectArgs:
@@ -126,34 +129,46 @@ def collect_classifier_frames(
 
     episode = 0
     while len(frames.successes) < args.successes_needed:
-        obs, _ = env.reset(seed=args.seed)
+        obs, _ = env.reset(seed=args.seed if episode == 0 else None)
         if contract["action_mode"] == "joint_abs":
             check_leader_near_follower(env, wrapper.source, contract, args.start_tolerance_rad)
         gripper_action = gripper_actions_after_reset(num_grippers)
         labelling_success = False
         steps = 0
-        while len(frames.successes) < args.successes_needed:
-            step_start = time.perf_counter()
-            action = hold_action_fn(gripper_action).reshape(1, -1).to(ActorLoop.env_device(obs))
-            obs, _reward, terminated, truncated, info = env.step(action)
-            steps += 1
-            if num_grippers:
-                gripper_action = executed_gripper_actions(info.get("intervene_action", action), num_grippers)
-            events = info.get("teleop_events") or {}
-            if events.get(FAILURE_EVENT, False):
-                labelling_success = False
-            elif events.get(SUCCESS_EVENT, False):
-                labelling_success = True
-            entry = {"obs": {key: index_tree(obs[key], 0) for key in image_keys}}
-            (frames.successes if labelling_success else frames.failures).append(entry)
-            if bool(terminated) or bool(truncated):
-                break
-            remaining = control_period_s - (time.perf_counter() - step_start)
-            if remaining > 0:
-                time.sleep(remaining)
+        accumulator = EpisodeOutcomeAccumulator()
+        terminated = truncated = False
+        try:
+            while len(frames.successes) < args.successes_needed:
+                step_start = time.perf_counter()
+                action = hold_action_fn(gripper_action).reshape(1, -1).to(ActorLoop.env_device(obs))
+                obs, _reward, terminated, truncated, info = env.step(action)
+                accumulator.observe(info)
+                steps += 1
+                if num_grippers:
+                    gripper_action = executed_gripper_actions(info.get("intervene_action", action), num_grippers)
+                events = info.get("teleop_events") or {}
+                if events.get(FAILURE_EVENT, False):
+                    labelling_success = False
+                elif events.get(SUCCESS_EVENT, False):
+                    labelling_success = True
+                entry = {"obs": {key: index_tree(obs[key], 0) for key in image_keys}}
+                (frames.successes if labelling_success else frames.failures).append(entry)
+                if bool(terminated) or bool(truncated):
+                    break
+                remaining = control_period_s - (time.perf_counter() - step_start)
+                if remaining > 0:
+                    time.sleep(remaining)
+        except BaseException:
+            frames.metrics.add(accumulator.finish(interrupted=True))
+            print(f"[collect] outcomes={frames.metrics.summary()}", flush=True)
+            raise
+        frames.metrics.add(accumulator.finish(
+            terminated=terminated, truncated=truncated,
+            interrupted=not (bool(terminated) or bool(truncated)),
+            end_reason=None if bool(terminated) or bool(truncated) else "collection_target_reached"))
         print(
             f"[collect] episode={episode} steps={steps} successes={len(frames.successes)}/"
-            f"{args.successes_needed} failures={len(frames.failures)}",
+            f"{args.successes_needed} failures={len(frames.failures)} outcomes={frames.metrics.summary()}",
             flush=True,
         )
         episode += 1
@@ -174,15 +189,18 @@ def run_real_robot_collector(args: RealRobotCollectArgs) -> Optional[tuple[str, 
     try:
         collect_classifier_frames(env, args, hold_action_fn=hold_action_fn_for(env), frames=frames)
     finally:
-        try:
+        from real_world_rl.loops.actor import _cleanup
+
+        def save_frames():
+            nonlocal paths
             if frames.successes or frames.failures:
                 paths = save_classifier_data(
                     args.output_dir, args.exp_name, len(frames.successes), frames.successes, frames.failures
                 )
             else:
                 print("[collect] no frame collected; nothing saved", flush=True)
-        finally:
-            env.close()
+
+        _cleanup([env.close, save_frames])
     return paths
 
 

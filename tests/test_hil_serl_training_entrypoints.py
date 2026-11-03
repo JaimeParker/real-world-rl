@@ -63,6 +63,7 @@ def _base_args(**overrides) -> HilSerlArgs:
         teleop_device="pico",
         hidden_dim=8,
         discrete_hidden_dim=8,
+        buffer_device="cpu",
     )
     kwargs.update(overrides)
     return HilSerlArgs(**kwargs)
@@ -78,6 +79,9 @@ def test_build_env_skips_reward_classifier_wrapper_when_no_checkpoint_given(monk
     )
     args = _base_args(classifier_checkpoint=None)
     env = _build_env(args, env_request=None)
+    from real_world_rl.envs.wrappers.experiment import ExperimentContractWrapper
+    assert isinstance(env, ExperimentContractWrapper)
+    env = env.env
 
     from rl_garden.envs.wrappers.reward_classifier import RewardClassifierWrapper
     from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
@@ -108,6 +112,9 @@ def test_build_env_composes_reward_classifier_wrapper_when_checkpoint_given(monk
 
     args = _base_args(classifier_checkpoint="/tmp/classifier.pt")
     env = _build_env(args, env_request=None)
+    from real_world_rl.envs.wrappers.experiment import ExperimentContractWrapper
+    assert isinstance(env, ExperimentContractWrapper)
+    env = env.env
 
     from rl_garden.envs.wrappers.reward_classifier import RewardClassifierWrapper
     from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
@@ -152,6 +159,9 @@ def test_build_env_composes_image_frame_stack_wrapper_when_frame_stack_set(monke
     )
     args = _base_args(obs=ObservationConfig(frame_stack=3), classifier_checkpoint=None)
     env = _build_env(args, env_request=None)
+    from real_world_rl.envs.wrappers.experiment import ExperimentContractWrapper
+    assert isinstance(env, ExperimentContractWrapper)
+    env = env.env
 
     from rl_garden.envs.wrappers.frame_stack import ImageFrameStackWrapper
     from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
@@ -173,6 +183,9 @@ def test_build_env_skips_grasp_penalty_wrapper_by_default(monkeypatch):
     args = _base_args()
     assert args.use_grasp_penalty is False
     env = _build_env(args, env_request=None)
+    from real_world_rl.envs.wrappers.experiment import ExperimentContractWrapper
+    assert isinstance(env, ExperimentContractWrapper)
+    env = env.env
 
     from real_world_rl.envs.wrappers.grasp_penalty import GraspPenaltyWrapper
     from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
@@ -191,6 +204,9 @@ def test_build_env_composes_grasp_penalty_wrapper_outside_teleop_when_enabled(mo
     )
     args = _base_args(use_grasp_penalty=True, grasp_penalty_value=-0.1)
     env = _build_env(args, env_request=None)
+    from real_world_rl.envs.wrappers.experiment import ExperimentContractWrapper
+    assert isinstance(env, ExperimentContractWrapper)
+    env = env.env
 
     from real_world_rl.envs.wrappers.grasp_penalty import GraspPenaltyWrapper
     from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
@@ -238,6 +254,9 @@ def _patch_real_robot_build(monkeypatch):
 def test_build_env_accepts_cartesian_delta_with_gripper_real_robot(monkeypatch):
     _patch_real_robot_build(monkeypatch)
     env = _build_env(_real_robot_args(), env_request=None)
+    from real_world_rl.envs.wrappers.experiment import ExperimentContractWrapper
+    assert isinstance(env, ExperimentContractWrapper)
+    env = env.env
 
     from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
 
@@ -406,8 +425,8 @@ class _FakeEvalEnv(_FakeEnv):
     """Every episode is exactly one step and always succeeds (terminated=True),
     so eval_n_trajs episodes -> eval_n_trajs env.step calls, all successes."""
 
-    def reset(self, seed=None):
-        del seed
+    def reset(self, seed=None, options=None):
+        del seed, options
         return torch.zeros(1, 4), {}
 
     def step(self, action):
@@ -423,6 +442,11 @@ class _FakeEvalEnv(_FakeEnv):
 class _FakeEvalPolicy:
     def __init__(self):
         self.predict_calls: list[bool] = []
+        self.action_scale = torch.ones(2)
+        self.action_bias = torch.zeros(2)
+
+    def state_dict(self):
+        return {"actor.action_scale": self.action_scale, "actor.action_bias": self.action_bias}
 
     def eval(self):
         pass
@@ -435,6 +459,13 @@ class _FakeEvalPolicy:
 class _FakeEvalAgent:
     def __init__(self):
         self.policy = _FakeEvalPolicy()
+        self.load_calls = []
+
+    def load(self, path, **kwargs):
+        self.load_calls.append((path, kwargs))
+        # Simulate a compatible partial continuous head restored from checkpoint.
+        self.policy.action_scale.copy_(torch.ones(2))
+        self.policy.action_bias.copy_(torch.zeros(2))
 
     def _obs_to_policy_device(self, obs):
         return obs
@@ -488,7 +519,8 @@ def test_run_eval_runs_deterministic_episodes_and_reports_success_rate(monkeypat
     args = _base_args(role="eval", load_checkpoint="/tmp/ckpt.pt", eval_n_trajs=3)
     _run_eval(args)
 
-    assert captured["load_checkpoint"] == "/tmp/ckpt.pt"
+    assert captured["load_checkpoint"] is None
+    assert fake_agent.load_calls == [("/tmp/ckpt.pt", {"load_replay_buffer": False})]
     assert captured["checkpoint_dir"] is None
     assert fake_agent.policy.predict_calls == [True, True, True]
 
@@ -631,7 +663,8 @@ def test_build_env_robot_teleop_device_wraps_teleop_part_source_in_order(_fake_r
     env = _build_env(args, _hil_serl_env_request(args, run_name="t"))
     try:
         types = [type(layer) for layer in _chain(env)]
-        assert types[:3] == [GraspPenaltyWrapper, TeleopInterventionWrapper, ImageFrameStackWrapper]
+        from real_world_rl.envs.wrappers.experiment import ExperimentContractWrapper
+        assert types[:4] == [ExperimentContractWrapper, GraspPenaltyWrapper, TeleopInterventionWrapper, ImageFrameStackWrapper]
         assert RealRobotVectorEnv in types
         assert isinstance(env.env.teleop, TeleopPartSource)
     finally:
@@ -689,3 +722,8 @@ def test_franka_real_request_keeps_frame_stack():
 
     args = _base_args(obs=ObservationConfig(state=True, rgb=("wrist",), frame_stack=2))
     assert _hil_serl_env_request(args, run_name="t").observation.frame_stack == 2
+
+
+@pytest.fixture(autouse=True)
+def _isolate_actor_outbox_directory(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)

@@ -9,6 +9,8 @@ deterministic policy from ``--load_checkpoint``. See ``docs/silri.md``.
 from __future__ import annotations
 
 import dataclasses
+
+from real_world_rl.training.runtime_paths import actor_sync_kwargs, learner_experiment_kwargs, actor_control_hz
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
@@ -165,7 +167,8 @@ def build_silri(
     agent_kwargs.update(extra_kwargs)
     agent = construct_agent(algorithm_cls or SiLRI, **agent_kwargs)
     if args.load_checkpoint is not None:
-        agent.load(args.load_checkpoint, load_replay_buffer=args.load_replay_buffer)
+        from real_world_rl.checkpoint_contract import load_with_action_contract
+        load_with_action_contract(agent, args.load_checkpoint, load_replay_buffer=args.load_replay_buffer)
     return agent
 
 
@@ -189,27 +192,37 @@ def _run_actor(args) -> None:
     from real_world_rl.loops.silri import SilriActorLoop
 
     env = build_hil_env(args, role="actor")
-    if args.record_video_dir is not None:
-        from real_world_rl.envs.wrappers.video_recorder import (
-            VideoRecorderWrapper,
-        )
+    loop_owns_env = False
+    try:
+        if args.record_video_dir is not None:
+            from real_world_rl.envs.wrappers.video_recorder import (
+                VideoRecorderWrapper,
+            )
 
-        env = VideoRecorderWrapper(env, save_dir=args.record_video_dir)
-    agent = _scratch_agent(args, env)
-    sync_client = HilSerlActorSyncClient(f"http://{args.sync_host}:{args.sync_port}")
-    loop = SilriActorLoop(
-        env,
-        agent.policy,
-        sync_client,
-        control_hz=args.control_hz,
-        device=agent.device,
-        deterministic=args.deterministic_actor,
-        seed=args.seed,
-    )
-    loop.run()
+            env = VideoRecorderWrapper(env, save_dir=args.record_video_dir)
+        agent = _scratch_agent(args, env)
+        sync_client = HilSerlActorSyncClient(f"http://{args.sync_host}:{args.sync_port}", **actor_sync_kwargs(args))
+        loop = SilriActorLoop(
+            env,
+            agent.policy,
+            sync_client,
+            control_hz=actor_control_hz(args),
+            device=agent.device,
+            deterministic=args.deterministic_actor,
+            seed=args.seed,
+        )
+        loop_owns_env = True
+        loop.run()
+    finally:
+        if not loop_owns_env:
+            from real_world_rl.training.runtime_paths import cleanup_construction
+            clients = list(locals().get("sync_clients", {}).values())
+            cleanup_construction(env, locals().get("sync_client"), *clients)
 
 
 def _run_learner(args) -> None:
+    from real_world_rl.training.runtime_paths import resolve_control_frequency
+    resolve_control_frequency(args)
     import os
     import time
 
@@ -240,61 +253,64 @@ def _run_learner(args) -> None:
 
     # The learner only needs the env's spaces and action contract: no teleop device here.
     env = build_hil_env(args, role="learner", enable_teleop=False, run_name=run_name)
-    agent = build_silri(args, env, None, logger=logger, checkpoint_dir=checkpoint_dir)
-    agent.init_demo_buffer(args.demo_buffer_size, args.demo_data_ratio)
-
-    loop = SilriLearnerLoop(
-        agent,
-        host=args.sync_host,
-        port=args.sync_port,
-        checkpoint_dir=checkpoint_dir,
-        buffer_period=args.buffer_period,
-        demo_dataset_paths=args.demo_dataset_paths,
-        train_freq=args.train_freq,
-        publish_freq=args.publish_freq,
-        action_contract=demo_contract_of(env),
-    )
+    loop_owns_env = False
     try:
-        loop.run()
+        agent = build_silri(dataclasses.replace(args, load_checkpoint=None), env, None, logger=logger, checkpoint_dir=checkpoint_dir)
+        agent.init_demo_buffer(args.demo_buffer_size, args.demo_data_ratio)
+
+        loop = SilriLearnerLoop(
+            agent,
+            **learner_experiment_kwargs(env, checkpoint_dir),
+            admission_capacity=args.admission_capacity,
+            ingest_batch_size=args.ingest_batch_size,
+            resume_bundle_path=args.load_checkpoint,
+            resume_replay=args.load_replay_buffer,
+            journal_path=os.path.join(checkpoint_dir, "journal.sqlite3"),
+            host=args.sync_host,
+            port=args.sync_port,
+            checkpoint_dir=checkpoint_dir,
+            buffer_period=args.buffer_period,
+            demo_dataset_paths=args.demo_dataset_paths,
+            train_freq=args.train_freq,
+            publish_freq=args.publish_freq,
+            action_contract=demo_contract_of(env),
+        )
+        try:
+            loop_owns_env = True
+            loop.run()
+        finally:
+            logger.close()
     finally:
-        logger.close()
+        if not loop_owns_env:
+            from real_world_rl.training.runtime_paths import cleanup_construction
+            clients = list(locals().get("sync_clients", {}).values())
+            cleanup_construction(env, locals().get("sync_client"), *clients)
+            logger.close()
 
 
 def _run_eval(args) -> None:
-    """Deterministic episodes of the ``--load_checkpoint`` policy on the robot; success is
-    ``terminated`` (the reward classifier's success), a truncated episode is a failure."""
+    """Evaluate explicit task success and autonomous success with human control available."""
     from real_world_rl.loops.actor import ActorLoop
 
     if args.load_checkpoint is None:
         raise ValueError("silri eval requires --load_checkpoint.")
 
     env = build_hil_env(args, role="eval")
-    agent = build_silri(dataclasses.replace(args, buffer_size=8), env, None, logger=None, checkpoint_dir=None)
-    agent.policy.eval()
+    try:
+        from real_world_rl.training.evaluation import resolve_eval_checkpoint
+        checkpoint = resolve_eval_checkpoint(args, env)
+        agent = build_silri(dataclasses.replace(args, buffer_size=8, load_checkpoint=checkpoint, load_replay_buffer=False), env, None, logger=None, checkpoint_dir=None)
+        agent.policy.eval()
 
-    successes = 0
-    returns: list[float] = []
-    obs, _ = env.reset(seed=args.seed)
-    for episode in range(args.eval_n_trajs):
-        episode_return = 0.0
-        while True:
-            with torch.no_grad():
-                action = agent.policy.predict(agent._obs_to_policy_device(obs), deterministic=True)
-            obs, reward, terminated, truncated, _ = env.step(action.to(ActorLoop.env_device(obs)))
-            episode_return += float(reward.sum())
-            if bool(terminated) or bool(truncated):
-                success = bool(terminated)
-                successes += int(success)
-                returns.append(episode_return)
-                print(f"[eval] episode={episode} success={success} return={episode_return:.3f}", flush=True)
-                obs, _ = env.reset(seed=args.seed)
-                break
+    except BaseException:
+        from real_world_rl.training.evaluation import close_env
+        close_env(env)
+        raise
 
-    mean_return = sum(returns) / len(returns) if returns else 0.0
-    print(
-        f"[eval] success_rate={successes / args.eval_n_trajs:.3f} mean_return={mean_return:.3f} "
-        f"n_trajs={args.eval_n_trajs}",
-        flush=True,
+    from real_world_rl.training.evaluation import evaluate_policy
+    evaluate_policy(
+        env, agent.policy, episodes=args.eval_n_trajs, seed=args.seed,
+        predict=lambda obs: agent.policy.predict(agent._obs_to_policy_device(obs), deterministic=True),
     )
 
 

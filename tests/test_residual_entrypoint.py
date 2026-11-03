@@ -267,7 +267,9 @@ def test_eval_composes_the_policy_with_the_provider(monkeypatch, fake_backend, c
     # Zero base and a zero-initialised residual: every executed action is 0.
     for action in env.actions:
         assert torch.equal(action, torch.zeros(1, _ACTION_DIM))
-    assert "[eval] success_rate=1.000" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "[eval] success_rate=0.000" in out
+    assert "unknown_episodes=3" in out
 
 
 def test_eval_requires_a_checkpoint(fake_backend):
@@ -329,3 +331,8 @@ def test_deploy_base_provider_flag_overrides_the_recorded_spec(tmp_path):
     args = DeployArgs(checkpoint="unused.pt", algo="residual_hil_serl", base_provider="zero")
     policy = _compose_with_base_provider(args, agent, agent.policy, _FakeEnv())
     assert isinstance(policy.provider, ZeroBaseProvider)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_actor_outbox_directory(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)

@@ -8,6 +8,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
+from real_world_rl.tasks.config import TaskConfig
+from real_world_rl.envs.real_robot.preprocess import CameraPreprocessConfig
+
 ACTION_MODES = ("cartesian_delta", "joint_delta", "joint_abs")
 STATE_FIELDS = (
     "tcp_pose",
@@ -35,6 +38,10 @@ class RealRobotEnvConfig:
     cameras: list[str] = field(default_factory=list)
     # (H, W) every camera frame is resized to; None keeps the camera's native size.
     image_size: Optional[tuple[int, int]] = None
+    depth_cameras: list[str] = field(default_factory=list)
+    preprocess: dict = field(default_factory=dict)
+    task: TaskConfig = field(default_factory=TaskConfig)
+    control: Optional[dict] = None
     action_mode: Literal["cartesian_delta", "joint_delta", "joint_abs"] = "cartesian_delta"
     control_hz: float = 10.0
     xyz_scale_m: float = 0.02
@@ -55,6 +62,24 @@ class RealRobotEnvConfig:
     reset_settle_s: float = 0.5
 
     def __post_init__(self) -> None:
+        from real_world_rl.tasks.config import finite
+        finite([self.control_hz, self.xyz_scale_m, self.rot_scale_rad,
+                self.joint_scale_rad, self.reset_settle_s], "control frequency/scales/reset")
+        if min(self.xyz_scale_m, self.rot_scale_rad, self.joint_scale_rad) < 0:
+            raise ValueError("action scales must be nonnegative")
+        if self.reset_settle_s < 0:
+            raise ValueError("reset_settle_s must be nonnegative")
+        if isinstance(self.task, dict): self.task = TaskConfig(**self.task)
+        self.depth_cameras = list(self.depth_cameras)
+        self.preprocess = {key: CameraPreprocessConfig(**value) if isinstance(value, dict) else value
+                           for key, value in self.preprocess.items()}
+        for preprocessing in self.preprocess.values(): preprocessing.__post_init__()
+        if self.control is not None and not isinstance(self.control, dict):
+            raise ValueError("control must be a mapping or None")
+        if len(set(self.cameras)) != len(self.cameras) or len(set(self.depth_cameras)) != len(self.depth_cameras):
+            raise ValueError("camera names must be unique within each modality")
+        if self.capture_cameras and set(self.preprocess) - set(self.capture_cameras):
+            raise ValueError("preprocess names must refer to configured RGB/depth cameras")
         self.state_fields = tuple(self.state_fields)
         self.cameras = list(self.cameras)
         if self.image_size is not None:
@@ -63,9 +88,11 @@ class RealRobotEnvConfig:
             raise ValueError(
                 f"action_mode {self.action_mode!r} invalid; choose from {list(ACTION_MODES)}"
             )
-        if self.num_joints <= 0:
+        if type(self.num_joints) is not int or self.num_joints <= 0:
             raise ValueError(f"num_joints must be positive, got {self.num_joints}")
         if self.joint_limits is not None:
+            for pair in self.joint_limits:
+                finite(pair, "joint_limits")
             shape_ok = len(self.joint_limits) == self.num_joints and all(
                 len(pair) == 2 for pair in self.joint_limits
             )
@@ -85,6 +112,10 @@ class RealRobotEnvConfig:
                 "safety_box must be [xmin, ymin, zmin, xmax, ymax, zmax], "
                 f"got {len(self.safety_box)} entries"
             )
+        if self.safety_box is not None:
+            finite(self.safety_box, "safety_box")
+            if any(low > high for low, high in zip(self.safety_box[:3], self.safety_box[3:])):
+                raise ValueError("safety_box entries must satisfy low <= high")
         unknown = [f for f in self.state_fields if f not in STATE_FIELDS]
         if unknown:
             raise ValueError(f"unknown state_fields {unknown}; choose from {list(STATE_FIELDS)}")
@@ -94,21 +125,27 @@ class RealRobotEnvConfig:
             raise ValueError(
                 f"home_joints must have {self.num_joints} entries, got {len(self.home_joints)}"
             )
+        if self.home_joints is not None:
+            finite(self.home_joints, "home_joints")
         if self.image_size is not None and (
-            len(self.image_size) != 2 or min(self.image_size) <= 0
+            len(self.image_size) != 2 or any(type(value) is not int or value <= 0 for value in self.image_size)
         ):
             raise ValueError(f"image_size must be a positive (H, W), got {self.image_size}")
-        if self.remote is not None and self.cameras and self.image_size is None:
+        if self.remote is not None and self.capture_cameras and self.image_size is None:
             raise ValueError(
                 "remote robots report camera sizes only after connect; set image_size "
                 "so the observation space is known at construction"
             )
         if self.control_hz <= 0:
             raise ValueError(f"control_hz must be positive, got {self.control_hz}")
-        if self.max_episode_steps is not None and self.max_episode_steps <= 0:
+        if self.max_episode_steps is not None and (type(self.max_episode_steps) is not int or self.max_episode_steps <= 0):
             raise ValueError(
                 f"max_episode_steps must be positive or None, got {self.max_episode_steps}"
             )
+
+    @property
+    def capture_cameras(self):
+        return list(dict.fromkeys([*self.cameras, *self.depth_cameras]))
 
     def require_robot_source(self) -> None:
         if (self.robot is None) == (self.remote is None):

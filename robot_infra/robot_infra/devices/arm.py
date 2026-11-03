@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 
+from robot_infra.control import ArmControlConfig
 from robot_infra.devices.base import Connection, ControllablePart, Features, Health
 from robot_infra.devices.errors import DeviceFault, SafetyViolation
 from robot_infra.devices.registry import BackendRegistry
@@ -59,6 +60,7 @@ class Arm(ControllablePart, BackendRegistry, ABC):
     SUPPORTED_STATE_FIELDS: ClassVar[tuple[str, ...]] = ARM_STATE_FIELDS
     # A cached read_state() older than this is re-read before limiting a servo step.
     MAX_DELTA_STATE_AGE_S: ClassVar[float] = 0.5
+    CONTROL_CAPABILITIES: ClassVar[tuple[str, ...]] = ()
 
     def __init__(
         self,
@@ -75,6 +77,8 @@ class Arm(ControllablePart, BackendRegistry, ABC):
             )
         self._num_joints = num_joints
         self._control_mode = ControlMode.IDLE
+        self._station_control = {}
+        self._control_config = ArmControlConfig()
         self._last_feedback_time: float | None = None
         self._errors: list[str] = []
         self._robot_mode = ""
@@ -87,6 +91,56 @@ class Arm(ControllablePart, BackendRegistry, ABC):
     @classmethod
     def from_config(cls, config: "RobotConfig", *, name: str = "arm") -> "Arm":
         raise NotImplementedError(f"{cls.__name__} does not implement from_config")
+
+    def set_station_control(self, config) -> None:
+        """Validate defaults during construction without connecting hardware."""
+        requested = ArmControlConfig.from_dict(config)
+        self._validate_control(requested)
+        self._station_control = requested.to_dict()
+        self._control_config = requested
+
+    def _validate_control(self, config: ArmControlConfig) -> None:
+        unsupported = config.to_dict().keys() - set(self.CONTROL_CAPABILITIES)
+        if unsupported:
+            raise ValueError(f"{type(self).__name__} does not support control settings {sorted(unsupported)}")
+        for name in ("joint_stiffness", "joint_damping"):
+            value = getattr(config, name)
+            if value is not None and len(value) != self.num_joints:
+                raise ValueError(f"{name} requires {self.num_joints} entries")
+
+    def configure_control(self, config) -> dict:
+        requested = ArmControlConfig.from_dict({**self._station_control, **ArmControlConfig.from_dict(config).to_dict()})
+        self._validate_control(requested)
+        for key in ("max_delta_tau", "translational_error_clip", "rotational_error_clip"):
+            if key not in self._station_control or key not in requested.to_dict():
+                continue
+            boundary = self._station_control[key]
+            value = requested.to_dict()[key]
+            limits = boundary if isinstance(boundary, list) else [boundary]
+            values = value if isinstance(value, list) else [value]
+            if any(actual > limit for actual, limit in zip(values, limits)):
+                raise SafetyViolation(f"experiment {key} exceeds station control boundary", device=self.name)
+        if not requested.to_dict():
+            return self.control_config
+        self._require_connected()
+        if self.control_mode is not ControlMode.IDLE:
+            raise DeviceFault("configure_control requires IDLE", device=self.name)
+        self._check_control_backend(requested)
+        self._control_config = requested
+        return self.control_config
+
+    def _check_control_backend(self, config: ArmControlConfig) -> None:
+        pass
+
+    @property
+    def control_config(self) -> dict:
+        return self._control_config.to_dict()
+
+    @property
+    def control_metadata(self) -> dict:
+        return {"backend": type(self).__name__, "sdk_version": "unknown",
+                "capabilities": list(self.CONTROL_CAPABILITIES), "effective": self.control_config,
+                "unspecified": "unknown backend defaults"}
 
     @property
     def num_joints(self) -> int:

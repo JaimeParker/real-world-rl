@@ -58,15 +58,22 @@ class SilriActorLoop(HilSerlActorLoop):
 
     def _push(self, transition: dict) -> None:
         held = self._held_transition
-        if held is not None:
-            if transition["intervened"] and not held["intervened"]:
-                held["intervention_onset"] = True
-            super()._push(held)
+        if held is not None and transition["intervened"] and not held["intervened"]:
+            held["intervention_onset"] = True
+        advance = getattr(self.sync_client, "advance_held_transition", None)
+        if advance is not None:
+            advance(held, transition)
+        else:
+            if held is not None:
+                super()._push(held)
         self._held_transition = transition
 
     def _flush_held_transition(self) -> None:
         if self._held_transition is not None:
             super()._push(self._held_transition)
+            clear = getattr(self.sync_client, "clear_held_transition", None)
+            if clear is not None:
+                clear()
             self._held_transition = None
 
     def _on_episode_end(self, info: dict) -> None:
@@ -94,7 +101,7 @@ class SilriLearnerLoop(HilSerlLearnerLoop):
       checkpoint restores the flag) and the demo buffer holds data, ``agent.pretrain()`` runs
       once. Before every ``train``, ``agent.refresh_behavior()`` runs when
       ``agent.behavior_refresh_due``. Both run in the training thread under the buffer lock,
-      so transitions arriving meanwhile wait (the reference also blocks ingestion there).
+      while HTTP workers continue committing new data to the durable journal.
     - One loop iteration calls ``agent.train(train_freq)``: SiLRI's ``utd`` is the number of
       critic updates inside each gradient step, not a multiplier of gradient steps.
     - Demo pkls without SiLRI's fields (``--demo_dataset_paths``) load as intervened,
@@ -129,6 +136,7 @@ class SilriLearnerLoop(HilSerlLearnerLoop):
             intervened=extra.get("intervened", True),
             policy_action=extra.get("policy_action"),
             intervention_onset=extra.get("intervention_onset", False),
+            **{key: extra[key] for key in ("human_action_mask", "override_mask") if key in extra},
         )
 
     def _buffer_kwargs(self, transition: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -139,6 +147,9 @@ class SilriLearnerLoop(HilSerlLearnerLoop):
         }
         if transition.get("policy_action") is not None:
             extra["policy_action"] = transition["policy_action"]
+        for key in ("human_action_mask", "override_mask", "episode_end"):
+            if key in transition:
+                extra[key] = transition[key]
         return core, extra
 
     def _routes_to_demo(self, transition: dict[str, Any]) -> bool:
@@ -147,6 +158,8 @@ class SilriLearnerLoop(HilSerlLearnerLoop):
         return self.agent.onset_to_demo_buffer and bool(transition.get("intervention_onset", False))
 
     def _on_transition(self, transition: dict[str, Any]) -> None:
+        from real_world_rl.trajectory import training_projection
+        transition = {**transition, **training_projection(transition)}
         to_demo = self._routes_to_demo(transition)
         actor_id = transition.get("actor_id")
         core, extra = self._buffer_kwargs(transition)
@@ -189,6 +202,8 @@ class SilriLearnerLoop(HilSerlLearnerLoop):
     def _train_step(self, compute_info: bool = False) -> dict[str, float]:
         with self._lock:
             behavior_metrics = self._maybe_pretrain()
+            if "pretrained" in behavior_metrics and self.agent.pretrained:
+                self._publish_policy()
             if self.agent.behavior_refresh_due:
                 behavior_metrics.update(
                     _behavior_phase_metrics("refresh", self.agent.refresh_behavior())
@@ -196,7 +211,8 @@ class SilriLearnerLoop(HilSerlLearnerLoop):
                 self._behavior_refresh_count += 1
                 behavior_metrics["refresh_count"] = self._behavior_refresh_count
             info = self.agent.train(max(1, self.train_freq), compute_info=compute_info)
-        # Outside the buffer lock: logging must not hold back transition ingestion.
+        # Logging remains outside the short state-observation lock.
         self._log_scalars("behavior", behavior_metrics, self._metrics_step)
+        self._policy_ready = True
         self._maybe_save_periodic_checkpoint()
         return info

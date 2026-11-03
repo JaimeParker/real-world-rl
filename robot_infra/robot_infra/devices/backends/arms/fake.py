@@ -20,6 +20,8 @@ _FAULTS = (None, "no_feedback", "fault", "drop_commands")
 class FakeArm(Arm):
     """Deterministic first-order arm for tests. Each read_state() moves the state a fraction `alpha` toward the current target."""
 
+    CONTROL_CAPABILITIES = ("translational_stiffness", "rotational_stiffness", "cartesian_damping", "joint_stiffness", "joint_damping", "translational_error_clip", "rotational_error_clip", "max_delta_tau", "gains_time_constant")
+
     def __init__(
         self,
         name: str = "arm",

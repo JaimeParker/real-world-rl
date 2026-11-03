@@ -45,7 +45,6 @@ class RealRobotBackend(EnvBackend):
         config.require_robot_source()
         observation = req.observation
         unsupported = {
-            "depth": observation.depth,
             "extra_state": observation.extra_state,
             "frame_stack>1": observation.frame_stack > 1,
         }
@@ -55,6 +54,9 @@ class RealRobotBackend(EnvBackend):
                 f"real_robot backend cannot produce {requested}; it supports state and rgb only"
             )
         cameras = list(observation.rgb)
+        depth_cameras = list(observation.depth)
+        if config.depth_cameras and config.depth_cameras != depth_cameras:
+            raise ObservationContractError("real_robot config depth cameras conflict with requested depth")
         if config.cameras and config.cameras != cameras:
             raise ObservationContractError(
                 f"real_robot config cameras {config.cameras} conflict with requested rgb "
@@ -68,7 +70,7 @@ class RealRobotBackend(EnvBackend):
                     f"image_size {observation.image_size}"
                 )
             image_size = observation.image_size
-        return dataclasses.replace(config, cameras=cameras, image_size=image_size)
+        return dataclasses.replace(config, cameras=cameras, depth_cameras=depth_cameras, image_size=image_size)
 
     @classmethod
     def _make_env(cls, req: EnvRequest):

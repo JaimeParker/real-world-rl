@@ -200,6 +200,7 @@ class Answers:
     home_joints: list[str] | None = None
     joint_limits: list[str] | None = None
     safety_boxes: list[str] | None = None
+    controls: list[str] | None = None
     max_delta_xyz_m: list[str] | None = None
     max_delta_joint_rad: list[str] | None = None
     cameras: list[str] | None = None
@@ -488,6 +489,18 @@ def _arm_draft(
         config = dataclasses.replace(prior.config, name=context.name)
     if answers.only is None:
         config = _ask_robot(prompt, answers, probe, context, config, taken)
+    control_text = answers.for_arm("controls", "--control", context.index, context.count)
+    if control_text is not None:
+        import yaml
+        from robot_infra.control import ArmControlConfig
+        try:
+            values = yaml.safe_load(control_text)
+            if values is not None and not isinstance(values, dict):
+                raise ValueError("expected a JSON/YAML mapping or null")
+            profile = None if values is None else ArmControlConfig.from_dict(values).to_dict()
+            config = dataclasses.replace(config, control=profile)
+        except (ValueError, TypeError, yaml.YAMLError) as exc:
+            raise WizardError(f"--control: {exc}") from exc
     taken.ips.add(getattr(config, "robot_ip", ""))
     if _asks(answers, "cameras"):
         config = dataclasses.replace(config, cameras=_ask_cameras(prompt, answers, probe, context, config, taken))

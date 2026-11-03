@@ -16,6 +16,7 @@ class _FakeBridgeClient(FrankaBridgeClient):
 
     def __init__(self, initial_pose=None):
         self.reset_calls = 0
+        self.stop_calls = 0
         self.sent_poses = []
         self.gripper_calls = []
         self._pose = (
@@ -26,6 +27,9 @@ class _FakeBridgeClient(FrankaBridgeClient):
 
     def reset_joints(self):
         self.reset_calls += 1
+
+    def stop_impedance(self):
+        self.stop_calls += 1
 
     def get_state(self):
         return {
@@ -227,3 +231,49 @@ def test_last_tcp_pose_is_none_before_reset_then_a_copy_of_the_measured_pose():
     pose = env.last_tcp_pose
     pose[:] = 0.0  # a caller mutating its copy leaves the env's step origin alone
     assert env.last_tcp_pose[1] == pytest.approx(0.02)
+
+
+def test_close_stops_only_owned_control_and_is_idempotent():
+    env, bridge = _make_env()
+    env.close()
+    assert bridge.stop_calls == 0
+    env, bridge = _make_env()
+    env.reset()
+    env.close()
+    env.close()
+    assert bridge.stop_calls == 1
+    with pytest.raises(RuntimeError, match="closed"):
+        env.reset()
+
+
+def test_failed_reset_retains_control_cleanup_responsibility(monkeypatch):
+    env, bridge = _make_env()
+    def fail_reset():
+        raise TimeoutError("reset acknowledgement lost")
+    monkeypatch.setattr(bridge, "reset_joints", fail_reset)
+    with pytest.raises(TimeoutError):
+        env.reset()
+    env.close()
+    assert bridge.stop_calls == 1
+
+
+def test_bridge_command_text_acknowledgements_and_slow_reset_timeout(monkeypatch):
+    import requests
+    calls = []
+    class Response:
+        content = b"Reset Joint"
+        def raise_for_status(self):
+            pass
+        def json(self):
+            raise ValueError("plain text acknowledgement")
+    def post(url, **kwargs):
+        calls.append((url, kwargs))
+        return Response()
+    monkeypatch.setattr(requests, "post", post)
+    client = FrankaBridgeClient("http://unused", timeout=5)
+    client.reset_joints()
+    client.stop_impedance()
+    assert calls[0][1]["timeout"] == 90
+    assert calls[1][0].endswith("/stopimp")
+    with pytest.raises(ValueError):
+        client.get_state()

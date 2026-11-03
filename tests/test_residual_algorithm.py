@@ -121,6 +121,7 @@ def test_bc_loss_ignores_rows_without_intervention_and_dims_without_scale():
     assert float(loss) == 0.0 and float(fraction) == 0.0
 
     data.intervened[:] = True
+    data.human_action_mask[:] = True
     data.actions[:, -1] = 1.0  # gripper dim has scale 0: no target there
     loss, fraction = agent._residual_bc_loss(torch.zeros(4, ACTION_DIM), data)
     assert float(fraction) == 1.0

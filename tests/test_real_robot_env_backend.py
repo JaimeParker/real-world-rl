@@ -88,7 +88,6 @@ def test_resolve_config_takes_cameras_and_image_size_from_observation():
 @pytest.mark.parametrize(
     "observation, config_overrides, match",
     [
-        (ObservationConfig(state=True, depth=("wrist",)), {}, "depth"),
         (ObservationConfig(state=True, extra_state=("obj",)), {}, "extra_state"),
         (ObservationConfig(state=True, rgb=("wrist",), frame_stack=2), {}, "frame_stack"),
         (ObservationConfig(state=True, rgb=("wrist",)), {"cameras": ["front"]}, "conflict"),

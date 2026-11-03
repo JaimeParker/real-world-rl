@@ -32,4 +32,7 @@ class HumanClassifierWrapper(gym.Wrapper):
             success = answer == "1"
             reward = torch.full_like(reward, float(success))
             info["succeed"] = reward
+            info["task_success_source"] = "manual"
+            info["task_success"] = success
+            info["manual_failure"] = not success
         return obs, reward, terminated, truncated, info

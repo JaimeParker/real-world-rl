@@ -191,7 +191,9 @@ def test_run_actor_starts_the_silri_actor_loop(monkeypatch):
     from real_world_rl.policies.silri_policy import SiLRIPolicy
 
     assert captured["ran"] is True
-    assert isinstance(captured["env"], InterventionWrapper)
+    from real_world_rl.envs.wrappers.experiment import ExperimentContractWrapper
+    assert isinstance(captured["env"], ExperimentContractWrapper)
+    assert isinstance(captured["env"].env, InterventionWrapper)
     assert isinstance(captured["policy"], SiLRIPolicy)
     assert captured["sync_client"]._base_url == "http://10.0.0.1:7000"
     assert captured["kwargs"]["control_hz"] == args.control_hz
@@ -223,3 +225,8 @@ def test_silri_row_registers_on_the_online_registry_for_deploy_and_eval():
     entry = online_registry.entries()["silri"]
     assert entry.build_agent is build_silri and entry.algorithm_cls() is SiLRI
     assert _resolve_build_agent("silri") is build_silri
+
+
+@pytest.fixture(autouse=True)
+def _isolate_actor_outbox_directory(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)

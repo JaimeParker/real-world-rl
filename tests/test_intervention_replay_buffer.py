@@ -171,16 +171,20 @@ def test_extras_are_written_at_the_slot_the_base_columns_use_and_wrap_with_it():
 
 
 def test_slice_keys_lists_the_extra_fields_present():
-    assert _buffer().slice_keys() == ("intervened", "policy_actions")
+    assert _buffer().slice_keys() == ("intervened", "policy_actions", "human_action_mask", "override_mask")
     assert _buffer(store_base_actions=True).slice_keys() == (
         "intervened",
         "policy_actions",
+        "human_action_mask",
+        "override_mask",
         "base_actions",
         "next_base_actions",
     )
     assert _buffer(store_base_actions=True, store_onset=True, store_grasp_penalty=True).slice_keys() == (
         "intervened",
         "policy_actions",
+        "human_action_mask",
+        "override_mask",
         "base_actions",
         "next_base_actions",
         "intervention_onset",

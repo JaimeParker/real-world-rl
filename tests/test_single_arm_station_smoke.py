@@ -447,12 +447,13 @@ def test_recorded_demos_hold_the_operator_steps_and_a_terminal_success(recorded_
 # -- 2 and 3. hil_serl actor and learner --------------------------------------------------
 
 
-def _run_hil_serl_actor(args) -> _StatsSyncClient:
+def _run_hil_serl_actor(args, station) -> _StatsSyncClient:
     env = env_building.build_hil_env(args, role="actor")
     sync_client = _StatsSyncClient()
     try:
         _check_actor_env(env)
         HilSerlActorLoop(env, ZeroPolicy(), sync_client, control_hz=args.control_hz).run(total_steps=8)
+        assert not station.robot_connected()
     finally:
         env.close()
     return sync_client
@@ -461,7 +462,7 @@ def _run_hil_serl_actor(args) -> _StatsSyncClient:
 def test_hil_serl_actor_rows_and_stats_reach_the_learner_and_its_metrics(station, preset, recorded_demos, tmp_path):
     actor_args = _training_args("hil_serl", *_hil_flags(preset, "actor"))
     assert isinstance(actor_args, HilSerlArgs) and actor_args.reward_from_teleop_events
-    sync_client = _run_hil_serl_actor(actor_args)
+    sync_client = _run_hil_serl_actor(actor_args, station)
     assert not station.robot_connected()
 
     rows = sync_client.pushed
@@ -480,11 +481,11 @@ def test_hil_serl_actor_rows_and_stats_reach_the_learner_and_its_metrics(station
     first, second = sync_client.posted
     expected_first = {
         "episode": 1, "return": 1.0, "length": 4, "intervened_steps": 2, "intervention_count": 1,
-        "intervention_rate": 0.5, "success": 1.0, "human_episode_end": 0.0,
+        "intervention_rate": 0.5, "task_success": True, "autonomous_success_rate": 0.0, "human_episode_end": 0.0,
     }
     expected_second = {
         "episode": 2, "return": 0.0, "length": 2, "intervened_steps": 0, "intervention_count": 0,
-        "intervention_rate": 0.0, "success": 0.0, "human_episode_end": 0.0,
+        "intervention_rate": 0.0, "task_success": False, "autonomous_success_rate": 0.0, "human_episode_end": 0.0,
     }
     assert {key: first[key] for key in expected_first} == expected_first
     assert {key: second[key] for key in expected_second} == expected_second
@@ -532,8 +533,9 @@ def test_hil_serl_actor_rows_and_stats_reach_the_learner_and_its_metrics(station
         learner_env.close()
 
     assert len(agent.replay_buffer) == 8
-    # The two recorded demos plus the two intervened rows of the actor.
-    assert len(agent.offline_replay_buffer) == 4
+    # Both actor interventions are catch-up: they stay online without new expert labels.
+    assert all(row.get("syncing", False) for row in rows if row["intervened"])
+    assert len(agent.offline_replay_buffer) == len(recorded_demos.transitions)
     tags = logger.tags()
     assert {
         "learner/received",
@@ -544,18 +546,19 @@ def test_hil_serl_actor_rows_and_stats_reach_the_learner_and_its_metrics(station
         "learner/intervened_received",
     } <= tags
     assert logger.value("learner/received") == (8.0, 8)
-    assert logger.value("learner/demo_buffer_size") == (4.0, 8)
-    assert logger.value("learner/intervened_received") == (2.0, 8)
+    assert logger.value("learner/demo_buffer_size") == (float(len(recorded_demos.transitions)), 8)
+    assert logger.value("learner/intervened_received") == (0.0, 8)
     assert "losses/critic_loss" in tags
     assert [step for tag, _, step in logger.scalars if tag == "learner/train_time_s"] == [8]
-    assert ("actor/success", 1.0, 8) in logger.scalars and ("actor/success", 0.0, 8) in logger.scalars
+    assert ("actor/task_success", 1.0, 8) in logger.scalars and ("actor/task_success", 0.0, 8) in logger.scalars
+    assert ("actor/autonomous_success_rate", 0.0, 8) in logger.scalars
     assert ("actor/return", 1.0, 8) in logger.scalars
 
 
 # -- 4 and 5. residual actor over a BC or an ACT base -------------------------------------
 
 
-def _run_residual_actor(preset: Path, base_provider: str) -> tuple[list[dict], _ResetCountingProvider]:
+def _run_residual_actor(preset: Path, base_provider: str, station) -> tuple[list[dict], _ResetCountingProvider]:
     """The residual actor's first episode over ``--base-provider base_provider``."""
     args = _tiny_rlpd(
         _training_args(
@@ -585,6 +588,7 @@ def _run_residual_actor(preset: Path, base_provider: str) -> tuple[list[dict], _
             deterministic=args.deterministic_actor,
             seed=args.seed,
         ).run(total_steps=STEPS_TO_SUCCESS)
+        assert not station.robot_connected()
     finally:
         env.close()
 
@@ -604,7 +608,7 @@ def _run_residual_actor(preset: Path, base_provider: str) -> tuple[list[dict], _
 
 
 def test_residual_actor_runs_on_the_bc_checkpoint(station, preset, bc_checkpoint):
-    _run_residual_actor(preset, f"checkpoint:{bc_checkpoint}?algo=real_world_bc")
+    _run_residual_actor(preset, f"checkpoint:{bc_checkpoint}?algo=real_world_bc", station)
     assert not station.robot_connected()
 
 
@@ -638,7 +642,7 @@ def test_residual_actor_runs_on_an_act_checkpoint_trained_from_the_demos(station
     assert checkpoint == workdir / "runs" / "act" / "checkpoints" / "final.pt"
     assert torch.load(checkpoint, map_location="cpu")["camera_keys"] == sorted(f"rgb_{cam}" for cam in CAMERAS)
 
-    _rows, provider = _run_residual_actor(preset, f"act:{checkpoint}?temporal_agg=1")
+    _rows, provider = _run_residual_actor(preset, f"act:{checkpoint}?temporal_agg=1", station)
     assert provider.spec()["kind"] == "act"
     assert not station.robot_connected()
 
@@ -663,6 +667,7 @@ def test_silri_actor_tags_the_step_before_the_takeover(station, preset):
             seed=args.seed,
         )
         loop.run(total_steps=STEPS_TO_SUCCESS)
+        assert not station.robot_connected()
     finally:
         env.close()
     assert not station.robot_connected()

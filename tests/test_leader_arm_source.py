@@ -101,7 +101,7 @@ def test_joint_delta_ramp_is_the_parents_saturation(make_part):
     reading = source.poll()
     expected = np.clip((np.array(FAR) - env.follower) / JOINT_SCALE_RAD, -1.0, 1.0)
     np.testing.assert_allclose(reading.action[:7], expected, atol=1e-6)
-    assert reading.intervened and dict(reading.events) == {}
+    assert reading.intervened and dict(reading.events) == {TELEOP_SYNCING_EVENT: True}
 
 
 # -- arm ----------------------------------------------------------------------------------

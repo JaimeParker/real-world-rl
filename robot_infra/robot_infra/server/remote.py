@@ -95,6 +95,7 @@ class RemoteArm(_RemotePart, Arm):
         control_mode: ControlMode = ControlMode.IDLE,
         safety_limits: dict | None = None,
         home_joints: list[float] | None = None,
+        control_metadata: dict | None = None,
     ) -> None:
         # No local guard: the daemon's arm enforces the limits, this side only sanitizes.
         super().__init__(name, num_joints=num_joints, owner=owner, safety=None)
@@ -102,8 +103,29 @@ class RemoteArm(_RemotePart, Arm):
         self.SUPPORTED_STATE_FIELDS = tuple(supported_state_fields)
         self._client = client
         self._control_mode = control_mode
+        self._remote_control_metadata = control_metadata or {"backend": "unknown", "sdk_version": "unknown", "capabilities": [], "effective": {}}
         self._remote_safety_limits = safety_limits
         self._home_joints = None if home_joints is None else list(home_joints)
+
+    def configure_control(self, config) -> dict:
+        from robot_infra.control import ArmControlConfig
+        requested = ArmControlConfig.from_dict(config).to_dict()
+        if not requested and not self.control_config:
+            return self.control_config
+        unsupported = requested.keys() - set(self._remote_control_metadata.get("capabilities", ()))
+        if unsupported:
+            raise ValueError(f"remote daemon does not support control settings {sorted(unsupported)}")
+        effective = self._call("configure_control", config=requested)
+        self._remote_control_metadata = self._call("control_metadata")
+        return effective
+
+    @property
+    def control_config(self) -> dict:
+        return dict(self._remote_control_metadata.get("effective", {}))
+
+    @property
+    def control_metadata(self) -> dict:
+        return dict(self._remote_control_metadata)
 
     @property
     def safety_limits(self) -> dict | None:
@@ -390,6 +412,7 @@ class RemoteRobot(Robot):
                 control_mode=ControlMode(arm_info["control_mode"]),
                 safety_limits=arm_info.get("safety"),
                 home_joints=arm_info.get("home_joints"),
+                control_metadata=arm_info.get("control_metadata"),
             ),
         )
         gripper_info = info["gripper"]

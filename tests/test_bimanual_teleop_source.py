@@ -181,8 +181,10 @@ def test_events_are_merged_per_arm_and_as_any_and_episode_end_is_ored():
     assert reading.episode_end is True and reading.timestamp == 2.0
     assert dict(reading.events) == {
         "left_success": True,
+        "left.success": True,
         "success": True,
         "right_teleop_syncing": True,
+        "right.teleop_syncing": True,
         "teleop_syncing": True,
     }
 

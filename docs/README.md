@@ -37,6 +37,10 @@ Flags, file formats and hardware details.
 - [Recording demos: recorder flags and the pkl format](recording-demos.md)
 - [`examples/presets/hil_single_arm.yaml`](../examples/presets/hil_single_arm.yaml): the single-arm env preset
 - [robot_infra: device layer, setup wizard, doctor, daemon](../robot_infra/README.md)
+- [Real-world experiments](real-world-experiments.md): durable uploads, recovery, outcomes,
+  partial takeover, trajectory archives, tasks and observations
+- [Arm control profiles](../robot_infra/docs/control-profiles.md): station gains, backend
+  capabilities and effective settings
 - [Known issues and deferred work](known-issues.md): what a first real run can hit, workarounds, planned
   fixes
 - [Getting started on hardware](getting-started-hardware.md) (moved into the tutorial; kept for old links)

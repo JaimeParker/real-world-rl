@@ -20,6 +20,8 @@ from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
 
 from real_world_rl.envs.real_robot.config import RealRobotEnvConfig
+from real_world_rl.envs.real_robot.preprocess import CameraPreprocessConfig, preprocess_frame
+from real_world_rl.tasks import build_task
 
 _CARTESIAN_ACTION_DIM = 6
 _GRIPPER_OPEN_COMMAND = 1.0
@@ -59,10 +61,13 @@ class RealRobotEnv(gym.Env):
         config.require_robot_source()
         self.config = config
         self.robot = robot if robot is not None else _build_robot(config)
-        self.task_description: str = ""
+        self.task_runtime = build_task(config.task, ("arm",))
+        self.task_description: str = "" if config.task.name == "none" else config.task.name
+        self._expected_control_metadata = None
+        self._control_metadata = {}
         self.render_mode = "rgb_array"
 
-        self._frame_sizes = {cam: self._frame_size(cam) for cam in config.cameras}
+        self._frame_sizes = {cam: self._frame_size(cam) for cam in config.capture_cameras}
         num_joints = config.num_joints
         state_space = spaces.Dict(
             [
@@ -78,10 +83,12 @@ class RealRobotEnv(gym.Env):
         frame_space = spaces.Dict(
             [
                 (cam, spaces.Box(0, 255, shape=(h, w, 3), dtype=np.uint8))
-                for cam, (h, w) in self._frame_sizes.items()
+                for cam, (h, w) in self._frame_sizes.items() if cam in config.cameras
             ]
         )
-        self.observation_space = spaces.Dict([("state", state_space), ("frames", frame_space)])
+        depth_space = spaces.Dict([(cam, spaces.Box(0, np.inf, shape=(*self._frame_sizes[cam], 1), dtype=np.float32))
+                                  for cam in config.depth_cameras])
+        self.observation_space = spaces.Dict([("state", state_space), ("frames", frame_space)] + ([("depth_frames", depth_space)] if depth_space.spaces else []))
         arm_dim = _CARTESIAN_ACTION_DIM if config.action_mode == "cartesian_delta" else num_joints
         action_dim = arm_dim + (1 if config.gripper_in_action else 0)
         self.action_space = spaces.Box(-1.0, 1.0, shape=(action_dim,), dtype=np.float32)
@@ -107,6 +114,9 @@ class RealRobotEnv(gym.Env):
     def _frame_size(self, cam: str) -> tuple[int, int]:
         if self.config.image_size is not None:
             return self.config.image_size
+        preprocessing = self.config.preprocess.get(cam)
+        if preprocessing is not None and preprocessing.roi is not None:
+            return tuple(preprocessing.roi[2:])
         camera_configs = {c.name: c for c in getattr(self.robot.config, "cameras", [])}
         if cam not in camera_configs:
             raise ValueError(
@@ -157,12 +167,15 @@ class RealRobotEnv(gym.Env):
             )
         if config.gripper_in_action and robot.gripper is None:
             raise fault("robot has no gripper", "set gripper_in_action=False")
-        unknown_cams = [cam for cam in config.cameras if cam not in robot.cameras]
+        unknown_cams = [cam for cam in config.capture_cameras if cam not in robot.cameras]
         if unknown_cams:
             raise fault(
                 f"robot has no cameras {unknown_cams} (available: {sorted(robot.cameras)})",
                 "fix the camera names in the env config",
             )
+        for camera in config.depth_cameras:
+            if not getattr(robot.cameras[camera].config, "enable_depth", False):
+                raise ValueError(f"camera {camera} depth is requested but disabled on the station")
         self._merge_device_safety(arm, fault)
         # joint_abs maps each action onto an absolute target, so consecutive actions can jump
         # across the whole joint range; only the device-layer step limit bounds that.
@@ -240,39 +253,51 @@ class RealRobotEnv(gym.Env):
 
     # -- gym API ---------------------------------------------------------------------
 
-    def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
-        super().reset(seed=seed)
-        del options
+    def _reset_begin(self):
         from robot_infra.devices.arm import ControlMode
-
         self._connect_and_validate()
-        arm = self.robot.arm
-        arm.set_control_mode(ControlMode.IDLE)
-        arm.move_to_joints(self._home_joints(), blocking=True)
-        if self.robot.gripper is not None:
-            # Through the action path, not gripper.open(): a binary gripper skips a command equal
-            # to the last one it was sent, so a direct open() would desync that memory.
-            self._send_and_observe({"gripper": {"gripper": np.array([_GRIPPER_OPEN_COMMAND])}})
-        if self.config.reset_settle_s > 0:
-            time.sleep(self.config.reset_settle_s)
-        servo = (
-            ControlMode.CARTESIAN_SERVO
-            if self.config.action_mode == "cartesian_delta"
-            else ControlMode.JOINT_SERVO
-        )
-        arm.set_control_mode(servo)
+        self.robot.arm.set_control_mode(ControlMode.IDLE)
+        self.robot.arm.configure_control(self.config.control or {})
+        from real_world_rl.action_contract import json_normalize
+        self._control_metadata = json_normalize({**dict(getattr(self.robot.arm, "control_metadata", {})),
+            "resolved_robot": {"home_joints": self.config.home_joints or getattr(self.robot.arm, "home_joints", None) or getattr(self.robot.config, "home_joints", None), "safety_box": self._effective_safety_box,
+                               "joint_limits": self._joint_limits, "max_delta_per_step": self._device_max_delta}})
+        if self._expected_control_metadata is not None and self._control_metadata != self._expected_control_metadata:
+            raise ValueError("effective control/SDK metadata differs from the saved experiment")
+        if self.config.preprocess or self.config.depth_cameras:
+            self._observe(self.robot.get_observation())
+
+    def _reset_finish(self):
+        from robot_infra.devices.arm import ControlMode
+        self.robot.arm.set_control_mode(ControlMode.CARTESIAN_SERVO if self.config.action_mode == "cartesian_delta" else ControlMode.JOINT_SERVO)
         raw = self.robot.get_observation()
         self._elapsed_steps = 0
         self._last_send_time = None
         self._refresh_safety_clips()
-        return self._observe(raw), {}
+        return self._observe(raw), {"control_metadata": self._control_metadata}
+
+    def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
+        super().reset(seed=seed)
+        del options
+        if self.config.task.name != "none":
+            return self.task_runtime.reset(self, self.np_random)["arm"]
+        self._reset_begin()
+        self.robot.arm.move_to_joints(self._home_joints(), blocking=True)
+        if self.robot.gripper is not None:
+            self._send_and_observe({"gripper": {"gripper": np.array([_GRIPPER_OPEN_COMMAND])}})
+        if self.config.reset_settle_s > 0: time.sleep(self.config.reset_settle_s)
+        obs, _ = self._reset_finish()
+        return obs, {}
 
     def step(self, action):
         if self._last_raw is None:
             raise RuntimeError("RealRobotEnv.step() called before reset()")
-        action = np.clip(np.asarray(action, dtype=np.float64).reshape(-1), -1.0, 1.0)
+        action = np.asarray(action, dtype=np.float64).reshape(-1)
         if action.shape != self.action_space.shape:
             raise ValueError(f"expected action shape {self.action_space.shape}, got {action.shape}")
+        if not np.isfinite(action).all():
+            raise ValueError("action must contain finite numbers")
+        action = np.clip(action, -1.0, 1.0)
 
         command: dict[str, Any] = {"arm": self._arm_command(action)}
         if self.config.gripper_in_action:
@@ -301,6 +326,7 @@ class RealRobotEnv(gym.Env):
             "rtt_ms": getattr(client, "last_rtt_ms", None),
             "safety_clips": self._safety_clips,
             "elapsed_steps": self._elapsed_steps,
+            "task_tcp_positions": {"arm": np.asarray(raw["arm"]["tcp_pose"][:3]).copy()} if "tcp_pose" in raw["arm"] else {},
         }
         return obs, 0.0, False, bool(truncated), info
 
@@ -349,11 +375,17 @@ class RealRobotEnv(gym.Env):
             state[field] = np.asarray(source[field], dtype=np.float32).reshape(
                 self.observation_space["state"][field].shape
             )
-        frames = {
-            cam: self._fit_frame(np.asarray(raw["cameras"][cam]["color"], dtype=np.uint8), size)
-            for cam, size in self._frame_sizes.items()
-        }
+        frames, depth_frames = {}, {}
+        for cam, size in self._frame_sizes.items():
+            preprocessing = self.config.preprocess.get(cam, CameraPreprocessConfig())
+            if cam in self.config.cameras:
+                frames[cam] = preprocess_frame(raw["cameras"][cam]["color"], preprocessing, size)
+            if cam in self.config.depth_cameras:
+                depth = raw["cameras"][cam].get("depth")
+                if depth is None: raise ValueError(f"camera {cam} returned no requested depth")
+                depth_frames[cam] = preprocess_frame(depth, preprocessing, size, depth=True)
         self._last_obs = {"state": state, "frames": frames}
+        if depth_frames: self._last_obs["depth_frames"] = depth_frames
         return self._last_obs
 
     @staticmethod
@@ -394,9 +426,25 @@ class RealRobotEnv(gym.Env):
         return self.config.num_joints
 
     @property
+    def requested_experiment(self):
+        import dataclasses
+        return {"task": dataclasses.asdict(self.config.task), "control": self.config.control,
+                "control_hz": self.config.control_hz, "safety_box": self.config.safety_box,
+                "joint_limits": self.config.joint_limits, "home_joints": self.config.home_joints,
+                "max_episode_steps": self.config.max_episode_steps, "reset_settle_s": self.config.reset_settle_s,
+                "cameras": self.config.cameras, "depth_cameras": self.config.depth_cameras,
+                "image_size": self.config.image_size,
+                "preprocess": {name: dataclasses.asdict(value) for name, value in self.config.preprocess.items()}}
+
+    @property
+    def runtime_control(self):
+        return {"arm": self._control_metadata}
+
+    @property
     def action_contract(self) -> dict:
         config = self.config
         return {
+            "experiment": self.requested_experiment,
             "action_mode": config.action_mode,
             "gripper_in_action": config.gripper_in_action,
             "arm_action_dim": self.arm_action_dim,
@@ -439,6 +487,7 @@ class RealRobotVectorEnv(gym.Env):
         entries: list[tuple[str, spaces.Space]] = [
             (f"rgb_{cam}", env.observation_space["frames"][cam]) for cam in env.config.cameras
         ]
+        entries.extend((f"depth_{cam}", env.observation_space["depth_frames"][cam]) for cam in env.config.depth_cameras)
         if include_state:
             state_dim = sum(
                 env.observation_space["state"][field].shape[0] for field in env.config.state_fields
@@ -451,6 +500,9 @@ class RealRobotVectorEnv(gym.Env):
         self.observation_space = batch_space(self.single_observation_space, 1)
         self.action_space = batch_space(self.single_action_space, 1)
         self.metadata = env.metadata
+
+    @property
+    def runtime_control(self): return self.env.runtime_control
 
     @property
     def robot(self):
@@ -481,6 +533,8 @@ class RealRobotVectorEnv(gym.Env):
             f"rgb_{cam}": torch.from_numpy(np.require(obs["frames"][cam], requirements=["C", "W"])).unsqueeze(0)
             for cam in self.env.config.cameras
         }
+        out.update({f"depth_{cam}": torch.from_numpy(np.ascontiguousarray(obs["depth_frames"][cam])).unsqueeze(0)
+                    for cam in self.env.config.depth_cameras})
         if self.include_state:
             state = np.concatenate([obs["state"][field] for field in self.env.config.state_fields])
             out["state"] = torch.from_numpy(state.astype(np.float32, copy=False)).unsqueeze(0)

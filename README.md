@@ -1,5 +1,7 @@
 # real-world-rl
 
+**Documentation:** [English](docs/README.md) · [中文文档入口](docs/README.zh-CN.md)
+
 Real-world RL orchestration split out of
 [rl-garden](https://github.com/JaimeParker/rl-garden): `ActorLoop`/
 `LearnerLoop`/sync (SERL, HIL-SERL, residual and SiLRI variants), the

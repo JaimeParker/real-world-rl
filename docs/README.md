@@ -1,5 +1,7 @@
 # Documentation Index
 
+[中文文档入口](README.zh-CN.md) — 全部文档的完整中文译文、阅读顺序与操作速查。
+
 ## Tutorial
 
 One Franka arm with a gripper, a GELLO leader arm read through the robot daemon and the keyboard,

@@ -1,8 +1,10 @@
 # Recording demos on the real robot
 
-`examples/record_real_demos.py` records teleoperated demonstrations on the real robot into the
-pkl format that `--demo-dataset-paths` loads (`hil_serl`, `residual_hil_serl`, `silri` and
-`real_world_bc`). The logic lives in `real_world_rl/demos/record.py`.
+`examples/record_real_demos.py` archives complete teleoperated episodes on the real robot to
+SQLite and exports successful human demonstrations to the pkl format accepted by
+`--demo-dataset-paths` (`hil_serl`, `residual_hil_serl`, `silri`, `real_world_bc`). BC/HIL loaders
+also accept `.trajectory.sqlite3` and `.trajectory.pt`. ACT's trajectory trainer uses pkl.
+The logic lives in `real_world_rl/demos/record.py`.
 
 The recorder builds the env exactly as the HIL actor does (`build_hil_env(args, role="actor")`),
 so it takes the same env, teleop and observation flags, and the same `--config` preset, as
@@ -59,7 +61,8 @@ python examples/train_real_world.py hil_serl --role learner --config hil.yaml \
 | `--num-successes` | 20 | stop after this many kept episodes |
 | `--max-episode-steps` | unset | episode step cap; replaces `--real_robot.max_episode_steps`, `--real_robot_bimanual.max_episode_steps` or `--franka_real.max_episode_steps` when set |
 | `--start-tolerance-rad` | 0.8 | `joint_abs`: refuse to start an episode while the leader is further than this from the follower in any joint |
-| `--keep-syncing-steps` | off | also record the ramp-onset steps (see below) |
+| `--keep-syncing-steps` | off | include leader catch-up rows as ordinary supervised pkl steps; SQLite retains their syncing marker |
+| `--export-trajectory-pt` | off | additionally export the complete archive as portable `.trajectory.pt`; SQLite remains the recovery source |
 | `--reward-from-teleop-events` | on (recorder only; training defaults to off) | the success key stores its step as a terminal success (reward `--teleop-success-reward`, 1.0; `done` True) and ends the episode; `--no-reward-from-teleop-events` keeps the env's own reward (0 on `real_robot`), so a kept success is stored with reward 0 and `done` False |
 
 `--control-hz` paces the loop as it paces the actor. `--fwbw` is not supported.
@@ -79,8 +82,10 @@ python examples/train_real_world.py hil_serl --role learner --config hil.yaml \
    a zero arm action in `joint_delta` and `cartesian_delta`, the follower's current joint
    positions in `joint_abs`, and the last executed gripper action (open after a reset), one per
    arm: the grippers are the last `num_arms` action dims (the action contract's layout).
-4. A step is recorded only when it was intervened. Steps the ramp onset rate-limited carry
-   `teleop_syncing` and are left out unless `--keep-syncing-steps` is given.
+4. Every step is archived. The pkl view selects intervened steps; leader catch-up carries
+   `teleop_syncing` in both joint modes and is excluded unless `--keep-syncing-steps` is set.
+   Archive-derived training views still exclude syncing. Human masks select expert dimensions,
+   while idle-hold supplements have no expert label.
 5. The episode ends when the env terminates or truncates: the operator's episode-end button
    (Esc on the keyboard) truncates, the step cap truncates, the success key terminates (with the
    default `--reward-from-teleop-events`), a reward classifier terminates. Press the success key
@@ -91,7 +96,7 @@ GELLO's evdev device):
 
 | Event | Effect |
 | --- | --- |
-| `success` (`s`) or a positive reward | the episode counts as a success (and, by default, ends at that step) |
+| `success` (`s`) or an explicit environment/classifier success label | the episode counts as successful unless a failure vetoes it; positive reward alone is not a success label |
 | `failure` (`f`) | the episode is discarded, even after a success |
 | `rerecord` (`r`) | the episode is discarded at once and the next one starts |
 
@@ -104,9 +109,18 @@ limits how fast the follower moves towards the leader.
 
 ## Output
 
-The pkl is a list of transition dicts, the format the hil_serl learner's demo snapshots use:
-`obs` and `next_obs` as the env returned them, `action` the executed action
-(`info["intervene_action"]`, `(1, A)`), `reward`, `done` (`terminated`), and `grasp_penalty`
-when `--use-grasp-penalty` is on. The sidecar `<stem>.contract.json` records the env's action
-contract (action mode, widths, joint limits, scales, state fields); loading the pkl into an env
-with a different contract raises a `ValueError` naming the differing keys.
+The pkl contains successful human transition dicts with `obs`, `next_obs`, executed `action`,
+`reward`, `done` (`terminated`), optional `grasp_penalty`, policy proposals and human/override
+masks. Versioned records also retain episode/step identity and training-segment boundaries, so
+filtering cannot invent adjacency or transfer terminal rewards to earlier human steps.
+`<stem>.contract.json` records action and experiment compatibility; retain it with the data.
+The compared experiment fields cover task, control, observation layout, preprocessing and
+teleop part selection/idle behavior. Reward sources and station-owned reset facts are provenance.
+
+`<stem>.trajectory.sqlite3` is the complete durable archive, including failed, rerecorded,
+syncing and interrupted attempts. Only the pkl view drops unsuccessful episodes. If nothing is
+kept, no pkl is written. Reopening an existing archive, while the pkl path is still new, marks
+unfinished episodes interrupted and assigns new IDs to future attempts. `--export-trajectory-pt`
+also writes `<stem>.trajectory.pt`. Durability begins when append returns and uses SQLite WAL
+`synchronous=NORMAL`; the newest commits can be lost on OS crash or power failure.
+Full recovery, masks and training-view rules: [Real-world experiments](real-world-experiments.md).

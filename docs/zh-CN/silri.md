@@ -58,15 +58,15 @@ SilriActorLoop                                      SilriLearnerLoop
                                    <-- policy params -- publish every publish_freq iterations
 ```
 
-- 推送字段包括 `obs`、显式保存的 `next_obs`（回合结束时为 reset 前观测）、`action`（实际执行动作，介入时为人工动作）、`reward`、`done = terminated`、`intervened`、`policy_action`（策略提出的动作）与 `intervention_onset`。
-- `intervention_onset` 标记同一回合中介入前的最后一个策略 transition。actor 在回合结束时发送暂存 transition；进程停止时若仍暂存一条，也会发送，但不加起始标记。
-- 两个缓冲区都是 `InterventionReplayBuffer`，保存 `intervened`、`policy_actions` 和 `intervention_onset`。路由至示范缓冲区的起始标记数据保持 `intervened=False`，因此不会训练行为模型或夹爪头。
-- 收到 `learning_starts` 条 transition 且示范缓冲区达到 `demo_learning_starts` 条时开始训练。
-- 预训练：learner 进程首次 `train` 前，若智能体尚未 `pretrained` 且示范缓冲区有数据，先在纯示范批次上做 `bc_pretrain_steps` 步 `L_beta`，再做相同步数的 `L_bc + L_g`，之后执行 `actor_target <- actor`。`pretrained` 标记保存在 checkpoint 中，恢复时无需再次预训练。
-- 行为刷新：示范缓冲区每新增 `behavior_refresh_every` 条，在下一次 `train` 前由训练线程做 `behavior_refresh_steps` 步纯示范 `L_beta` 更新。预训练会重置新增计数。
-- 预训练和刷新都持有缓冲区锁，期间到达的 transition 需要等待。
-- 示范 pkl（`--demo-dataset-paths`）和崩溃恢复快照按 hil_serl 方式加载。缺少 SiLRI 字段的示范被视为介入、非起始标记数据，其策略动作等于记录动作。
-- 每次 learner 迭代调用 `train(train_freq)`；`utd` 表示每个梯度步骤内的 critic 更新次数，与 `LearnerLoop` 默认按梯度步数相乘的方式不同。
+- 推送字段：`obs`、`next_obs`（显式提供，回合结束时为 reset 前观测）、`action`（实际执行动作，介入时为人工动作）、`reward`、`done = terminated`、`intervened`、`policy_action`（策略提议）和 `intervention_onset`。
+- `intervention_onset` 标记同一回合中介入步骤前的最后一个策略 transition。回合结束时 actor 刷出暂存 transition；actor 停止时仍暂存的记录也会推送，且不标 onset。
+- 两个缓冲区均为 `InterventionReplayBuffer`，存储 `intervened`、`policy_actions`、`intervention_onset`。路由到示范缓冲区的 onset 记录保留 `intervened=False`，因此不会训练行为模型或夹爪头。
+- 收到 `learning_starts` 条 transition 且示范缓冲区有 `demo_learning_starts` 条记录后开始训练。
+- 预训练：learner 进程首次 `train` 前，若 agent 尚未 `pretrained` 且示范缓冲区有数据，先在纯示范 batch 上训练 `bc_pretrain_steps` 步 `L_beta`，再训练同样步数 `L_bc + L_g`，然后执行 `actor_target <- actor`。`pretrained` 标志写入 checkpoint，恢复运行不会重复预训练。
+- 行为刷新：示范缓冲区每增加 `behavior_refresh_every` 条数据，在训练线程下一次 `train` 前用纯示范 batch 执行 `behavior_refresh_steps` 步 `L_beta`。预训练重置新增计数。
+- 预训练和刷新可能持有训练缓冲区锁。HTTP 接收独立提交到持久 journal，随后训练线程应用排队记录。actor 重试保留消息 ID，丢失 ACK 不会重复接收记录。
+- 示范 pkl（`--demo-dataset-paths`）和崩溃恢复快照按 hil_serl 的方式加载。缺少 SiLRI 字段的 pkl 按介入、非 onset 记录加载，策略动作为记录动作。
+- 每次 learner 迭代调用 `train(train_freq)`：`utd` 是每个梯度步骤内部的 critic 更新数，与 `LearnerLoop` 默认行为不同，不乘到梯度步骤数上。
 
 <a id="hyperparameters"></a>
 
@@ -131,14 +131,23 @@ python examples/train_real_world.py silri --role actor --config hil.yaml --teleo
     --robot-teleop-action-mode joint_delta --teleop-event-device keyboard --reward-from-teleop-events
 ```
 
-机器人上的评估（`--role eval --load-checkpoint ...`）使用确定性动作，通过 `terminated` 判断成功。
+评估（`--role eval --load-checkpoint ...`）使用确定性动作和显式任务结果。仍可接管；`autonomous_success_rate` 的分子排除动作辅助成功，分母保留全部已完成回合。
 
 <a id="limitations"></a>
 
 ## 限制
 
-- 仅支持真机循环；调用 `SiLRI.learn` 会抛异常，尚无模拟器训练路径。
-- 拒绝 `--fwbw` 和 `--use-grasp-penalty`，暂无免重置变体和离散 critic。
-- learner 发布完整策略状态，因此 actor 也收到行为模型、乘子和目标网络，尽管只需 actor 与夹爪头；筛选发布内容属于后续工作。
-- 预训练默认 500 步，与刷新过程一样会暂时阻塞 transition 接收。
-- 环境动作最后为每臂一个夹爪维度，遵循动作约定布局。夹爪头联合分类为 `3 ** num_grippers` 类，标签方式与 rl-garden 的 `encode_gripper_labels` 一致；单臂只有最后一个夹爪维度。
+- 仅支持真机循环：`SiLRI.learn` 会抛错，没有仿真训练路径。
+- 拒绝 `--fwbw` 与 `--use-grasp-penalty`，目前没有免 reset 变体或离散 critic。
+- learner 发布完整策略状态：actor 也会收到行为模型、乘子和 target，实际只需 actor 与夹爪头；筛选发布留待后续。
+- 预训练默认 500 步，与刷新均会推迟回放应用；持久 HTTP journal 接收继续进行。
+- 夹爪位于环境动作末尾，每臂一维，遵循动作布局约定。夹爪头在 `3 ** num_grippers` 类上联合分类，标签与 rl-garden 的 `encode_gripper_labels` 一致；单臂有一维，位于最后。
+
+
+<a id="human-masks-and-recovery"></a>
+
+## 人工掩码与恢复
+
+行为拟合和 actor 预训练仅监督实际人工维度。连续 NLL 对每条受监督记录使用 `D / k * sum(mask * NLL)`，`D` 为完整连续动作宽度，`k` 为观测到的人工宽度。空记录不产生梯度，全掩码恢复原目标。联合夹爪头对已观测人工夹爪使用边缘概率，对未观测夹爪选择求和。在线行为先验距离和乘子约束仍涵盖完整连续动作。同步和空闲保持补充动作均排除在模仿之外。连续无夹爪配置使用 `--no-discrete-gripper`。
+
+持久 outbox 保留 SiLRI 暂存的前驱记录；bundle 恢复两个回放缓冲区、接收游标、预训练状态和刷新计数。恢复的暂存记录会被刷出，不会虚构 onset 后继。路径以及进程崩溃、断电的持久边界见[真机实验](real-world-experiments.md)。

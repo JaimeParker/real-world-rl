@@ -18,12 +18,12 @@
 ENV_FLAGS="--config hil.yaml --teleop-device leader_arm --robot-teleop-action-mode joint_delta \
     --teleop-event-device keyboard --reward-from-teleop-events"
 COMMON="$ENV_FLAGS --sync-host LEARNER_IP --sync-port 6000 --log-dir runs \
-    --checkpoint-freq 1000 --buffer-size 100000"
+    --checkpoint-freq 1000 --buffer-size 20000 --demo-buffer-size 20000"
 ```
 
-- `--reward-from-teleop-events`：按 `s` 生成奖励 1 并终止回合，`f` 以失败结束。训练默认关闭此选项；它和 `--classifier-checkpoint` 都未设置时，所有 transition 奖励为 0，actor 与 learner 会警告，见 [06](06-intervening.md#where-the-reward-comes-from)。
-- `--checkpoint-freq` 指定每隔多少次 learner 更新保存 `checkpoint_<update>.pt`。默认 0，仅在 learner 停止时保存 `final.pt`。
-- `--buffer-size` 是回放容量：`hil_serl` 和 `residual_hil_serl` 默认 200000，`silri` 默认 30000，存放在 `--buffer-device cuda`。多台 128 × 128 相机时应按显存调整，或改用 `--buffer-device cpu`。
+- `--reward-from-teleop-events`：`s` 提供奖励 1 并终止回合，`f` 以失败结束。训练默认关闭；它与 `--classifier-checkpoint` 都未设置时，所有 transition 奖励为 0，actor 和 learner 会警告，见 [06](06-intervening.md#where-the-reward-comes-from)。
+- `--checkpoint-freq` 默认 0，仅在结束时保存；设为正数后，每隔相应 learner 更新数写入 `checkpoint_<update>.pt` 与 checkpoint bundle。
+- `--buffer-size` 是回放容量，`hil_serl`、`residual_hil_serl` 默认 200000，`silri` 默认 30000，通常位于 `--buffer-device cuda`。多台 128 × 128 相机时应按显存调整，或使用 `--buffer-device cpu`。每次 bundle 会把两个回放缓冲区按完整容量复制到主机内存和磁盘，因此 `--buffer-size` 与 `--demo-buffer-size` 都应按 GPU、主机内存和磁盘配置。10 Hz 下 20000 条约为 33 分钟。每次定期保存都会产生新一代 bundle，应将 manifest 引用的 generation 与 journal 一起保留。
 - learner 忽略遥操作参数，不会打开设备。
 
 <a id="hil_serl"></a>
@@ -36,7 +36,7 @@ python examples/train_real_world.py hil_serl --role learner $COMMON --exp-name h
 python examples/train_real_world.py hil_serl --role actor $COMMON --exp-name hil-pick-and-place
 ```
 
-learner 将示范加载到示范缓冲区，等待收到 `--learning-starts` 条在线 transition 后开始训练，默认 4000，预加载示范不计入。之后每 `--publish-freq` 次更新发布一次权重，默认 100。首批权重到达前 actor 使用未训练策略，需要准备接管。
+actor 在 reset/step 前等待首个 learner 快照，最多 `--sync-startup-timeout`，默认 30 秒。首个快照仍可能是未训练策略；非残差 `joint_abs` 尚无实测姿态启动保持，所以本教程采用 `joint_delta`。learner 预加载示范，等待 `--learning-starts` 条在线 transition，默认 4000，示范不计入，然后训练。它会发布首个就绪策略，之后每 `--publish-freq` 次更新发布快照，默认 100。快照 session/version 可识别 learner 重启后的更新。学习初期需准备介入。
 
 <a id="residual_hil_serl-bc-base"></a>
 
@@ -66,9 +66,9 @@ python examples/train_real_world.py residual_hil_serl --role actor $COMMON $RESI
     --exp-name residual-act-pick-and-place --base-provider "$BASE_ACT"
 ```
 
-actor 执行 `clamp(base + scale * residual, -1, 1)`，人工介入会覆盖总动作。基础策略必须来自同一套 `hil.yaml`，观测与动作空间一致，见 [05 的约定](05-base-policy.md#the-act-checkpoint-contract)。基础策略描述需要引号，因为 `?` 是通配符、`&` 表示后台运行。只有 actor 和 eval 构建基础策略；learner 使用 actor 保存的基础动作训练。采用 ACT 时，actor 在每个介入步骤之后重新规划动作块，见[重新同步](05-base-policy.md#resync-after-an-intervention)。
+actor 执行 `clamp(base + scale * residual, -1, 1)`，默认人工覆盖总动作；按部件接管采用 [06](06-intervening.md#take-over-selected-parts) 的掩码。基础策略必须使用相同 `hil.yaml`，观测和动作空间一致，见 [05 的约定](05-base-policy.md#the-act-checkpoint-contract)。基础描述需加引号，`?` 会触发通配符，`&` 会后台运行。仅 actor 和 eval 构建基础策略，learner 用 actor 保存的基础动作训练。ACT 基础策略在每次介入后重新规划动作块，见[重新同步](05-base-policy.md#resync-after-an-intervention)。
 
-- `--residual-variant hybrid` 仅对机械臂维度加残差，夹爪使用 `hil_serl` 的 DQN 头；`continuous` 对全部维度建模，并保留基础策略的夹爪。
+- `--residual-variant hybrid` 仅对机械臂维度加残差，夹爪使用 `hil_serl` 的 DQN 头；`continuous` 对全部维度建模，默认夹爪残差缩放为零，保留基础策略的夹爪。
 - `--residual-action-scale` 限制残差幅度，此处为每步归一化动作的 0.1。
 - `--critic-only-updates 500`：前 500 次 learner 更新只训练 critic。
 - `--residual-bc-weight 0.1`：在介入数据上将残差拉向人工纠正。
@@ -85,19 +85,19 @@ python examples/train_real_world.py silri --role learner $COMMON --exp-name silr
 python examples/train_real_world.py silri --role actor $COMMON --exp-name silri-pick-and-place
 ```
 
-SiLRI learner 首次更新前会用示范缓冲区预训练人工行为模型，`--bc-pretrain-steps` 默认 500；期间阻塞数据接收。之后随人工介入数据到达定期刷新模型，见 [silri.md](../silri.md#data-flow)。
+SiLRI learner 首次更新前用示范缓冲区预训练人工行为模型，`--bc-pretrain-steps` 默认 500。期间 actor 数据仍进入 learner journal，随后再应用到训练回放；之后随介入数据刷新行为模型，见 [silri.md](../silri.md#data-flow)。
 
 <a id="stopping"></a>
 
 ## 停止
 
-先用 Ctrl-C 停止 actor，机械臂保持当前位置，再停止 learner；learner 退出时写入 `runs/<exp-name>/checkpoints/final.pt`。eval、deploy 和残差基础策略提供器读取 `runs/<exp-name>/config.json`。
+先使当前回合在安全状态结束，保持 learner 运行并 Ctrl-C 停止 actor。清理先释放环境和提供器，再尝试在 `--sync-drain-timeout` 内排空上传，默认 30 秒。超时未获确认的数据留在本地 outbox，重启后续传；强制终止仍依赖守护进程 watchdog。随后停止 learner，正常停止会保存 `runs/<exp-name>/checkpoints/final.pt` 与 checkpoint bundle，包含模型、优化器、两个回放缓冲区和 journal 位置，经 `bundle_manifest.json` 发布。eval、deploy 和基础策略提供器读取 `runs/<exp-name>/config.json`。actor 未送达的数据留在 `runs/<exp-name>/actor/` 下，使用同一 outbox 路径与身份重启后发送。该默认路径假设未覆盖 `--run-id`、`--actor-outbox-path`；并发 actor 各需独立 `--actor-id` 和 outbox。
 
 <a id="evaluate"></a>
 
 ## 评估
 
-在机器人上执行确定性回合，无 learner、无数据采集。成功定义为正常终止的回合，由启用 `--reward-from-teleop-events` 后的 `s` 键或分类器判定。先停止 actor，评估时保持策略自主执行，见 [06](06-intervening.md#the-sequence)：
+评估在真机执行确定性回合，无 learner、无数据采集。成功需要显式成功标签，例如启用 `--reward-from-teleop-events` 后的 `s` 或分类器；整回合没有动作接管才算自主成功。先停止 actor，评估策略自主能力时保持未接管，见 [06](06-intervening.md#the-sequence)：
 
 ```bash
 python examples/train_real_world.py hil_serl --role eval $ENV_FLAGS --exp-name hil-pick-and-place \
@@ -112,7 +112,7 @@ python examples/train_real_world.py silri --role eval $ENV_FLAGS --exp-name silr
     --load-checkpoint runs/silri-pick-and-place/checkpoints/final.pt --eval-n-trajs 10
 ```
 
-定期 checkpoint `checkpoint_<update>.pt` 的评估方式相同。*预期结果*：每回合输出 `[eval] episode=... success=... return=...`，最后输出 `[eval] success_rate=...`。
+定期保存的 `checkpoint_<update>.pt` 以相同方式评估。*预期结果*：逐回合输出 `[eval] episode=... task_success=... autonomous_success=... return=...`，最终 `[eval] ...` 汇总 `autonomous_success_rate`、`task_success_rate`、介入率和 `mean_return`。自主成功率的分母为全部已完成回合，分子为没有接管的成功回合。
 
 <a id="what-to-watch"></a>
 
@@ -129,19 +129,21 @@ tensorboard --logdir runs
 
 | 指标 | 方法 | 观察要点 |
 |---|---|---|
-| `actor/return`、`actor/success` | 全部 | 成功率应上升；成功表示回合正常终止，由 `s` 标记。 |
-| `actor/intervention_rate`、`actor/intervened_steps`、`actor/intervention_count` | 全部 | 应随策略改进逐渐下降。 |
-| `actor/length`、`actor/human_episode_end` | 全部 | 观察用 Esc 结束的回合。 |
-| `actor/safety_clips`、`actor/safety_clips_total` | 全部 | 守护进程裁剪的伺服命令数；持续增加表示策略频繁请求越界目标。 |
-| `actor/rtt_ms_mean/max`、`actor/step_time_ms_mean/max`、`actor/param_refresh_ms_mean/max`、`actor/dropped_transitions` | 全部 | 时间开销与网络健康状况。 |
-| `learner/received`、`learner/update`、`learner/buffer_size`、`learner/train_time_s` | 全部 | 数据接收与训练进度。 |
-| `learner/demo_buffer_size`、`learner/intervened_received` | 全部 | 示范缓冲区仅在人工介入时增长。 |
-| `losses/critic_loss`、`losses/qf_loss`、`losses/actor_loss`、`losses/alpha_loss`、`entropy/alpha`、`entropy/target_entropy`、`q/predicted` | `hil_serl`、`residual_hil_serl` | SAC 风格损失；`q/predicted` 应随回报变化。 |
-| `losses/actor/residual_bc`、`losses/actor/intervened_fraction` | `residual_hil_serl` | BC 项与批次介入数据占比，仅在只更新 critic 的阶段结束后出现。 |
-| `losses/critic/loss`、`losses/actor/loss`、`losses/actor/q`、`losses/actor/distance`、`losses/lambda/loss`、`losses/lambda/mean`、`losses/behavior/sigma_sum`、`losses/batch/intervened_fraction`、`losses/discrete/ce` | `silri` | 比较 `losses/actor/distance` 和 `losses/behavior/sigma_sum` 加 margin，观察策略受人工行为约束的位置。 |
-| `behavior/pretrained`、`behavior/pretrain/*`、`behavior/refresh/*`、`behavior/refresh_count` | `silri` | 行为模型预训练与刷新。 |
+| `actor/return`、`actor/terminated`、`actor/task_success` | 全部 | 每回合回报、终止状态与显式成功标签；`terminated` 可来自 `s` 或分类器等任意终止步骤。 |
+| `actor/autonomous_success_rate`、`actor/task_success_rate`、`actor/episode_intervention_rate` | 全部 | actor 启动后的累计值；已完成回合中的自主成功率应上升、介入率应下降。 |
+| `actor/intervention_rate`、`actor/intervened_steps`、`actor/intervention_count` | 全部 | 随策略改进应下降。 |
+| `actor/length`、`actor/human_episode_end` | 全部 | 用 Esc 结束的回合。 |
+| `actor/safety_clips`、`actor/safety_clips_total` | 全部 | 守护进程裁剪的伺服命令数，增长表示持续请求越界目标。 |
+| `actor/rtt_ms_mean/max`、`actor/step_time_ms_mean/max`、`actor/param_refresh_ms_mean/max` | 全部 | 时间开销。 |
+| `actor/outbox_depth`、`actor/upload_retries` | 全部 | 磁盘待发送条数和失败尝试；积压增长表示上传待处理，重试保留 ID，容量耗尽或磁盘失败会停止采集。 |
+| `learner/received`、`learner/update`、`learner/buffer_size`、`learner/train_time_s` | 全部 | 接收与训练进度。 |
+| `learner/demo_buffer_size`、`learner/intervened_received` | 全部 | 示范缓冲区从非同步、有效人工监督数据增长。 |
+| `losses/critic_loss`、`losses/qf_loss`、`losses/actor_loss`、`losses/alpha_loss`、`entropy/alpha`、`entropy/target_entropy`、`q/predicted` | `hil_serl`、`residual_hil_serl` | SAC 风格损失，`q/predicted` 应随回报变化。 |
+| `losses/actor/residual_bc`、`losses/actor/intervened_fraction` | `residual_hil_serl` | BC 项和批次介入占比，在只更新 critic 阶段结束后观察。 |
+| `losses/critic/loss`、`losses/actor/loss`、`losses/actor/q`、`losses/actor/distance`、`losses/lambda/loss`、`losses/lambda/mean`、`losses/behavior/sigma_sum`、`losses/batch/intervened_fraction`、`losses/discrete/ce` | `silri` | 比较 `losses/actor/distance` 与 `losses/behavior/sigma_sum` 加 margin，观察人工约束。 |
+| `behavior/pretrained`、`behavior/pretrain/*`、`behavior/refresh/*`、`behavior/refresh_count` | `silri` | 行为模型预训练和刷新。 |
 
-磁盘上还会保存：`runs/<exp-name>/checkpoints/` 中每隔 `--checkpoint-freq` 次更新生成的 `checkpoint_<update>.pt`，以及旁边用于崩溃恢复的快照。`buffer/transitions_<n>.pkl` 包含全部 transition，`demo_buffer/transitions_<n>.pkl` 仅包含介入步骤；每收到 `--buffer-period` 条 transition 保存一对，默认 1000。以相同 `--exp-name` 重启 learner 会重新加载这些快照。
+磁盘上还包含 actor 的 `outbox.sqlite3`、learner 的 `checkpoints/journal.sqlite3`、指向完整 `bundle_<update>_<id>/` 的 `bundle_manifest.json`，以及旧式 `checkpoint_<update>.pt`。bundle 保存模型、优化器、两个回放缓冲区和 journal 游标。旧 `buffer/`、`demo_buffer/` pkl 快照保留为回退来源，不会叠加加载到权威 bundle 上。
 
 <a id="optional-a-reward-classifier"></a>
 
@@ -169,5 +171,23 @@ python -m rl_garden.models.reward.success.train --success_paths 'classifier_data
 - actor 因遥操作的 `DeviceFault` 停止：GELLO 读取失败，读取故障会向上传播。
 - `ValueError: ... recorded action contract does not match the env's`：示范 pkl 使用了不同的预设录制。
 - `--base-provider is required`：`residual_hil_serl` 的每个角色都需要该参数，包括 learner。
+
+<a id="resume-an-interrupted-run"></a>
+
+## 恢复中断的运行
+
+将 learner checkpoint 目录、journal（包括 SQLite WAL/SHM）和 bundle 各代文件一起保留。先按相同预设、实验名、初始示范路径及缓冲区容量重启 learner。前述 `hil_serl` 运行示例如下：
+
+```bash
+python examples/train_real_world.py hil_serl --role learner $COMMON --exp-name hil-pick-and-place \
+    --demo-dataset-paths demos/pick-and-place.pkl --load-checkpoint \
+    runs/hil-pick-and-place/checkpoints/bundle_manifest.json --checkpoint-dir \
+    runs/hil-pick-and-place/checkpoints
+python examples/train_real_world.py hil_serl --role actor $COMMON --exp-name hil-pick-and-place
+```
+
+actor 复用原 outbox，已确认 ID 只接收一次。learner 或网络中断时，只要 outbox 仍有容量便按退避策略重试。残差和 SiLRI 使用各方法原参数以及匹配的 manifest、目录。仅提供 manifest 不会迁移 journal；bundle 总会恢复完整回放与游标一致性单元，不受 `--load-replay-buffer` 开关影响。新运行仅初始化权重时使用 generation 的独立 `agent.pt`。独立实验使用新的 `--exp-name` / `--run-id` 或独立 outbox。
+
+SQLite WAL 采用 `synchronous=NORMAL`，保证覆盖进程崩溃；操作系统崩溃或断电可能回滚最近提交。更新异常或 journal 应用中断会保留最后完整 bundle，恢复时重放 journal 尾部。完整路径、FWBW 方向隔离和旧格式恢复见[真机实验](../real-world-experiments.md)。
 
 下一步：[08 部署](08-deploy.md)。

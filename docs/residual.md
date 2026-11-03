@@ -41,9 +41,10 @@ loss conditions on the stored `base_actions` and the TD target on `next_base_act
 | `continuous` (default) | `ResidualRLPD` | every action dim; scale `--residual-action-scale` on the arm dims, `--residual-gripper-scale` (default 0) on the gripper | base gripper plus its (default zero) residual |
 | `hybrid` | `ResidualRLPDHybrid` | the arm dims | `RLPDHybrid`'s DQN head; the base's gripper is ignored |
 
-Both treat the last `num_grippers` action dims as the grippers, one per arm after all arm
-blocks (the env action contract's layout; one for a single-arm env), as every HIL env has them
-(the intervention wrapper requires `gripper_in_action`). `--use-grasp-penalty` needs the hybrid variant.
+When grippers are included, both variants treat the last `num_grippers` action dims as
+one gripper per arm after the arm blocks. Continuous residual also accepts zero-gripper
+contracts; hybrid requires at least one gripper and rejects zero before rollout.
+`--use-grasp-penalty` needs the hybrid variant.
 Both variants keep the growing demo buffer (intervened transitions, mixed at
 `--demo-data-ratio`).
 
@@ -101,8 +102,10 @@ actions instead (with one warning): the critic target and the BC term then learn
 residuals from a zero base, which matches the run only when the base acts near 0 there.
 Demo buffers written by a residual run's own learner carry the base actions.
 
-Optional BC term (`--residual-bc-weight`, default 0): on intervened rows the unit residual
-is pulled towards the residual the human action implies,
+Optional BC term (`--residual-bc-weight`, default 0): on nonsyncing human rows, the unit
+residual is pulled towards the human-implied residual, restricted to `human_action_mask`
+dimensions with nonzero scale. Hold supplements and empty masks supply no expert loss.
+For a legacy full-action intervention, the objective is:
 
 ```
 L_bc = mean over intervened rows of  sum_d ( u_d - clip((a_human_d - a_base_d) / scale_d, -1, 1) )^2
@@ -118,7 +121,7 @@ intervened steps on the robot ([tutorial 07](tutorial/07-hil-training.md#what-to
 
 ## Warm-up
 
-- Actor: until the first weights arrive from the learner the policy is untrained, so the
+- Actor: until a learner snapshot reports `policy_ready`, the policy uses warm-up, so the
   unit residual is `--residual-warmup-unit * U(-1, 1)` (default 0: pure base actions) and
   the gripper is the base's (the hybrid DQN head is untrained too).
 - Learner: `--critic-only-updates N` makes the first `N` `train()` calls update the
@@ -139,7 +142,7 @@ python examples/train_real_world.py residual_hil_serl --role actor --config hil.
 ```
 
 Eval (`--role eval --load-checkpoint ...`) runs the deterministic residual on top of the provider;
-success is `terminated`. Deploy takes `--algo residual_hil_serl` for the continuous variant and
+success uses explicit task labels, and the primary metric excludes action-assisted episodes. Deploy takes `--algo residual_hil_serl` for the continuous variant and
 `residual_hil_serl_hybrid` for the hybrid one (both names rebuild the class the run's `config.json`
 names, and both are registered on rl-garden's online registry, one name per algorithm class; the
 real-world CLI has `residual_hil_serl` only). The provider comes from the checkpoint metadata;
@@ -155,3 +158,13 @@ real-world CLI has `residual_hil_serl` only). The provider comes from the checkp
   learned as residuals from a zero base (see "Human intervention").
 - The checkpoint provider rebuilds an agent from the base run's Args; a base checkpoint
   needs the same observation and action spaces as the residual run.
+
+
+## Durable operation and partial supervision
+
+Actor outboxes, learner journals and complete replay bundles are shared with the other HIL
+methods. Resume using the matching `bundle_manifest.json`, checkpoint directory and actor
+identity; retain the base-provider spec and experiment contract. See
+[Real-world experiments](real-world-experiments.md) for persistence boundaries, selected-part
+interventions and mask-aware imitation. Episode outcomes remain separate from reward and
+bootstrap terminal flags.

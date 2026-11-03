@@ -176,4 +176,27 @@ python examples/train_real_world.py hil_serl --config hil.yaml --print-config
 > in `station.yaml` (the wizard writes it): consecutive `joint_abs` actions can jump across the whole
 > joint range.
 
+## Task, images and control profiles
+
+The tutorial preset leaves `real_robot.task.name` at `none`: the operator or classifier supplies
+success labels. The task/reset, depth and per-camera preprocessing options are described in
+[Real-world experiments](../real-world-experiments.md#task-presets-and-observation-settings).
+Set them before recording demos and keep them consistent through BC, HIL and deployment.
+`preprocess.<camera>.roi` is `[top, left, height, width]` in pixels and requires the actual
+`source_resolution: [height, width]`. RGB resizing is bilinear; depth is one-channel metres,
+uses nearest-neighbor resizing and encodes invalid values as zero. Changing those settings
+changes the policy's observation contract.
+
+Station YAML accepts an optional per-arm `control:` impedance profile; `real_robot.control`
+can override it for an experiment. Configure while IDLE. Overrides may only tighten declared
+torque-slew and error-clip bounds, and the installed SDK must support the requested keywords.
+See [Arm control profiles](../../robot_infra/docs/control-profiles.md) for fields, effective
+settings and the wizard's `--control` option. The wizard preserves existing profiles and
+uses `control: null` for a new station. Choose gains for the actual tool and payload.
+
+Use `real_robot.control_hz` as the robot's control frequency. A nondefault global
+`--control-hz` can fill an otherwise default robot frequency, but conflicting nondefault
+global and environment frequencies are rejected. Record, train and deploy at the resolved
+frequency; it is part of the experiment contract.
+
 Next: [03 Daemon](03-daemon.md).

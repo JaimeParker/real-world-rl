@@ -17,7 +17,7 @@
 
 ## BC
 
-`real_world_bc` 使用示范 pkl 进行离线行为克隆。`--config` 预设仅为其提供环境的观测空间和动作空间。
+`real_world_bc` 从示范 pkl 或轨迹归档离线训练，无需连接机器人。`--config` 定义目标动作、观测和实验约定，加载器在训练前核对记录约定。部分示范只监督 `human_action_mask` 标识的维度，未选部件的保持动作不属于专家标签。缺少介入元数据的旧示范沿用全动作监督；显式空掩码保持为空。
 
 ```bash
 python examples/train_real_world.py real_world_bc --config hil.yaml \
@@ -81,5 +81,11 @@ python -m rl_garden.models.act.train_trajectories --demo-paths demos/pick-and-pl
 `--residual-base-resync-on-intervention` 默认开启，可用 `--no-residual-base-resync-on-intervention` 关闭。开启后，actor 在每个介入步骤之后、计算下一观测的基础动作之前重置提供器。这样，介入步骤后每个观测的基础动作都是基于该观测重新规划的动作块的首个动作。刚开始接管的那个步骤仍保留接管前计算的基础动作。`zero` 与 `checkpoint`（BC）提供器没有状态，因此该参数不影响它们。
 
 > **joint_abs。** 残差基础策略必须在残差训练所用的动作空间中输出。`joint_abs` HIL 运行需要用 `joint_abs` 预设和 `joint_abs` 示范训练 BC 或 ACT。两种动作模式的维度相同，提供器的维度检查无法发现把 `joint_delta` 基础策略用于 `joint_abs` 运行的问题，因此需要自行保持模式一致。
+
+<a id="keep-the-experiment-contract-with-the-base"></a>
+
+## 为基础策略保留实验约定
+
+将训练 `config.json`、`experiment.json` 与 checkpoint 一起保留。除形状外，还会核对任务、控制、预处理、相机顺序和动作解释。在录制前确定这些配置，并在残差运行中保持一致，见[实验约定](../real-world-experiments.md#trajectory-archives-and-training-views)。
 
 下一步：[06 人工介入](06-intervening.md)，然后是 [07 HIL 训练](07-hil-training.md)。

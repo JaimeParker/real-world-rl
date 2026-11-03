@@ -40,10 +40,12 @@
 
 参数、文件格式和硬件细节。
 
-- [项目 README](project-readme.md#running-on-hardware)：动作约定、设备限制、部署、示范约定附属文件，以及 fake 机器人的端到端演练。
-- [GELLO 主臂：硬件、标定与机器人 YAML](gello.md)
-- [录制示范：录制器参数和 pkl 格式](recording-demos.md)
+- [仓库 README](project-readme.md#running-on-hardware)：动作约定、设备限制、部署、示范约定 sidecar，以及 fake 机器人端到端演练。
+- [GELLO 主臂：硬件、标定与机器人 YAML](gello.md)。
+- [示范录制：recorder 参数与 pkl 格式](recording-demos.md)。
 - [`examples/presets/hil_single_arm.yaml`](../../examples/presets/hil_single_arm.yaml)：单臂环境预设。
-- [robot_infra：设备层、配置向导、doctor 与守护进程](robot-infra.md)
-- [已知问题与待办工作](known-issues.md)：首次真机运行可能遇到的问题、临时处理方式与计划修复。
-- [硬件上手](getting-started-hardware.md)（已移入教程，保留此页以兼容旧链接）。
+- [robot_infra：设备层、配置向导、doctor 与守护进程](robot-infra.md)。
+- [真机实验](real-world-experiments.md)：持久上传、恢复、结果、局部接管、轨迹归档、任务与观测。
+- [机械臂控制配置](control-profiles.md)：工作站增益、后端能力与生效设置。
+- [已知问题与延期工作](known-issues.md)：首次真机运行可能遇到的问题、临时处理方式和计划修复。
+- [硬件入门](getting-started-hardware.md)（已迁入教程，保留旧链接）。

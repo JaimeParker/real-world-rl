@@ -20,6 +20,8 @@ class TeleopReading:
     episode_end: bool = False   # operator's episode-end button
     events: Mapping[str, bool] = {}   # success / failure / rerecord edges that fired, else empty
     timestamp: float = 0.0
+    human_action_mask: Any = None  # actual human-controlled dimensions
+    override_mask: Any = None      # overridden dimensions including hold supplements
 
 class TeleopSource(ABC):
     action_mode: str            # "cartesian_delta" | "joint_delta" | "joint_abs"
@@ -140,8 +142,8 @@ python examples/train_real_world.py hil_serl --role actor --env-backend real_rob
 
 接管起始由 `--teleop-onset` 控制，对应输入源参数 `onset`：
 
-- 默认 `ramp`：`joint_abs` 输出 `q_follower + clip(q_leader - q_follower, +-ramp_step_rad)`，`--teleop-ramp-step-rad` 默认 0.05；随后按关节限制归一化，因此记录动作为实际命令。介入步骤带 `info["teleop_events"]["teleop_syncing"] = True`，仍进入示范缓冲区，可由下游过滤。`joint_delta` 本身已按每步 `joint_scale_rad` 饱和，无额外变化。
-- `arm`：仅当 `|q_leader - q_follower|_inf <= arm_tolerance_rad` 时切换生效，`--teleop-arm-tolerance-rad` 默认 0.1。此前步骤保持未介入，最多每秒记录一次逐关节误差，需手动对齐。就绪后保持到释放切换信号，每次 reset 解除就绪。
+- `ramp`（默认）：`joint_abs` 发出的目标为 `q_follower + clip(q_leader - q_follower, +-ramp_step_rad)`，参数 `--teleop-ramp-step-rad` 默认 0.05；按关节限制归一化，因此记录动作就是实际命令。这些介入步骤带 `info["teleop_events"]["teleop_syncing"] = True`。归档保留记录，训练排除同步专家标签。`joint_delta` 标记初始追赶，直到主从差距首次进入 `joint_scale_rad`；同次接管后续饱和运动仍为普通教学。
+- `arm`：只有 `|q_leader - q_follower|_inf <= arm_tolerance_rad` 后开关才生效，`--teleop-arm-tolerance-rad` 默认 0.1。此前步骤不算介入，每秒最多记录一次逐关节误差；应移动主臂对齐从臂。就绪后持续到开关释放，每次环境 reset 解除就绪。
 
 `q_follower` 来自环境最近观测的 `joint_pos`，所以 `state_fields` 必须包含 `joint_pos`。默认切换取部件的 `intervening`，即机器人 PC 上由 evdev `event_device` 驱动的 `intervention: toggle`，或 `always`；也可由事件设备提供：
 
@@ -300,7 +302,7 @@ print("rotation error [rad]:", (Rotation.from_quat(quat) * Rotation.from_quat(po
 
 `leader_cartesian` 暂不能作为逐臂设备，它仅将一个主臂转换为一条笛卡尔从臂的速度增量。
 
-操作员覆盖整个动作。默认 `intervention_from: any` 下，任一臂操作员介入便置 `intervened` 为真；`all` 要求两臂都介入。`any` 下，未介入的臂执行保持动作：`joint_abs` 使用从臂当前关节，增量模式使用零，夹爪使用最后发送动作，因此闲置主臂或扳机不会移动从臂或打开夹爪。各臂 `episode_end` 和事件做逻辑或；`info["teleop_events"]` 同时包含 `<arm>_<event>` 和普通 `<event>`，例如 `success`、`teleop_syncing`。
+双臂输入源请求介入：默认 `intervention_from: any` 在任一操作员介入时令 `intervened` 为真；`all` 要求两人同时介入。`any` 下未介入操作员对应的机械臂保持：`joint_abs` 使用从臂关节位置，增量模式用零；夹爪保持上次发送动作。因此空闲主臂和扳机不会移动从臂或打开夹爪。`episode_end` 和事件在两臂间取 OR；`info["teleop_events"]` 同时包含 `<arm>_<event>` 和普通 `<event>`（`success`、`teleop_syncing` 等）。
 
 使用 `--teleop-event-device keyboard` 时，双臂源作为组合中的运动部分，一个键盘同时切换两臂，各臂起始策略仍生效，并提供回合结束与结果按键。
 
@@ -340,16 +342,18 @@ python examples/train_real_world.py hil_serl --role actor --config bimanual.yaml
 
 实现位于 `real_world_rl/envs/wrappers/intervention.py`。`InterventionWrapper(env, source)` 接受 `TeleopSource`；`TeleopInterventionWrapper(env, teleop=None, device="pico", **kwargs)` 按设备名构建，或适配 `teleop` 对象。两者都通过 `.source` 暴露输入源，别名为 `.teleop`。
 
-`step(action)` 先轮询输入源。`reading.intervened` 为真时，用操作员动作替换 `action`，转为与策略动作同设备的 `(1, A)` float32 张量。写入字段如下：
+`step(action)` 先轮询输入源，将输入源人工掩码与选定部件取交集。人工掩码非空时，在策略设备上组合人工与空闲部件动作，得到 `(1, A)` float32 张量。`idle_behavior="hold"` 保持未选部件，`"policy"` 在这些部件保留策略提议。实际人工控制与保持覆盖分别记录：
 
 | `info` 键 | 值 |
 | --- | --- |
-| `intervene_action` | 实际执行的 `(1, A)` 动作，**仅介入时存在**。 |
-| `policy_action` | 原样保存策略提出的动作。 |
-| `intervened` | Python bool，是否执行人工动作。 |
-| `intervention_onset` | Python bool，本步介入而回合上一步未介入。 |
-| `human_episode_end` | Python bool，操作员结束回合按钮。 |
-| `teleop_events` | 触发的 `success` / `failure` / `rerecord` 边沿 `dict`；主臂在限速起始步骤添加 `teleop_syncing`。**仅有事件时存在**。 |
+| `intervene_action` | 实际执行的 `(1, A)` 动作；**仅介入时存在**。 |
+| `policy_action` | 原样接收的策略提议动作。 |
+| `intervened` | Python bool：执行了操作员动作。 |
+| `intervention_onset` | Python bool：本步介入且本回合上一步未介入。 |
+| `human_episode_end` | Python bool：操作员结束回合按钮。 |
+| `teleop_events` | 已触发 `success`/`failure`/`rerecord` 边沿及主臂追赶 `teleop_syncing` 的 `dict`；**仅有事件时存在**。 |
+| `human_action_mask` | 实际由人工驱动的维度，含同步阶段的来源。 |
+| `override_mask` | 替换策略提议的维度，包含保持补充动作。 |
 
 `episode_end` 使 `step()` 返回 `truncated=True`，保持 `terminated` 为假，因此 actor 循环会 reset，同时保留非终止语义。
 
@@ -529,3 +533,10 @@ truncated
 该文件可通过 `--offline_dataset` 提供给 WSRL、CQL 或 Cal-QL 离线训练。
 
 真机数据若仅用于离线预训练，无模拟环境、无评估，可使用 rl-garden 的 `examples/pretrain_offline.py cql` 或 `examples/pretrain_offline.py calql`，生成独立离线 CQL/Cal-QL checkpoint。若需由 WSRL 离线到在线流程恢复，使用 `wsrl` 子命令。入口从 H5 推断观测与动作规格，生成之后可加载到兼容实时环境中在线微调的预训练 checkpoint。完整流程见 `rl-garden/` 子模块的 `rl-garden/docs/design/wsrl-overview.md#offline-only-pretraining-no-sim-env`。
+
+
+<a id="partial-control-and-training-provenance"></a>
+
+## 局部控制与训练来源
+
+使用 `--teleop-selected-parts` 选择部件，教程工作站为 `arm.arm` / `arm.gripper`，双臂为 `left.arm`、`right.arm`、`left.gripper`、`right.gripper`。默认 `--teleop-idle-behavior hold` 保持未选部件，`policy` 将其交给策略。空选择使用输入源可用部件。没有夹爪通道的输入源不提供专家夹爪标签。支持连续无夹爪 HIL；混合/离散分支需要夹爪。同步记录照常执行和归档，但其训练投影没有专家监督。掩码 BC/SiLRI/残差损失、显式结果和持久记录见[真机实验](real-world-experiments.md)。

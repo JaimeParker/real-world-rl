@@ -4,7 +4,7 @@
 
 [中文入口](../../README.zh-CN.md) · [English](../../tutorial/04-record-demos.md)
 
-`examples/record_real_demos.py` 采用与 HIL actor 完全相同的方式构建环境，只把人工介入步骤记录到示范 pkl，供 BC、ACT 和 HIL learner 加载。先读 [06 人工介入](06-intervening.md)，它是本步骤与 [07](07-hil-training.md) 共用的操作员指南。
+`examples/record_real_demos.py` 与 HIL actor 使用相同方式构建环境，将每个步骤和回合结果归档到 SQLite，再把成功回合中由人监督的步骤导出为 BC、ACT 和 HIL learner 使用的示范 pkl。先读 [06 人工介入](06-intervening.md)，它是本步骤与 [07](07-hil-training.md) 共用的操作员指南。
 
 先启动守护进程（[03](03-daemon.md)），再在 actor 机器上运行：
 
@@ -30,7 +30,7 @@ python examples/record_real_demos.py $ENV_FLAGS --teleop-onset arm \
 3. 移动 GELLO 接近物体，捏扳机闭合夹爪，将物体移至箱子，再松开扳机。
 4. 在仍然接管时按 **s**，回合以成功结束，机械臂归位。
 
-**f** 丢弃当前回合，**r** 丢弃并立即开始下一回合，**Esc** 以未成功结束并丢弃。只保留成功且至少有一个已录制步骤的回合；Ctrl-C 停止录制并保存此前保留的数据。按 `s` 时要保持接管：录制器只保存介入步骤，因此交还控制后再按 `s` 虽然会结束回合，终止步骤却不会进入示范，保留的数据将全程奖励为 0。
+**f** 丢弃当前回合，**r** 丢弃并立即开始下一回合，**Esc** 以未成功结束并丢弃。只保留成功且至少有一个已录制步骤的回合；Ctrl-C 停止录制并保存此前保留的数据。按 `s` 时要保持接管：pkl 导出只选择介入步骤，因此交还控制后再按 `s` 虽然会结束回合，终止步骤却不会进入示范，保留的数据将全程奖励为 0。
 
 *预期结果*：每个已结束回合打印一行，最后打印保存结果。下方数字仅为示例：
 
@@ -41,7 +41,9 @@ python examples/record_real_demos.py $ENV_FLAGS --teleop-onset arm \
 [record] saved 20 episodes (1734 transitions) to demos/pick-and-place.pkl
 ```
 
-同时得到两个文件：`demos/pick-and-place.pkl`，以及记录动作模式、维度、关节限制、缩放和状态字段的约定附属文件 `demos/pick-and-place.contract.json`。后续加载器会同时读取两者；环境不匹配时抛出 `ValueError` 并指出不同的键。`--output-path` 必须指向新的 `.pkl` 文件。各次示范应改变物体初始姿态。
+成功录制会得到 `demos/pick-and-place.pkl`、约定附属文件 `demos/pick-and-place.contract.json` 和 `demos/pick-and-place.trajectory.sqlite3`。归档保留实际动作、策略提案、human/override 掩码、同步步骤和回合结果，也包含失败与重录尝试。pkl 仅保留成功回合的人工步骤；没有回合被保留时，归档仍存在，但不生成示范 pkl。`--output-path` 必须指向新的 `.pkl` 文件，各条示范应改变物体初始姿态。
+
+附属文件包含版本化实验约定：任务、控制设置、动作与观测布局、相机预处理和遥操作部件选择必须匹配使用数据的运行。奖励来源路径和工作站管理的 reset 信息作为来源元数据保留。不符时会指出差异字段，需让附属文件与 pkl 一同保存。`--export-trajectory-pt` 额外生成可移植 `.trajectory.pt`；BC 和 HIL 也可直接读取 SQLite，选取完整成功回合中的非同步人工步骤。ACT 轨迹训练器继续使用 pkl。
 
 *结果不符时：*
 
@@ -58,8 +60,14 @@ python examples/record_real_demos.py $ENV_FLAGS --teleop-onset arm \
 >     --output-path demos/pick-and-place-abs.pkl --num-successes 20
 > ```
 >
-> 每个回合开始前，录制器读取一次主臂。任一关节与从臂的误差超过 `--start-tolerance-rad`（0.8）时，程序打印各关节误差并停止；对齐后重新启动。默认的 `ramp` 接管方式让从臂以每步 `--teleop-ramp-step-rad`（0.05）靠近主臂；除非启用 `--keep-syncing-steps`，这些步骤不会写入示范。`joint_delta` 跳过起始检查，因为主臂读数已经按每步一个 `joint_scale_rad` 饱和。
+> 每回合开始前，录制器读取一次主臂；任一关节与从臂误差大于 `--start-tolerance-rad`（0.8）时，打印逐关节误差并停止。对齐后重启。默认 `ramp` 使从臂每步以 `--teleop-ramp-step-rad`（0.05）向主臂靠近，除非启用 `--keep-syncing-steps`，这些步骤不进入示范 pkl；启用后作为普通监督步骤保留。`joint_delta` 的读取按每步一个 `joint_scale_rad` 饱和，因此跳过起始检查，初次追赶对齐之前的步骤标记为同步。
 
 更多细节见 [recording-demos.md](../recording-demos.md)。
+
+<a id="continue-after-an-interruption"></a>
+
+## 中断后继续录制
+
+SQLite 随录制推进提交记录。pkl 尚不存在时，重新使用同一输出文件名会保留已有归档，将未结束回合标为中断，并为后续尝试创建新回合 ID。pkl 导出包含本次调用保留的成功回合；此前完整回合应从归档恢复。持久化保证从 append 返回时开始，动作已执行但尚未 append 的结果仍可能丢失。进程崩溃与断电的 SQLite 边界见[真机实验](../real-world-experiments.md#trajectory-archives-and-training-views)。
 
 下一步：[05 基础策略](05-base-policy.md)。

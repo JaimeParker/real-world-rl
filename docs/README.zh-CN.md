@@ -1,6 +1,6 @@
 # real-world-rl 中文文档入口
 
-这里提供 `docs/` 全部 19 篇文档的完整中文译文，并补充项目 README、设备层 README 和 ACT 说明，共 22 篇。下方教程、专题与参考文档均链接到中文版，涵盖从配置 Franka 与 GELLO，到示范采集、基础策略、人工介入强化学习和部署的完整流程。各译文顶部的 English 链接可对照原文；命令、参数、配置键和程序输出保留原样。
+这里提供 `docs/` 全部 20 篇文档的完整中文译文，并补充项目 README、设备层 README、ACT 说明和机械臂控制配置，共 24 篇。下方教程、专题与参考文档均链接到中文版，涵盖从配置 Franka 与 GELLO，到示范采集、基础策略、人工介入强化学习和部署的完整流程。各译文顶部的 English 链接可对照原文；命令、参数、配置键和程序输出保留原样。
 
 项目由 `real_world_rl`（训练与环境）、`robot_infra`（设备与守护进程）和 `rl-garden`（算法依赖，Git 子模块）组成。GitHub 仓库名为 `real-world-rl`；已有本地目录可能仍叫 `rlgarden-real-world`。以下涉及的命令均从项目根目录运行。
 
@@ -18,6 +18,8 @@
 | 从不完全理想的人工介入中学习 | [SiLRI](zh-CN/silri.md) → [07 HIL 训练](zh-CN/tutorial/07-hil-training.md) |
 | 使用双臂和两套 GELLO | [双臂环境](zh-CN/bimanual.md)，其中按教程步骤列出了单臂配置的改法 |
 | 把训练结果部署到机器人 | [08 部署](zh-CN/tutorial/08-deploy.md) |
+| 恢复中断实验、核对成功率与局部接管数据 | [真机实验](zh-CN/real-world-experiments.md) |
+| 设置阻抗增益与核对 SDK 支持 | [机械臂控制配置](zh-CN/control-profiles.md) |
 | 排查接管、断连、数据或训练问题 | [已知问题](zh-CN/known-issues.md)和[设备层故障排查](zh-CN/robot-infra.md#troubleshooting) |
 | 了解 HIL-SERL 移植历史 | [迁移路线图](zh-CN/hil-serl-roadmap.md)，并对照[已知问题中的文档勘误](zh-CN/known-issues.md#docs-stale-items-in-hil-serl-roadmapmd) |
 
@@ -31,11 +33,11 @@
 | [01 安装](zh-CN/tutorial/01-install.md) | 核对 Franka FCI、相机和 GELLO；配置网络、串口权限，按机器人 PC、GPU 机器和 actor 的职责安装依赖。 | 对应角色所需的软件环境。 |
 | [02 配置工作站](zh-CN/tutorial/02-station.md) | 使用配置向导发现设备、标定 GELLO、生成 `station.yaml`；检查设备限制，再复制并调整训练预设 `hil.yaml`。 | 设备配置与训练预设，且 `--print-config` 检查通过。 |
 | [03 启动守护进程并检查](zh-CN/tutorial/03-daemon.md) | 用 discovery 查看设备，用 doctor 检查工作站，再启动为客户端提供设备访问的 gRPC 守护进程；也可先用 fake 后端演练。 | recorder、actor 和部署程序可连接的设备服务。 |
-| [04 录制示范](zh-CN/tutorial/04-record-demos.md) | 通过 GELLO 操作机器人，用键盘标记成功、失败和重录；只保留包含介入步骤的成功回合。操作前先读第 06 篇。 | `demos/pick-and-place.pkl` 及配套的 `.contract.json`。 |
+| [04 录制示范](zh-CN/tutorial/04-record-demos.md) | 通过 GELLO 操作机器人，用键盘标记成功、失败和重录；完整归档所有尝试，并将成功人工步骤导出为 pkl。操作前先读第 06 篇。 | `.trajectory.sqlite3`、成功示范 `.pkl` 及配套 `.contract.json`，可选 `.trajectory.pt`。 |
 | [05 基础策略 BC 或 ACT](zh-CN/tutorial/05-base-policy.md) | 用相同示范离线训练 BC 或 ACT，检查观测、动作和相机约定；了解 ACT 在人工介入后重新规划动作块的行为。 | 基础策略 checkpoint；BC 可单独部署，ACT 当前通过残差策略使用。 |
 | [06 人工介入操作员指南](zh-CN/tutorial/06-intervening.md) | 掌握接管和交还控制、成功与失败标记、`arm` 与 `ramp` 接管方式，以及每种算法如何使用人工数据。 | 能完成示范录制和 HIL 训练中的人工操作。 |
-| [07 HIL 训练](zh-CN/tutorial/07-hil-training.md) | 先启动 learner，再启动 actor；分别给出 `hil_serl`、BC 或 ACT 基础策略上的残差 RL、`silri` 的命令，并说明评估、日志和可选奖励分类器。 | 训练日志、checkpoint 和可用于检查进展的介入率等指标。 |
-| [08 部署](zh-CN/tutorial/08-deploy.md) | 从 checkpoint 与训练时的 `config.json` 重建策略；准备移除 `teleop:` 配置块的部署工作站文件，提供机器人连接信息。 | 无 learner 的策略执行与每回合设备状态输出。 |
+| [07 HIL 训练](zh-CN/tutorial/07-hil-training.md) | 先启动 learner，再启动 actor；分别给出 `hil_serl`、BC 或 ACT 基础策略上的残差 RL、`silri` 的命令，并说明评估、日志和可选奖励分类器。 | 持久 outbox/journal、完整回放 bundle，以及自主和辅助成功率等指标。 |
+| [08 部署](zh-CN/tutorial/08-deploy.md) | 从 checkpoint 或 bundle、训练配置和实验元数据重建策略；按无人接管或保留人工辅助选择设备配置。 | 无 learner 的策略执行、显式回合结果与设备状态报告。 |
 
 建议阅读顺序：**00 → 01 → 02 → 03 → 06 → 04 → 05 → 07 → 08**。第 06 篇是录制与在线训练共用的操作说明，适合提前读并在操作时保持打开。
 
@@ -50,13 +52,16 @@
 | `hil.yaml` | 描述训练环境、相机、动作模式和连接地址，通常从单臂预设复制。 |
 | `.contract.json` | 与示范 pkl 配套，记录动作模式、维度、缩放、关节限制和状态字段等约定。 |
 | 训练目录的 `config.json` | 保存训练配置，供部署和基础策略加载时重建模型及动作、观测约定。 |
+| `experiment.json` | 记录版本化任务、控制、观测预处理、布局、部件选择与来源元数据。 |
+| `bundle_manifest.json` 与配套目录 | 原子指向模型、完整 online/demo 回放及实验元数据；恢复 learner 时保留匹配的 journal。 |
+| actor `outbox.sqlite3` | 保存待确认上传和 actor 身份；重启沿用 `run_id`、`actor_id` 与 outbox 路径。 |
 
 ## 算法与概念
 
 | 方法 | 核心思路 | 适合从哪篇了解 |
 |---|---|---|
 | `serl` | actor 与 learner 分进程运行，通过 RLPD 学习，可使用状态或图像观测。 | [项目说明中的上机参考](zh-CN/project-readme.md#running-on-hardware) |
-| `hil_serl` | 在 SERL 上加入人工接管、持续增长的示范缓冲区、可选奖励分类器和离散夹爪决策。 | [07 HIL 训练](zh-CN/tutorial/07-hil-training.md)、[迁移路线图](zh-CN/hil-serl-roadmap.md) |
+| `hil_serl` | 在 SERL 上加入人工接管、持续增长的示范缓冲区、可选奖励分类器，以及连续无夹爪或混合夹爪策略。 | [07 HIL 训练](zh-CN/tutorial/07-hil-training.md)、[迁移路线图](zh-CN/hil-serl-roadmap.md) |
 | `residual_hil_serl` | 冻结基础策略，学习有界修正；执行动作由基础动作与缩放后的残差相加并裁剪得到。 | [残差 RL 与人工介入](zh-CN/residual.md) |
 | `silri` | 学习人工行为模型，再用随状态变化的拉格朗日乘子约束策略与人工行为的距离；人工行为越分散，约束容许范围越大。 | [HIL-RL 与 SiLRI](zh-CN/silri.md) |
 | `real_world_bc` | 直接从示范进行离线行为克隆，可作为部署基线或残差策略的基础。 | [05 基础策略](zh-CN/tutorial/05-base-policy.md) |
@@ -92,6 +97,8 @@
 | 文档 | 中文导读 |
 |---|---|
 | [GELLO 硬件到 HIL 训练](zh-CN/gello.md) | 总线适配器、供电、串口权限、波特率与延迟设置，关节方向、偏移和扳机标定，机器人 YAML、录制和训练示例；末尾列出硬件待验证项与主臂跟随设想。 |
+| [真机实验与恢复](zh-CN/real-world-experiments.md) | 持久上传、bundle/journal 恢复边界、成功率口径、部件掩码、完整轨迹归档和版本化任务与观测。 |
+| [机械臂控制配置](zh-CN/control-profiles.md) | 工作站阻抗参数、逐臂覆盖、SDK 能力检查与生效元数据。 |
 | [示范录制参数与文件格式](zh-CN/recording-demos.md) | recorder 参数、起始姿态容差、接管同步步骤的处理、成功回合筛选，以及 pkl transition 字段和 `.contract.json`；适合查参数和数据加载问题。 |
 | [旧版上机入口](zh-CN/getting-started-hardware.md) | 保留旧链接，把原有上机章节映射到新教程；从旧书签进入时可用它找到对应步骤。 |
 | [完整中文文档索引](zh-CN/README.md) | 完整翻译原文索引，按教程、概念与参考组织，与本页互相导航。 |
@@ -110,26 +117,22 @@
 |---|---|---|
 | 人工接管 | Space 切换接管；`s` 标记成功，`f` 标记失败，`r` 在 recorder 中重录，Esc 结束回合。 | [06 操作员指南](zh-CN/tutorial/06-intervening.md) |
 | 录制成功示范 | 在仍然接管时按 `s`，才能将成功的终止步骤写入示范。 | [04 录制示范](zh-CN/tutorial/04-record-demos.md) |
-| 训练奖励 | `real_robot` 自身返回的奖励为 0；HIL actor 需要启用 `--reward-from-teleop-events` 或配置奖励分类器。recorder 默认启用按键奖励。 | [奖励来源](zh-CN/tutorial/06-intervening.md#where-the-reward-comes-from) |
+| 训练奖励 | 教程默认无任务的 `real_robot` 奖励为 0；可通过版本化任务、`--reward-from-teleop-events` 或奖励分类器提供奖励。recorder 默认启用按键奖励。 | [奖励来源](zh-CN/tutorial/06-intervening.md#where-the-reward-comes-from) |
 | 动作模式 | `joint_delta`、`joint_abs`、`cartesian_delta` 含义不同；示范、基础策略和训练环境的模式、缩放与状态字段需要一致。 | [动作约定](zh-CN/project-readme.md#action-contract) |
 | 绝对关节动作 | `joint_abs` 需要 `joint_limits` 以及设备报告的 `max_delta_per_step.joint_rad`；关节限制成对列表放在 YAML 中配置。 | [02 工作站配置](zh-CN/tutorial/02-station.md) |
 | 健康检查 | doctor 会连接设备，安排在同一机器人守护进程启动前执行，避免设备占用冲突。 | [03 启动与检查](zh-CN/tutorial/03-daemon.md) |
-| watchdog | 教程使用 `--watchdog-s 5` 为 reset 后首次推理留出时间；结合设备响应和[退出问题 S6](zh-CN/known-issues.md#s6-actor-shutdown-the-arm-is-released-by-the-watchdog-queued-rows-are-lost)选择实际值。 | [03 守护进程](zh-CN/tutorial/03-daemon.md) |
-| 评估与部署 | `--role eval` 评估时保持策略自主执行；部署程序从训练目录读取约定，部署 YAML 中移除 `teleop:`。 | [06 操作说明](zh-CN/tutorial/06-intervening.md)、[08 部署](zh-CN/tutorial/08-deploy.md) |
+| watchdog | 教程使用 `--watchdog-s 5` 为 reset 后首次推理留出时间；结合设备响应和[启动与退出](zh-CN/real-world-experiments.md#startup-and-shutdown)选择实际值。 | [03 守护进程](zh-CN/tutorial/03-daemon.md) |
+| 评估与部署 | 自主成功率仅计未被动作接管的成功，以全部已完成回合为分母；只按标注键不算动作介入。无人接管部署使用 `--no-enable-teleop` 和无 `teleop:` 的 YAML；辅助部署保留设备。 | [06 操作说明](zh-CN/tutorial/06-intervening.md)、[08 部署](zh-CN/tutorial/08-deploy.md) |
 
 ## 已知问题与验证范围
 
-[known-issues.md](zh-CN/known-issues.md) 汇总首次真机运行可能遇到的问题，并给出症状、影响、临时处理方式和计划修复。当前条目包括：
+[known-issues.md](zh-CN/known-issues.md) 汇总首次真机运行可能遇到的问题及修复状态。当前仍需注意：
 
 | 编号 | 问题 | 当前处理要点 |
 |---|---|---|
-| S4 | learner 停止或重启时，缓冲区尾部数据丢失或重复加载。 | 缩短 `--buffer-period`；含快照的运行目录避免同时使用 `--load-replay-buffer`。 |
-| S6 | actor 退出后由 watchdog 停臂，待发送数据可能丢失。 | 先结束回合并到达安全姿态，再停止进程；按设备需要设置 watchdog。 |
-| S8 | 截断标记缺少直接测试；未训练的 `joint_abs` 策略可能向关节范围中点运动。 | 首次调试采用教程的 `joint_delta` 路径。 |
-| S2 | 接管对齐过程的动作进入在线训练的示范缓冲区。 | 可使用 `--teleop-onset arm`，待主从臂对齐再接管。 |
+| S8 | 普通非残差 `joint_abs` 策略尚无基于实测姿态的启动保持。 | actor 已等待初始参数，但初始快照仍可能未训练；首次调试采用教程的 `joint_delta` 路径。 |
 | S3 | 接管时扳机状态与夹爪不同，可能立即松开物体。 | 接管前先让扳机状态匹配夹爪状态。 |
-| S1 | `hil_serl --fwbw` 的介入数据没有进入示范缓冲区。 | 首次运行采用常规 HIL 流程。 |
-| S5 | SiLRI 预训练或刷新占用缓冲区锁，使 actor 上传阻塞。 | 关注 `actor/dropped_transitions`，必要时减少 `--bc-pretrain-steps`。 |
-| S7 | eval 中的人工介入可能计为策略成功。 | 评估期间保持策略自主执行，需要结束失败回合时用 Esc。 |
+
+S1、S2、S4、S5、S6、S7 已关闭：免 reset 数据路由、同步步骤监督过滤、完整回放恢复、独立持久接收、退出排空，以及自主/辅助成功率均已有对应实现。恢复请按[真机实验](zh-CN/real-world-experiments.md)保留匹配的 bundle、journal 和 actor outbox。SQLite WAL 使用 `synchronous=NORMAL`，覆盖进程崩溃恢复，操作系统崩溃或断电可能损失最新提交。
 
 仓库当前说明的验证范围为 fake 设备测试。Franka 与 GELLO 真机链路、硬件延迟和标定、真实示范上的 ACT、真实图像上的奖励分类器，以及 `leader_cartesian` 运动学仍需上机验证。首次运行前按[教程总览](zh-CN/tutorial/00-overview.md#safety)检查工作区和设备限制，具体状态见[已知问题](zh-CN/known-issues.md)。

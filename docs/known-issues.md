@@ -61,7 +61,7 @@ Status: open (docs).
 - **The actor stops on a teleop read fault**: by design. A failed read propagates
   (`real_world_rl/teleop/base.py:86`, polled before every step at
   `real_world_rl/envs/wrappers/intervention.py:147`), so a dropped reading is never mistaken
-  for a policy step. S6's `env.close()` is the fix for the arm.
+  for a policy step. Actor cleanup now closes the environment; a forced kill still relies on the watchdog.
 
 
 ## C. Unverified on hardware

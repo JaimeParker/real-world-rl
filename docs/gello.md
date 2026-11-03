@@ -127,8 +127,9 @@ the joint angles with the follower's.
 Start from `robot_infra/docs/robot.franka.example.yaml` and add the safety limits and the GELLO. The
 alternative is `python -m robot_infra.setup`, which writes a station yaml with the robot, cameras,
 GELLO calibration and daemon port (`./local/station.yaml`, found by the daemon without `--config`);
-it leaves `safety_box`, `joint_limits` and `max_delta_per_step` at `null`, so add the limits below
-by hand either way:
+it writes Panda `joint_limits`, a `max_delta_per_step` cap and a requested `safety_box`.
+Inspect those values against the actual station before motion; hand-written files need the
+same limits:
 
 ```yaml
 type: franka
@@ -273,12 +274,15 @@ source's action. In detail (these are the scripted end-to-end checks in
 
 - **`joint_delta`.** The action is `clip((q_leader - q_follower) / joint_scale_rad, -1, 1)`: a
   far leader saturates at `joint_scale_rad` per step until the follower catches up, and the action
-  is zero once they are aligned. No step is flagged as syncing.
+  is zero once they are aligned. Under `ramp`, the initial catch-up until the leader first comes
+  within `joint_scale_rad` is marked syncing. Later saturated teaching steps after that alignment
+  remain ordinary supervision.
 - **`joint_abs` with `--teleop-onset ramp`.** The first steps after the toggle are rate-limited:
   the target is `q_follower + clip(q_leader - q_follower, +-ramp_step_rad)`, and the stored action
-  is that target (the executed command). These steps are intervened, so they enter the demo
-  buffer, and carry `info["teleop_events"]["teleop_syncing"] = True`, so a downstream filter can
-  drop them. After the ramp the action is the leader's normalised joint target.
+  is that target (the executed command). These steps carry
+  `info["teleop_events"]["teleop_syncing"] = True`. The archive keeps their actual actions and human
+  masks, while training excludes their expert supervision. After the ramp, the action is the
+  leader's normalised joint target.
 - **`--teleop-onset arm`.** Until the leader is within `--teleop-arm-tolerance-rad` (0.1) of the
   follower, the toggle does not count: the policy keeps acting, the rows are not intervened and the
   per-joint error is logged once per second. Then every step is intervened until the toggle
@@ -298,8 +302,8 @@ source's action. In detail (these are the scripted end-to-end checks in
 ### Onset: `ramp` or `arm`
 
 `ramp` (default) takes over at once and slews the follower onto the leader at `ramp_step_rad`
-per step (`joint_abs`) or `joint_scale_rad` per step (`joint_delta`); the transient is in the
-demo buffer (flagged as syncing in `joint_abs` only). `arm` keeps the transient out of the data
+per step (`joint_abs`) or `joint_scale_rad` per step (`joint_delta`). Both modes mark catch-up as
+syncing and the training projection excludes it from expert supervision. `arm` keeps the transient out of the data
 and off the robot, at the cost of the operator first matching the leader to the follower by hand
 before every takeover (every env reset disarms). Prefer `arm` when demonstrations should start
 from a still robot, `ramp` for quick corrections.

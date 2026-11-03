@@ -1,5 +1,11 @@
 # HIL-SERL Roadmap
 
+This is a historical porting record. For current operation use the [tutorial](tutorial/00-overview.md),
+[Real-world experiments](real-world-experiments.md) and [Known issues](known-issues.md).
+The current implementation includes the demo recorder, leader-arm and dual-arm support,
+durable outboxes/journals, replay bundles and explicit autonomous/assisted outcomes. The item
+descriptions below retain the migration-era behavior; they are not the current support matrix.
+
 This document was moved here from the main `rl-garden` repo's
 `docs/roadmaps/` when the real-world RL training layer
 (`rl_garden/real_world/`, `rl_garden/training/real_world/`,

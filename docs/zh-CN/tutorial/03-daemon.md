@@ -66,4 +66,10 @@ README 的 [fake 机器人端到端演练](../project-readme.md#end-to-end-try-o
 python -m pytest tests/test_single_arm_station_smoke.py -q
 ```
 
+<a id="check-local-storage-before-training"></a>
+
+## 训练前检查本地存储
+
+actor 在自身机器写入 outbox，learner 在 GPU 机器写入 journal 与 checkpoint bundle。两侧使用本地存储，并为两个回放缓冲区中的图像数据预留容量。SQLite WAL 使用 `synchronous=NORMAL`：已提交消息可在进程崩溃后恢复，操作系统崩溃或断电可能丢失最近提交。进程在清理前被强制终止时，仍由机器人守护进程 watchdog 处理。路径和恢复命令见[教程 07](07-hil-training.md#resume-an-interrupted-run)。
+
 下一步：[04 录制示范](04-record-demos.md)，操作前先读 [06 人工介入](06-intervening.md)。

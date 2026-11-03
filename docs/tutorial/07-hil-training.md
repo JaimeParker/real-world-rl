@@ -18,20 +18,21 @@ actor connects to it, so both get the learner's address. Start the learner first
 ENV_FLAGS="--config hil.yaml --teleop-device leader_arm --robot-teleop-action-mode joint_delta \
     --teleop-event-device keyboard --reward-from-teleop-events"
 COMMON="$ENV_FLAGS --sync-host LEARNER_IP --sync-port 6000 --log-dir runs \
-    --checkpoint-freq 1000 --buffer-size 20000"
+    --checkpoint-freq 1000 --buffer-size 20000 --demo-buffer-size 20000"
 ```
 
 - `--reward-from-teleop-events`: your `s` key is the reward (1, terminal) and `f` ends an episode as
   a failure. Training does not turn it on by default; without it, and without
   `--classifier-checkpoint`, every transition carries reward 0 and the actor and learner warn
   ([06](06-intervening.md#where-the-reward-comes-from)).
-- `--checkpoint-freq` (default 0: only `final.pt` when the learner stops) writes
+- `--checkpoint-freq` (default 0: final saves only) writes
   `checkpoint_<update>.pt` plus a checkpoint bundle every that many learner updates.
 - `--buffer-size` is the replay capacity (defaults: 200000 for `hil_serl` and `residual_hil_serl`,
   30000 for `silri`), held on `--buffer-device cuda`; with several 128 x 128 cameras size it to your
   GPU memory or use `--buffer-device cpu`. Every checkpoint bundle copies both replay buffers at
-  full capacity to host memory and disk, so keep it near what one session collects (20000 rows
-  is about 30 minutes at 10 Hz).
+  full capacity to host memory and disk. Size both `--buffer-size` and `--demo-buffer-size` to
+  available GPU/host memory and disk; 20000 rows is about 33 minutes at 10 Hz. Each periodic save
+  creates another generation. Keep the generation referenced by the manifest with its journal.
 - The learner ignores the teleop flags (it never opens a device).
 
 ## hil_serl
@@ -42,10 +43,13 @@ python examples/train_real_world.py hil_serl --role learner $COMMON --exp-name h
 python examples/train_real_world.py hil_serl --role actor $COMMON --exp-name hil-pick-and-place
 ```
 
-The learner loads the demos into its demo buffer, waits for `--learning-starts` online transitions
-(default 4000; the preloaded demos do not count), then trains and publishes weights every
-`--publish-freq` updates (default 100). Until the first weights arrive the actor acts with an
-untrained policy: be ready to take over.
+The actor waits up to `--sync-startup-timeout` (default 30 seconds) for an initial learner
+snapshot before reset/step. That snapshot can still contain an untrained policy. Nonresidual
+`joint_abs` does not yet have a measured-pose startup hold, so the tutorial uses `joint_delta`.
+The learner preloads demos, waits for `--learning-starts` online transitions (default 4000;
+preloaded demos do not count), then trains. It publishes the first ready policy and later
+snapshots every `--publish-freq` updates (default 100). Snapshot session/version identifies
+updates across a learner restart. Be ready to intervene while the policy is learning.
 
 ## residual_hil_serl, BC base
 
@@ -72,14 +76,14 @@ python examples/train_real_world.py residual_hil_serl --role actor $COMMON $RESI
 ```
 
 The actor executes `clamp(base + scale * residual, -1, 1)`; your interventions override the total
-action. The base must come from the same `hil.yaml` (same observation and action spaces, the
+action by default; selected-part takeover uses the masks described in [06](06-intervening.md#take-over-selected-parts). The base must come from the same `hil.yaml` (same observation and action spaces, the
 [contract of 05](05-base-policy.md#the-act-checkpoint-contract)). The base spec is quoted: `?` is a
 glob character and `&` backgrounds. Only the actor and eval build the base; the learner trains on the
 base actions the actor stores. With the ACT base the actor replans the chunk after every intervened
 step ([resync](05-base-policy.md#resync-after-an-intervention)).
 
 - `--residual-variant hybrid` puts the residual on the arm dims and gives the gripper `hil_serl`'s
-  DQN head; `continuous` puts it on every dim and keeps the base's gripper.
+  DQN head; `continuous` represents all dims, with zero residual scale on grippers by default, keeping the base's gripper.
 - `--residual-action-scale` bounds the residual (0.1 of the normalised action per step).
 - `--critic-only-updates 500`: the first 500 learner updates train the critic only.
 - `--residual-bc-weight 0.1` pulls the residual towards your corrections on intervened rows.
@@ -103,12 +107,18 @@ does and are consumed afterwards. It then refreshes the model as your interventi
 
 ## Stopping
 
-Stop the actor with Ctrl-C (the arm stays where it is), then the learner: it writes
+Finish the current episode in a safe state, then stop the actor with Ctrl-C while the learner
+is still running. Cleanup releases the environment/provider and attempts to drain uploads for
+`--sync-drain-timeout` (default 30 seconds). A timeout leaves unacknowledged rows in the local
+outbox for the next restart. A forced kill relies on the daemon watchdog. Then stop the learner:
+under a normal stop it writes
 `runs/<exp-name>/checkpoints/final.pt` and a checkpoint bundle (model, optimizers, both replay
 buffers and the journal position, published through `bundle_manifest.json`) on the way out.
 `runs/<exp-name>/config.json` is what eval, deploy and the residual base provider read. Rows the
 actor could not deliver before it stopped stay in its outbox under `runs/<exp-name>/actor/` and are
-sent when an actor with the same `--exp-name` starts again.
+sent when an actor with the same outbox path and identity starts again. The default path above
+assumes `--run-id` and `--actor-outbox-path` were not overridden. Each concurrent actor needs
+its own `--actor-id` and outbox.
 
 ## Evaluate
 
@@ -156,19 +166,19 @@ about 100 s at 10 Hz); the actor posts one set of `actor/*` scalars per episode.
 | `actor/length`, `actor/human_episode_end` | all | episodes you ended with Esc |
 | `actor/safety_clips`, `actor/safety_clips_total` | all | servo commands the daemon clipped; a rising count means the policy keeps asking for targets outside the limits |
 | `actor/rtt_ms_mean/max`, `actor/step_time_ms_mean/max`, `actor/param_refresh_ms_mean/max` | all | timing |
-| `actor/outbox_depth`, `actor/upload_retries` | all | rows waiting on the actor's disk and failed upload attempts; a growing depth means the learner is slow or unreachable, nothing is dropped |
+| `actor/outbox_depth`, `actor/upload_retries` | all | rows waiting on the actor's disk and failed upload attempts; a growing depth means uploads are pending; retries preserve IDs, while full capacity or disk failures stop collection |
 | `learner/received`, `learner/update`, `learner/buffer_size`, `learner/train_time_s` | all | ingestion and training progress |
-| `learner/demo_buffer_size`, `learner/intervened_received` | all | the demo buffer grows only while you intervene |
+| `learner/demo_buffer_size`, `learner/intervened_received` | all | the demo buffer grows from human-supervised, nonsyncing rows |
 | `losses/critic_loss`, `losses/qf_loss`, `losses/actor_loss`, `losses/alpha_loss`, `entropy/alpha`, `entropy/target_entropy`, `q/predicted` | `hil_serl`, `residual_hil_serl` | SAC-style losses; `q/predicted` should track the returns |
 | `losses/actor/residual_bc`, `losses/actor/intervened_fraction` | `residual_hil_serl` | the BC term and the share of intervened rows in a batch (after the critic-only updates) |
 | `losses/critic/loss`, `losses/actor/loss`, `losses/actor/q`, `losses/actor/distance`, `losses/lambda/loss`, `losses/lambda/mean`, `losses/behavior/sigma_sum`, `losses/batch/intervened_fraction`, `losses/discrete/ce` | `silri` | `losses/actor/distance` against `losses/behavior/sigma_sum` + margin: where the actor is held to your behaviour |
 | `behavior/pretrained`, `behavior/pretrain/*`, `behavior/refresh/*`, `behavior/refresh_count` | `silri` | the behaviour model's pretraining and refreshes |
 
-Also on disk: `checkpoint_<update>.pt` in `runs/<exp-name>/checkpoints/` every `--checkpoint-freq`
-updates, and the crash-recovery snapshots next to them, `buffer/transitions_<n>.pkl` (every
-transition) and `demo_buffer/transitions_<n>.pkl` (your intervened steps only), one pair per
-`--buffer-period` received transitions (default 1000). A restarted learner with the same
-`--exp-name` reloads them.
+Also on disk: the actor's `outbox.sqlite3`; the learner's `checkpoints/journal.sqlite3`;
+`bundle_manifest.json` pointing to one complete `bundle_<update>_<id>/` generation; and legacy
+`checkpoint_<update>.pt` files. Bundles carry model/optimizers, both replay buffers and the journal
+cursor. Legacy `buffer/` and `demo_buffer/` pkl snapshots remain fallback sources; they are not
+loaded again on top of an authoritative bundle.
 
 ## Optional: a reward classifier
 
@@ -202,5 +212,32 @@ The trainer's frozen ResNet needs its pretrained weights (`--pretrained_weights`
 - `ValueError: ... recorded action contract does not match the env's`: the demo pkl was recorded with
   a different preset.
 - `--base-provider is required`: every `residual_hil_serl` role needs it, the learner included.
+
+## Resume an interrupted run
+
+Keep the learner checkpoint directory, its journal (including SQLite WAL/SHM files) and bundle
+generations together. Restart the learner first with the same preset, experiment name, seed-demo
+paths and capacities. For the `hil_serl` run above:
+
+```bash
+python examples/train_real_world.py hil_serl --role learner $COMMON --exp-name hil-pick-and-place \
+    --demo-dataset-paths demos/pick-and-place.pkl --load-checkpoint \
+    runs/hil-pick-and-place/checkpoints/bundle_manifest.json --checkpoint-dir \
+    runs/hil-pick-and-place/checkpoints
+python examples/train_real_world.py hil_serl --role actor $COMMON --exp-name hil-pick-and-place
+```
+
+The actor reuses its existing outbox; acknowledged IDs are admitted once. A learner/network outage
+retries with back-off while the outbox has capacity. For residual or SiLRI, use that method's
+original arguments and its matching manifest/directory. A manifest alone does not relocate the
+journal. Bundle restore always restores the complete replay/cursor unit, regardless of
+`--load-replay-buffer`; a standalone generation `agent.pt` is the weights-only entry for a new run.
+Use a new `--exp-name`/`--run-id` or independent outbox for an independent experiment.
+
+SQLite uses WAL with `synchronous=NORMAL`: these guarantees cover process crashes, while OS
+crashes or power loss can roll back the latest commits. An update exception or interruption during
+journal application preserves the last complete bundle, so recovery replays the journal tail.
+Full paths, FWBW direction isolation and legacy recovery are in
+[Real-world experiments](../real-world-experiments.md).
 
 Next: [08 Deploy](08-deploy.md).

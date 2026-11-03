@@ -97,8 +97,10 @@ for separate yaml files. Point `left.remote` / `right.remote` at the two address
 `--teleop-device bimanual` drives both arms, with one leader per arm; `--teleop-arm-device` picks
 each arm's device (`leader_arm`, the default: a GELLO served by that arm's daemon as its robot's
 `teleop:` part; `robot`: any teleop part of that arm's robot; `gello`: a GELLO plugged into the
-actor's machine). The operator overrides the whole action; while one arm's operator intervenes
-and the other does not, the other arm is held still with its gripper unchanged.
+actor's machine). Default `--teleop-idle-behavior hold` holds the unselected arm and gripper
+when only one operator intervenes; `policy` leaves unselected parts with the policy.
+`--teleop-selected-parts` can restrict control to named arm/gripper parts. Human masks identify
+actual expert dimensions, separately from hold overrides.
 [teleop.md](teleop.md#two-arms-bimanual) has the details and the per-arm options yaml.
 
 HIL actor over the two daemons, one keyboard for the toggle and the buttons:
@@ -294,7 +296,9 @@ python examples/deploy_real_robot.py --checkpoint runs/bc/checkpoints/final.pt \
     --real_robot_bimanual.right.cameras wrist_right front
 ```
 
-The deploy daemon serves a copy of the station yaml without either robot's `teleop:` block.
+For unattended deployment, use `--no-enable-teleop` and a station YAML without either robot's
+`teleop:` block. For assisted deployment, keep those devices configured and select the bimanual
+source; task runs may restore their saved setup. See [tutorial 08](tutorial/08-deploy.md).
 
 ## Limits
 

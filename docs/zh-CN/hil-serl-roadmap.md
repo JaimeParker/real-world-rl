@@ -4,6 +4,8 @@
 
 [中文入口](../README.zh-CN.md) · [English](../hil-serl-roadmap.md)
 
+本文保留历史移植记录。当前操作请使用[教程](tutorial/00-overview.md)、[真机实验](real-world-experiments.md)和[已知问题](known-issues.md)。当前实现已包含示范录制器、主从臂与双臂支持、持久 outbox/journal、回放 bundle，以及显式的自主和辅助结果。下文条目描述保留迁移时期的行为，当前支持范围请查阅上述文档。
+
 真机 RL 训练层（`rl_garden/real_world/`、`rl_garden/training/real_world/`、`rl_garden/envs/franka_real/`）拆入本仓库时，本页从主 `rl-garden` 仓库的 `docs/roadmaps/` 移至此处。下列路径早于拆分，尚未逐项更新。`robot_infra/...` 指现在本仓库 `robot_infra/` 下的设备层发行包，Python 包名为 `robot_infra`，从仓库根目录看路径是 `robot_infra/robot_infra/...`；它以前是同级 `rlgarden-robot-infra` 仓库。`3rd_party/hil-serl/` 指主 `rl-garden` 仓库保存的参考源码副本，本仓库不包含它。
 
 本页编写后，真机层又增加 `TeleopSource` 注册表、共享 HIL 环境构建器、可重写的 actor 循环步骤、`InterventionReplayBuffer`，以及 `residual_hil_serl` 和 `silri` 方法，见“尚未迁移”末尾的“初次迁移后落地的工作”。下文描述条目当时状态的段落保留原意。

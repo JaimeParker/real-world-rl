@@ -7,6 +7,8 @@ see, and what to do if you do not.
 
 The worked example throughout is **pick and place**: one object, one bin. Runs are named
 `*-pick-and-place` (`runs/bc-pick-and-place`, `runs/hil-pick-and-place`, ...).
+Keep the same run identity and local storage when recovering an interrupted experiment;
+use a new identity for an independent experiment.
 
 ## The pipeline
 
@@ -80,8 +82,13 @@ Known bugs with their workarounds and planned fixes: [Known issues and deferred 
   ([teleop.md](../teleop.md#verify-the-dh-table-on-the-robot)). This tutorial does not use it.
 - **`franka_real`** (the SERL HTTP bridge) is single-arm and cartesian only; this tutorial uses
   `real_robot` (robot_infra).
-- **Reward**: the `real_robot` env returns reward 0 and never terminates on its own. The reward comes
+- **Reward**: with the tutorial preset (`task.name: none`, the default), `real_robot` returns
+  reward 0 and does not declare task success on its own. The reward comes
   from the operator's `s` key (`--reward-from-teleop-events`, [06](06-intervening.md#where-the-reward-comes-from))
   or from a reward classifier ([07](07-hil-training.md#optional-a-reward-classifier)).
+- **Recovery and metrics**: actor uploads and learner ingestion use local SQLite storage;
+  checkpoints include complete replay bundles. Success requires an explicit outcome label,
+  and autonomous success excludes action-assisted episodes. The storage, process-crash and
+  power-loss boundaries are in [Real-world experiments](../real-world-experiments.md).
 - **Configured teleop is mandatory**: a robot yaml with a `teleop:` section fails to connect when the
   device is absent.

@@ -89,7 +89,7 @@ python -m robot_infra.server --config right.yaml --bind 0.0.0.0:50052 --watchdog
 
 ## 遥操作与示范录制
 
-`--teleop-device bimanual` 同时控制两臂，每臂一套主臂；`--teleop-arm-device` 选择逐臂设备。默认 `leader_arm` 读取各臂守护进程提供的机器人 `teleop:` GELLO 部件；`robot` 使用各机器人任意遥操作部件；`gello` 使用连接 actor 机器的 GELLO。操作员覆盖整个动作；仅一臂介入时，另一臂保持静止、夹爪不变。逐臂选项 YAML 和细节见 [teleop.md](teleop.md#two-arms-bimanual)。
+`--teleop-device bimanual` 用每臂一个主臂控制双臂；`--teleop-arm-device` 选择各臂设备：默认 `leader_arm` 是各臂守护进程提供的机器人 `teleop:` 部件 GELLO；`robot` 使用该机器人任意遥操作部件；`gello` 使用插在 actor 机器上的 GELLO。默认 `--teleop-idle-behavior hold` 在只有一位操作员介入时保持未选中的机械臂和夹爪；`policy` 将未选中部件交给策略。`--teleop-selected-parts` 可按名称限定机械臂和夹爪部件。人工掩码标识实际专家维度，与保持动作覆盖分别记录。[teleop.md](teleop.md#two-arms-bimanual) 包含细节及逐臂选项 YAML。
 
 通过两个守护进程运行 HIL actor，用一个键盘控制切换和事件：
 
@@ -243,7 +243,7 @@ python examples/deploy_real_robot.py --checkpoint runs/bc/checkpoints/final.pt \
     --real_robot_bimanual.right.cameras wrist_right front
 ```
 
-部署守护进程使用移除两台机器人 `teleop:` 块后的工作站 YAML 副本。
+无人接管部署使用 `--no-enable-teleop`，并从工作站 YAML 删除两个机器人的 `teleop:` 块。辅助部署保留这些设备配置并选择双臂输入源；任务运行可恢复已保存设置。见[教程 08](tutorial/08-deploy.md)。
 
 <a id="limits"></a>
 

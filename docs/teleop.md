@@ -16,6 +16,8 @@ class TeleopReading:
     episode_end: bool = False   # operator's episode-end button
     events: Mapping[str, bool] = {}   # success / failure / rerecord edges that fired, else empty
     timestamp: float = 0.0
+    human_action_mask: Any = None  # actual human-controlled dimensions
+    override_mask: Any = None      # overridden dimensions including hold supplements
 
 class TeleopSource(ABC):
     action_mode: str            # "cartesian_delta" | "joint_delta" | "joint_abs"
@@ -183,9 +185,10 @@ Onset (`--teleop-onset`, source kwarg `onset`):
 - `ramp` (default): in `joint_abs` the emitted target is
   `q_follower + clip(q_leader - q_follower, +-ramp_step_rad)` (`--teleop-ramp-step-rad`, 0.05),
   normalized onto the joint limits, so the recorded action is the executed command; those
-  intervened steps carry `info["teleop_events"]["teleop_syncing"] = True` (they still enter the
-  demo buffer; a downstream filter can drop them). In `joint_delta` nothing changes: the action
-  already saturates at `joint_scale_rad` per step.
+  intervened steps carry `info["teleop_events"]["teleop_syncing"] = True`. The archive retains
+  them, while training excludes syncing expert labels. In `joint_delta`, initial catch-up is
+  marked until the leader first comes within `joint_scale_rad`; later saturated motion of the
+  same takeover is ordinary teaching.
 - `arm`: the toggle only takes effect once `|q_leader - q_follower|_inf <= arm_tolerance_rad`
   (`--teleop-arm-tolerance-rad`, 0.1). Until then the step is not intervened and the per-joint
   error is logged (at most once per second): move the leader onto the follower. Once armed the
@@ -396,7 +399,7 @@ per-arm device:
 `leader_cartesian` is not available per arm: it turns one leader into the twist of one cartesian
 arm.
 
-The operator overrides the whole action: `intervened` is true while any arm's operator
+The bimanual source requests intervention: `intervened` is true while any arm's operator
 intervenes (`intervention_from: any`, the default) or only while both do (`all`). Under `any`,
 the arm whose operator is not intervening is held still: its arm block is the hold action (the
 follower's joints in `joint_abs`, zero in the delta modes) and its gripper the action last sent
@@ -453,8 +456,10 @@ without an operator.
 by device name (or adapts the object passed as `teleop`). Both expose the source as `.source`
 (alias `.teleop`).
 
-`step(action)` polls the source first. While `reading.intervened` the operator's action replaces
-`action` (as a `(1, A)` float32 tensor on the policy action's device). It always writes:
+`step(action)` polls the source first and intersects the source's human mask with the selected
+parts. With a nonempty human mask, it composes human and idle-part actions as a `(1, A)` float32
+tensor on the policy device. `idle_behavior="hold"` holds unselected parts; `"policy"` keeps the
+proposal there. Actual human control and hold overrides are recorded separately:
 
 | `info` key | Value |
 | --- | --- |
@@ -463,7 +468,9 @@ by device name (or adapts the object passed as `teleop`). Both expose the source
 | `intervened` | python bool: the operator's action was executed |
 | `intervention_onset` | python bool: intervened now and not on the previous step of this episode |
 | `human_episode_end` | python bool: the operator's episode-end button |
-| `teleop_events` | `dict` of the `success`/`failure`/`rerecord` edges that fired (leader arms add `teleop_syncing` on rate-limited onset steps); **only when some did** |
+| `teleop_events` | `dict` of fired `success`/`failure`/`rerecord` edges and leader catch-up `teleop_syncing`; **only when present** |
+| `human_action_mask` | dimensions actually driven by the human, including their provenance during syncing |
+| `override_mask` | dimensions replacing the policy proposal, including hold supplements |
 
 An `episode_end` makes `step()` return `truncated=True` (never `terminated`), so actor loops
 reset without treating it as terminal.
@@ -676,3 +683,15 @@ live-env training runs for online fine-tuning. See
 `rl-garden/docs/design/wsrl-overview.md#offline-only-pretraining-no-sim-env` in the
 `rl-garden/` submodule for
 the full workflow.
+
+
+## Partial control and training provenance
+
+Select parts with `--teleop-selected-parts` (`arm.arm` / `arm.gripper` on the tutorial station,
+`left.arm`, `right.arm`, `left.gripper`, `right.gripper` on two arms). Default
+`--teleop-idle-behavior hold` holds unselected parts; `policy` leaves them autonomous.
+An empty selection uses the source's available parts. A source without a gripper channel
+never supplies an expert gripper label. Continuous no-gripper HIL is supported; hybrid/discrete
+branches require a gripper. Syncing rows remain executed/archived, but their training projection
+has no expert supervision. See [Real-world experiments](real-world-experiments.md) for masked
+BC/SiLRI/residual losses, explicit outcomes and durable records.

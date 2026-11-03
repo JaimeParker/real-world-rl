@@ -83,4 +83,13 @@ single-arm workflow of this tutorial on fakes:
 python -m pytest tests/test_single_arm_station_smoke.py -q
 ```
 
+## Check local storage before training
+
+The actor writes an outbox on its own machine, while the learner writes a journal and checkpoint
+bundles on the GPU machine. Put both on local storage and budget for image data in both replay
+buffers. SQLite WAL uses `synchronous=NORMAL`: committed messages survive process crashes, while
+an OS crash or power failure may lose the most recent commits. The daemon watchdog still covers
+a process that is killed before cleanup. Paths and recovery commands are in
+[tutorial 07](07-hil-training.md#resume-an-interrupted-run).
+
 Next: [04 Record demos](04-record-demos.md) (read [06 Intervening](06-intervening.md) first).

@@ -145,4 +145,14 @@ python examples/train_real_world.py hil_serl --config hil.yaml --print-config
 
 > **joint_abs。** 另存一份 `hil_abs.yaml`，设置 `action_mode: joint_abs` 并取消 `joint_limits` 行的注释。该字段是成对值的列表，命令行无法表达。教程会在 `joint_abs` 有差异的地方使用这份副本。`joint_abs` 还要求 `station.yaml` 包含 `max_delta_per_step.joint_rad`，向导会自动写入，因为相邻 `joint_abs` 动作可能跨越整个关节范围。
 
+<a id="task-images-and-control-profiles"></a>
+
+## 任务 图像与控制参数配置
+
+教程默认 `real_robot.task.name` 为 `none`，由操作员或分类器提供成功标签。任务、reset、深度和逐相机预处理选项见[真机实验](../real-world-experiments.md#task-presets-and-observation-settings)。在录制前确定配置，并在 BC、HIL 和部署中保持一致。`preprocess.<camera>.roi` 以像素表示 `[top, left, height, width]`，同时必须填写真实的 `source_resolution: [height, width]`。RGB 采用双线性缩放；深度为单通道米制，采用最近邻缩放，无效像素置零。改变这些设置会改变策略的观测约定。
+
+工作站 YAML 可为每臂提供 `control:` 阻抗配置，实验侧的 `real_robot.control` 可覆盖它。仅在 IDLE 时配置，覆盖值只能收紧已声明的力矩变化率和误差裁剪边界，已安装 SDK 还须支持相应关键字。[机械臂控制参数](../control-profiles.md)说明字段、实际生效值和向导的 `--control` 选项。向导保留已有配置，新工作站写为 `control: null`；增益需要按实际工具和负载选择。
+
+以 `real_robot.control_hz` 为机器人控制频率。非默认全局 `--control-hz` 可以填入仍为默认值的环境频率；两者均为非默认且不一致时会被拒绝。录制、训练和部署使用解析后的同一频率，该值属于实验约定。
+
 下一步：[03 守护进程](03-daemon.md)。

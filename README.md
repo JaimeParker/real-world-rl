@@ -185,7 +185,7 @@ the env is built (`TeleopInterventionWrapper`):
 |---|---|---|
 | `cartesian_delta` | yes | supported (spacemouse / pico / the robot's teleop part) |
 | `joint_delta` / `joint_abs` | yes | supported through `--teleop-device robot` (the robot yaml's `teleop:` section), `leader_arm` / `gello` (a GELLO) and, for two arms, `bimanual` |
-| any | no (`gripper_in_action=false`) | not supported (the intervention wrapper requires the gripper dim, for `hil_serl`, `residual_hil_serl` and `silri` alike) |
+| any compatible mode | no (`gripper_in_action=false`) | supported by continuous HIL RLPD, continuous residual and continuous SiLRI; hybrid/discrete-gripper variants require at least one gripper |
 
 ### Safety limits
 
@@ -246,8 +246,8 @@ For `--teleop-device robot`:
   `--robot-teleop-action-mode {cartesian_delta,joint_abs,joint_delta}` (and
   `--no-robot-teleop-has-gripper` for a device without a gripper). The declaration is checked
   against the real part on connect and a mismatch raises `DeviceFault`.
-- A configured teleop must be present for the robot to connect. For deployment use a robot yaml
-  without the `teleop:` section.
+- A configured teleop must be present for the robot to connect. For unattended deployment, use
+  `--no-enable-teleop` and a robot YAML without `teleop:`; keep the devices for assisted deployment.
 
 Hardware-free try-out with the fake teleop (robot yaml; `on_end: loop` repeats the script so
 episodes keep ending):
@@ -284,7 +284,8 @@ contract:
 
 - The deploy env takes `action_mode`, `gripper_in_action`, `num_joints`, `joint_limits`,
   `xyz_scale_m`, `rot_scale_rad`, `joint_scale_rad`, `state_fields`, `image_size`, `control_hz`
-  and `max_episode_steps` from the run. It re-applies the run's observation wrappers by itself:
+  and task/control/preprocessing settings from the run. Station-owned reset facts and episode caps
+  can be adjusted for deployment. It re-applies the run's observation wrappers by itself:
   `obs.frame_stack` (stacking the run's `classifier_image_keys`) and `convert_obs_rotation`.
   `--real_robot.*` only supplies connection fields (`robot`, `remote`, `token`, `home_joints`,
   `safety_box`, `reset_settle_s`, ...).
@@ -299,13 +300,18 @@ contract:
   with code 2.
 - The daemon's `--jpeg-quality` is not part of the run's config: start the deploy daemon with
   the same value (or none) the training daemon used.
+- Deployment accepts `bundle_manifest.json` or a standalone `.pt`. `enable_teleop` defaults to
+  true; an active task or explicit `--teleop-device` composes the operator setup. Use
+  `--no-enable-teleop` for an unattended run. Classifiers/tasks can provide explicit outcomes;
+  primary `success_rate` means autonomous success over completed episodes. See
+  [tutorial 08](docs/tutorial/08-deploy.md) for both deployment modes.
 
 ### Residual RL (`residual_hil_serl`)
 
 `residual_hil_serl` trains a bounded residual `clamp(base + scale * u, -1, 1)` on top of a
 frozen base policy (`--base-provider zero | checkpoint:<path>?algo=<name> | act:<path>`),
-with hil_serl's actor / learner / eval roles, demo buffer and interventions (the human
-overrides the total action; an optional BC term pulls the residual towards it).
+with hil_serl's actor / learner / eval roles, demo buffer and interventions. Human control can
+select parts; the optional BC term uses actual human dimensions with nonzero residual scales.
 `--residual-variant continuous` (`ResidualRLPD`) puts the residual on every action dim,
 `hybrid` (`ResidualRLPDHybrid`) on the arm dims with the DQN gripper. Only the actor, eval
 and deploy build the base policy; deploy rebuilds it from the checkpoint metadata
@@ -416,3 +422,9 @@ Experiment recovery, autonomous/assisted metrics, part takeover and trajectory a
 documented in [Real-world experiments](docs/real-world-experiments.md). Human action masks
 keep partial demonstrations aligned through BC, residual and SiLRI training; no-gripper
 HIL configurations use continuous policies. Hardware validation remains pending.
+
+Current learner recovery uses `bundle_manifest.json` together with its checkpoint directory and
+SQLite journal. Actor uploads use a persistent outbox; keep actor identity/path across a restart.
+Selected parts and observation preprocessing enter the experiment contract. See
+[tutorial 07](docs/tutorial/07-hil-training.md#resume-an-interrupted-run) and
+[Arm control profiles](robot_infra/docs/control-profiles.md).

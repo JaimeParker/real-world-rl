@@ -6,7 +6,7 @@
 
 本教程从尚未配置的机器人 PC 开始，带你在一台 Franka 机械臂上部署抓取物体并放入箱子的策略。它使用一套经机器人守护进程读取的 GELLO 主臂，并用 actor 机器的键盘接收操作员按键。每一页都说明要运行什么、预期看到什么，以及结果不符时如何处理。
 
-全文使用的任务是**抓取放置**：一个物体、一个箱子。运行目录以 `*-pick-and-place` 命名，例如 `runs/bc-pick-and-place`、`runs/hil-pick-and-place` 等。
+全文使用的任务是**抓取放置**：一个物体、一个箱子。运行目录以 `*-pick-and-place` 命名，例如 `runs/bc-pick-and-place`、`runs/hil-pick-and-place`。恢复中断实验时保留相同运行身份和本地存储；独立实验使用新身份。
 
 <a id="the-pipeline"></a>
 
@@ -68,9 +68,10 @@
 
 已知缺陷、临时处理方式与计划修复见[已知问题与待办工作](../known-issues.md)。
 
-- **硬件侧目前仅通过 fake 设备验证。** robot_infra README 的[已知限制](../robot-infra.md#known-limitations-and-needs-hardware-verification)说明：“下面的内容都尚未在真实硬件上运行，fake 设备仅覆盖逻辑。”[gello.md](../gello.md#8-not-verified-yet)也说明：“尚未在物理 GELLO 或机器人上运行。”GELLO 的硬件数据（波特率、读取时间、延迟）、每台设备的偏移与方向，以及使能力矩后的行为都尚未验证。首次上机时需要调试。
+- **硬件侧目前仅通过 fake 设备验证。** robot_infra README 的[已知限制](../robot-infra.md#known-limitations-and-needs-hardware-verification)说明，以下内容尚未在真实硬件运行，fake 仅覆盖逻辑；[gello.md](../gello.md#8-not-verified-yet)也说明尚未在物理 GELLO 或机器人上运行。GELLO 波特率、读取时间、延迟、每台设备偏移与方向，以及使能力矩后的行为都需上机验证，首次运行需要调试。
 - **使用录制 pkl 训练 ACT** 尚未在真实示范上验证。
-- **`leader_cartesian`** 使用 Panda 正向运动学 DH 表，把 GELLO 转换成笛卡尔速度增量；该表尚未与真机对照验证（见 [teleop.md](../teleop.md#verify-the-dh-table-on-the-robot)）。本教程的流程使用关节空间。
-- **`franka_real`** 是 SERL HTTP 桥接后端，仅支持单臂与笛卡尔动作；本教程使用 `real_robot`（robot_infra）。
-- **奖励**：`real_robot` 环境返回奖励 0，且不会自行终止。奖励来自操作员的 `s` 键（`--reward-from-teleop-events`，见 [06](06-intervening.md#where-the-reward-comes-from)）或奖励分类器（见 [07](07-hil-training.md#optional-a-reward-classifier)）。
-- **已配置的遥操作设备必须在场**：机器人 YAML 含 `teleop:` 配置段时，设备缺席会导致连接失败。
+- **`leader_cartesian`** 使用 Panda 正向运动学 DH 表把 GELLO 转为笛卡尔速度增量，尚未与真机对照，见 [teleop.md](../teleop.md#verify-the-dh-table-on-the-robot)。本教程使用关节空间路径。
+- **`franka_real`** 是 SERL HTTP 桥接后端，仅支持单臂笛卡尔动作；本教程使用 `real_robot`（robot_infra）。
+- **奖励**：教程预设默认 `task.name: none`，此时 `real_robot` 返回奖励 0，不会自行判定任务成功。奖励来自 `s` 键（`--reward-from-teleop-events`，见 [06](06-intervening.md#where-the-reward-comes-from)）或奖励分类器（见 [07](07-hil-training.md#optional-a-reward-classifier)）。
+- **恢复与指标**：actor 上传和 learner 接收都使用本地 SQLite，checkpoint 包含完整回放 bundle。成功需要显式结果标签，自主成功排除发生动作接管的回合。存储、进程崩溃和断电边界见[真机实验](../real-world-experiments.md)。
+- **已配置遥操作设备必须存在**：机器人 YAML 包含 `teleop:` 而设备缺席时，连接会失败。

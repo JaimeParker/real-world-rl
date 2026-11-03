@@ -14,8 +14,11 @@ connects to the robot.
 
 ## BC
 
-`real_world_bc` is offline behaviour cloning over the demo pkls. The `--config` preset only gives it
-the env's observation and action spaces.
+`real_world_bc` trains offline from demo pkls or trajectory archives, without connecting to the
+robot. The `--config` preset defines the target action/observation and experiment contracts.
+The loader validates the recorded contract before training. Partial demonstrations supervise
+only `human_action_mask` dimensions; idle hold supplements are not expert labels. Old demos
+without intervention metadata retain full-action supervision; explicit empty masks remain empty.
 
 ```bash
 python examples/train_real_world.py real_world_bc --config hil.yaml \
@@ -112,5 +115,12 @@ state, so the flag changes nothing for them.
 > run, train BC or ACT on the `joint_abs` demos with the `joint_abs` preset. Both modes have the same
 > action width, so the providers' width checks do not catch a `joint_delta` base in a `joint_abs` run:
 > keep the modes equal yourself.
+
+## Keep the experiment contract with the base
+
+Keep the training `config.json`, `experiment.json` and checkpoint together. Task, control,
+preprocessing, camera order and action interpretation are checked along with shapes. Configure
+them before recording and preserve them through the residual run. See
+[experiment contracts](../real-world-experiments.md#trajectory-archives-and-training-views).
 
 Next: [06 Intervening](06-intervening.md), then [07 HIL training](07-hil-training.md).

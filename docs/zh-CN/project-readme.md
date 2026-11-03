@@ -147,9 +147,9 @@ hil_serl 的 `--env-backend real_robot` 在构建 `TeleopInterventionWrapper` �
 
 | 遥操作 `action_mode` | 夹爪 | 支持情况 |
 |---|---|---|
-| `cartesian_delta` | 有 | 支持 spacemouse、pico 或机器人遥操作部件。 |
-| `joint_delta` / `joint_abs` | 有 | 支持 `--teleop-device robot`，读取 YAML 的 `teleop:`，也支持 `leader_arm` / `gello`，双臂使用 `bimanual`。 |
-| 任意 | 无，`gripper_in_action=false` | `hil_serl`、`residual_hil_serl`、`silri` 的介入包装器都要求夹爪维度，因此不支持。 |
+| `cartesian_delta` | 有 | 支持 SpaceMouse、Pico、机器人遥操作部件。 |
+| `joint_delta` / `joint_abs` | 有 | 支持 `--teleop-device robot`（机器人 YAML 的 `teleop:` 节）、`leader_arm` / `gello`（GELLO），以及双臂 `bimanual`。 |
+| 任意兼容模式 | 无，`gripper_in_action=false` | 支持连续 HIL RLPD、连续残差和连续 SiLRI；混合/离散夹爪变体至少需要一个夹爪。 |
 
 <a id="safety-limits"></a>
 
@@ -173,11 +173,11 @@ HIL 方法 `hil_serl`、`residual_hil_serl`、`silri` 通过 `--teleop-device` �
 
 hil_serl 可以经守护进程读取机器人 YAML 的 `teleop:` 部件，支持 SpaceMouse、GELLO 主臂或 `fake`。`--teleop-device leader_arm` / `gello`、起始策略和事件设备见 [GELLO 主臂](teleop.md#leader-arms-gello)。`--teleop-options-yaml PATH` 提供 CLI 未暴露的端口、标定、设备索引和守护进程地址；`--teleop-event-device keyboard|spacemouse` 从第二设备接收切换和事件，均见 [`docs/teleop.md`](teleop.md)。`--teleop-device spacemouse` 直接通过相同设备层 `SpaceMouseTeleop` 打开 actor 本机设备，无需 YAML `teleop:` 段；设备表、`TeleopSource` 约定和扩展方法同见 [`docs/teleop.md`](teleop.md)。`--teleop-device robot` 的规则如下：
 
-- `cartesian_delta` 原样传递；`joint_abs` 按 `joint_limits` 归一化；`joint_delta` 转成 `(q_leader - q_follower) / joint_scale_rad`，要求 `state_fields` 包含 `joint_pos`。
-- [0, 1] 内的夹爪 `g` 转为 `2g - 1`。设备没有夹爪通道时保持最后发送动作，reset 后为打开 +1，避免接管时掉落物体。
-- 遥操作 `episode_end` 产生 `truncated` 并设置 `info["human_episode_end"]`；`reset()` 归位期间的按键被丢弃。读取失败通过 `DeviceFault` 停止 actor。
-- 远程机器人连接后才报告部件，因此提前用 `--robot-teleop-action-mode {cartesian_delta,joint_abs,joint_delta}` 声明；无夹爪设备增加 `--no-robot-teleop-has-gripper`。连接时与实际部件核对，不符抛 `DeviceFault`。
-- 已配置的遥操作设备必须存在才能连接机器人；部署 YAML 应去掉 `teleop:`。
+- `cartesian_delta` 动作原样传递；`joint_abs` 按 `joint_limits` 归一化；`joint_delta` 转为 `(q_leader - q_follower) / joint_scale_rad`，要求 `state_fields` 含 `joint_pos`。
+- `[0, 1]` 中的遥操作夹爪值 `g` 转为 `2g - 1`。没有夹爪的遥操作保持上次发给环境的夹爪动作，reset 后为打开 `+1`，避免接管机械臂时丢下抓取物。
+- 遥操作 `episode_end` 将回合标为 `truncated`，设置 `info["human_episode_end"]`；`reset()` 回 home 期间的按键事件会被丢弃。遥操作读取失败会以 `DeviceFault` 停止 actor。
+- 远程机器人连接后才能报告遥操作部件，因此通过 `--robot-teleop-action-mode {cartesian_delta,joint_abs,joint_delta}` 声明；无夹爪设备再用 `--no-robot-teleop-has-gripper`。连接时与实际部件核对，不匹配抛 `DeviceFault`。
+- 配置的遥操作设备必须在场，机器人才能连接。无人接管部署使用 `--no-enable-teleop` 及无 `teleop:` 的机器人 YAML；辅助部署保留设备。
 
 无硬件 fake 遥操作演练，以下为机器人 YAML。`on_end: loop` 重复脚本，让回合持续结束：
 
@@ -208,17 +208,18 @@ python examples/deploy_real_robot.py --checkpoint runs/.../checkpoints/checkpoin
 
 serl checkpoint 使用 `--algo rlpd`，hil_serl 用 `rlpd_hybrid`，`real_world_bc` 运行用 `real_world_bc`，残差用 `residual_hil_serl` / `residual_hil_serl_hybrid`，SiLRI 用 `silri`，见下节。双臂增加 `--env-backend real_robot_bimanual`，参见 [`docs/bimanual.md`](bimanual.md#deploy)。训练目录中 `checkpoints/` 旁的 `config.json` 是动作与观测约定的依据：
 
-- 部署环境从训练记录读取 `action_mode`、`gripper_in_action`、`num_joints`、`joint_limits`、`xyz_scale_m`、`rot_scale_rad`、`joint_scale_rad`、`state_fields`、`image_size`、`control_hz`、`max_episode_steps`。自动恢复观测包装器 `obs.frame_stack`，堆叠 `classifier_image_keys`，以及 `convert_obs_rotation`。`--real_robot.*` 仅提供 `robot`、`remote`、`token`、`home_joints`、`safety_box`、`reset_settle_s` 等连接或现场字段。
-- CLI 约定字段与训练不符会报 `ValueError`：`--real_robot.* contradicts the training run's real_robot config ...`。**限制**：显式值恰好等于 dataclass 默认值时无法区分是否指定，因此对 `joint_abs` 运行给出 `--real_robot.action_mode cartesian_delta` 会静默继续使用训练的 `joint_abs`。
-- 旧运行或 `franka_real` 没有 `real_robot` 配置时会警告并回退 CLI，此时不验证约定。
-- 守护进程不可达、watchdog 或安全问题等 `DeviceError` 会打印消息与提示，以退出码 2 结束。
-- 守护进程 `--jpeg-quality` 未保存在运行配置中，部署时需手工采用训练相同值或同样不设置。
+- 部署环境从训练运行读取 `action_mode`、`gripper_in_action`、`num_joints`、`joint_limits`、`xyz_scale_m`、`rot_scale_rad`、`joint_scale_rad`、`state_fields`、`image_size`、`control_hz` 以及任务/控制/预处理设置。工作站 reset 事实和回合上限可调整。它自动重建观测包装器：`obs.frame_stack` 对训练的 `classifier_image_keys` 堆叠，以及 `convert_obs_rotation`。`--real_robot.*` 提供连接字段，如 `robot`、`remote`、`token`、`home_joints`、`safety_box`、`reset_settle_s` 等。
+- CLI 显式约定值与训练不同会抛 `ValueError`，信息为 `--real_robot.* contradicts the training run's real_robot config ...`。**限制：**无法区分恰好等于 dataclass 默认值的显式值与未设置值，因此对 `joint_abs` 运行传 `--real_robot.action_mode cartesian_delta` 时会静默采用运行的 `joint_abs`。
+- 缺少 `real_robot` 配置的旧运行或 `franka_real` 回退到 CLI，发出警告，此时不验证约定。
+- `DeviceError`，如守护进程不可达、watchdog 或设备限制错误，会打印消息与提示，以退出码 2 结束。
+- 守护进程 `--jpeg-quality` 不在训练配置中，部署应使用训练时相同的值，或同样不设置。
+- 部署接受 `bundle_manifest.json` 或独立 `.pt`。`enable_teleop` 默认 true；激活任务或显式 `--teleop-device` 会组合操作员设置。无人接管运行使用 `--no-enable-teleop`。分类器/任务可提供显式结果；主要 `success_rate` 为全部已完成回合上的自主成功率。两种部署模式见[教程 08](tutorial/08-deploy.md)。
 
 <a id="residual-rl-residual_hil_serl"></a>
 
 ### 残差 RL（`residual_hil_serl`）
 
-`residual_hil_serl` 在冻结基础策略上训练有界残差 `clamp(base + scale * u, -1, 1)`，基础策略由 `--base-provider zero | checkpoint:<path>?algo=<name> | act:<path>` 指定。沿用 hil_serl 的 actor / learner / eval、示范缓冲区和人工介入；人工覆盖总动作，可选 BC 项拉近残差与人工纠正。`--residual-variant continuous` 使用 `ResidualRLPD`，作用于全部维度；`hybrid` 使用 `ResidualRLPDHybrid`，仅作用机械臂，夹爪为 DQN。只有 actor、eval、deploy 构建基础策略；部署从元数据重建，算法名为 `--algo residual_hil_serl` 或 `residual_hil_serl_hybrid`。见 [`docs/residual.md`](residual.md)。
+`residual_hil_serl` 在冻结基础策略上训练有界残差 `clamp(base + scale * u, -1, 1)`，基础提供器为 `--base-provider zero | checkpoint:<path>?algo=<name> | act:<path>`；共用 hil_serl 的 actor / learner / eval 角色、示范缓冲区和介入。人工控制可选择部件，可选 BC 项仅使用残差缩放非零的实际人工维度。`--residual-variant continuous`（`ResidualRLPD`）在所有动作维度使用残差，`hybrid`（`ResidualRLPDHybrid`）仅对机械臂使用残差，夹爪用 DQN。只有 actor、eval、deploy 构建基础策略；部署从 checkpoint 元数据重建，使用 `--algo residual_hil_serl` 或 `residual_hil_serl_hybrid`。见 [`docs/residual.md`](residual.md)。
 
 <a id="hil-rl-silri"></a>
 
@@ -285,3 +286,8 @@ RLinf 从 [`configs/rlinf/realworld_rlgarden_franka.yaml`](../../configs/rlinf/r
 **RLinf** 通过 Gymnasium 注册访问本包。真机配置的环境块设置 `env_type: real` 及 `init_params.id: "real_world_rl.integrations.rlinf.register:RLGardenReal-v0"`，RLinf 的 `RealWorldEnv` 随后通过 `gym.make` 构建每 worker 一台机器人的 `RealRobotEnv`，以 `override_cfg` 为配置。环境块及风险见 [`configs/rlinf/realworld_rlgarden_franka.yaml`](../../configs/rlinf/realworld_rlgarden_franka.yaml)，约定测试见 `tests/test_rlinf_registration.py`。rl-garden 的 Pattern-A RLinf 适配器 `rl_garden/integrations/rlinf/{sac_actor,sac_rollout}.py` 运行 RLinf 自身 worker，没有真机或图像路径，无法驱动本包。
 
 训练使用 `python examples/train_real_world.py serl --role ...`，双进程启动形式见该文件模块说明。遥操作演示与录制见 [`docs/teleop.md`](teleop.md)，HIL-SERL 移植能力及原因见 [`docs/hil-serl-roadmap.md`](hil-serl-roadmap.md)。
+
+
+实验恢复、自主/辅助指标、部件接管和轨迹归档见[真机实验](real-world-experiments.md)。人工动作掩码让局部示范在 BC、残差和 SiLRI 训练中保持对齐；无夹爪 HIL 配置使用连续策略。硬件验证仍待完成。
+
+当前 learner 恢复使用 `bundle_manifest.json`、配套 checkpoint 目录和 SQLite journal。actor 使用持久 outbox 上传，重启时应保留 actor 身份和路径。选定部件及观测预处理进入实验约定。见[教程 07](tutorial/07-hil-training.md#resume-an-interrupted-run)与[机械臂控制配置](control-profiles.md)。

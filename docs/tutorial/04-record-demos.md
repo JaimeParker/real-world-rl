@@ -1,7 +1,8 @@
 # 4. Record demos
 
-`examples/record_real_demos.py` builds the env exactly as the HIL actor does and records only the
-steps where you intervene, into the demo pkl that BC, ACT and the HIL learners load. Read
+`examples/record_real_demos.py` builds the env exactly as the HIL actor does. It archives every
+step and episode outcome to SQLite, then exports human-supervised steps of successful episodes
+to the demo pkl used by BC, ACT and the HIL learners. Read
 [06 Intervening](06-intervening.md) first: it is the operator page for this step and for
 [07](07-hil-training.md).
 
@@ -38,8 +39,8 @@ python examples/record_real_demos.py $ENV_FLAGS --teleop-onset arm \
 
 **f** discards the episode, **r** discards it and starts the next at once, **Esc** ends it without a
 success (discarded). Only successful episodes with at least one recorded step are kept; Ctrl-C stops
-the session and still saves what was kept. Press `s` while you still hold control: the recorder
-stores only intervened steps, so an `s` after you released the toggle ends the episode but its
+the session and still saves what was kept. Press `s` while you still hold control: the pkl export
+selects only intervened steps, so an `s` after you released the toggle ends the episode but its
 terminal step is not in the demo, and the kept demo carries reward 0 throughout.
 
 *You should see* one line per finished episode and a final save line (numbers are examples):
@@ -51,10 +52,19 @@ terminal step is not in the demo, and the kept demo carries reward 0 throughout.
 [record] saved 20 episodes (1734 transitions) to demos/pick-and-place.pkl
 ```
 
-and two files, `demos/pick-and-place.pkl` and its contract sidecar `demos/pick-and-place.contract.json`
-(action mode, widths, joint limits, scales, state fields). Every later loader reads the pkl together
-with the sidecar and raises a `ValueError` naming the differing keys if its env does not match.
+Successful recording produces `demos/pick-and-place.pkl`, its contract sidecar
+`demos/pick-and-place.contract.json`, and `demos/pick-and-place.trajectory.sqlite3`.
+The archive keeps every executed/proposed action, human/override masks, syncing steps and episode
+outcomes, including failed and rerecorded attempts. The pkl contains only kept successful human
+steps; if no episode is kept, the archive remains but no demo pkl is written.
 `--output-path` must be a new `.pkl` file. Vary the object's start pose across the demos.
+
+The sidecar includes the versioned experiment contract: task, control settings, action/observation
+layout, camera preprocessing and teleop selection must match the consuming run. Reward-source
+paths and station-owned reset facts are retained as provenance. A mismatch names the differing
+fields. Keep the sidecar with the pkl. `--export-trajectory-pt` additionally writes a portable
+`.trajectory.pt`; BC and HIL can also load the SQLite archive directly, selecting human,
+nonsyncing steps of complete successful episodes. ACT's trajectory trainer still uses pkl files.
 
 *If not:*
 
@@ -86,5 +96,15 @@ with the sidecar and raises a `ValueError` naming the differing keys if its env 
 > the follower has caught up are the ones treated as syncing.
 
 More detail: [recording-demos.md](../recording-demos.md).
+
+## Continue after an interruption
+
+The SQLite archive commits records as recording proceeds. Reopening the same output stem, while
+the pkl does not yet exist, retains that archive and marks an unfinished episode interrupted;
+future attempts receive new episode IDs. The pkl export covers successes kept by the current
+recording invocation. Use the archive as the recovery source for earlier complete episodes.
+Durability starts when append returns; an action executed before its append can still be lost.
+The archive also shares SQLite's process-crash versus power-loss limits described in
+[Real-world experiments](../real-world-experiments.md#trajectory-archives-and-training-views).
 
 Next: [05 Base policy](05-base-policy.md).

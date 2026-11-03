@@ -87,7 +87,9 @@ SilriActorLoop                                      SilriLearnerLoop
 - Behaviour refresh: every `behavior_refresh_every` demo-buffer additions, `behavior_refresh_steps`
   steps of `L_beta` on demo-only batches, run in the training thread right before the next
   `train`. Pretraining resets the addition counter.
-- Pretraining and refreshes run under the buffer lock, so transitions arriving meanwhile wait.
+- Pretraining and refreshes may hold the training buffer lock. HTTP admission commits to the
+  durable journal independently; the training thread applies queued rows afterwards. Actor
+  retries retain message IDs, so missed ACKs do not duplicate admitted rows.
 - Demo pkls (`--demo-dataset-paths`) and crash-recovery snapshots load as in hil_serl. Demo
   pkls without SiLRI's fields load as intervened, non-onset rows whose policy action is the
   recorded action.
@@ -161,8 +163,9 @@ python examples/train_real_world.py silri --role actor --config hil.yaml --teleo
     --robot-teleop-action-mode joint_delta --teleop-event-device keyboard --reward-from-teleop-events
 ```
 
-Evaluation on the robot (`--role eval --load-checkpoint ...`) is deterministic and reads success
-from `terminated`.
+Evaluation (`--role eval --load-checkpoint ...`) uses deterministic actions and explicit task
+outcomes. Takeover remains available; `autonomous_success_rate` excludes action-assisted
+successes while retaining all completed episodes in its denominator.
 
 ## Limitations
 
@@ -171,7 +174,23 @@ from `terminated`.
 - The learner publishes the full policy state: the actor receives the behaviour model, the
   multiplier and the targets as well, though it only needs the actor and the gripper head; a
   filtered publish is future work.
-- Pretraining (500 steps by default) and refreshes block transition ingestion while they run.
+- Pretraining (500 steps by default) and refreshes defer replay application; durable HTTP journal admission continues.
 - Grippers: the env action ends with one gripper dim per arm (the action contract's layout), and
   the gripper head classifies all of them jointly over `3 ** num_grippers` classes, labelled as
   rl-garden's `encode_gripper_labels` does; a single-arm env has one, the last dim.
+
+
+## Human masks and recovery
+
+Behavior fitting and actor pretraining supervise only actual human dimensions. Continuous NLL
+uses `D / k * sum(mask * NLL)` per supervised row: `D` is the full continuous width and `k` the
+observed human width. Empty rows contribute no gradient, and full masks recover the original
+objective. The joint gripper head uses marginal probability over observed human grippers;
+unobserved gripper choices are summed out. The online behavior-prior distance and multiplier
+constraint keep their full-continuous-action meaning. Syncing and idle-hold supplements are
+excluded from imitation. Continuous no-gripper configurations use `--no-discrete-gripper`.
+
+The durable outbox preserves SiLRI's held predecessor, and bundle recovery restores both replay
+buffers, ingestion cursor, pretraining state and refresh counters. A recovered held row is
+flushed without inventing an onset successor. Paths and process-crash/power-loss limits are in
+[Real-world experiments](real-world-experiments.md).

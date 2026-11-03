@@ -92,7 +92,7 @@ teleop:
 
 ## 3. 机器人 YAML（`real_robot`、franky）
 
-从 `robot_infra/docs/robot.franka.example.yaml` 开始，加入安全限制与 GELLO。也可使用 `python -m robot_infra.setup`，生成包含机器人、相机、GELLO 标定和守护进程端口的工作站 YAML，默认 `./local/station.yaml`，守护进程不传 `--config` 也能找到。本文原有说明称向导将 `safety_box`、`joint_limits` 和 `max_delta_per_step` 留为 `null`，需要手工补充下方限制；实际使用时结合教程核对生成文件。
+从 `robot_infra/docs/robot.franka.example.yaml` 开始，加入设备限制和 GELLO。也可以运行 `python -m robot_infra.setup`，生成包含机器人、相机、GELLO 标定及守护进程端口的工作站 YAML，默认路径 `./local/station.yaml`，守护进程无需 `--config` 即可找到。向导写入 Panda `joint_limits`、`max_delta_per_step` 上限和请求的 `safety_box`。运动前按实际工作站核对数值；手写配置也需提供这些限制：
 
 ```yaml
 type: franka
@@ -204,18 +204,18 @@ python examples/record_real_demos.py --config hil.yaml \
 
 介入时 actor 执行主臂输入源动作，并作为 transition 的 `action` 推送。以下行为由 `tests/test_leader_arm_hil_loops.py` 的脚本化端到端检查覆盖：
 
-- **`joint_delta`。** 动作为 `clip((q_leader - q_follower) / joint_scale_rad, -1, 1)`。主臂较远时每步按 `joint_scale_rad` 饱和，直到从臂追上；对齐后动作归零。这些步骤不标记同步。
-- **`joint_abs` 配合 `--teleop-onset ramp`。** 切换后的初始步骤限速，目标为 `q_follower + clip(q_leader - q_follower, +-ramp_step_rad)`，保存动作为实际执行目标。它们属于介入步骤，因此进入示范缓冲区，同时携带 `info["teleop_events"]["teleop_syncing"] = True`，可由下游过滤。ramp 结束后使用主臂归一化关节目标。
-- **`--teleop-onset arm`。** 主从臂误差进入 `--teleop-arm-tolerance-rad`（0.1）前，切换不生效，策略继续执行，数据保持未介入，关节误差每秒打印一次。就绪后每步都介入，直到释放切换信号。
-- **`residual_hil_serl`。** 保存的 `action` 是人工总动作；`base_actions` 是同一观测的基础策略动作，`policy_action` 是残差策略提出的动作。
-- **`silri`。** `intervention_onset` 标记首次人工介入前的 transition。`ramp` 下为切换前策略步骤；`arm` 下为主臂就绪前最后一步，切换到就绪之间仍属于策略步骤。
-- **夹爪。** `[0, 1]` 内的扳机宽度 `w` 映射为 `2w - 1`。混合夹爪头，包括 `hil_serl` DQN、`--residual-variant hybrid` 和 `silri` 离散头，将保存动作映射到 `-1` / `0` / `+1` 中最近的标签，因此半捏可能成为“保持”。这些方法应设置 `gripper_binarize_threshold: 0.5`，使保存动作恰为 `+1`（打开）或 `-1`（闭合）。
+- **`joint_delta`。** 动作为 `clip((q_leader - q_follower) / joint_scale_rad, -1, 1)`：主臂较远时每步以 `joint_scale_rad` 饱和跟随，对齐后动作为零。`ramp` 将最初追赶阶段标为同步，直到主从差距首次进入 `joint_scale_rad`；同一次接管后续的饱和教学步骤仍是普通监督数据。
+- **`joint_abs` 配合 `--teleop-onset ramp`。** 切换后的前几步限制速率：目标为 `q_follower + clip(q_leader - q_follower, +-ramp_step_rad)`，存储动作就是实际执行目标。这些步骤携带 `info["teleop_events"]["teleop_syncing"] = True`。归档保留实际动作和人工掩码，训练排除其中的专家监督。同步结束后，动作是归一化的主臂关节目标。
+- **`--teleop-onset arm`。** 主臂与从臂差距进入 `--teleop-arm-tolerance-rad`（0.1）前，接管开关不生效：策略继续动作，记录不标记介入，每秒记录一次逐关节误差。对齐后，每步均为介入，直到释放开关。
+- **`residual_hil_serl`。** 存储的 `action` 是人工总动作；`base_actions` 是相同观测下基础策略的动作，`policy_action` 是残差策略提议。
+- **`silri`。** `intervention_onset` 标记首次人工步骤前的 transition：`ramp` 下是按开关前的策略步骤；`arm` 下是主臂完成就绪前的最后一步，开关到就绪之间仍由策略执行。
+- **夹爪。** `[0, 1]` 中的扳机宽度 `w` 转为 `2w - 1`。混合夹爪头（`hil_serl` 的 DQN、`--residual-variant hybrid`、`silri` 离散夹爪）将存储的夹爪动作映射到最近的 `-1`/`0`/`+1`，半按扳机因此会得到“保持”标签。这些方法应在 GELLO 选项中设置 `gripper_binarize_threshold: 0.5`，使存储动作恰为 `+1`（打开）或 `-1`（闭合）。
 
 <a id="onset-ramp-or-arm"></a>
 
 ### 接管起始方式 `ramp` 或 `arm`
 
-默认 `ramp` 立即接管，使从臂在 `joint_abs` 下每步以 `ramp_step_rad`、在 `joint_delta` 下每步以 `joint_scale_rad` 靠近主臂。过渡步骤进入示范缓冲区，仅 `joint_abs` 带同步标记。`arm` 需要每次先手工匹配主从臂，避免机器人接管追赶运动及相应数据；每次 reset 都会解除就绪。示范需要从静止开始时优先 `arm`，快速纠正时用 `ramp`。
+默认 `ramp` 立即接管，按每步 `ramp_step_rad`（`joint_abs`）或 `joint_scale_rad`（`joint_delta`）追赶主臂。两种模式都标记初始同步，训练投影排除其专家监督。`arm` 在每次接管前要求操作员手动对齐主从臂，每次环境 reset 都会解除就绪状态，从而避免追赶过渡进入数据或机器人运动。需要从静止机器人开始示范时优先选 `arm`，快速修正可用 `ramp`。
 
 <a id="8-not-verified-yet"></a>
 

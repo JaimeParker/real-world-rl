@@ -31,7 +31,7 @@ learner 无需加载基础策略。actor 为每条 transition 保存 `obs` 和 `
 | `continuous`（默认） | `ResidualRLPD` | 全部动作维度；机械臂缩放由 `--residual-action-scale` 决定，夹爪缩放由 `--residual-gripper-scale` 决定，默认 0。 | 基础夹爪动作加残差，残差默认零。 |
 | `hybrid` | `ResidualRLPDHybrid` | 机械臂维度。 | 使用 `RLPDHybrid` 的 DQN 头，忽略基础策略的夹爪输出。 |
 
-两种变体都将最后 `num_grippers` 个动作维度视为夹爪，各臂一个，排列在所有机械臂动作块之后；这遵循环境动作约定，单臂只有一个夹爪。所有 HIL 环境都包含夹爪，介入包装器要求 `gripper_in_action`。`--use-grasp-penalty` 需要 hybrid 变体。两种变体都保留持续增长的示范缓冲区，存入介入 transition 并按 `--demo-data-ratio` 混合。
+包含夹爪时，两种变体均将动作最后 `num_grippers` 维视为机械臂动作块之后的逐臂夹爪。连续残差也接受无夹爪约定；混合变体至少需要一个夹爪，无夹爪时在 rollout 前拒绝。`--use-grasp-penalty` 需要混合变体。两者都维护持续增长的示范缓冲区，存放介入 transition，并按 `--demo-data-ratio` 混合。
 
 <a id="base-action-providers"></a>
 
@@ -68,7 +68,7 @@ learner 无需加载基础策略。actor 为每条 transition 保存 `obs` 和 `
 
 预先采集的示范（`--demo-dataset-paths`）视为人工动作。缺少 `intervened` / `policy_action` 的 transition 会补为 `intervened=True` 和 `policy_action=action`。learner 无法恢复基础动作，因此缺少 `base_actions` / `next_base_actions` 的示范 pkl，例如 hil_serl 快照和遥操作录制，会被拒绝，并抛出指明文件名的 `ValueError`。`--allow-base-less-demos` 会以零基础动作加载这些数据并警告一次，此时 critic 目标与 BC 项会把它们视为零基础上的残差；只有基础策略在这些状态本就接近 0 时才与当前运行匹配。残差运行自身 learner 写出的示范缓冲区包含基础动作。
 
-可选 BC 项由 `--residual-bc-weight` 控制，默认 0。在介入数据上，将单位残差拉向人工动作隐含的残差：
+可选 BC 项（`--residual-bc-weight`，默认 0）在非同步人工记录上，将单位残差拉向人工隐含残差，仅监督 `human_action_mask` 中缩放非零的维度。保持补充动作和空掩码不提供专家损失。对旧版全动作介入，目标为：
 
 ```
 L_bc = mean over intervened rows of  sum_d ( u_d - clip((a_human_d - a_base_d) / scale_d, -1, 1) )^2
@@ -80,8 +80,8 @@ L_bc = mean over intervened rows of  sum_d ( u_d - clip((a_human_d - a_base_d) /
 
 ## 预热
 
-- actor：首批 learner 权重到达前策略尚未训练，单位残差采用 `--residual-warmup-unit * U(-1, 1)`，默认 0，直接使用基础动作；夹爪也使用基础策略输出，因为 hybrid DQN 头同样尚未训练。
-- learner：`--critic-only-updates N` 使前 `N` 次 `train()` 仅更新 critic，通过 `update_actor=False` 更新掩码控制；之后才更新 actor 和温度参数。计数会保存进 checkpoint。
+- actor：learner 快照报告 `policy_ready` 前，策略采用预热，单位残差为 `--residual-warmup-unit * U(-1, 1)`，默认 0，即纯基础动作；夹爪采用基础策略动作，因为混合 DQN 头也尚未训练。
+- learner：`--critic-only-updates N` 使前 `N` 次 `train()` 仅更新 critic，通过更新掩码 `update_actor=False` 实现；之后开始更新 actor 和温度。计数随 checkpoint 保存。
 
 <a id="commands"></a>
 
@@ -95,7 +95,7 @@ python examples/train_real_world.py residual_hil_serl --role actor --config hil.
     --reward-from-teleop-events --base-provider 'checkpoint:runs/bc/checkpoints/final.pt?algo=real_world_bc'
 ```
 
-eval（`--role eval --load-checkpoint ...`）在提供器动作上叠加确定性残差，成功由 `terminated` 判定。continuous 变体部署使用 `--algo residual_hil_serl`，hybrid 使用 `residual_hil_serl_hybrid`。两者都根据运行 `config.json` 中的类名重建，分别以算法类名称注册到 rl-garden 在线注册表；真机训练 CLI 统一使用 `residual_hil_serl`。提供器描述来自 checkpoint 元数据，可用 `--base-provider` 替换，例如基础 checkpoint 移动后。
+评估（`--role eval --load-checkpoint ...`）在基础提供器上执行确定性残差，使用显式任务标签判断成功，主要指标排除动作辅助成功。部署时连续变体用 `--algo residual_hil_serl`，混合变体用 `residual_hil_serl_hybrid`。这两个名称重建运行 `config.json` 指定的类，均注册于 rl-garden 在线注册表，每个算法类对应一个名称；真机 CLI 只有 `residual_hil_serl`。提供器从 checkpoint 元数据加载；基础 checkpoint 移动时可用 `--base-provider` 替换。
 
 <a id="limitations"></a>
 
@@ -105,3 +105,10 @@ eval（`--role eval --load-checkpoint ...`）在提供器动作上叠加确定�
 - 暂无模拟器 `learn()` 路径，也不支持 `rl-garden-eval`：两者调用 `policy.predict` 时都不提供基础动作，原因记录在 `checkpoint_eval_unsupported_reason`。
 - 缺少基础动作的示范 pkl 需要 `--allow-base-less-demos`，数据按零基础动作上的残差学习，见“人工介入”。
 - checkpoint 提供器根据基础运行的 Args 重建智能体，基础 checkpoint 与残差运行的观测和动作空间必须相同。
+
+
+<a id="durable-operation-and-partial-supervision"></a>
+
+## 持久运行与局部监督
+
+actor outbox、learner journal 和完整回放 bundle 与其他 HIL 方法共用。恢复时使用匹配的 `bundle_manifest.json`、checkpoint 目录及 actor 身份，保留基础提供器描述和实验约定。[真机实验](real-world-experiments.md)说明持久边界、部件选择介入和掩码感知模仿。回合结果与奖励及 bootstrap 终止标志分别记录。

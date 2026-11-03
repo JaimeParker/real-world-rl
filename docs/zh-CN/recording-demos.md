@@ -4,7 +4,7 @@
 
 [中文入口](../README.zh-CN.md) · [English](../recording-demos.md)
 
-`examples/record_real_demos.py` 把真机遥操作示范录制为 `--demo-dataset-paths` 可加载的 pkl 格式，供 `hil_serl`、`residual_hil_serl`、`silri` 和 `real_world_bc` 使用。逻辑位于 `real_world_rl/demos/record.py`。
+`examples/record_real_demos.py` 将真机遥操作的完整回合归档到 SQLite，并将成功人工示范导出为 `--demo-dataset-paths` 接受的 pkl 格式，供 `hil_serl`、`residual_hil_serl`、`silri`、`real_world_bc` 使用。BC/HIL 加载器还接受 `.trajectory.sqlite3` 和 `.trajectory.pt`。ACT 轨迹训练器使用 pkl。实现位于 `real_world_rl/demos/record.py`。
 
 录制器与 HIL actor 使用完全相同的环境构建方式，即 `build_hil_env(args, role="actor")`，因此接受与 `train_real_world.py hil_serl` 相同的环境、遥操作、观测参数和 `--config` 预设。请采用后续加载示范的训练配置：录制的观测和动作必须与其环境匹配，加载时会检查 pkl 的约定附属文件。[教程 04](tutorial/04-record-demos.md) 讲解首次录制，[教程 06](tutorial/06-intervening.md) 说明按键、接管起始方式和记录内容。
 
@@ -42,12 +42,13 @@ python examples/train_real_world.py hil_serl --role learner --config hil.yaml \
 
 | 参数 | 默认值 | 含义 |
 | --- | --- | --- |
-| `--output-path` | 必填 | 示范 pkl，必须以 `.pkl` 结尾且尚不存在；同时在旁边写入 `<stem>.contract.json`。 |
-| `--num-successes` | 20 | 保留指定数量的成功回合后停止。 |
-| `--max-episode-steps` | 未设置 | 回合步数上限；设置后覆盖 `--real_robot.max_episode_steps`、`--real_robot_bimanual.max_episode_steps` 或 `--franka_real.max_episode_steps`。 |
-| `--start-tolerance-rad` | 0.8 | `joint_abs` 中任一主从臂关节误差超过该值时，拒绝开始回合。 |
-| `--keep-syncing-steps` | 关闭 | 同时录制 ramp 接管初期的同步步骤，详见下文。 |
-| `--reward-from-teleop-events` | 开启，仅录制器如此；训练默认关闭 | 成功键将该步存为成功终止步骤并结束回合；奖励为 `--teleop-success-reward`，默认 1.0，`done` 为 True。`--no-reward-from-teleop-events` 保留环境自身奖励，`real_robot` 为 0，因此保留的成功示范奖励为 0、`done` 为 False。 |
+| `--output-path` | 必填 | 示范 pkl，必须以 `.pkl` 结尾且尚不存在；旁边写入 `<stem>.contract.json`。 |
+| `--num-successes` | 20 | 保留指定数量的回合后停止。 |
+| `--max-episode-steps` | 未设置 | 回合步数上限；设置后替换 `--real_robot.max_episode_steps`、`--real_robot_bimanual.max_episode_steps` 或 `--franka_real.max_episode_steps`。 |
+| `--start-tolerance-rad` | 0.8 | `joint_abs` 下，任何关节的主从差距超过该值就拒绝开始回合。 |
+| `--keep-syncing-steps` | 关闭 | 将主臂追赶记录作为普通监督步骤写入 pkl；SQLite 保留同步标记。 |
+| `--export-trajectory-pt` | 关闭 | 额外将完整归档导出为可移植 `.trajectory.pt`；SQLite 仍为恢复来源。 |
+| `--reward-from-teleop-events` | 开启，仅 recorder，训练默认关闭 | 成功键将当前步骤存为终止成功，奖励 `--teleop-success-reward`（1.0）、`done` 为 True，并结束回合；`--no-reward-from-teleop-events` 保留环境奖励（`real_robot` 为 0），因此保留的成功记录奖励为 0、`done` 为 False。 |
 
 `--control-hz` 像控制 actor 一样控制录制循环频率。暂不支持 `--fwbw`。
 
@@ -55,19 +56,19 @@ python examples/train_real_world.py hil_serl --role learner --config hil.yaml \
 
 ## 回合内的处理流程
 
-1. 环境 reset，机器人归位、夹爪打开。
-2. 仅 `joint_abs`：读取一次主臂并与从臂的 `joint_pos` 比较。任一关节误差超过 `--start-tolerance-rad` 时，打印逐关节误差并停止；对齐主从臂后重启。误差在容差内时，由 `--teleop-onset` 处理接管：`ramp` 以每步 `--teleop-ramp-step-rad` 向主臂靠近，`arm` 等待误差小于 `--teleop-arm-tolerance-rad`。读取时通过运动设备且释放切换信号，因此接管策略不会掩盖误差，也不会消耗事件设备的按键。
-3. 录制器每步发送保持动作；介入时包装器改为执行操作员动作。保持动作使机器人停留原处：`joint_delta` 与 `cartesian_delta` 的机械臂动作为零，`joint_abs` 使用从臂当前关节位置，夹爪保持最后执行的动作，reset 后为打开。每臂各有一个夹爪，夹爪占据最后 `num_arms` 个动作维度，遵循动作约定布局。
-4. 仅录制介入步骤。ramp 起始限速步骤标记为 `teleop_syncing`，默认排除，`--keep-syncing-steps` 可保留。
-5. 环境终止或截断时回合结束：操作员结束键（键盘 Esc）和步数上限产生截断；默认开启 `--reward-from-teleop-events` 时，成功键产生终止；奖励分类器也可产生终止。成功键应在仍介入时按下，因为只有介入步骤被保存，成功终止步也必须包含在其中。
+1. 环境 reset，机器人回到 home、夹爪打开。
+2. 仅 `joint_abs`：录制器读取一次主臂，与从臂 `joint_pos` 比较。任何关节差距超过 `--start-tolerance-rad` 时，打印逐关节误差并停止；手动对齐后重启。容差内由 `--teleop-onset` 决定接管：`ramp` 每步按 `--teleop-ramp-step-rad` 追赶；`arm` 等待差距进入 `--teleop-arm-tolerance-rad`。读取经过运动设备且接管开关释放，因此不会被 onset 逻辑掩盖差距，也不消耗事件设备按钮。
+3. 录制器每步发送保持动作；操作员介入时，介入包装器改为执行人工动作。保持动作让机器人停在当前位置：`joint_delta` 和 `cartesian_delta` 的机械臂动作为零，`joint_abs` 使用从臂当前关节位置，夹爪保持上次执行动作，reset 后为打开。每臂各有一项，夹爪位于动作最后 `num_arms` 维，遵守动作布局约定。
+4. 所有步骤均归档。pkl 视图选择介入步骤；两种关节模式的主臂追赶均带 `teleop_syncing`，默认排除，设置 `--keep-syncing-steps` 可保留。由归档生成的训练视图仍排除同步步骤。人工掩码选择专家维度，空闲保持补充动作没有专家标签。
+5. 环境终止或截断时回合结束：操作员结束按钮（键盘 Esc）和步数上限造成截断；成功键在默认 `--reward-from-teleop-events` 下造成终止，奖励分类器也可终止回合。在仍介入时按成功键，pkl 只记录介入步骤，终止步骤也需包含在内。
 
 回合结果来自操作员事件，各事件路径均适用，包括键盘、SpaceMouse 按钮、GELLO 的 evdev 设备：
 
 | 事件 | 效果 |
 | --- | --- |
-| `success`（`s`）或正奖励 | 回合计为成功，默认在当前步结束。 |
-| `failure`（`f`） | 丢弃回合，即使之前已标记成功。 |
-| `rerecord`（`r`） | 立即丢弃当前回合并开始下一回合。 |
+| `success`（`s`）或环境/分类器的显式成功标签 | 未被失败否决时计为成功；单独正奖励不能作为成功标签。 |
+| `failure`（`f`） | 丢弃回合，即使先前已标成功。 |
+| `rerecord`（`r`） | 立即丢弃回合，开始下一个。 |
 
 只保留至少录制一步的成功回合，每个已结束回合都会打印结果。Ctrl-C 停止录制，仍会保存此前保留的回合。
 
@@ -77,4 +78,6 @@ python examples/train_real_world.py hil_serl --role learner --config hil.yaml \
 
 ## 输出
 
-pkl 是 transition 字典的列表，与 hil_serl learner 示范快照格式相同：`obs` 和 `next_obs` 保持环境返回值，`action` 为实际执行动作（`info["intervene_action"]`，形状 `(1, A)`），还包括 `reward`、`done`（即 `terminated`）；启用 `--use-grasp-penalty` 时还保存 `grasp_penalty`。附属文件 `<stem>.contract.json` 保存动作模式、维度、关节限制、缩放和状态字段。加载到不同约定的环境时会抛出 `ValueError`，指出不一致的键。
+pkl 包含成功人工 transition 字典：`obs`、`next_obs`、实际执行 `action`、`reward`、`done`（`terminated`）、可选 `grasp_penalty`、策略提议以及人工/覆盖掩码。版本化记录还保留回合/步骤身份及训练片段边界，筛选不会虚构相邻关系，也不会把终止奖励移到更早的人工步骤。`<stem>.contract.json` 记录动作与实验兼容性，需与数据一起保留。实验比较字段涵盖任务、控制、观测布局、预处理、遥操作部件选择和空闲行为；奖励来源及工作站 reset 事实属于来源元数据。
+
+`<stem>.trajectory.sqlite3` 是完整持久归档，包含失败、重录、同步和中断尝试。只有 pkl 视图删除不成功回合。没有保留数据时不写 pkl。在 pkl 路径仍未存在时重开已有归档，会将未完成回合标为中断，并为后续尝试分配新 ID。`--export-trajectory-pt` 另写 `<stem>.trajectory.pt`。持久性从 append 返回起生效，使用 SQLite WAL `synchronous=NORMAL`；操作系统崩溃或断电可能丢失最新提交。完整恢复、掩码和训练视图规则见[真机实验](real-world-experiments.md)。

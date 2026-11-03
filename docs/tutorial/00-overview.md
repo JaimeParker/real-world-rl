@@ -66,6 +66,8 @@ Treat the first runs as commissioning:
 
 ## Known limits
 
+Known bugs with their workarounds and planned fixes: [Known issues and deferred work](../known-issues.md).
+
 - **Everything hardware-side was verified against fakes only.** In the robot_infra README's words:
   "Nothing below has been exercised on real hardware; the fakes cover the logic only"
   ([Known limitations](../../robot_infra/README.md#known-limitations-and-needs-hardware-verification)),

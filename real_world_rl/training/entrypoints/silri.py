@@ -14,7 +14,6 @@ from real_world_rl.training.runtime_paths import actor_sync_kwargs, learner_expe
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
-import torch
 
 from rl_garden.common.cli_args import CheckpointArgs, ObservationArgs
 from rl_garden.common.env_args import EnvBackendArgs, EnvRunArgs
@@ -290,7 +289,6 @@ def _run_learner(args) -> None:
 
 def _run_eval(args) -> None:
     """Evaluate explicit task success and autonomous success with human control available."""
-    from real_world_rl.loops.actor import ActorLoop
 
     if args.load_checkpoint is None:
         raise ValueError("silri eval requires --load_checkpoint.")

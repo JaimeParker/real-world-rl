@@ -212,7 +212,6 @@ def _run_learner(args) -> None:
 
 def _run_eval(args) -> None:
     """Evaluate explicit task success and autonomous success with human control available."""
-    from real_world_rl.loops.actor import ActorLoop
     from real_world_rl.policies.base_provider import ResidualPolicyWithBase
 
     if args.load_checkpoint is None:

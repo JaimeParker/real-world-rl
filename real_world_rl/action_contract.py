@@ -33,6 +33,13 @@ DEMO_CONTRACT_KEYS = (
     ("action_mode", "arm_action_dim", "gripper_in_action", "num_joints") + _ARM_LAYOUT_KEYS + _PHYSICAL_KEYS + ("contract_version", "experiment", "effective_control")
 )
 _COMPARED_KEYS = ("action_mode", "arm_action_dim", "gripper_in_action") + _ARM_LAYOUT_KEYS + _PHYSICAL_KEYS + ("experiment",)
+# Experiment entries that are saved and shown but never compared: the reward sources and the
+# station facts the CLI owns. None of them changes what the policy sees or how its actions are
+# interpreted; camera names and order are compared through ``observation`` (its entries and
+# ``camera_order``) and ``image_size``.
+_PROVENANCE_EXPERIMENT_KEYS = ("sources", "safety_box", "home_joints", "reset_settle_s", "max_episode_steps", "cameras")
+# ``sources`` entries that change the action layout (which dims the operator drives): compared.
+_COMPARED_SOURCE_KEYS = ("teleop_selected_parts", "teleop_idle_behavior")
 # Pre-contract convention: a 6-D cartesian twist plus a trailing gripper dimension.
 LEGACY_ACTION_CONTRACT: Mapping[str, Any] = {
     "action_mode": "cartesian_delta",
@@ -97,16 +104,55 @@ def demo_contract_of(env: Any) -> Optional[dict]:
     return {key: contract[key] for key in DEMO_CONTRACT_KEYS if key in contract}
 
 
-def describe_contract(contract: Mapping[str, Any]) -> str:
+def describe_contract(contract: Mapping[str, Any], *, with_provenance: bool = False) -> str:
+    """One-line summary; ``with_provenance`` appends the experiment's ``experiment_provenance``."""
     num_arms = num_arms_of(contract)
     arms = (
         f", num_arms={num_arms}, arm_names={list(contract.get('arm_names', ()))!r}" if num_arms != 1 else ""
     )
+    provenance = experiment_provenance(contract.get("experiment")) if with_provenance else {}
     return (
         f"action_mode={contract['action_mode']!r}, arm_action_dim={contract['arm_action_dim']}, "
         f"gripper_in_action={contract['gripper_in_action']}{arms} "
         f"(action dim {action_dim_of(contract)})"
+        + (f", provenance (not compared)={provenance!r}" if provenance else "")
     )
+
+
+def compared_experiment(spec: Any) -> Any:
+    """The part of an experiment spec that must match between recording, training and
+    deployment (per arm under ``arms``): everything except ``experiment_provenance``, with the
+    action-layout ``sources`` entries kept under ``teleop``."""
+    if not isinstance(spec, Mapping):
+        return spec
+    compared = {key: value for key, value in spec.items() if key not in _PROVENANCE_EXPERIMENT_KEYS}
+    sources = spec.get("sources") or {}
+    teleop = {key: sources[key] for key in _COMPARED_SOURCE_KEYS if key in sources}
+    if teleop:
+        compared["teleop"] = teleop
+    if isinstance(spec.get("arms"), Mapping):
+        compared["arms"] = {name: compared_experiment(arm) for name, arm in spec["arms"].items()}
+    return compared
+
+
+def experiment_provenance(spec: Any) -> dict:
+    """The saved-but-never-compared part of an experiment spec (per arm under ``arms``)."""
+    if not isinstance(spec, Mapping):
+        return {}
+    provenance = {key: spec[key] for key in _PROVENANCE_EXPERIMENT_KEYS if key in spec}
+    arms = spec.get("arms")
+    if isinstance(arms, Mapping):
+        per_arm = {name: experiment_provenance(arm) for name, arm in arms.items()}
+        if any(per_arm.values()):
+            provenance["arms"] = per_arm
+    return provenance
+
+
+def _compared_contract(contract: Mapping[str, Any]) -> dict:
+    """``contract`` with its ``experiment`` reduced to ``compared_experiment``."""
+    if "experiment" not in contract:
+        return dict(contract)
+    return {**contract, "experiment": compared_experiment(contract["experiment"])}
 
 
 def contract_sidecar_path(pkl_path: str | Path) -> Path:
@@ -180,19 +226,21 @@ def validate_transitions_against_contract(
         missing = [key for key in compared if key not in saved]
         if "experiment" in missing and _requires_experiment_metadata(expected.get("experiment", {})):
             raise ValueError(f"{source}: legacy metadata cannot verify task/control/crop/depth experiment")
+        saved_view, expected_view = _compared_contract(saved), _compared_contract(expected)
         mismatched = [
             key
             for key in compared
-            if key not in missing and not _contract_values_match(saved[key], expected[key])
+            if key not in missing and not _contract_values_match(saved_view[key], expected_view[key])
         ]
         if mismatched:
             details = "; ".join(
-                f"{key}: recorded={saved[key]!r}, env={expected[key]!r}" for key in mismatched
+                f"{key}: recorded={saved_view[key]!r}, env={expected_view[key]!r}" for key in mismatched
             )
             raise ValueError(
                 f"{source}: recorded action contract does not match the env's "
-                f"(differs in {mismatched}): {details}. recorded: {describe_contract(saved)}; "
-                f"env: {describe_contract(expected)}"
+                f"(differs in {mismatched}): {details}. recorded: "
+                f"{describe_contract(saved, with_provenance=True)}; "
+                f"env: {describe_contract(expected, with_provenance=True)}"
             )
         if missing:
             warnings.warn(
@@ -231,10 +279,9 @@ def json_normalize(value):
 
 
 def _requires_experiment_metadata(spec):
+    """Whether ``spec`` changes the observation or action semantics, so that data without
+    experiment metadata cannot be checked against it. Reward sources (a classifier) do not."""
     if not isinstance(spec, Mapping): return False
-    sources = spec.get("sources", {})
-    if sources.get("classifier") or sources.get("arm_classifiers"):
-        return True
     task = spec.get("task", {})
     if task.get("name", "none") != "none" or spec.get("control") or spec.get("depth_cameras"):
         return True
@@ -253,9 +300,11 @@ def experiment_contract_of(env):
 
 
 def experiment_hash(env):
+    """Hash of the compared part of ``experiment_contract_of(env)``; provenance does not enter it."""
     contract = experiment_contract_of(env)
     if contract is None: return None
-    return hashlib.sha256(json.dumps(contract, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+    compared = _compared_contract(contract)
+    return hashlib.sha256(json.dumps(compared, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
 
 
 def effective_experiment_of(env):
@@ -274,8 +323,22 @@ def validate_experiment(env, saved):
             raise ValueError("saved experiment metadata is missing for task/control/crop/depth configuration")
         return
     expected = {key: value for key, value in saved.items() if key not in ("runtime_control", "provenance")}
-    if not _contract_values_match(expected, experiment_contract_of(env)):
-        raise ValueError("saved experiment contract/hash differs from the constructed environment")
+    actual = experiment_contract_of(env)
+    if actual is None:
+        raise ValueError("saved experiment contract/hash differs from the constructed environment, which has none")
+    saved_view, actual_view = _compared_contract(expected), _compared_contract(actual)
+    if not _contract_values_match(saved_view, actual_view):
+        differing = [
+            f"{part}.{key}"
+            for part in ("action", "experiment")
+            for key in sorted(set(saved_view.get(part) or {}) | set(actual_view.get(part) or {}))
+            if not _contract_values_match((saved_view.get(part) or {}).get(key), (actual_view.get(part) or {}).get(key))
+        ]
+        raise ValueError(
+            f"saved experiment contract/hash differs from the constructed environment (differs in {differing}); "
+            f"provenance (not compared): saved={experiment_provenance(expected.get('experiment'))!r}, "
+            f"env={experiment_provenance(actual.get('experiment'))!r}"
+        )
     metadata = saved.get("runtime_control", {})
     current = env
     while getattr(current, "env", None) is not None:

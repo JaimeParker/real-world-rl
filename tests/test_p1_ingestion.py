@@ -1,6 +1,5 @@
 """Real blocking training still permits bounded, validated durable HTTP ACKs."""
 import threading
-import time
 import urllib.error
 import urllib.request
 
@@ -27,7 +26,6 @@ def test_real_training_phase_can_block_while_http_ack_commits(tmp_path, monkeypa
     loop.agent.save_final_checkpoint = False
     entered, release = threading.Event(), threading.Event()
     original = getattr(loop.agent, phase)
-    calls = []
     def blocked(*args, **kwargs):
         entered.set()
         assert release.wait(5), "test did not release training phase"
@@ -238,6 +236,54 @@ def test_held_and_active_episode_progress_roll_back_together(tmp_path):
         assert len(store) == 0
         assert store.pending() == previous
         assert store.active_episode() == old_active
+    finally:
+        store.close()
+
+
+def test_store_runs_wal_normal_and_cached_usage_tracks_table(tmp_path):
+    import sqlite3
+    path = tmp_path / "usage.sqlite3"
+    store = DurableStore(path)
+
+    def table_usage():
+        count, size = store._connection.execute(
+            "SELECT COUNT(*),COALESCE(SUM(LENGTH(payload)),0) FROM messages").fetchone()
+        return {"depth": count, "bytes": size}
+
+    try:
+        assert store._connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        assert store._connection.execute("PRAGMA synchronous").fetchone()[0] == 1  # NORMAL
+        a, b, c = encode({"x": torch.ones(3)}), encode({"x": torch.ones(5)}), encode({"y": 1})
+        store.append_many([("a", a), ("b", b)], max_records=2)
+        store.append_many([("a", a)], max_records=2)  # a duplicate retry consumes no capacity
+        assert store.metrics() == table_usage() == {"depth": 2, "bytes": len(a) + len(b)}
+        with pytest.raises(AdmissionBusy):
+            store.append_many([("c", c)], max_records=2)
+        with pytest.raises(AdmissionBusy):
+            store.append_many([("c", c)], max_bytes=len(a) + len(b) + len(c) - 1)
+        store.append("c", c)
+        store.append("c", c)
+        held = encode({"kind": "transition", "data": {"transition_id": "held"}})
+        store.promote_pending("held", held)
+        store.promote_pending("held", held)
+        store.remove("a")
+        store.remove("a")
+        store.remove("missing")
+        expected = {"depth": 3, "bytes": len(b) + len(c) + len(held)}
+        assert store.metrics() == table_usage() == expected
+        # A rolled-back promotion leaves the cached usage unchanged.
+        store.set_pending(encode({"transition_id": "rolled-back"}))
+        store._connection.execute("CREATE TEMP TRIGGER fail_clear BEFORE DELETE ON metadata "
+                                  "BEGIN SELECT RAISE(ABORT, 'injected'); END")
+        with pytest.raises(sqlite3.IntegrityError, match="injected"):
+            store.promote_pending("rolled-back", encode({"kind": "transition", "data": {}}))
+        assert store.metrics() == table_usage() == expected
+        store.close()
+        store = DurableStore(path)
+        assert store.metrics() == expected
+        rows = store.read()
+        assert store.metrics(after=rows[0][0]) == {
+            "depth": 2, "bytes": sum(len(payload) for _, _, payload in rows[1:])}
     finally:
         store.close()
 

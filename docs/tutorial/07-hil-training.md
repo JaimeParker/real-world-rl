@@ -18,7 +18,7 @@ actor connects to it, so both get the learner's address. Start the learner first
 ENV_FLAGS="--config hil.yaml --teleop-device leader_arm --robot-teleop-action-mode joint_delta \
     --teleop-event-device keyboard --reward-from-teleop-events"
 COMMON="$ENV_FLAGS --sync-host LEARNER_IP --sync-port 6000 --log-dir runs \
-    --checkpoint-freq 1000 --buffer-size 100000"
+    --checkpoint-freq 1000 --buffer-size 20000"
 ```
 
 - `--reward-from-teleop-events`: your `s` key is the reward (1, terminal) and `f` ends an episode as
@@ -26,10 +26,12 @@ COMMON="$ENV_FLAGS --sync-host LEARNER_IP --sync-port 6000 --log-dir runs \
   `--classifier-checkpoint`, every transition carries reward 0 and the actor and learner warn
   ([06](06-intervening.md#where-the-reward-comes-from)).
 - `--checkpoint-freq` (default 0: only `final.pt` when the learner stops) writes
-  `checkpoint_<update>.pt` every that many learner updates.
+  `checkpoint_<update>.pt` plus a checkpoint bundle every that many learner updates.
 - `--buffer-size` is the replay capacity (defaults: 200000 for `hil_serl` and `residual_hil_serl`,
   30000 for `silri`), held on `--buffer-device cuda`; with several 128 x 128 cameras size it to your
-  GPU memory or use `--buffer-device cpu`.
+  GPU memory or use `--buffer-device cpu`. Every checkpoint bundle copies both replay buffers at
+  full capacity to host memory and disk, so keep it near what one session collects (20000 rows
+  is about 30 minutes at 10 Hz).
 - The learner ignores the teleop flags (it never opens a device).
 
 ## hil_serl
@@ -95,19 +97,24 @@ python examples/train_real_world.py silri --role actor $COMMON --exp-name silri-
 ```
 
 Before its first update the SiLRI learner pretrains its human-behaviour model on the demo buffer
-(`--bc-pretrain-steps`, default 500) and blocks ingestion while it does; it then refreshes the model
-as your interventions arrive ([silri.md](../silri.md#data-flow)).
+(`--bc-pretrain-steps`, default 500); the actor's rows keep arriving in the learner's journal while it
+does and are consumed afterwards. It then refreshes the model as your interventions arrive
+([silri.md](../silri.md#data-flow)).
 
 ## Stopping
 
 Stop the actor with Ctrl-C (the arm stays where it is), then the learner: it writes
-`runs/<exp-name>/checkpoints/final.pt` on the way out. `runs/<exp-name>/config.json` is what eval,
-deploy and the residual base provider read.
+`runs/<exp-name>/checkpoints/final.pt` and a checkpoint bundle (model, optimizers, both replay
+buffers and the journal position, published through `bundle_manifest.json`) on the way out.
+`runs/<exp-name>/config.json` is what eval, deploy and the residual base provider read. Rows the
+actor could not deliver before it stopped stay in its outbox under `runs/<exp-name>/actor/` and are
+sent when an actor with the same `--exp-name` starts again.
 
 ## Evaluate
 
-Deterministic episodes on the robot, no learner, no data collection; success is a terminated episode
-(your `s` with `--reward-from-teleop-events`, or the classifier). Stop the actor first, and do not
+Deterministic episodes on the robot, no learner, no data collection; a success is an explicit
+success label (your `s` with `--reward-from-teleop-events`, or the classifier), and it only counts as
+autonomous when you did not take over during the episode. Stop the actor first, and do not
 intervene ([06](06-intervening.md#the-sequence)):
 
 ```bash
@@ -124,7 +131,9 @@ python examples/train_real_world.py silri --role eval $ENV_FLAGS --exp-name silr
 ```
 
 A periodic `checkpoint_<update>.pt` evaluates the same way. *You should see*
-`[eval] episode=... success=... return=...` per episode and a final `[eval] success_rate=...` line.
+`[eval] episode=... task_success=... autonomous_success=... return=...` per episode and a final
+`[eval] ...` line with `autonomous_success_rate` (successes without a takeover over completed
+episodes), `task_success_rate`, the intervention rates and `mean_return`.
 
 ## What to watch
 
@@ -141,11 +150,13 @@ about 100 s at 10 Hz); the actor posts one set of `actor/*` scalars per episode.
 
 | Metric | Methods | What to look for |
 |---|---|---|
-| `actor/return`, `actor/success` | all | rising success rate: the success is a terminated episode (your `s`) |
+| `actor/return`, `actor/terminated`, `actor/task_success` | all | per episode: `terminated` is any terminal step (your `s`, or a classifier hit); `task_success` is the explicit success label when one exists |
+| `actor/autonomous_success_rate`, `actor/task_success_rate`, `actor/episode_intervention_rate` | all | cumulative since the actor started: successes without any takeover over completed episodes should rise, the intervention rates fall |
 | `actor/intervention_rate`, `actor/intervened_steps`, `actor/intervention_count` | all | should fall as the policy improves |
 | `actor/length`, `actor/human_episode_end` | all | episodes you ended with Esc |
 | `actor/safety_clips`, `actor/safety_clips_total` | all | servo commands the daemon clipped; a rising count means the policy keeps asking for targets outside the limits |
-| `actor/rtt_ms_mean/max`, `actor/step_time_ms_mean/max`, `actor/param_refresh_ms_mean/max`, `actor/dropped_transitions` | all | timing and network health |
+| `actor/rtt_ms_mean/max`, `actor/step_time_ms_mean/max`, `actor/param_refresh_ms_mean/max` | all | timing |
+| `actor/outbox_depth`, `actor/upload_retries` | all | rows waiting on the actor's disk and failed upload attempts; a growing depth means the learner is slow or unreachable, nothing is dropped |
 | `learner/received`, `learner/update`, `learner/buffer_size`, `learner/train_time_s` | all | ingestion and training progress |
 | `learner/demo_buffer_size`, `learner/intervened_received` | all | the demo buffer grows only while you intervene |
 | `losses/critic_loss`, `losses/qf_loss`, `losses/actor_loss`, `losses/alpha_loss`, `entropy/alpha`, `entropy/target_entropy`, `q/predicted` | `hil_serl`, `residual_hil_serl` | SAC-style losses; `q/predicted` should track the returns |

@@ -7,7 +7,6 @@ from real_world_rl.training.runtime_paths import actor_sync_kwargs, learner_expe
 
 
 def _serl_env_request(args, run_name):
-    from rl_garden.common.env_args import make_env_request
 
     from real_world_rl.training.env_building import ensure_real_world_backend
     ensure_real_world_backend(args.env_backend)

@@ -3,11 +3,12 @@
 Self-written, stdlib-only (``http.server`` / ``urllib.request``) -- SERL uses
 an external ``agentlace`` package for this, but it is a pip dependency not
 vendored anywhere in this repo, so it isn't reused here. Transitions flow
-actor -> learner; policy parameters flow learner -> actor. Neither side may
-block the other's real-time loop: ``LearnerSyncServer`` accepts a transition
-POST and hands it off to a callback immediately, and ``ActorSyncClient``
-queues transitions and polls for params on a background thread so the
-actor's fixed-frequency control loop never waits on network I/O.
+actor -> learner; policy parameters flow learner -> actor. Neither side waits
+on the other's real-time loop: ``LearnerSyncServer`` hands a transition POST to
+a callback (the learner commits it to its journal) and then acknowledges it, and
+``ActorSyncClient`` commits each transition to a local SQLite outbox (a local
+disk write, no network I/O) while background threads upload the outbox and
+poll for params, so the actor's control loop never waits on the network.
 """
 from __future__ import annotations
 
@@ -23,7 +24,6 @@ from pathlib import Path
 from dataclasses import dataclass
 
 from real_world_rl.loops.durable import DurableStore, encode, decode
-from real_world_rl.loops.ingestion import AdmissionBusy
 import threading
 import urllib.error
 import urllib.parse
@@ -45,6 +45,10 @@ _MAX_QUEUED_STATS = 10_000
 # list, tuple, str, int, float, bool, None) -- never arbitrary pickled objects.
 # Stats travel as JSON on /stats.
 _NETWORK_ERRORS = (urllib.error.URLError, ConnectionError, TimeoutError)
+# Upload retry back-off after a failed POST: doubles per consecutive failure up to
+# the maximum and resets on the first acknowledged batch.
+_INITIAL_RETRY_DELAY_S = 0.1
+_MAX_RETRY_DELAY_S = 2.0
 
 
 class LearnerSyncServer:
@@ -238,17 +242,18 @@ def _episode_progress(active, record):
 class ActorSyncClient:
     """Runs on the actor process.
 
-    ``latest_policy_params`` reads a local cache; ``push_transition`` commits
-    the local outbox before returning. A background worker owns HTTP uploads, and policy params are polled on a fixed interval
-    by a separate background thread and cached locally -- the actor's control
-    loop only ever reads the cache, it never makes a network call itself.
-    This is required for the actor to hold its fixed control frequency: a
-    slow learner (e.g. mid gradient-step) must never stall robot control.
+    ``latest_policy_params`` reads a local cache; policy params are polled on a
+    fixed interval by a background thread and cached locally. ``push_transition``
+    commits the message to a local SQLite WAL outbox (``synchronous=NORMAL``, no
+    per-row fsync) before returning; a separate background worker owns HTTP
+    uploads. The control loop therefore pays one local disk commit per push but
+    never makes a network call or waits on the learner: a slow or unreachable
+    learner (e.g. mid gradient-step, restarting) must never stall robot control.
 
-    Messages are committed to a SQLite WAL outbox before returning to the
-    control thread. The upload worker retries without dropping rows and removes
-    them only after HTTP acknowledgement. Disk write failure stops collection.
-    ``max_queue_size`` remains an accepted compatibility argument.
+    The upload worker retries without dropping rows and removes them only after
+    HTTP acknowledgement. ``push_transition`` raises, stopping collection, when
+    the outbox reaches ``outbox_max_records``/``outbox_max_bytes`` or the disk
+    write fails. ``max_queue_size`` remains an accepted compatibility argument.
 
     ``LearnerSyncServer`` has no per-client state -- multiple
     ``ActorSyncClient`` instances (separate processes, e.g. one per robot)
@@ -257,13 +262,18 @@ class ActorSyncClient:
     for observability on the learner side (see ``LearnerLoop.received_by_actor``);
     it carries no routing behavior.
 
-    Failure handling: network errors on push/poll are tolerated (the control
-    loop must not stall), but counted across both workers. The first failure
-    and every 10th afterwards log a warning with the target host:port; after
-    ``max_consecutive_failures`` in a row the client gives up, and the next
-    ``push_transition`` / ``latest_policy_params`` call on the actor's thread
-    raises ``RuntimeError`` (any success resets the count). ``start()`` also
-    runs a one-time TCP preflight so a wrong host/port fails immediately.
+    Failure handling: an unreachable learner (connection errors, timeouts, HTTP
+    5xx/408/429) is tolerated so a learner restart or network outage only delays
+    delivery: rows stay in the outbox and the upload worker retries with an
+    exponential back-off (0.1 s doubling to 2 s, reset on success). Failures are
+    counted across both workers; the first and every 10th consecutive failure
+    log a warning with the target host:port. ``max_consecutive_failures``
+    defaults to ``None`` (never give up); an integer N makes N failures in a
+    row fatal, after which the next ``push_transition`` /
+    ``latest_policy_params`` call on the actor's thread raises ``RuntimeError``
+    (any success resets the count). An HTTP 4xx rejection of durable records
+    is always fatal. ``start()`` also runs a one-time TCP preflight so a wrong
+    host/port fails immediately.
     """
 
     def __init__(
@@ -273,7 +283,7 @@ class ActorSyncClient:
         timeout: float = 5.0,
         max_queue_size: int = 600,
         actor_id: Optional[str] = None,
-        max_consecutive_failures: int = 30,
+        max_consecutive_failures: Optional[int] = None,
         preflight: bool = True,
         outbox_path: Optional[str] = None,
         run_id: Optional[str] = None,
@@ -357,7 +367,8 @@ class ActorSyncClient:
 
     def _record_failure(self, exc: BaseException) -> None:
         """Counts a network failure; stores and raises the fatal
-        ``RuntimeError`` once ``max_consecutive_failures`` is reached."""
+        ``RuntimeError`` once a configured ``max_consecutive_failures`` is
+        reached (never when it is ``None``)."""
         with self._failure_lock:
             self._consecutive_failures += 1
             count = self._consecutive_failures
@@ -366,7 +377,7 @@ class ActorSyncClient:
                     "learner at %s:%s unreachable (%d consecutive failures): %s",
                     self._host, self._port, count, exc,
                 )
-            if count >= self._max_consecutive_failures:
+            if self._max_consecutive_failures is not None and count >= self._max_consecutive_failures:
                 self._fatal_error = self._unreachable_error(count)
                 raise self._fatal_error
 
@@ -547,6 +558,7 @@ class ActorSyncClient:
             return self._cached_params
 
     def _push_worker(self) -> None:
+        retry_delay = _INITIAL_RETRY_DELAY_S
         while True:
             closing = self._stop_event.is_set()
             if closing and (not getattr(self, "_flush_on_stop", True) or time.monotonic() >= self._shutdown_deadline):
@@ -590,6 +602,7 @@ class ActorSyncClient:
                     self._outbox.remove(message_id)
                 self._sent_records += len(rows)
                 self._record_success()
+                retry_delay = _INITIAL_RETRY_DELAY_S
             except _NETWORK_ERRORS as exc:
                 self._retries += 1
                 if isinstance(exc, urllib.error.HTTPError) and 400 <= exc.code < 500 and exc.code not in (408, 429):
@@ -599,8 +612,13 @@ class ActorSyncClient:
                     self._record_failure(exc)
                 except RuntimeError:
                     return
-                self._wake_push.wait(0.1)
-                self._wake_push.clear()
+                if closing:
+                    self._wake_push.wait(min(retry_delay, max(0.0, self._shutdown_deadline - time.monotonic())))
+                    self._wake_push.clear()
+                else:
+                    # Every push sets _wake_push, so only stop() may cut the back-off short.
+                    self._stop_event.wait(retry_delay)
+                retry_delay = min(2 * retry_delay, _MAX_RETRY_DELAY_S)
 
     def _poll_worker(self) -> None:
         while not self._stop_event.is_set():

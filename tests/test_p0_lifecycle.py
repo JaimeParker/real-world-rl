@@ -1,13 +1,12 @@
 """P0 durable admission, startup, and consistent two-buffer recovery."""
 import threading
-from pathlib import Path
 
 import pytest
 import torch
 
 from real_world_rl.loops.actor import ActorLoop
 from real_world_rl.loops.durable import DurableStore, encode, decode
-from real_world_rl.loops.sync import ActorSyncClient, LearnerSyncServer, PolicySnapshot
+from real_world_rl.loops.sync import ActorSyncClient, PolicySnapshot
 from real_world_rl.loops.silri import SilriLearnerLoop
 from _silri_fakes import silri_agent
 from test_silri_learner_loop import _transition
@@ -222,8 +221,6 @@ def test_fwbw_second_client_start_failure_closes_robot_and_both_clients():
 
 
 def test_disk_full_stops_before_next_robot_step(tmp_path, monkeypatch):
-    import numpy as np
-    from gymnasium import spaces
     order = []
     class Env:
         num_envs = 1
@@ -397,6 +394,37 @@ def test_failed_model_phase_does_not_checkpoint_partial_update(tmp_path, monkeyp
         assert recovered.received_transitions == 2
         assert len(recovered.agent.replay_buffer) == 2
         assert len(recovered.agent.offline_replay_buffer) == 2
+    finally:
+        recovered._server.stop()
+        recovered._journal.close()
+
+
+@pytest.mark.parametrize("interrupt", [KeyboardInterrupt, SystemExit])
+def test_operator_interrupt_during_update_still_writes_final_checkpoint(tmp_path, monkeypatch, interrupt):
+    loop = make_loop(tmp_path)
+    original = loop.agent.train
+    calls = []
+    def interrupted_on_second_call(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:
+            raise interrupt()
+        return original(*args, **kwargs)
+    monkeypatch.setattr(loop.agent, "train", interrupted_on_second_call)
+    loop._admit_records([_transition(intervened=True, transition_id=f"tail-{n}") for n in range(2)])
+    with pytest.raises(interrupt):
+        loop.run()
+    assert len(calls) == 2
+    assert not loop._training_failed and not loop._ingestion_failed
+    trained_updates = loop.agent.global_update
+    assert trained_updates > 0
+    assert (tmp_path / "final.pt").exists()
+    assert (tmp_path / "bundle_manifest.json").exists()
+    recovered = make_loop(tmp_path)
+    try:
+        assert recovered.restore_checkpoint_bundle()
+        assert recovered.agent.global_update == trained_updates
+        assert recovered.received_transitions == 2
+        assert recovered._drain_journal() == 0
     finally:
         recovered._server.stop()
         recovered._journal.close()

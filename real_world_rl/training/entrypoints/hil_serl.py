@@ -11,7 +11,6 @@ import dataclasses
 from real_world_rl.training.runtime_paths import actor_sync_kwargs, learner_experiment_kwargs, actor_control_hz
 import logging
 
-import torch
 
 from real_world_rl.training.env_building import (
     build_hil_env,
@@ -128,7 +127,6 @@ def _gripper_kwargs(env) -> dict:
 
 
 def _rebuild_scratch_agent_for_env(args, env):
-    from rl_garden.training.online.entrypoints.rlpd_hybrid import build_rlpd_hybrid
 
     scratch_args = dataclasses.replace(
         args, buffer_size=8, load_checkpoint=None, offline_dataset=None
@@ -152,7 +150,6 @@ def _run_learner(args) -> None:
 
     from rl_garden.common import Logger, seed_everything
     from rl_garden.common.resolved_config import persist_resolved_config
-    from rl_garden.training.online.entrypoints.rlpd_hybrid import build_rlpd_hybrid
     from real_world_rl.action_contract import demo_contract_of
     from real_world_rl.loops.hil_serl import HilSerlLearnerLoop
 
@@ -228,8 +225,6 @@ def _run_learner(args) -> None:
 
 def _run_eval(args) -> None:
     """Evaluate explicit task success and autonomous success with human control available."""
-    from rl_garden.training.online.entrypoints.rlpd_hybrid import build_rlpd_hybrid
-    from real_world_rl.loops.actor import ActorLoop
 
     if args.fwbw:
         raise NotImplementedError("hil_serl eval mode does not support --fwbw yet.")

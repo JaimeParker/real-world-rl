@@ -384,7 +384,7 @@ def test_task_limits_termination_and_jitter_validation():
     assert not bool(terminated) and bool(truncated)
 
 
-def test_model_locations_are_provenance_but_contents_identify_contract():
+def test_classifier_location_and_contents_are_saved_provenance_not_compared():
     env = apply_experiment_contract(RealRobotVectorEnv(single()),source_config={
         "classifier":{"path":"/actor/model.pt","content_sha256":"same-content"}})
     try:
@@ -394,13 +394,75 @@ def test_model_locations_are_provenance_but_contents_identify_contract():
         assert experiment_hash(env) == first
         validate_experiment(env,saved)
         env._source_config["classifier"]["content_sha256"] = "changed-content"
-        assert experiment_hash(env) != first
-        with pytest.raises(ValueError,match="differs"): validate_experiment(env,saved)
+        assert experiment_hash(env) == first
+        validate_experiment(env,saved)
+        # Still saved with the experiment, for a human to compare.
+        assert experiment_contract_of(env)["experiment"]["sources"]["classifier"]["content_sha256"] == "changed-content"
     finally: env.close()
 
 
+_RECORDER_SOURCES = {"classifier": None, "classifier_threshold": 0.5, "arm_classifiers": {},
+                     "classifier_image_keys": [], "reward_from_teleop_events": True,
+                     "teleop_success_reward": 1.0, "use_grasp_penalty": False, "grasp_penalty_value": -0.02,
+                     "teleop_selected_parts": [], "teleop_idle_behavior": "hold"}
+# A training run with other reward sources: a classifier, another threshold, no teleop events,
+# the grasp penalty.
+_TRAINING_SOURCES = {**_RECORDER_SOURCES, "classifier": {"path": "/c.pt", "content_sha256": "c" * 64},
+                     "classifier_threshold": 0.8, "reward_from_teleop_events": False, "use_grasp_penalty": True}
+
+
+def test_demos_recorded_with_other_reward_sources_validate_against_the_training_env():
+    recorded = apply_experiment_contract(RealRobotVectorEnv(single()), source_config=_RECORDER_SOURCES)
+    trained = apply_experiment_contract(RealRobotVectorEnv(single()), source_config=_TRAINING_SOURCES)
+    try:
+        validate_transitions_against_contract([], demo_contract_of(trained), source="demos.pkl",
+                                              saved=demo_contract_of(recorded))
+        assert experiment_hash(recorded) == experiment_hash(trained)
+        # A sidecar from before experiment metadata, into a classifier run: a warning, not an error.
+        legacy = {key: value for key, value in demo_contract_of(recorded).items()
+                  if key not in ("experiment", "effective_control", "contract_version")}
+        with pytest.warns(UserWarning, match="predates"):
+            validate_transitions_against_contract([], demo_contract_of(trained), source="legacy.pkl", saved=legacy)
+    finally:
+        recorded.close(); trained.close()
+
+
+def test_station_facts_are_provenance_but_rate_and_image_size_are_compared():
+    from real_world_rl.action_contract import compared_experiment, experiment_provenance
+    trained = apply_experiment_contract(RealRobotVectorEnv(single()), source_config=_TRAINING_SOURCES)
+    try:
+        saved = experiment_contract_of(trained)
+        recorded_contract = demo_contract_of(trained)
+        first = experiment_hash(trained)
+        config = trained.env.env.config
+        # Deploy/eval CLI values: the station's, not the policy's.
+        config.home_joints = [0.1] * 7
+        config.safety_box = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0]
+        config.reset_settle_s = 2.0
+        config.max_episode_steps = 50
+        validate_experiment(trained, saved)
+        validate_transitions_against_contract([], demo_contract_of(trained), source="demos.pkl", saved=recorded_contract)
+        assert experiment_hash(trained) == first
+        assert experiment_contract_of(trained)["experiment"]["home_joints"] == [0.1] * 7
+        spec = {"cameras": ["wrist"], "image_size": [8, 8], "sources": {"teleop_idle_behavior": "policy"}}
+        assert compared_experiment(spec) == {"image_size": [8, 8], "teleop": {"teleop_idle_behavior": "policy"}}
+        assert experiment_provenance(spec) == {"cameras": ["wrist"], "sources": spec["sources"]}
+        for field, value in (("control_hz", 5.0), ("image_size", (16, 16))):
+            original = getattr(config, field)
+            setattr(config, field, value)
+            assert experiment_hash(trained) != first
+            with pytest.raises(ValueError, match="differs"):
+                validate_experiment(trained, saved)
+            with pytest.raises(ValueError, match="experiment"):
+                validate_transitions_against_contract([], demo_contract_of(trained), source="demos.pkl",
+                                                      saved=recorded_contract)
+            setattr(config, field, original)
+    finally:
+        trained.close()
+
+
 @pytest.mark.parametrize("bimanual", [False, True])
-def test_deploy_arm_classifier_relocation_uses_contents_before_connection(tmp_path, monkeypatch, bimanual):
+def test_deploy_accepts_a_relocated_or_retrained_arm_classifier_before_connection(tmp_path, monkeypatch, bimanual):
     from rl_garden.observations import ObservationConfig
     from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
     from real_world_rl.training.env_building import build_hil_env
@@ -440,9 +502,13 @@ def test_deploy_arm_classifier_relocation_uses_contents_before_connection(tmp_pa
         assert connections == []
     finally:
         deployed.close()
+    # The classifier only scores success; its contents are provenance, not the policy's contract.
     moved.write_bytes(b"changed classifier")
-    with pytest.raises(ValueError, match="differs"):
-        build_deploy_env(deploy_args, args)
+    deployed = build_deploy_env(deploy_args, args)
+    try:
+        assert experiment_hash(deployed) == experiment_hash(trained)
+    finally:
+        deployed.close()
     assert connections == []
 
 

@@ -128,7 +128,7 @@ class HilSerlActorLoop(ActorLoop):
     ``sync_client.post_stats`` at every episode end (skipped for a client without
     ``post_stats``); the learner logs them as ``actor/<key>``. Keys: ``episode``,
     ``return``, ``length``, ``intervened_steps``, ``intervention_count`` (takeover
-    onsets), ``intervention_rate``, ``success`` (the episode terminated),
+    onsets), ``intervention_rate``, ``terminated`` (the episode terminated),
     ``human_episode_end`` (the operator ended it), ``safety_clips`` (increase of the
     device clip counter) and ``safety_clips_total`` when the env reports it,
     ``rtt_ms_mean/max`` when the env reports ``rtt_ms``, ``step_time_ms_mean/max`` (from

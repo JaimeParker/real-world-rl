@@ -1,6 +1,5 @@
 """Production env composition, semantic provenance, HTTP and bundle integration."""
 import copy
-import dataclasses
 import threading
 import urllib.error
 import urllib.request

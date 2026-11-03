@@ -51,16 +51,11 @@ from real_world_rl.envs.wrappers.intervention import InterventionWrapper
 from real_world_rl.loops.actor import ActorLoop
 from real_world_rl.teleop.hold import hold_action_fn_for, follower_joint_pos, _arm_envs_of
 from real_world_rl.teleop.base import TeleopReading, TeleopSource
-from real_world_rl.teleop.bimanual import (
-    find_bimanual_env,
-    normalized_joint_target,
-)
 from real_world_rl.teleop.composite import (
     CompositeTeleopSource,
     ToggleableTeleopSource,
 )
 from real_world_rl.teleop.leader_arm import TELEOP_SYNCING_EVENT
-from real_world_rl.teleop.part import _find_last_observation_owner
 from real_world_rl.training.args import (
     FrankaRealConfig,
     HilEnvArgs,
@@ -121,8 +116,8 @@ class RecordDemosArgs(HilEnvArgs, RealWorldFrankaArgs, EnvRunArgs, ObservationAr
     # joint_abs: refuse to start an episode while the leader is further than this from the
     # follower in any joint (rad). Below it, --teleop-onset (ramp or arm) handles the takeover.
     start_tolerance_rad: float = 0.8
-    # Also record the leader-arm onset steps rate-limited by the ramp policy (tagged
-    # ``teleop_syncing``); by default they are left out of the demos.
+    # Also record the leader-arm onset catch-up steps of the ramp policy (tagged
+    # ``teleop_syncing``) as ordinary supervised demo rows; by default they are left out.
     keep_syncing_steps: bool = False
 
 
@@ -326,7 +321,8 @@ def _record_episode(
         failure = failure or bool(events.get("failure", False))
         syncing = bool(events.get(TELEOP_SYNCING_EVENT, False))
         if info["intervened"] and (args.keep_syncing_steps or not syncing):
-            transitions.append(dict(record))
+            # A kept syncing step is wanted as supervision; only the archive keeps the flag.
+            transitions.append(dict(record, syncing=False))
         if bool(terminated) or bool(truncated):
             break
         obs = next_obs

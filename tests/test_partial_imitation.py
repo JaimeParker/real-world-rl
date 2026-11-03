@@ -131,7 +131,6 @@ def test_local_bc_full_mask_matches_old_loss_and_actor_gradient(squash):
     from real_world_rl.algorithms.bc import MaskedBC
     from rl_garden.policies.bc_policy import BCPolicy
     from rl_garden.encoders.base import BaseFeaturesExtractor
-    from torch import nn
     class Extractor(BaseFeaturesExtractor):
         def __init__(self, space):
             super().__init__(space, features_dim=2)

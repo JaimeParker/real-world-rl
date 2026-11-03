@@ -45,9 +45,12 @@ policy alone. Do press `s` when the task succeeded if the run takes its reward f
   release the toggle. The takeover never moves the robot by itself, at the cost of matching the leader
   to the follower by hand before every takeover.
 - `ramp` (the default; used in [07](07-hil-training.md)): control starts at once. In `joint_delta` the
-  follower moves towards the leader at up to `joint_scale_rad` per step until they are aligned, and
-  those transient steps are stored as intervened. In `joint_abs` the first targets are rate-limited
-  to `--teleop-ramp-step-rad` (0.05) per step and tagged `teleop_syncing`.
+  follower moves towards the leader at up to `joint_scale_rad` per step until they are aligned. In
+  `joint_abs` the first targets are rate-limited to `--teleop-ramp-step-rad` (0.05) per step. In both
+  modes the catch-up steps, from the toggle until the leader and follower first agree, are tagged
+  `teleop_syncing`: they are executed and stored, but they do not count as human supervision
+  (the learners treat them as policy steps). Once aligned, the rest of the takeover is supervised
+  normally even if you move faster than the follower can track.
 
 Prefer `arm` when every demonstration should start from a still robot, `ramp` for quick takeovers
 while the policy is moving. Either way, hold the leader near the follower before you press Space.

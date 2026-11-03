@@ -195,6 +195,75 @@ def test_success_resets_failure_counter(monkeypatch):
         server.stop()
 
 
+def test_learner_outage_past_old_failure_limit_delivers_every_record(tmp_path, monkeypatch):
+    import real_world_rl.loops.sync as sync
+
+    # A short back-off cap lets the upload worker itself fail >30 times quickly.
+    monkeypatch.setattr(sync, "_MAX_RETRY_DELAY_S", 0.02)
+    port = _free_closed_port()
+    client = ActorSyncClient(
+        f"http://127.0.0.1:{port}", poll_interval=0.05, timeout=0.5, preflight=False,
+        outbox_path=str(tmp_path / "outbox.sqlite3"),
+    )
+    received = []
+    server = None
+    client.start()
+    try:
+        for seq in range(5):
+            client.push_transition({"seq": seq})
+        deadline = time.time() + 10.0
+        while client._retries <= 30 and time.time() < deadline:
+            time.sleep(0.02)
+        assert client._retries > 30, "upload worker never exceeded the old fatal limit"
+        assert client._fatal_error is None
+        client.push_transition({"seq": 5})
+        assert client.latest_policy_params() is None
+
+        server = LearnerSyncServer(
+            "127.0.0.1", port, on_transition=lambda t: received.append(t["seq"])
+        )
+        server.start()
+        deadline = time.time() + 10.0
+        while len(client._outbox) and time.time() < deadline:
+            time.sleep(0.02)
+        assert len(client._outbox) == 0, "outbox was not drained after the learner came back"
+        assert set(received) == set(range(6))
+        client.push_transition({"seq": 6})
+        assert client.stop(timeout=5.0) == {"pending": 0}
+        assert set(received) == set(range(7))
+    finally:
+        client.stop(flush=False)
+        if server is not None:
+            server.stop()
+
+
+def test_upload_retry_backs_off_exponentially_up_to_cap(tmp_path):
+    client = ActorSyncClient(
+        f"http://127.0.0.1:{_free_closed_port()}", poll_interval=10.0, timeout=0.5,
+        preflight=False, outbox_path=str(tmp_path / "outbox.sqlite3"),
+    )
+    real_wait = client._stop_event.wait
+    delays = []
+
+    def record_backoff(timeout=None):
+        if timeout == 10.0:  # the poll worker's interval
+            return real_wait(timeout)
+        delays.append(timeout)
+        return client._stop_event.is_set()
+
+    client._stop_event.wait = record_backoff
+    client.push_transition({"seq": 0})
+    client.start()
+    try:
+        deadline = time.time() + 5.0
+        while len(delays) < 8 and time.time() < deadline:
+            time.sleep(0.01)
+        assert delays[:8] == pytest.approx([0.1, 0.2, 0.4, 0.8, 1.6, 2.0, 2.0, 2.0])
+        assert client._fatal_error is None
+    finally:
+        client.stop(flush=False)
+
+
 def test_stats_round_trip_keeps_latest_per_actor():
     server, url = _start_server(on_transition=lambda t: None)
     client_a = ActorSyncClient(url, poll_interval=10.0, actor_id="a")

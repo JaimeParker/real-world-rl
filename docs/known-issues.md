@@ -92,10 +92,12 @@ Status: fixed. Regression coverage: P0 lifecycle tests.
 
 ### S2. Catch-up motion and partial demonstration labels
 
-Leader-arm `joint_delta` saturation and `joint_abs` ramp steps carry syncing metadata.
-Durable archives preserve the executed motion and actual human mask; the training projection
-excludes syncing supervision. Human/override masks also keep hold supplements out of partial
-imitation losses. Explicit recorder pickle exports may retain syncing rows when requested.
+The catch-up after a takeover carries syncing metadata: in `joint_delta` the steps until the leader
+is first within `joint_scale_rad` of the follower, in `joint_abs` the rate-limited ramp steps. Once
+aligned, a takeover is supervised normally. Durable archives preserve the executed motion and
+actual human mask; the training projection excludes syncing supervision. Human/override masks
+also keep hold supplements out of partial imitation losses. Recorder pickle exports made with
+`--keep-syncing-steps` keep those rows as ordinary supervised steps.
 
 Status: fixed. Regression coverage:
 `tests/test_partial_imitation.py`, `tests/test_leader_arm_source.py`, and recorder regressions.

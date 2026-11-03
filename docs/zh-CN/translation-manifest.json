@@ -1,0 +1,115 @@
+{
+  "language": "zh-CN",
+  "documents": [
+    {
+      "source": "docs/README.md",
+      "translation": "docs/zh-CN/README.md",
+      "source_sha256": "7d8f02f428fae277f7e29fae13262c59bb07cafa32d1695df6585630a4cbfca5"
+    },
+    {
+      "source": "docs/bimanual.md",
+      "translation": "docs/zh-CN/bimanual.md",
+      "source_sha256": "bdd2cd46f0ee402a2af758ed42ef48cb8da4fda2be1b653033f94cb2088b62eb"
+    },
+    {
+      "source": "docs/gello.md",
+      "translation": "docs/zh-CN/gello.md",
+      "source_sha256": "82f33185f5a34cd464f425002916c766e09a4d02ea6068272364e2f0a1d90c02"
+    },
+    {
+      "source": "docs/getting-started-hardware.md",
+      "translation": "docs/zh-CN/getting-started-hardware.md",
+      "source_sha256": "4ba8e0d2b4396874b504ace47a16570d235cf76376d570d4f75b40986ab1ccc7"
+    },
+    {
+      "source": "docs/hil-serl-roadmap.md",
+      "translation": "docs/zh-CN/hil-serl-roadmap.md",
+      "source_sha256": "8f5e3f74695ff3336704d2f42ef6a705cc8cc50c7d15079ab0e930d896807879"
+    },
+    {
+      "source": "docs/known-issues.md",
+      "translation": "docs/zh-CN/known-issues.md",
+      "source_sha256": "3255c5f0c6e3f32acd25c821591359b8dea51a93e6b0ccf5e98e036d06509620"
+    },
+    {
+      "source": "docs/recording-demos.md",
+      "translation": "docs/zh-CN/recording-demos.md",
+      "source_sha256": "bfed3a864857d423ba8a861b6ecbcf2043ed35ed1edf31c0f4817a8f2510b8a3"
+    },
+    {
+      "source": "docs/residual.md",
+      "translation": "docs/zh-CN/residual.md",
+      "source_sha256": "ab1b130500eaad9d60133001da8e2e45a47c3d5105c6ad8ee43a237a9b2b2996"
+    },
+    {
+      "source": "docs/silri.md",
+      "translation": "docs/zh-CN/silri.md",
+      "source_sha256": "1df0d59078d303c9c2a7fd097e94454ed6cf72cb30ce390377885e9a5e40375e"
+    },
+    {
+      "source": "docs/teleop.md",
+      "translation": "docs/zh-CN/teleop.md",
+      "source_sha256": "0782f3042e514abb0048425a546595f702e418016f3f712ebb5becb90a83fdda"
+    },
+    {
+      "source": "docs/tutorial/00-overview.md",
+      "translation": "docs/zh-CN/tutorial/00-overview.md",
+      "source_sha256": "3a5dafc2d66bdf358b84e74a1b5ce860d7588684f385b7306fc9839a4cff4fef"
+    },
+    {
+      "source": "docs/tutorial/01-install.md",
+      "translation": "docs/zh-CN/tutorial/01-install.md",
+      "source_sha256": "1faa04b1c6d92f7c1c7ad1382b3e61e89e4c0cfb6e353b8c0b6f99608e6dea42"
+    },
+    {
+      "source": "docs/tutorial/02-station.md",
+      "translation": "docs/zh-CN/tutorial/02-station.md",
+      "source_sha256": "80c299ced5767a5f379ca252517bed5b925bf0d2d6a334d030c5763e4743bb8d"
+    },
+    {
+      "source": "docs/tutorial/03-daemon.md",
+      "translation": "docs/zh-CN/tutorial/03-daemon.md",
+      "source_sha256": "0394c45ddf4c2455f0549f75e731fa3858c8c8a303e77b7bb0208edc022c81a2"
+    },
+    {
+      "source": "docs/tutorial/04-record-demos.md",
+      "translation": "docs/zh-CN/tutorial/04-record-demos.md",
+      "source_sha256": "c979bd92e441d048bee6d2b7e00f2dbd36e383262d2bc21345c4adb69417d79c"
+    },
+    {
+      "source": "docs/tutorial/05-base-policy.md",
+      "translation": "docs/zh-CN/tutorial/05-base-policy.md",
+      "source_sha256": "f563ef6485b1169858ee934425863d0ae18bc7939b45474790df08e1d1119658"
+    },
+    {
+      "source": "docs/tutorial/06-intervening.md",
+      "translation": "docs/zh-CN/tutorial/06-intervening.md",
+      "source_sha256": "e0d8de438f593e9963299566cad383395d20094950c92e6639fd20e97369110e"
+    },
+    {
+      "source": "docs/tutorial/07-hil-training.md",
+      "translation": "docs/zh-CN/tutorial/07-hil-training.md",
+      "source_sha256": "37e64076af0393638a47dc08a2562096b171d2fdc1c81b45b26a80c62cddebb7"
+    },
+    {
+      "source": "docs/tutorial/08-deploy.md",
+      "translation": "docs/zh-CN/tutorial/08-deploy.md",
+      "source_sha256": "3ff9202bfbb633ec31ad04014b82833dec5594b6fd3db95fadda21c728adc1a2"
+    },
+    {
+      "source": "README.md",
+      "translation": "docs/zh-CN/project-readme.md",
+      "source_sha256": "b27aa63f4f644c597160e168790c2b57f10fb097cfe3c4a8afd6b40640d0c867"
+    },
+    {
+      "source": "robot_infra/README.md",
+      "translation": "docs/zh-CN/robot-infra.md",
+      "source_sha256": "8a8c6dfe11155ab1f545644bb243dfdf84404b47df6c92baf11f02994b7c9933"
+    },
+    {
+      "source": "rl-garden/rl_garden/models/act/README.md",
+      "translation": "docs/zh-CN/act.md",
+      "source_sha256": "e83f7747e525be5e76c15c6a5808c5c4ff081bf7eeec1d24c07353a03578135a"
+    }
+  ]
+}

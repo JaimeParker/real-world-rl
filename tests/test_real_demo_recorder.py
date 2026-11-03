@@ -368,6 +368,31 @@ def test_syncing_steps_are_dropped_unless_kept(keep_syncing_steps, recorded):
     assert len(transitions) == recorded
 
 
+def test_kept_syncing_steps_load_as_supervised_demo_rows(tmp_path):
+    env = RecordingEnv("joint_abs")
+    readings = [
+        SYNC,
+        _reading(Q1, events=(TELEOP_SYNCING_EVENT,)),
+        _reading(Q1, events=(TELEOP_SYNCING_EVENT,)),
+        _reading(Q1, events=("success",), episode_end=True),
+    ]
+    wrapped = _wrap(env, readings)
+    transitions, _ = _record(wrapped, keep_syncing_steps=True)
+    # The archive still says which rows were the catch-up.
+    archived = [row for row in wrapped._record_archive if row["record_type"] == "transition"]
+    assert [row["syncing"] for row in archived] == [True, True, False]
+    path = save_demos(transitions, tmp_path / "demos.pkl", demo_contract_of(wrapped))
+
+    extras = []
+    count = load_demo_pkls(
+        [str(path)], lambda *columns, **extra: extras.append(extra), "cpu", expected_contract=demo_contract_of(wrapped)
+    )
+    assert count == 3
+    for extra in extras:
+        assert bool(extra["intervened"])
+        assert bool(torch.as_tensor(extra["human_action_mask"]).all())
+
+
 # -- episode outcomes ----------------------------------------------------------------------
 
 

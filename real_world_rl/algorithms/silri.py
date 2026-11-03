@@ -38,7 +38,6 @@ import warnings
 from typing import Any, NamedTuple, Optional, Sequence
 
 import torch
-import torch.nn.functional as F
 from torch.distributions import Normal
 
 from rl_garden.algorithms.ddpg import DDPG

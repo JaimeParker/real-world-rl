@@ -81,8 +81,9 @@ with the sidecar and raises a `ValueError` naming the differing keys if its env 
 > joint is further than `--start-tolerance-rad` (0.8) from the follower: move the leader onto the
 > follower and restart. With the default `ramp` onset the follower slews to the leader at
 > `--teleop-ramp-step-rad` (0.05) per step; those steps are left out of the demos unless
-> `--keep-syncing-steps`. In `joint_delta` the start check is skipped: the leader reading saturates at
-> one `joint_scale_rad` per step.
+> `--keep-syncing-steps`, which keeps them as ordinary supervised steps. In `joint_delta` the start
+> check is skipped: the leader reading saturates at one `joint_scale_rad` per step, and the steps until
+> the follower has caught up are the ones treated as syncing.
 
 More detail: [recording-demos.md](../recording-demos.md).
 

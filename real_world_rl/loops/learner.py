@@ -10,7 +10,6 @@ from __future__ import annotations
 import threading
 import time
 import tempfile
-import uuid
 
 from real_world_rl.loops.durable import DurableStore, encode, decode
 from real_world_rl.loops.ingestion import validate_admission
@@ -141,7 +140,6 @@ class LearnerLoop:
         # DictReplayBuffer.add()/TensorReplayBuffer.add() have fixed
         # signatures with no **kwargs, so it must never reach .add().
         actor_id = transition.get("actor_id")
-        device = self.agent.buffer_device
         tensors = {
             k: self._to_buffer_device(v)
             for k, v in transition.items()
@@ -167,10 +165,16 @@ class LearnerLoop:
     def _validate_effective_experiment(self, incoming) -> None:
         if incoming is None:
             return
-        from real_world_rl.action_contract import semantic_experiment
-        requested = semantic_experiment({key: value for key, value in incoming.items()
-                                         if key not in ("runtime_control", "provenance")})
-        expected = semantic_experiment(self.experiment_contract)
+        from real_world_rl.action_contract import compared_experiment, semantic_experiment
+
+        def compared(contract):
+            if isinstance(contract, Mapping) and "experiment" in contract:
+                contract = {**contract, "experiment": compared_experiment(contract["experiment"])}
+            return semantic_experiment(contract)
+
+        requested = compared({key: value for key, value in incoming.items()
+                              if key not in ("runtime_control", "provenance")})
+        expected = compared(self.experiment_contract)
         if expected is not None and requested != expected:
             raise ValueError("actor effective experiment differs from learner requested contract")
         saved_runtime = (self.effective_experiment or {}).get("runtime_control", {})
@@ -225,6 +229,8 @@ class LearnerLoop:
                 # A multi-buffer write or snapshot can fail after mutating memory.
                 # Recover from the previous committed bundle and this journal tail;
                 # replaying or checkpointing these partial writes duplicates rows.
+                # This includes KeyboardInterrupt: unlike an interrupted update, a
+                # half-applied record cannot be told apart from a complete one.
                 self._ingestion_failed = True
                 raise
             self._journal_cursor = sequence
@@ -415,7 +421,13 @@ class LearnerLoop:
 
     def run(self, total_transitions: Optional[int] = None) -> None:
         """Runs until ``total_transitions`` have been received (or forever,
-        if ``None``, until :meth:`stop` is called from another thread)."""
+        if ``None``, until :meth:`stop` is called from another thread).
+
+        A ``KeyboardInterrupt`` or ``SystemExit`` raised by a training iteration
+        ends the run like :meth:`stop` (final checkpoint and bundle written) and
+        is then re-raised. Any other exception from an iteration skips the final
+        checkpoint so the last complete bundle stays the recovery point; so does
+        any exception, interrupts included, while a journal record is applied."""
         self._stop = False
         startup_complete = False
         try:
@@ -442,6 +454,10 @@ class LearnerLoop:
                 try:
                     self._refresh_offline_data()
                     self._train_iteration(step)
+                except (KeyboardInterrupt, SystemExit):
+                    # An operator stop is a normal stop: the final checkpoint and
+                    # bundle are written as after stop().
+                    raise
                 except BaseException:
                     # Optimizers/pretraining need not roll back a partial update.
                     # Keep the last complete generation as the recovery boundary.

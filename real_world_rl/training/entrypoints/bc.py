@@ -16,7 +16,6 @@ from __future__ import annotations
 import os
 import time
 
-import torch
 
 
 def build_real_world_bc(args, env, eval_env, logger, checkpoint_dir):

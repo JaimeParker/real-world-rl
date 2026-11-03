@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import gymnasium as gym
-import pytest
 import torch
 
 from real_world_rl.envs.wrappers.human_classifier import HumanClassifierWrapper

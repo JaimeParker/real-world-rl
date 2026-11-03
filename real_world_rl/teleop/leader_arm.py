@@ -13,7 +13,11 @@ decides what happens then:
 - ``ramp`` (default): in ``joint_abs`` the emitted target is
   ``q_follower + clip(q_leader - q_follower, +-ramp_step_rad)``, normalised onto the joint
   limits, so the recorded action is the executed command; readings that were rate-limited carry
-  ``events["teleop_syncing"] = True``. ``joint_delta`` already saturates, so nothing changes.
+  ``events["teleop_syncing"] = True``. ``joint_delta`` already saturates at
+  ``joint_scale_rad``, so the command is unchanged; only the catch-up readings carry
+  ``teleop_syncing``: from the takeover until the first reading with
+  ``|q_leader - q_follower|_inf <= joint_scale_rad``. Later readings of the same takeover are
+  not syncing even when the operator outpaces the follower.
 - ``arm``: the toggle only counts once ``|q_leader - q_follower|_inf <= arm_tolerance_rad``;
   until then ``intervened`` is false and the per-joint error is logged (at most once per second).
   Once armed, the source stays armed until the toggle releases.
@@ -109,6 +113,8 @@ class LeaderArmPartSource(TeleopPartSource, ToggleableTeleopSource):
         self._arm_tolerance_rad = float(arm_tolerance_rad)
         self._ramp_step_rad = float(ramp_step_rad)
         self._armed = False
+        # joint_delta ramp: whether this takeover has reached the follower yet.
+        self._caught_up = False
         self._last_unarmed_log_time: Optional[float] = None
 
         resolved = teleop() if callable(teleop) else teleop
@@ -151,6 +157,7 @@ class LeaderArmPartSource(TeleopPartSource, ToggleableTeleopSource):
         """Also disarms: every episode starts by syncing the leader again."""
         super().reset()
         self._armed = False
+        self._caught_up = False
 
     # -- onset ---------------------------------------------------------------------
 
@@ -197,6 +204,7 @@ class LeaderArmPartSource(TeleopPartSource, ToggleableTeleopSource):
         """``(intervened, leader joint target to map, syncing)`` for one read."""
         if not requested:
             self._armed = False
+            self._caught_up = False
             return False, leader, False
         if self._onset == "arm":
             if not self._armed:
@@ -207,8 +215,13 @@ class LeaderArmPartSource(TeleopPartSource, ToggleableTeleopSource):
                 self._armed = True
             return True, leader, False
         if self.action_mode != "joint_abs":
-            syncing = float(np.abs(leader - self._follower_joints()).max()) > float(self._joint_scale_rad) + 1e-6
-            return True, leader, syncing
+            # joint_delta saturates at joint_scale_rad by itself. Only the catch-up after the
+            # takeover is syncing; once aligned, a gap from the operator outpacing the follower
+            # is ordinary teaching.
+            if not self._caught_up:
+                gap = float(np.abs(leader - self._follower_joints()).max())
+                self._caught_up = gap <= float(self._joint_scale_rad) + 1e-6
+            return True, leader, not self._caught_up
         follower = self._follower_joints()
         gap = leader - follower
         syncing = float(np.abs(gap).max()) > self._ramp_step_rad

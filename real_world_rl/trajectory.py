@@ -1,6 +1,5 @@
 """Versioned plain-dict archive records; replay is a training projection."""
 from __future__ import annotations
-from typing import Any, Mapping
 import torch
 
 # Archive provenance is not a replay-buffer add() argument. Keep this projection

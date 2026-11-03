@@ -374,11 +374,6 @@ def build_deploy_env(args: DeployArgs, training_args: Any):
 
     from rl_garden.envs.backend_registry import EnvRequest, make_training_envs
     from rl_garden.observations import ObservationConfig
-    from real_world_rl.envs.wrappers.obs_chain import (
-        apply_obs_chain,
-        tcp_pose_quat_slice,
-        tcp_pose_quat_slices,
-    )
 
     from real_world_rl.training.runtime_paths import resolve_control_frequency
     if training_args is not None: resolve_control_frequency(training_args)
@@ -386,12 +381,10 @@ def build_deploy_env(args: DeployArgs, training_args: Any):
         import real_world_rl.envs.backends.real_robot_bimanual  # noqa: F401  (registers the backend)
 
         robot_config = resolve_deploy_bimanual_config(args, training_args)
-        quat_slice = tcp_pose_quat_slices(robot_config) or None
     else:
         import real_world_rl.envs.backends.real_robot  # noqa: F401  (registers the backend)
 
         robot_config = resolve_deploy_robot_config(args, training_args)
-        quat_slice = tcp_pose_quat_slice(robot_config)
     observation = getattr(training_args, "obs", None) or ObservationConfig()
     request = EnvRequest(
         env_id=getattr(training_args, "env_id", "real_robot"),

@@ -285,8 +285,33 @@ def test_hil_serl_joint_delta_rows_store_the_saturated_leader_minus_follower(lea
     np.testing.assert_allclose(env.follower, LEADER, atol=1e-6)
 
     agent = feed_hil_serl_learner(pushed, tmp_path)
+    # The three catch-up rows execute but do not supervise; the aligned rows do.
     assert len(agent.offline_replay_buffer) == 2
     torch.testing.assert_close(agent.offline_replay_buffer.actions[:2, 0], torch.cat([row["action"] for row in pushed[-2:]]))
+
+
+def test_hil_serl_joint_delta_rows_outpacing_the_follower_after_the_catch_up_are_demos(leader_env, tmp_path):
+    jump = [LEADER[0] + 0.15] + LEADER[1:]
+    script = [
+        {"action": LEADER, "gripper": 1.0, "active": False, "hold": POLICY_STEPS},
+        {"action": LEADER, "gripper": 1.0, "active": True, "hold": 5},
+        # Aligned, the operator moves the leader faster than joint_scale_rad per step.
+        {"action": jump, "gripper": 1.0, "active": True},
+    ]
+    env, logged = leader_env("joint_delta", script)
+    _, pushed = run_loop(HilSerlActorLoop, logged, total_steps=POLICY_STEPS + 7)
+
+    assert [t["intervened"] for t in pushed] == [False] * POLICY_STEPS + [True] * 7
+    # Only the takeover's catch-up is syncing, not the later saturated steps.
+    assert syncing_flags(logged.infos) == [False] * POLICY_STEPS + [True] * 3 + [False] * 4
+    for index in range(POLICY_STEPS + 5, POLICY_STEPS + 7):
+        action = as_array(pushed[index]["action"])[:NUM_JOINTS]
+        np.testing.assert_allclose(action, joint_delta_action(env.followers_before_step[index], jump), atol=1e-5)
+        assert action[0] == pytest.approx(1.0)
+
+    agent = feed_hil_serl_learner(pushed, tmp_path)
+    assert len(agent.offline_replay_buffer) == 4
+    torch.testing.assert_close(agent.offline_replay_buffer.actions[:4, 0], torch.cat([row["action"] for row in pushed[-4:]]))
 
 
 @pytest.mark.parametrize(

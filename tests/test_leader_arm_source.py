@@ -101,7 +101,32 @@ def test_joint_delta_ramp_is_the_parents_saturation(make_part):
     reading = source.poll()
     expected = np.clip((np.array(FAR) - env.follower) / JOINT_SCALE_RAD, -1.0, 1.0)
     np.testing.assert_allclose(reading.action[:7], expected, atol=1e-6)
+    # The takeover's first reading, still far from the follower: the catch-up.
     assert reading.intervened and dict(reading.events) == {TELEOP_SYNCING_EVENT: True}
+
+
+def test_joint_delta_flags_syncing_only_until_the_takeover_catches_up(make_part):
+    env = JointEnv("joint_delta")
+    script = [{"action": FAR, "active": True}] * 4 + [
+        {"action": FAR, "active": False},
+        {"action": FAR, "active": True},
+    ]
+    source = _source(make_part(script), env)
+    far = np.array(FAR)
+    # (follower before the read, expected syncing): catch-up, caught up, the operator outpacing
+    # the follower, toggle released, a new takeover catching up again.
+    steps = [(far - 0.3, True), (far - 0.1, True), (far - 0.03, False), (far - 0.2, False), (far - 0.2, False),
+             (far - 0.2, True)]
+    readings = []
+    for follower, syncing in steps:
+        env.follower = follower
+        reading = source.poll()
+        readings.append(reading)
+        assert (TELEOP_SYNCING_EVENT in reading.events) == syncing
+    assert [r.intervened for r in readings] == [True, True, True, True, False, True]
+    # The outpaced step is ordinary teaching: the saturated delta, every dim supervised.
+    np.testing.assert_allclose(readings[3].action[:7], np.ones(7), atol=1e-6)
+    assert readings[3].human_action_mask.all()
 
 
 # -- arm ----------------------------------------------------------------------------------

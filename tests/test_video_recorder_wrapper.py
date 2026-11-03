@@ -5,7 +5,6 @@ logic without depending on ffmpeg being installed in the test environment.
 """
 from __future__ import annotations
 
-import os
 import stat
 
 import gymnasium as gym

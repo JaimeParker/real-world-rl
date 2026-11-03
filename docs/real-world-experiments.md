@@ -51,6 +51,21 @@ flushes it without inventing a successor onset label. Persistence covers transit
 successfully committed by the upload/held-transition API. An abrupt process death between
 robot execution and that commit can still lose the in-memory result of that action.
 
+The outbox and the learner journal run SQLite in WAL mode with `synchronous=NORMAL`, so a
+commit does not wait for an fsync and the robot control loop does not pay one per step. A
+committed row survives a crash or kill of the actor or learner process. An operating-system
+crash or power loss can roll back the most recent commits on that machine: on the actor,
+the newest outbox rows; on the learner, the newest journal rows, which the actor may already
+have removed after their acknowledgement.
+
+The actor keeps running while the learner is unreachable (learner restart, network outage):
+uploads retry with a back-off that grows from 0.1 s to 2 s and resets on the first
+acknowledged batch, a warning is logged on the 1st and every 10th consecutive failure, and
+rows accumulate in the outbox until the learner returns. Collection stops only when the
+outbox reaches its record or byte capacity, a disk write fails, or the learner rejects
+records with an HTTP 4xx error. `ActorSyncClient(max_consecutive_failures=N)` restores a
+bounded tolerance; the default, `None`, never gives up.
+
 ## Startup and shutdown
 
 `--sync-startup-timeout` defaults to 30 seconds. The actor waits for an initial learner
@@ -94,7 +109,11 @@ the generation's `agent.pt` and start a new run with an empty journal.
 
 Bundles include full replay buffers by default, with corresponding disk space, save-time
 and temporary CPU-memory costs. Periodic saves respect `checkpoint_freq`; final saves
-respect `save_final_checkpoint`. Keep the referenced `bundle_*` directory and
+respect `save_final_checkpoint`. Stopping the learner with Ctrl-C (`KeyboardInterrupt`) or
+`SystemExit` is a normal stop: it writes `final.pt` and a new bundle, including when the
+interrupt lands inside an update. An exception raised by an update, or any interruption
+while a journal record is being applied to the replay buffers, skips the final save so the
+last complete bundle stays current; resuming from it replays the journal tail. Keep the referenced `bundle_*` directory and
 matching journal together. A journal identity mismatch is rejected. After restore, only
 rows after the saved journal cursor are applied; seed demos and old pickle snapshots are
 not loaded again on top of bundle replay.
@@ -156,10 +175,14 @@ last commanded target. `--teleop-idle-behavior policy` leaves those parts with t
 hold supplements. An empty human mask supplies no expert label, and hold supplements do
 not train imitation losses. Legacy full-action interventions retain full-mask behavior.
 
-Leader catch-up executes and remains in the archive, including saturated `joint_delta`
-catch-up. Its `syncing` marker disables demonstration supervision by default. The recorder's
-`--keep-syncing-steps` keeps such rows in its explicit pickle export; archive-derived
-training views continue to exclude them. A leader with no gripper channel holds the
+Leader catch-up executes and remains in the archive. In `joint_abs` with the `ramp` onset,
+every rate-limited step is catch-up. In `joint_delta`, only the steps from the takeover until
+the leader is first within `joint_scale_rad` of the follower are catch-up; later saturated
+steps of the same takeover (the operator moving faster than the follower) are ordinary human
+teaching and supervise like any other intervened step. The catch-up rows' `syncing` marker
+disables demonstration supervision. The recorder's `--keep-syncing-steps` keeps them in its
+pickle export as ordinary supervised rows (the archive still marks them `syncing`);
+archive-derived training views continue to exclude them. A leader with no gripper channel holds the
 previous target instead of supplying an expert gripper label.
 
 BC, SiLRI behavior fitting and actor pretraining supervise only human dimensions. For
@@ -196,9 +219,21 @@ invent temporal adjacency or move terminal rewards to earlier human steps. Legac
 demo datasets without an intervention column retain full-dimension supervision; explicit
 false labels and unknown online-checkpoint provenance remain nonexpert.
 
-The versioned experiment contract includes task settings, image preprocessing/depth and
-control settings. Recording, training and deployment share these settings; incompatible
-contracts are rejected rather than replayed under different action or observation semantics.
+The versioned experiment contract has a compared part and a provenance part. The compared
+part is what changes what the policy sees or how its actions are interpreted: the task,
+control settings, `control_hz`, `joint_limits`, depth cameras, `image_size`, image
+preprocessing, the final observation layout (keys, shapes, camera order, frame stack) and
+the teleop part selection/idle behavior. Recording, training, deployment and evaluation must
+agree on it; a mismatch is rejected rather than replayed under different action or
+observation semantics, and only this part enters the experiment hash. The provenance part is
+saved with the contract and shown in mismatch errors but never compared: the reward sources
+(classifier paths, contents and threshold, `reward_from_teleop_events`,
+`teleop_success_reward`, grasp penalty) and the station facts the command line owns
+(`safety_box`, `home_joints`, `reset_settle_s`, `max_episode_steps`, and the `cameras`
+list, whose names and order are compared through the observation layout). So demos recorded with the recorder's teleop-event reward load into a run
+with a classifier, and a deploy may use another home pose or episode cap. Data recorded
+before experiment metadata existed loads with a warning unless the run's task, control,
+depth or preprocessing settings need that metadata.
 Two-arm task outcomes retain per-arm labels. A one-arm success does not confirm an entire
 parallel task; an explicit whole-task confirmation uses `task_success`/`task_failure` events.
 Checkpoint and actor parameter loading also verify the constructed policy's action-bound,
@@ -237,6 +272,6 @@ limits may only tighten station limits.
 
 When classifier files move, deployment accepts replacement `classifier_checkpoint` or
 task `classifier_checkpoints` paths. A task path override can leave the other task fields
-at their defaults; the saved task still supplies the task settings. File contents remain
-part of the experiment identity, so changed classifier contents fail contract validation
-before the first connection/reset motion.
+at their defaults; the saved task still supplies the task settings. Classifier paths and
+contents are provenance: a retrained classifier deploys, and its content hash is recorded
+next to the one the policy was trained with.

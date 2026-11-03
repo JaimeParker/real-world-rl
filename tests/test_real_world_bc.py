@@ -12,7 +12,6 @@ import pickle
 import pytest
 
 import gymnasium as gym
-import numpy as np
 import torch
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space

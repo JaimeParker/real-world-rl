@@ -39,8 +39,8 @@ from rl_garden_real_world.action_contract import (
     num_grippers_of,
     write_contract_sidecar,
 )
-from rl_garden_real_world.actor_loop import ActorLoop
 from rl_garden_real_world.envs.wrappers.intervention import InterventionWrapper
+from rl_garden_real_world.loops.actor import ActorLoop
 from rl_garden_real_world.teleop.base import TeleopReading, TeleopSource
 from rl_garden_real_world.teleop.bimanual import (
     find_bimanual_env,

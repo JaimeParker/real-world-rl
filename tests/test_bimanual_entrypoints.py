@@ -66,15 +66,15 @@ _SILRI_SIZES = dict(
     lambda_hidden_dims=(8,),
     discrete_hidden_dim=8,
 )
-# method -> (run function, Args factory, package holding its loops)
+# method -> (run function, Args factory, module holding its loops)
 _METHODS = {
-    "hil_serl": (run_hil_serl, lambda **kw: HilSerlArgs(**_RLPD_SIZES, **kw), "rl_garden_real_world.hil_serl"),
+    "hil_serl": (run_hil_serl, lambda **kw: HilSerlArgs(**_RLPD_SIZES, **kw), "rl_garden_real_world.loops.hil_serl"),
     "residual_hil_serl": (
         run_residual_hil_serl,
         lambda **kw: ResidualHilSerlArgs(**_RLPD_SIZES, residual_variant="hybrid", base_provider="zero", **kw),
-        "rl_garden_real_world.residual",
+        "rl_garden_real_world.loops.residual",
     ),
-    "silri": (run_silri, lambda **kw: SilriArgs(**_SILRI_SIZES, **kw), "rl_garden_real_world.silri"),
+    "silri": (run_silri, lambda **kw: SilriArgs(**_SILRI_SIZES, **kw), "rl_garden_real_world.loops.silri"),
 }
 _ACTOR_LOOPS = {"hil_serl": "HilSerlActorLoop", "residual_hil_serl": "ResidualActorLoop", "silri": "SilriActorLoop"}
 _LEARNER_LOOPS = {

@@ -3,7 +3,7 @@
 Structurally unlike ``serl``/``hil_serl``: BC (``rl_garden.algorithms.bc.BC``)
 is an ``OfflineRLAlgorithm`` -- a static dataset, no online env stepping --
 not an ``OffPolicyAlgorithm``, so there is no actor/learner HTTP split here
-at all: no ``sync.py``, no ``LearnerLoop``/``ActorLoop``. This reuses
+at all: no ``loops/sync.py``, no ``LearnerLoop``/``ActorLoop``. This reuses
 ``rl_garden``'s existing offline BC algorithm construction
 (``rl_garden.training.offline.entrypoints.bc.build_bc``) directly against a
 demo-pkl-populated buffer, rather than ``rl_garden.training.offline.runner

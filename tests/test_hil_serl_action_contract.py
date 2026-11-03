@@ -21,7 +21,7 @@ from rl_garden_real_world.envs.real_robot.env import RealRobotVectorEnv
 from rl_garden_real_world.envs.wrappers.grasp_penalty import GraspPenaltyWrapper
 from rl_garden_real_world.envs.wrappers.obs_chain import apply_obs_chain, tcp_pose_quat_slice
 from rl_garden_real_world.envs.wrappers.rotvec_obs import RotvecObsWrapper
-from rl_garden_real_world.envs.wrappers.teleop_intervention import TeleopInterventionWrapper
+from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
 from rl_garden_real_world.training.demo_loading import load_demo_pkls
 
 
@@ -376,7 +376,7 @@ def _learner_transition(intervened):
 
 
 def test_learner_snapshots_carry_contract_and_reload_validates_it(tmp_path):
-    from rl_garden_real_world.hil_serl import HilSerlLearnerLoop
+    from rl_garden_real_world.loops.hil_serl import HilSerlLearnerLoop
 
     loop = HilSerlLearnerLoop(
         _learner_agent(), "127.0.0.1", 0, checkpoint_dir=str(tmp_path), buffer_period=2,
@@ -407,7 +407,7 @@ def test_learner_snapshots_carry_contract_and_reload_validates_it(tmp_path):
 
 
 def test_learner_demo_dataset_paths_are_validated(tmp_path):
-    from rl_garden_real_world.hil_serl import HilSerlLearnerLoop
+    from rl_garden_real_world.loops.hil_serl import HilSerlLearnerLoop
 
     _write_pkl(tmp_path / "demo.pkl", action_dim=8)
     with pytest.raises(ValueError, match="action dim 8"):

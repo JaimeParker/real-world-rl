@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import torch
 
-from rl_garden_real_world.hil_serl import HilSerlLearnerLoop
+from rl_garden_real_world.loops.hil_serl import HilSerlLearnerLoop
 
 
 class _RecordingAgent:

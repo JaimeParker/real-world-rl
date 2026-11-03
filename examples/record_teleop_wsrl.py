@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
-import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,11 +9,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import tyro
 
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
-
-from rl_garden_real_world.utils.tree import index_tree  # noqa: E402
+from rl_garden_real_world.common.tree import index_tree
 
 
 @dataclass

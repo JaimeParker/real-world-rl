@@ -31,7 +31,7 @@ from typing import Any, Optional
 import torch
 
 from rl_garden.policies.base import BasePolicy
-from rl_garden_real_world.sync import ActorSyncClient
+from rl_garden_real_world.loops.sync import ActorSyncClient
 
 
 class ActorLoop:

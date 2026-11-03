@@ -1,41 +1,8 @@
-"""HIL-SERL's LearnerLoop -- this migration targets HIL-SERL's ``train_rlpd.py``
-capability set (online RLPD + demo mixing + HITL + reward classifier), which
-uses RLPD's existing static ``offline_dataset`` loading, not a
-continuously growing on-disk dataset. So ``_refresh_offline_data()`` stays
-the base class's no-op default here too; HG-DAgger's growing-dataset problem
-is out of scope for this round (see ``robot_infra/docs/robot-infra-roadmap.md`` in this repository).
+"""HIL-SERL's actor, learner and sync classes.
 
-Overrides ``_on_transition`` to route transitions the way HIL-SERL's own
-actor loop does (``3rd_party/hil-serl/examples/train_rlpd.py:178-193``):
-*every* transition goes into the online replay buffer, and human-intervened
-transitions are *additionally* copied into the growing demo buffer
-(``DemoInterventionMixin``, see ``rl_garden/buffers/demo_intervention.py``)
--- the demo buffer is a duplicated subset of the online buffer, not a
-disjoint partition of it. Also periodically pickle-snapshots both buffers to
-disk for crash recovery -- ``LearnerLoop.run()`` never triggers the existing
-``save_replay_buffer``/``include_replay_buffer`` checkpoint mechanism
-(``rl_garden/algorithms/off_policy.py``), so this pkl snapshot is the only
-buffer persistence path for real-world hil_serl training. Mirrors HIL-SERL's
-own mechanism (``train_rlpd.py:140-233``): transitions accumulated since the
-last snapshot are pickled to ``<checkpoint_dir>/buffer/transitions_{n}.pkl``
-(every transition) and ``<checkpoint_dir>/demo_buffer/transitions_{n}.pkl``
-(intervened only) every ``buffer_period`` received transitions, and both
-directories are glob-reloaded on startup.
-
-Also loads ``demo_dataset_paths`` (pre-collected demo transitions, HIL-SERL's
-``--demo_path`` equivalent -- ``train_rlpd.py:458-466``) into the demo buffer
-on every start, unconditionally, before the crash-recovery snapshot reload --
-matching HIL-SERL's own always-reload-``demo_path`` behavior exactly. Uses
-the same pkl transition-dict format as the buffer snapshots above (not
-HIL-SERL's own numpy dict shape), so a previous run's
-``demo_buffer/*.pkl`` snapshot files can be reused directly as seed data.
-
-``_buffer_kwargs(transition) -> (core, extra)`` is the hook that decides which fields of a
-received transition reach ``replay_buffer.add`` / ``add_demo_transition`` (and so the
-snapshots). The default drops ``intervened`` (routing only) and ``actor_id`` and forwards
-the rest, which is what ``DictReplayBuffer`` accepts (e.g. ``grasp_penalty``).
-``ResidualLearnerLoop`` and ``SilriLearnerLoop`` override it to keep ``intervened``,
-``policy_action`` and their own columns for ``InterventionReplayBuffer``.
+``HilSerlActorLoop`` tags pushed transitions with the intervention flag,
+``HilSerlLearnerLoop`` routes them into the online and demo buffers and snapshots both
+for crash recovery, and the sync classes are the base ones under HIL-SERL names.
 """
 from __future__ import annotations
 
@@ -52,11 +19,81 @@ from rl_garden_real_world.action_contract import (
     validate_transitions_against_contract,
     write_contract_sidecar,
 )
-from rl_garden_real_world.learner_loop import _TRANSITION_TENSOR_KEYS, LearnerLoop
-from rl_garden_real_world.training.demo_loading import as_dict_observation, load_demo_pkls
+from rl_garden_real_world.loops.actor import ActorLoop
+from rl_garden_real_world.loops.learner import _TRANSITION_TENSOR_KEYS, LearnerLoop
+from rl_garden_real_world.loops.sync import ActorSyncClient, LearnerSyncServer
+from rl_garden_real_world.training.demo_loading import (
+    as_dict_observation,
+    load_demo_pkls,
+)
+
+__all__ = [
+    "HilSerlActorLoop",
+    "HilSerlLearnerLoop",
+    "HilSerlActorSyncClient",
+    "HilSerlLearnerSyncServer",
+]
+
+
+class HilSerlActorLoop(ActorLoop):
+    """HIL-SERL's ActorLoop. HITL intervention and the hybrid continuous+discrete
+    action are handled by the env wrapper stack and the policy respectively, so
+    the only overrides needed are tagging pushed transitions with whether a human
+    was intervening -- ``HilSerlLearnerLoop`` uses this to route the transition
+    into the online replay buffer or the growing demo buffer -- and forwarding
+    ``grasp_penalty`` when ``GraspPenaltyWrapper`` is in the env stack (it flows
+    straight through to ``DictReplayBuffer.add(grasp_penalty=...)`` once
+    received, no further routing needed).
+    """
+
+    def _extra_transition_fields(self, info: dict) -> dict:
+        fields = {"intervened": "intervene_action" in info}
+        if "grasp_penalty" in info:
+            fields["grasp_penalty"] = info["grasp_penalty"]
+        return fields
 
 
 class HilSerlLearnerLoop(LearnerLoop):
+    """HIL-SERL's LearnerLoop -- this migration targets HIL-SERL's ``train_rlpd.py``
+    capability set (online RLPD + demo mixing + HITL + reward classifier), which
+    uses RLPD's existing static ``offline_dataset`` loading, not a
+    continuously growing on-disk dataset. So ``_refresh_offline_data()`` stays
+    the base class's no-op default here too; HG-DAgger's growing-dataset problem
+    is out of scope for this round (see ``robot_infra/docs/robot-infra-roadmap.md`` in this repository).
+
+    Overrides ``_on_transition`` to route transitions the way HIL-SERL's own
+    actor loop does (``3rd_party/hil-serl/examples/train_rlpd.py:178-193``):
+    *every* transition goes into the online replay buffer, and human-intervened
+    transitions are *additionally* copied into the growing demo buffer
+    (``DemoInterventionMixin``, see ``rl_garden/buffers/demo_intervention.py``)
+    -- the demo buffer is a duplicated subset of the online buffer, not a
+    disjoint partition of it. Also periodically pickle-snapshots both buffers to
+    disk for crash recovery -- ``LearnerLoop.run()`` never triggers the existing
+    ``save_replay_buffer``/``include_replay_buffer`` checkpoint mechanism
+    (``rl_garden/algorithms/off_policy.py``), so this pkl snapshot is the only
+    buffer persistence path for real-world hil_serl training. Mirrors HIL-SERL's
+    own mechanism (``train_rlpd.py:140-233``): transitions accumulated since the
+    last snapshot are pickled to ``<checkpoint_dir>/buffer/transitions_{n}.pkl``
+    (every transition) and ``<checkpoint_dir>/demo_buffer/transitions_{n}.pkl``
+    (intervened only) every ``buffer_period`` received transitions, and both
+    directories are glob-reloaded on startup.
+
+    Also loads ``demo_dataset_paths`` (pre-collected demo transitions, HIL-SERL's
+    ``--demo_path`` equivalent -- ``train_rlpd.py:458-466``) into the demo buffer
+    on every start, unconditionally, before the crash-recovery snapshot reload --
+    matching HIL-SERL's own always-reload-``demo_path`` behavior exactly. Uses
+    the same pkl transition-dict format as the buffer snapshots above (not
+    HIL-SERL's own numpy dict shape), so a previous run's
+    ``demo_buffer/*.pkl`` snapshot files can be reused directly as seed data.
+
+    ``_buffer_kwargs(transition) -> (core, extra)`` is the hook that decides which fields of a
+    received transition reach ``replay_buffer.add`` / ``add_demo_transition`` (and so the
+    snapshots). The default drops ``intervened`` (routing only) and ``actor_id`` and forwards
+    the rest, which is what ``DictReplayBuffer`` accepts (e.g. ``grasp_penalty``).
+    ``ResidualLearnerLoop`` and ``SilriLearnerLoop`` override it to keep ``intervened``,
+    ``policy_action`` and their own columns for ``InterventionReplayBuffer``.
+    """
+
     def __init__(
         self,
         agent: OffPolicyAlgorithm,
@@ -195,3 +232,15 @@ class HilSerlLearnerLoop(LearnerLoop):
         self._pending_online = []
         self._pending_demo = []
         self._step_since_snapshot = 0
+
+
+class HilSerlActorSyncClient(ActorSyncClient):
+    """HIL-SERL's actor sync client -- currently identical to the base; kept as its own
+    subclass for naming symmetry with ``rl_garden_real_world.loops.serl``.
+    """
+
+
+class HilSerlLearnerSyncServer(LearnerSyncServer):
+    """HIL-SERL's learner sync server -- currently identical to the base; kept as its own
+    subclass for naming symmetry with ``rl_garden_real_world.loops.serl``.
+    """

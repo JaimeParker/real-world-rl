@@ -339,7 +339,7 @@ def compose_hil_env(args, env_request, *, enable_teleop: bool = True):
         env = RewardClassifierWrapper(env, classifier_fn, threshold=args.classifier_threshold)
 
     if enable_teleop:
-        from rl_garden_real_world.envs.wrappers.teleop_intervention import TeleopInterventionWrapper
+        from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
 
         # Validates the teleop source's action_mode/arm count/width against the env's action
         # contract (also rejects gripper_in_action=false, which GraspPenaltyWrapper below relies on).

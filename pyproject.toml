@@ -36,6 +36,12 @@ reward-collection = ["pynput"]
 examples = ["mani_skill"]
 dev = ["pytest", "scipy"]
 
+[project.scripts]
+rlgarden-real-train = "rl_garden_real_world.training.__main__:main"
+rlgarden-real-record = "rl_garden_real_world.demos.__main__:main"
+rlgarden-real-deploy = "rl_garden_real_world.deploy:run_cli"
+rlgarden-real-collect-reward = "rl_garden_real_world.reward.collect_data:main"
+
 [project.entry-points."rlgarden.env_backends"]
 franka_real = "rl_garden_real_world.envs.backends.franka_real"
 real_robot = "rl_garden_real_world.envs.backends.real_robot"
@@ -46,3 +52,6 @@ real_world = "rl_garden_real_world.training.rlgarden_algorithms"
 
 [tool.setuptools.packages.find]
 include = ["rl_garden_real_world*"]
+
+[tool.setuptools.package-data]
+rl_garden_real_world = ["py.typed"]

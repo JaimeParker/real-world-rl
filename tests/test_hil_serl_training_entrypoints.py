@@ -80,7 +80,7 @@ def test_build_env_skips_reward_classifier_wrapper_when_no_checkpoint_given(monk
     env = _build_env(args, env_request=None)
 
     from rl_garden.envs.wrappers.reward_classifier import RewardClassifierWrapper
-    from rl_garden_real_world.envs.wrappers.teleop_intervention import TeleopInterventionWrapper
+    from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
 
     assert isinstance(env, TeleopInterventionWrapper)
     assert not isinstance(env.env, RewardClassifierWrapper)
@@ -110,7 +110,7 @@ def test_build_env_composes_reward_classifier_wrapper_when_checkpoint_given(monk
     env = _build_env(args, env_request=None)
 
     from rl_garden.envs.wrappers.reward_classifier import RewardClassifierWrapper
-    from rl_garden_real_world.envs.wrappers.teleop_intervention import TeleopInterventionWrapper
+    from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
 
     assert isinstance(env, TeleopInterventionWrapper)
     assert isinstance(env.env, RewardClassifierWrapper)
@@ -154,7 +154,7 @@ def test_build_env_composes_image_frame_stack_wrapper_when_frame_stack_set(monke
     env = _build_env(args, env_request=None)
 
     from rl_garden.envs.wrappers.frame_stack import ImageFrameStackWrapper
-    from rl_garden_real_world.envs.wrappers.teleop_intervention import TeleopInterventionWrapper
+    from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
 
     assert isinstance(env, TeleopInterventionWrapper)
     assert isinstance(env.env, ImageFrameStackWrapper)
@@ -175,7 +175,7 @@ def test_build_env_skips_grasp_penalty_wrapper_by_default(monkeypatch):
     env = _build_env(args, env_request=None)
 
     from rl_garden_real_world.envs.wrappers.grasp_penalty import GraspPenaltyWrapper
-    from rl_garden_real_world.envs.wrappers.teleop_intervention import TeleopInterventionWrapper
+    from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
 
     assert isinstance(env, TeleopInterventionWrapper)
     assert not isinstance(env.env, GraspPenaltyWrapper)
@@ -193,7 +193,7 @@ def test_build_env_composes_grasp_penalty_wrapper_outside_teleop_when_enabled(mo
     env = _build_env(args, env_request=None)
 
     from rl_garden_real_world.envs.wrappers.grasp_penalty import GraspPenaltyWrapper
-    from rl_garden_real_world.envs.wrappers.teleop_intervention import TeleopInterventionWrapper
+    from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
 
     assert isinstance(env, GraspPenaltyWrapper)
     assert isinstance(env.env, TeleopInterventionWrapper)
@@ -239,7 +239,7 @@ def test_build_env_accepts_cartesian_delta_with_gripper_real_robot(monkeypatch):
     _patch_real_robot_build(monkeypatch)
     env = _build_env(_real_robot_args(), env_request=None)
 
-    from rl_garden_real_world.envs.wrappers.teleop_intervention import TeleopInterventionWrapper
+    from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
 
     assert isinstance(env, TeleopInterventionWrapper)
 
@@ -274,7 +274,7 @@ def test_run_actor_builds_scratch_agent_and_starts_actor_loop(monkeypatch):
         def run(self):
             captured["ran"] = True
 
-    monkeypatch.setattr("rl_garden_real_world.hil_serl.HilSerlActorLoop", _FakeActorLoop)
+    monkeypatch.setattr("rl_garden_real_world.loops.hil_serl.HilSerlActorLoop", _FakeActorLoop)
 
     from rl_garden_real_world.training.entrypoints.hil_serl import _run_actor
 
@@ -341,7 +341,7 @@ def test_run_learner_builds_full_agent_and_starts_learner_loop(monkeypatch, tmp_
         def run(self):
             captured["ran"] = True
 
-    monkeypatch.setattr("rl_garden_real_world.hil_serl.HilSerlLearnerLoop", _FakeLearnerLoop)
+    monkeypatch.setattr("rl_garden_real_world.loops.hil_serl.HilSerlLearnerLoop", _FakeLearnerLoop)
 
     from rl_garden_real_world.training.entrypoints.hil_serl import _run_learner
 
@@ -385,7 +385,7 @@ def test_run_learner_fwbw_backward_binds_to_backward_port(monkeypatch, tmp_path)
         def run(self):
             captured["ran"] = True
 
-    monkeypatch.setattr("rl_garden_real_world.hil_serl.HilSerlLearnerLoop", _FakeLearnerLoop)
+    monkeypatch.setattr("rl_garden_real_world.loops.hil_serl.HilSerlLearnerLoop", _FakeLearnerLoop)
 
     from rl_garden_real_world.training.entrypoints.hil_serl import _run_learner
 
@@ -618,8 +618,8 @@ def test_build_env_robot_teleop_device_wraps_teleop_part_source_in_order(_fake_r
     from rl_garden.envs.wrappers.frame_stack import ImageFrameStackWrapper
     from rl_garden_real_world.envs.real_robot import RealRobotVectorEnv
     from rl_garden_real_world.envs.wrappers.grasp_penalty import GraspPenaltyWrapper
-    from rl_garden_real_world.envs.wrappers.teleop_intervention import TeleopInterventionWrapper
-    from rl_garden_real_world.envs.wrappers.teleop_sources import TeleopPartSource
+    from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
+    from rl_garden_real_world.teleop.part import TeleopPartSource
     from rl_garden_real_world.training.entrypoints.hil_serl import _hil_serl_env_request
 
     args = _fake_robot_args(

@@ -9,6 +9,10 @@ Operating guide for coding agents working on `rlgarden-real-world`. Read
   is the real-robot RL package; `robot_infra/` is the torch-free device layer
   (a second distribution, `rlgarden-robot-infra`, that never imports
   `rl_garden` or `rl_garden_real_world`).
+- Package layering: `rl_garden_real_world/loops/` holds the actor, learner and sync
+  classes (base modules `actor`, `learner`, `sync`, then one module per method);
+  `algorithms/`, `policies/`, `envs/`, `teleop/` and `training/entrypoints/` are
+  laid out as in rl-garden.
 - `rl-garden/` is rl-garden as a git submodule, pinned to the commit the tests
   here pass against. Bump it deliberately: check out the new commit inside
   `rl-garden/`, run this repository's tests, then commit the new gitlink here

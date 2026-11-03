@@ -18,14 +18,14 @@ from rl_garden_real_world import (
     ActorSyncClient,
     LearnerSyncServer,
 )
-from rl_garden_real_world.actor_loop import ActorLoop
-from rl_garden_real_world.hil_serl import (
+from rl_garden_real_world.loops.actor import ActorLoop
+from rl_garden_real_world.loops.hil_serl import (
     HilSerlActorLoop,
     HilSerlActorSyncClient,
     HilSerlLearnerLoop,
     HilSerlLearnerSyncServer,
 )
-from rl_garden_real_world.learner_loop import LearnerLoop
+from rl_garden_real_world.loops.learner import LearnerLoop
 
 
 class _DummyVecEnv:

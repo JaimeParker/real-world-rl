@@ -20,12 +20,7 @@ observation/action spaces match.
 """
 from __future__ import annotations
 
-from rl_garden_real_world.training import registry
-
-
-def main() -> None:
-    registry.run_cli()
-
+from rl_garden_real_world.training.__main__ import main
 
 if __name__ == "__main__":
     main()

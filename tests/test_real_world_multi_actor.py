@@ -9,8 +9,8 @@ import threading
 
 import torch
 
-from rl_garden_real_world.learner_loop import LearnerLoop
-from rl_garden_real_world.sync import ActorSyncClient, LearnerSyncServer
+from rl_garden_real_world.loops.learner import LearnerLoop
+from rl_garden_real_world.loops.sync import ActorSyncClient, LearnerSyncServer
 
 
 def _start_server(on_transition):

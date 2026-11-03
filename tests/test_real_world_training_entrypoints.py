@@ -56,7 +56,7 @@ def test_run_actor_builds_scratch_agent_with_tiny_buffer_and_starts_actor_loop(m
         def run(self):
             captured["ran"] = True
 
-    monkeypatch.setattr("rl_garden_real_world.serl.SerlActorLoop", _FakeActorLoop)
+    monkeypatch.setattr("rl_garden_real_world.loops.serl.SerlActorLoop", _FakeActorLoop)
 
     from rl_garden_real_world.training.entrypoints.serl import _run_actor
 
@@ -100,7 +100,7 @@ def test_run_learner_builds_full_agent_and_starts_learner_loop(monkeypatch, tmp_
         def run(self):
             captured["ran"] = True
 
-    monkeypatch.setattr("rl_garden_real_world.serl.SerlLearnerLoop", _FakeLearnerLoop)
+    monkeypatch.setattr("rl_garden_real_world.loops.serl.SerlLearnerLoop", _FakeLearnerLoop)
 
     from rl_garden_real_world.training.entrypoints.serl import _run_learner
 
@@ -198,7 +198,7 @@ def test_serl_actor_builds_real_robot_env_with_real_robot_config(monkeypatch):
         def run(self):
             pass
 
-    monkeypatch.setattr("rl_garden_real_world.serl.SerlActorLoop", _FakeActorLoop)
+    monkeypatch.setattr("rl_garden_real_world.loops.serl.SerlActorLoop", _FakeActorLoop)
 
     from rl_garden_real_world.training.entrypoints.serl import _run_actor
 

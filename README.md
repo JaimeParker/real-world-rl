@@ -27,6 +27,10 @@ Each method is a subcommand of `python examples/train_real_world.py <method> --r
 online registry through the `rlgarden.algorithms` entry point, so `examples/deploy_real_robot.py`
 can rebuild their agents from a checkpoint (`rl-garden-eval` cannot evaluate residual checkpoints:
 they need a base provider).
+The training, recording and deploy scripts in `examples/` are thin wrappers over console scripts of the installed package:
+`rlgarden-real-train` / `python -m rl_garden_real_world.training`, `rlgarden-real-record` /
+`python -m rl_garden_real_world.demos`, `rlgarden-real-deploy` / `python -m rl_garden_real_world.deploy`,
+plus `rlgarden-real-collect-reward` / `python -m rl_garden_real_world.reward.collect_data` for reward-classifier data.
 
 | Method | What it is | Guide |
 |---|---|---|
@@ -42,7 +46,16 @@ they need a base provider).
 rlgarden-real-world/             repository rlgarden-real-world (top level)
   pyproject.toml                 distribution rlgarden-real-world (imports rl_garden)
   rl-garden/                     git submodule: rl-garden, pinned to the tested commit
-  rl_garden_real_world/          loops, sync, env backends and wrappers, teleop, policies, algorithms, training entrypoints
+  rl_garden_real_world/          package rl_garden_real_world
+    loops/                       actor/learner/sync: base classes (actor, learner, sync) and one module per method (serl, hil_serl, residual, silri)
+    algorithms/ policies/        real-world algorithms and policies (residual, SiLRI, base action providers)
+    buffers/                     InterventionReplayBuffer (residual, SiLRI)
+    envs/                        env backends (franka_real, real_robot, real_robot_bimanual) and wrappers
+    teleop/ kinematics/          teleop sources; robot kinematics (numpy)
+    training/                    registry, shared args, env building, entrypoints/ (one per method); python -m entry
+    demos/ reward/               demo recording, reward-classifier data collection
+    deploy.py                    eval-only deployment of a checkpoint
+    common/ integrations/        small shared helpers; external integrations (integrations/rlinf)
   robot_infra/                   in-repo device layer: distribution rlgarden-robot-infra (package robot_infra, torch-free)
     pyproject.toml
     robot_infra/                 devices, discovery, doctor, daemon, RemoteRobot
@@ -381,7 +394,7 @@ any roscore running on the env node.
 **RLinf**: RLinf drives this package through Gymnasium registration, not
 through rl-garden's adapter. In an RLinf real-world config set the env block's
 `env_type: real` and `init_params.id:
-"rl_garden_real_world.rlinf.register:RLGardenReal-v0"`; RLinf's
+"rl_garden_real_world.integrations.rlinf.register:RLGardenReal-v0"`; RLinf's
 `RealWorldEnv` then `gym.make`s `RealRobotEnv` (one robot per env worker) with
 `override_cfg` as its config. See
 [`configs/rlinf/realworld_rlgarden_franka.yaml`](configs/rlinf/realworld_rlgarden_franka.yaml)

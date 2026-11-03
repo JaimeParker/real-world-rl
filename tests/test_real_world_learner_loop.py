@@ -16,8 +16,8 @@ import time
 
 import torch
 
-from rl_garden_real_world.learner_loop import LearnerLoop
-from rl_garden_real_world.sync import ActorSyncClient
+from rl_garden_real_world.loops.learner import LearnerLoop
+from rl_garden_real_world.loops.sync import ActorSyncClient
 
 
 class _FakeReplayBuffer:

@@ -182,8 +182,8 @@ def _scratch_agent(args, env):
 
 
 def _run_actor(args) -> None:
-    from rl_garden_real_world.hil_serl import HilSerlActorSyncClient
-    from rl_garden_real_world.silri import SilriActorLoop
+    from rl_garden_real_world.loops.hil_serl import HilSerlActorSyncClient
+    from rl_garden_real_world.loops.silri import SilriActorLoop
 
     env = build_hil_env(args, role="actor")
     if args.record_video_dir is not None:
@@ -213,7 +213,7 @@ def _run_learner(args) -> None:
     from rl_garden.common import Logger, seed_everything
     from rl_garden.common.resolved_config import persist_resolved_config
     from rl_garden_real_world.action_contract import demo_contract_of
-    from rl_garden_real_world.silri import SilriLearnerLoop
+    from rl_garden_real_world.loops.silri import SilriLearnerLoop
 
     seed_everything(args.seed)
     start_time = time.strftime("%Y%m%d_%H%M%S", time.localtime())
@@ -260,7 +260,7 @@ def _run_learner(args) -> None:
 def _run_eval(args) -> None:
     """Deterministic episodes of the ``--load_checkpoint`` policy on the robot; success is
     ``terminated`` (the reward classifier's success), a truncated episode is a failure."""
-    from rl_garden_real_world.actor_loop import ActorLoop
+    from rl_garden_real_world.loops.actor import ActorLoop
 
     if args.load_checkpoint is None:
         raise ValueError("silri eval requires --load_checkpoint.")

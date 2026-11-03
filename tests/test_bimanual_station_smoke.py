@@ -47,10 +47,10 @@ from rl_garden_real_world.demos.record import (
 from rl_garden_real_world.deploy import DeployArgs, restore_training_args, run_deploy
 from rl_garden_real_world.envs.bimanual import BimanualRealRobotEnvConfig
 from rl_garden_real_world.envs.real_robot import RealRobotEnvConfig
-from rl_garden_real_world.hil_serl import HilSerlActorLoop, HilSerlLearnerLoop
+from rl_garden_real_world.loops.hil_serl import HilSerlActorLoop, HilSerlLearnerLoop
+from rl_garden_real_world.loops.residual import ResidualActorLoop, ResidualLearnerLoop
+from rl_garden_real_world.loops.silri import SilriActorLoop, SilriLearnerLoop
 from rl_garden_real_world.policies.base_provider import ZeroBaseProvider
-from rl_garden_real_world.residual import ResidualActorLoop, ResidualLearnerLoop
-from rl_garden_real_world.silri import SilriActorLoop, SilriLearnerLoop
 from rl_garden_real_world.teleop.bimanual import BimanualTeleopSource
 from rl_garden_real_world.teleop.leader_arm import LeaderArmPartSource
 from rl_garden_real_world.training import env_building

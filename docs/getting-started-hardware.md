@@ -337,6 +337,10 @@ Check a preset without touching the robot:
 python examples/train_real_world.py hil_serl --config hil.yaml --print-config
 ```
 
+With the package installed, `rlgarden-real-train` or `python -m rl_garden_real_world.training` is equivalent to
+`python examples/train_real_world.py` (likewise `rlgarden-real-record` for `examples/record_real_demos.py` and
+`rlgarden-real-deploy` for `examples/deploy_real_robot.py`).
+
 **Why `joint_delta` throughout.** The recorded demos, the BC checkpoint, and every HIL run must use the
 same `action_mode`: the learner rejects a demo pkl whose contract sidecar differs from its env, and a
 residual base must act in the env's action space. This guide uses `joint_delta` for all stages (the

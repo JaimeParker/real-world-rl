@@ -14,7 +14,7 @@
 # Hazards:
 #   - rl_garden_real_world (and rl_garden, robot_infra) must be importable in the Ray env-worker
 #     process on the env node (pip install -e, or PYTHONPATH exported before `ray start`):
-#     gym.make imports `rl_garden_real_world.rlinf.register`, which registers the id.
+#     gym.make imports `rl_garden_real_world.integrations.rlinf.register`, which registers the id.
 #   - RLinf's load_tasks() runs RealWorldEnv.realworld_setup(), which KILLS any roscore /
 #     rosmaster / rosout process on the env node. Do not co-locate a ROS master you need.
 
@@ -39,10 +39,10 @@ video_cfg:
   video_base_dir: ${runner.logger.log_path}/video/train
 
 init_params:
-  id: "rl_garden_real_world.rlinf.register:RLGardenReal-v0"
+  id: "rl_garden_real_world.integrations.rlinf.register:RLGardenReal-v0"
   num_envs: null
 
-# Passed (as a plain dict) to rl_garden_real_world.rlinf.register.make_rlinf_env.
+# Passed (as a plain dict) to rl_garden_real_world.integrations.rlinf.register.make_rlinf_env.
 override_cfg:
   task_description: "pick up the cube"
   main_image_key: wrist  # same as main_image_key above; checked at env construction

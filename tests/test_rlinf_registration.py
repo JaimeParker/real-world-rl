@@ -17,9 +17,9 @@ import robot_infra.devices.backends  # noqa: F401  (registers the fake backends)
 import robot_infra.devices.claims as claims
 
 from rl_garden_real_world.envs.real_robot import RealRobotEnvConfig
-from rl_garden_real_world.rlinf import register as rlinf_register
+from rl_garden_real_world.integrations.rlinf import register as rlinf_register
 
-ENV_ID = "rl_garden_real_world.rlinf.register:RLGardenReal-v0"
+ENV_ID = "rl_garden_real_world.integrations.rlinf.register:RLGardenReal-v0"
 FRAME_HW = (24, 32)
 EXAMPLE_YAML = Path(__file__).resolve().parents[1] / "configs/rlinf/realworld_rlgarden_franka.yaml"
 
@@ -75,9 +75,9 @@ def make_env():
 
 
 def test_register_module_reimport_is_idempotent():
-    module = importlib.import_module("rl_garden_real_world.rlinf.register")
+    module = importlib.import_module("rl_garden_real_world.integrations.rlinf.register")
     importlib.reload(module)
-    importlib.import_module("rl_garden_real_world.rlinf.register")
+    importlib.import_module("rl_garden_real_world.integrations.rlinf.register")
     assert "RLGardenReal-v0" in gym.registry
 
 

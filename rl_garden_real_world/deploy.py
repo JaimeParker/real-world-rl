@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from pathlib import Path
 from typing import Any, Literal, Optional
@@ -560,3 +560,15 @@ def main(args: DeployArgs, *, env: Any = None, policy: Any = None) -> int:
             print(f"[deploy] hint: {error.hint}", file=sys.stderr, flush=True)
         return DEVICE_ERROR_EXIT_CODE
     return 0
+
+
+def run_cli(argv: Optional[Sequence[str]] = None) -> int:
+    """Console entry (``rlgarden-real-deploy``): parses ``DeployArgs`` and returns :func:`main`'s
+    exit code."""
+    import tyro
+
+    return main(tyro.cli(DeployArgs, args=argv))
+
+
+if __name__ == "__main__":
+    sys.exit(run_cli())

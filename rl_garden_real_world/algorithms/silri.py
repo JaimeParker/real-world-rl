@@ -24,7 +24,7 @@ between the critic update and the target update::
 The behaviour model is only trained on the demo buffer: ``pretrain`` (behaviour NLL plus
 an actor NLL under the fixed ``actor_noise_std``, then ``actor_target <- actor``) and
 ``refresh_behavior`` (behaviour NLL), both on intervened rows only. The real-world
-learner loop (``rl_garden_real_world.silri.SilriLearnerLoop``) schedules them.
+learner loop (``rl_garden_real_world.loops.silri.SilriLearnerLoop``) schedules them.
 
 Built on rl-garden's ``DDPG`` (constructor plumbing, encoders, checkpointing) and
 ``DemoInterventionMixin`` (the demo buffer and the mixed sampling). Both buffers are
@@ -246,7 +246,7 @@ class SiLRI(DemoInterventionMixin, DDPG):
     def learn(self, total_timesteps: int) -> "SiLRI":
         raise NotImplementedError(
             "SiLRI trains from transitions pushed by a real-world actor "
-            "(rl_garden_real_world.silri.SilriLearnerLoop); it has no simulator rollout loop."
+            "(rl_garden_real_world.loops.silri.SilriLearnerLoop); it has no simulator rollout loop."
         )
 
     # ------------------------------------------------------------------

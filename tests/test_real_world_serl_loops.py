@@ -9,9 +9,9 @@ from rl_garden_real_world import (
     ActorSyncClient,
     LearnerSyncServer,
 )
-from rl_garden_real_world.actor_loop import ActorLoop
-from rl_garden_real_world.learner_loop import LearnerLoop
-from rl_garden_real_world.serl import (
+from rl_garden_real_world.loops.actor import ActorLoop
+from rl_garden_real_world.loops.learner import LearnerLoop
+from rl_garden_real_world.loops.serl import (
     SerlActorLoop,
     SerlActorSyncClient,
     SerlLearnerLoop,

@@ -5,7 +5,7 @@ import gymnasium as gym
 import numpy as np
 import torch
 
-from rl_garden_real_world.envs.wrappers.teleop_intervention import TeleopInterventionWrapper
+from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
 from robot_infra.teleop.utils.telo_op_control_twist import TeleOpSample
 
 

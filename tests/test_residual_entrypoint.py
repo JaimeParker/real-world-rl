@@ -189,7 +189,7 @@ def test_actor_builds_the_provider_and_the_residual_loop(monkeypatch, fake_backe
         def run(self):
             captured["ran"] = True
 
-    monkeypatch.setattr("rl_garden_real_world.residual.ResidualActorLoop", _FakeActorLoop)
+    monkeypatch.setattr("rl_garden_real_world.loops.residual.ResidualActorLoop", _FakeActorLoop)
     run_residual_hil_serl(
         _args(
             role="actor",
@@ -222,7 +222,7 @@ def test_learner_builds_the_full_agent_without_a_provider(monkeypatch, fake_back
     def _no_provider(*args, **kwargs):
         raise AssertionError("the learner must not build the base provider")
 
-    monkeypatch.setattr("rl_garden_real_world.residual.ResidualLearnerLoop", _FakeLearnerLoop)
+    monkeypatch.setattr("rl_garden_real_world.loops.residual.ResidualLearnerLoop", _FakeLearnerLoop)
     monkeypatch.setattr("rl_garden_real_world.policies.base_provider.make_base_provider", _no_provider)
     run_residual_hil_serl(
         _args(

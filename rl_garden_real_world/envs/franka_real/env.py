@@ -21,7 +21,7 @@ the same contract every other rl-garden env backend does
 tensors with a leading ``(1, ...)`` batch dim.
 
 Control-loop pacing (holding a fixed Hz) is *not* this env's job --
-``ActorLoop`` (``rl_garden_real_world/actor_loop.py``) owns pacing so there
+``ActorLoop`` (``rl_garden_real_world/loops/actor.py``) owns pacing so there
 is a single source of truth for the real-time budget. ``step()`` here simply
 executes as fast as the bridge responds.
 """

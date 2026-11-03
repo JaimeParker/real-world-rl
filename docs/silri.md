@@ -10,7 +10,7 @@ and a first run on one or two arms are walked through in
 [getting-started-hardware.md](getting-started-hardware.md#8c-silri).
 
 Code: `rl_garden_real_world/policies/silri_policy.py` (`SiLRIPolicy`),
-`rl_garden_real_world/algorithms/silri.py` (`SiLRI`), `rl_garden_real_world/silri/`
+`rl_garden_real_world/algorithms/silri.py` (`SiLRI`), `rl_garden_real_world/loops/silri.py`
 (`SilriActorLoop`, `SilriLearnerLoop`), `rl_garden_real_world/training/entrypoints/silri.py`
 (`SilriArgs`, `build_silri`, `run_silri`).
 

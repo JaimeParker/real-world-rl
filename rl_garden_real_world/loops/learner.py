@@ -36,7 +36,7 @@ from typing import Any, Optional
 import torch
 
 from rl_garden.algorithms.off_policy import OffPolicyAlgorithm
-from rl_garden_real_world.sync import LearnerSyncServer
+from rl_garden_real_world.loops.sync import LearnerSyncServer
 
 _TRANSITION_TENSOR_KEYS = ("obs", "next_obs", "action", "reward", "done")
 

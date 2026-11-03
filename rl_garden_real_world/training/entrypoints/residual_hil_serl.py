@@ -90,8 +90,8 @@ def _make_provider(args, env, device):
 
 
 def _run_actor(args) -> None:
-    from rl_garden_real_world import residual
-    from rl_garden_real_world.hil_serl import HilSerlActorSyncClient
+    from rl_garden_real_world.loops import residual
+    from rl_garden_real_world.loops.hil_serl import HilSerlActorSyncClient
 
     env = build_hil_env(args, role="actor")
     if args.record_video_dir is not None:
@@ -125,7 +125,7 @@ def _run_learner(args) -> None:
 
     from rl_garden.common import Logger, seed_everything
     from rl_garden.common.resolved_config import persist_resolved_config
-    from rl_garden_real_world import residual
+    from rl_garden_real_world.loops import residual
     from rl_garden_real_world.action_contract import demo_contract_of
 
     seed_everything(args.seed)
@@ -181,7 +181,7 @@ def _run_eval(args) -> None:
     """Deterministic episodes of the checkpoint's residual policy on top of the base
     provider (``ResidualPolicyWithBase``, the same composition deploy uses). Success
     is ``terminated``, as in hil_serl's eval."""
-    from rl_garden_real_world.actor_loop import ActorLoop
+    from rl_garden_real_world.loops.actor import ActorLoop
     from rl_garden_real_world.policies.base_provider import ResidualPolicyWithBase
 
     if args.load_checkpoint is None:

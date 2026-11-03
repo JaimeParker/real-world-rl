@@ -157,7 +157,7 @@ def fake_backend(monkeypatch):
         "rl_garden.envs.backend_registry.make_training_envs", lambda backend, req: (base, None)
     )
     monkeypatch.setattr(
-        "rl_garden_real_world.envs.wrappers.teleop_intervention.TeleopInterventionWrapper",
+        "rl_garden_real_world.envs.wrappers.intervention.TeleopInterventionWrapper",
         _RecordingTeleopWrapper,
     )
     _RecordingTeleopWrapper.instances = []

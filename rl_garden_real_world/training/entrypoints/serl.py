@@ -12,7 +12,7 @@ def _serl_env_request(args, run_name):
 
 def _run_actor(args) -> None:
     """Builds the real-robot env plus a local, inference-only RLPD instance,
-    and drives ``rl_garden_real_world.serl.SerlActorLoop``.
+    and drives ``rl_garden_real_world.loops.serl.SerlActorLoop``.
 
     The local agent's optimizers and replay buffer are never touched (only
     ``agent.policy`` is used for inference) -- ``buffer_size`` is forced
@@ -21,7 +21,7 @@ def _run_actor(args) -> None:
     """
     from rl_garden.envs.backend_registry import make_training_envs
     from rl_garden.training.online.entrypoints.rlpd import build_rlpd
-    from rl_garden_real_world.serl import SerlActorLoop, SerlActorSyncClient
+    from rl_garden_real_world.loops.serl import SerlActorLoop, SerlActorSyncClient
 
     env_request = _serl_env_request(args, run_name="real_world_actor")
     env, _ = make_training_envs(args.env_backend, env_request)
@@ -46,7 +46,7 @@ def _run_actor(args) -> None:
 
 def _run_learner(args) -> None:
     """Builds a full RLPD instance (owns the replay buffer, optimizers, and
-    checkpointing) and drives ``rl_garden_real_world.serl.SerlLearnerLoop``.
+    checkpointing) and drives ``rl_garden_real_world.loops.serl.SerlLearnerLoop``.
 
     The env built here is used only for its observation/action-space shape
     -- the learner never calls ``reset()``/``step()`` on it. ``FrankaRealEnv``
@@ -61,7 +61,7 @@ def _run_learner(args) -> None:
     from rl_garden.common.resolved_config import persist_resolved_config
     from rl_garden.envs.backend_registry import make_training_envs
     from rl_garden.training.online.entrypoints.rlpd import build_rlpd
-    from rl_garden_real_world.serl import SerlLearnerLoop
+    from rl_garden_real_world.loops.serl import SerlLearnerLoop
 
     seed_everything(args.seed)
 

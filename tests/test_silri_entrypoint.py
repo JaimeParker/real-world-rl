@@ -139,7 +139,7 @@ def test_run_learner_builds_the_agent_with_a_demo_buffer_and_starts_the_loop(mon
         def run(self):
             captured["ran"] = True
 
-    monkeypatch.setattr("rl_garden_real_world.silri.SilriLearnerLoop", _FakeLearnerLoop)
+    monkeypatch.setattr("rl_garden_real_world.loops.silri.SilriLearnerLoop", _FakeLearnerLoop)
 
     args = _args(
         role="learner",
@@ -182,7 +182,7 @@ def test_run_actor_starts_the_silri_actor_loop(monkeypatch):
         def run(self):
             captured["ran"] = True
 
-    monkeypatch.setattr("rl_garden_real_world.silri.SilriActorLoop", _FakeActorLoop)
+    monkeypatch.setattr("rl_garden_real_world.loops.silri.SilriActorLoop", _FakeActorLoop)
 
     args = _args(role="actor", teleop_device="fake", sync_host="10.0.0.1", sync_port=7000)
     run_silri(args)

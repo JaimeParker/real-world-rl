@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from rl_garden_real_world.actor_loop import FWBWActorLoop
+from rl_garden_real_world.loops.actor import FWBWActorLoop
 
 
 class _FakeFWBWEnv:

@@ -11,14 +11,7 @@ demos/task_20.pkl``). Logic lives in ``rl_garden_real_world/demos/record.py``; s
 """
 from __future__ import annotations
 
-from typing import Optional, Sequence
-
-from rl_garden_real_world.demos.record import parse_record_args, run_recorder
-
-
-def main(argv: Optional[Sequence[str]] = None) -> None:
-    run_recorder(parse_record_args(argv))
-
+from rl_garden_real_world.demos.__main__ import main
 
 if __name__ == "__main__":
     main()

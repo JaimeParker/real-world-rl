@@ -571,7 +571,7 @@ def test_example_parses_the_hil_env_flags_over_a_training_preset(example, monkey
         encoding="utf-8",
     )
     received = []
-    monkeypatch.setattr(example, "run_recorder", received.append)
+    monkeypatch.setattr("rl_garden_real_world.demos.__main__.run_recorder", received.append)
     example.main(
         [
             "--config", str(preset),
@@ -612,7 +612,7 @@ def test_example_parses_the_two_arm_flags_over_a_training_preset(example, monkey
         encoding="utf-8",
     )
     received = []
-    monkeypatch.setattr(example, "run_recorder", received.append)
+    monkeypatch.setattr("rl_garden_real_world.demos.__main__.run_recorder", received.append)
     example.main(
         [
             "--config", str(preset),

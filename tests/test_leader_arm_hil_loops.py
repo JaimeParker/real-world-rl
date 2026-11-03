@@ -26,10 +26,10 @@ from robot_infra.devices.backends.teleops.gello import gripper_width_from_raw
 
 from rl_garden_real_world.algorithms.residual import ResidualRLPDHybrid
 from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
-from rl_garden_real_world.hil_serl import HilSerlActorLoop, HilSerlLearnerLoop
+from rl_garden_real_world.loops.hil_serl import HilSerlActorLoop, HilSerlLearnerLoop
+from rl_garden_real_world.loops.residual import ResidualActorLoop, ResidualLearnerLoop
+from rl_garden_real_world.loops.silri import SilriActorLoop
 from rl_garden_real_world.policies.base_provider import ZeroBaseProvider
-from rl_garden_real_world.residual import ResidualActorLoop, ResidualLearnerLoop
-from rl_garden_real_world.silri import SilriActorLoop
 from rl_garden_real_world.teleop.leader_arm import TELEOP_SYNCING_EVENT
 
 NUM_JOINTS = 7

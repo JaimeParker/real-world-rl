@@ -10,9 +10,7 @@ from __future__ import annotations
 
 import sys
 
-import tyro
-
-from rl_garden_real_world.deploy import DeployArgs, main
+from rl_garden_real_world.deploy import run_cli
 
 if __name__ == "__main__":
-    sys.exit(main(tyro.cli(DeployArgs)))
+    sys.exit(run_cli())

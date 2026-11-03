@@ -40,7 +40,10 @@ def _run_actor(args) -> None:
     *policy/sync-client pair* that's doubled, switched per step based on
     ``info["fwbw_direction"]``)."""
     from rl_garden_real_world import FWBWActorLoop
-    from rl_garden_real_world.hil_serl import HilSerlActorLoop, HilSerlActorSyncClient
+    from rl_garden_real_world.loops.hil_serl import (
+        HilSerlActorLoop,
+        HilSerlActorSyncClient,
+    )
 
     env = build_hil_env(args, role="actor")
     if args.record_video_dir is not None:
@@ -109,7 +112,7 @@ def _rebuild_scratch_agent_for_env(args, env):
 
 def _run_learner(args) -> None:
     """Builds a full ``RLPDHybrid`` instance and drives
-    ``rl_garden_real_world.hil_serl.HilSerlLearnerLoop``. In FWBW mode, a
+    ``rl_garden_real_world.loops.hil_serl.HilSerlLearnerLoop``. In FWBW mode, a
     learner process is launched once per direction (``--fwbw_direction
     forward|backward``), each bound to its own sync port -- matching the
     SERL v1 design's "two full actor/learner pairs" for reset-free
@@ -121,7 +124,7 @@ def _run_learner(args) -> None:
     from rl_garden.common.resolved_config import persist_resolved_config
     from rl_garden.training.online.entrypoints.rlpd_hybrid import build_rlpd_hybrid
     from rl_garden_real_world.action_contract import demo_contract_of
-    from rl_garden_real_world.hil_serl import HilSerlLearnerLoop
+    from rl_garden_real_world.loops.hil_serl import HilSerlLearnerLoop
 
     seed_everything(args.seed)
 
@@ -190,7 +193,7 @@ def _run_eval(args) -> None:
     "single-arm only" boundary already documented elsewhere in the real-world
     RL stack."""
     from rl_garden.training.online.entrypoints.rlpd_hybrid import build_rlpd_hybrid
-    from rl_garden_real_world.actor_loop import ActorLoop
+    from rl_garden_real_world.loops.actor import ActorLoop
 
     if args.fwbw:
         raise NotImplementedError("hil_serl eval mode does not support --fwbw yet.")

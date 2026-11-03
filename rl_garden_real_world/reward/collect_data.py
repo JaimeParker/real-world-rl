@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 import torch
 import tyro
 
-from rl_garden_real_world.utils.tree import index_tree
+from rl_garden_real_world.common.tree import index_tree
 
 
 @dataclass
@@ -53,7 +53,7 @@ def main(camera_capture=None) -> None:
     from pynput import keyboard
 
     from rl_garden_real_world.envs.franka_real import FrankaRealEnvConfig, make_franka_real_env
-    from rl_garden_real_world.envs.wrappers.teleop_intervention import TeleopInterventionWrapper
+    from rl_garden_real_world.envs.wrappers.intervention import TeleopInterventionWrapper
 
     success_key = [False]
 

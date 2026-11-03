@@ -3,11 +3,11 @@
 RLinf's ``RealWorldEnv._create_env`` calls
 ``gym.make(cfg.init_params.id, override_cfg=<dict>, worker_info=..., robot_info=...,
 env_idx=..., env_cfg=...)``; with ``init_params.id`` set to
-``"rl_garden_real_world.rlinf.register:RLGardenReal-v0"`` gymnasium imports this module (which
-registers the id) and calls ``make_rlinf_env``. RLinf then batches the observation by
-``observation_space`` (``{"state": {field: float32}, "frames": {cam: uint8 HxWx3}}``), takes
-``frames[main_image_key]`` as the main image, and counts a step as successful iff its reward is
-exactly 1.0. See ``configs/rlinf/realworld_rlgarden_franka.yaml``.
+``"rl_garden_real_world.integrations.rlinf.register:RLGardenReal-v0"`` gymnasium imports this
+module (which registers the id) and calls ``make_rlinf_env``. RLinf then batches the
+observation by ``observation_space`` (``{"state": {field: float32}, "frames": {cam: uint8
+HxWx3}}``), takes ``frames[main_image_key]`` as the main image, and counts a step as
+successful iff its reward is exactly 1.0. See ``configs/rlinf/realworld_rlgarden_franka.yaml``.
 """
 from __future__ import annotations
 

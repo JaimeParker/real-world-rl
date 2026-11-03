@@ -59,6 +59,7 @@ python examples/train_real_world.py hil_serl --role learner --config hil.yaml \
 | --- | --- | --- |
 | `--output-path` | required | the demo pkl (must end in `.pkl` and not exist); `<stem>.contract.json` is written next to it |
 | `--num-successes` | 20 | stop after this many kept episodes |
+| `--max-episodes` | unset | stop after this many completed attempts, including failure, rerecord and timeout; the first of this limit and `--num-successes` stops recording |
 | `--max-episode-steps` | unset | episode step cap; replaces `--real_robot.max_episode_steps`, `--real_robot_bimanual.max_episode_steps` or `--franka_real.max_episode_steps` when set |
 | `--start-tolerance-rad` | 0.8 | `joint_abs`: refuse to start an episode while the leader is further than this from the follower in any joint |
 | `--keep-syncing-steps` | off | include leader catch-up rows as ordinary supervised pkl steps; SQLite retains their syncing marker |
@@ -124,3 +125,16 @@ unfinished episodes interrupted and assigns new IDs to future attempts. `--expor
 also writes `<stem>.trajectory.pt`. Durability begins when append returns and uses SQLite WAL
 `synchronous=NORMAL`; the newest commits can be lost on OS crash or power failure.
 Full recovery, masks and training-view rules: [Real-world experiments](real-world-experiments.md).
+
+## Single-attempt commissioning
+
+Use `--max-episodes 1` to end after one attempt, even when no successful demo is kept.
+The recorder closes device control before scanning the archive or exporting pkl/PT files.
+It preserves the full SQLite archive on success, failure, rerecord, timeout and interruption;
+only successful human demonstrations produce a pkl. Restarting the command begins another
+reset, including home motion and gripper opening. Verify the station and workspace before
+each restart. The default, with no attempt limit, continues until `--num-successes` is met.
+
+A complete Chinese [single-PC bimanual Franka/GELLO commissioning case](zh-CN/testing/bimanual-franka-gello-smoke.md)
+includes installation, NUC configuration migration, independent device-side keys, operating
+steps and a CSV record template. Independent actor-server networking is a later case.

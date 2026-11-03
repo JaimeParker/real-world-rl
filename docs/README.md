@@ -44,3 +44,9 @@ Flags, file formats and hardware details.
 - [Known issues and deferred work](known-issues.md): what a first real run can hit, workarounds, planned
   fixes
 - [Getting started on hardware](getting-started-hardware.md) (moved into the tutorial; kept for old links)
+
+## Hardware test cases
+
+- [Bimanual Franka/GELLO single-PC smoke test (中文)](zh-CN/testing/bimanual-franka-gello-smoke.md): a practical
+  commissioning procedure with independent keys, single-attempt recording and a CSV evidence sheet.
+  Hardware results are filled in on site.

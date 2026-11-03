@@ -1,0 +1,39 @@
+# Local commissioning: two robot daemons on this Ubuntu PC, no learner/checkpoint/cameras.
+# First prepare and review local/station.smoke.yaml as described in the Chinese test case.
+# The station owns confirmed home poses, limits, per-arm GELLO calibration and F1/F2 keys.
+env_backend: real_robot_bimanual
+env_id: bimanual_gello_smoke
+control_hz: 10
+obs:
+  state: true
+  rgb: []
+  depth: []
+  frame_stack: 1
+teleop_device: bimanual
+teleop_arm_device: leader_arm
+robot_teleop_action_mode: joint_abs
+teleop_onset: arm
+teleop_arm_tolerance_rad: 0.1
+teleop_idle_behavior: hold
+reward_from_teleop_events: true
+real_robot_bimanual:
+  arm_names: [left, right]
+  max_episode_steps: 1200
+  left:
+    remote: 127.0.0.1:50051
+    action_mode: joint_delta
+    num_joints: 7
+    gripper_in_action: true
+    joint_scale_rad: 0.01
+    control_hz: 10
+    state_fields: [joint_pos, gripper_pos]
+    cameras: []
+  right:
+    remote: 127.0.0.1:50052
+    action_mode: joint_delta
+    num_joints: 7
+    gripper_in_action: true
+    joint_scale_rad: 0.01
+    control_hz: 10
+    state_fields: [joint_pos, gripper_pos]
+    cameras: []

@@ -44,6 +44,7 @@ python examples/train_real_world.py hil_serl --role learner --config hil.yaml \
 | --- | --- | --- |
 | `--output-path` | 必填 | 示范 pkl，必须以 `.pkl` 结尾且尚不存在；旁边写入 `<stem>.contract.json`。 |
 | `--num-successes` | 20 | 保留指定数量的回合后停止。 |
+| `--max-episodes` | 未设置 | 完成指定次数尝试后停止，失败、重录、超时均计入；该上限与 `--num-successes` 中先满足者结束录制。 |
 | `--max-episode-steps` | 未设置 | 回合步数上限；设置后替换 `--real_robot.max_episode_steps`、`--real_robot_bimanual.max_episode_steps` 或 `--franka_real.max_episode_steps`。 |
 | `--start-tolerance-rad` | 0.8 | `joint_abs` 下，任何关节的主从差距超过该值就拒绝开始回合。 |
 | `--keep-syncing-steps` | 关闭 | 将主臂追赶记录作为普通监督步骤写入 pkl；SQLite 保留同步标记。 |
@@ -81,3 +82,11 @@ python examples/train_real_world.py hil_serl --role learner --config hil.yaml \
 pkl 包含成功人工 transition 字典：`obs`、`next_obs`、实际执行 `action`、`reward`、`done`（`terminated`）、可选 `grasp_penalty`、策略提议以及人工/覆盖掩码。版本化记录还保留回合/步骤身份及训练片段边界，筛选不会虚构相邻关系，也不会把终止奖励移到更早的人工步骤。`<stem>.contract.json` 记录动作与实验兼容性，需与数据一起保留。实验比较字段涵盖任务、控制、观测布局、预处理、遥操作部件选择和空闲行为；奖励来源及工作站 reset 事实属于来源元数据。
 
 `<stem>.trajectory.sqlite3` 是完整持久归档，包含失败、重录、同步和中断尝试。只有 pkl 视图删除不成功回合。没有保留数据时不写 pkl。在 pkl 路径仍未存在时重开已有归档，会将未完成回合标为中断，并为后续尝试分配新 ID。`--export-trajectory-pt` 另写 `<stem>.trajectory.pt`。持久性从 append 返回起生效，使用 SQLite WAL `synchronous=NORMAL`；操作系统崩溃或断电可能丢失最新提交。完整恢复、掩码和训练视图规则见[真机实验](real-world-experiments.md)。
+
+<a id="single-attempt-commissioning"></a>
+
+## 单次尝试上机验收
+
+使用 `--max-episodes 1` 可在一次尝试后结束，即使没有保留成功示范。录制器在扫描归档和导出 pkl/PT 前关闭设备控制。成功、失败、重录、超时和中断均保留完整 SQLite 归档；只有成功人工示范生成 pkl。再次启动命令会执行新一轮 reset，包含回 home 和开夹爪，每次重启前核实工作站与工作区。未设置尝试次数上限时，默认持续录制到 `--num-successes` 满足。
+
+完整的[双臂 Franka 与 GELLO 单机接管测试](testing/bimanual-franka-gello-smoke.md)包含安装、NUC 配置迁移、设备侧独立按键、操作步骤和 CSV 记录模板。独立 actor 服务器的网络联调另列后续案例。

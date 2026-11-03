@@ -13,7 +13,7 @@ Episode outcome, read from the intervention wrapper's info keys so any event pat
 - the episode ends on ``terminated`` or ``truncated`` (an operator episode-end press truncates);
 - it counts as a success when an explicit success outcome or ``success`` event is reported (a reward
   classifier), and no ``failure`` event fired;
-- a ``rerecord`` event discards the episode at once and starts the next one;
+- a ``rerecord`` event discards the episode at once; a new attempt starts if its budget remains;
 - only successful episodes with at least one recorded transition are kept.
 
 The stored ``reward``/``done`` are the env's. Without a reward classifier, pass
@@ -107,9 +107,13 @@ class RecordDemosArgs(HilEnvArgs, RealWorldFrankaArgs, EnvRunArgs, ObservationAr
     # Where the demo pkl goes (``<stem>.contract.json`` is written next to it). Required; an
     # existing file is never overwritten.
     output_path: Optional[str] = None
-    # Stop after this many kept (successful) episodes.
+    # Additionally export the full SQLite archive as a portable PT file.
     export_trajectory_pt: bool = False
+    # Stop after this many kept (successful) episodes.
     num_successes: int = 20
+    # Stop after this many completed attempts, including failures, rerecords and timeouts.
+    # None keeps recording until num_successes; 1 enables manually restarted commissioning runs.
+    max_episodes: Optional[int] = None
     # Episode step cap for the env: replaces --real-robot.max-episode-steps,
     # --real-robot-bimanual.max-episode-steps or --franka-real.max-episode-steps when set.
     max_episode_steps: Optional[int] = None
@@ -155,6 +159,11 @@ def executed_gripper_actions(executed: Any, num_grippers: int) -> Any:
     dims, clipped as the env clips them), in the form ``gripper_actions_after_reset`` returns."""
     grippers = torch.as_tensor(executed).reshape(-1)[-num_grippers:].clamp(-1.0, 1.0).tolist()
     return grippers[0] if num_grippers == 1 else grippers
+
+
+def _validate_episode_limit(args: RecordDemosArgs) -> None:
+    if args.max_episodes is not None and args.max_episodes < 1:
+        raise ValueError("--max-episodes must be positive when set")
 
 
 # -- episode-start sync ------------------------------------------------------------------
@@ -233,7 +242,8 @@ def record_demos(
     on_episode: Optional[Callable[[RecordedEpisode], None]] = None,
 ) -> list[dict]:
     """Runs episodes on ``env`` (a HIL env with the intervention wrapper) until
-    ``args.num_successes`` episodes were kept and returns their transitions, in order.
+    ``args.num_successes`` episodes were kept or ``args.max_episodes`` attempts ended, and
+    returns their kept transitions, in order. Failed/rerecorded/truncated attempts count too.
 
     Every step sends ``hold_action_fn(last executed gripper action)``; the intervention wrapper
     replaces it with the operator's action while the operator intervenes. A step is recorded
@@ -242,6 +252,7 @@ def record_demos(
     ``joint_abs``, each episode starts with ``check_leader_near_follower``
     (``args.start_tolerance_rad``). ``on_episode`` is called with every finished episode.
     """
+    _validate_episode_limit(args)
     wrapper = intervention_wrapper_of(env)
     contract = get_env_action_contract(env) or LEGACY_ACTION_CONTRACT
     num_grippers = num_grippers_of(contract)
@@ -255,7 +266,7 @@ def record_demos(
     kept: list[dict] = []
     num_kept = 0
     index = 0
-    while num_kept < args.num_successes:
+    while num_kept < args.num_successes and (args.max_episodes is None or index < args.max_episodes):
         obs, _ = env.reset(seed=args.seed if index == 0 else None)
         if contract["action_mode"] == "joint_abs":
             check_leader_near_follower(env, wrapper.source, contract, args.start_tolerance_rad)
@@ -475,10 +486,11 @@ def _with_episode_step_cap(args: RecordDemosArgs) -> RecordDemosArgs:
 
 def run_recorder(args: RecordDemosArgs) -> Optional[Path]:
     """Builds the actor's HIL env, records demos until ``args.num_successes`` and saves the kept
-    episodes to ``args.output_path`` (also when stopped early, e.g. by Ctrl-C). Returns the pkl
+    episodes to ``args.output_path`` (also when stopped early, e.g. by Ctrl-C or max_episodes). Returns the pkl
     path, or ``None`` when no episode was kept."""
     from real_world_rl.training import env_building
 
+    _validate_episode_limit(args)
     output_path = _demo_output_path(args.output_path)
     if args.fwbw:
         raise ValueError("the demo recorder does not support --fwbw")
@@ -517,41 +529,43 @@ def run_recorder(args: RecordDemosArgs) -> Optional[Path]:
     try:
         record_demos(env, args, hold_action_fn=hold_action_fn_for(env), on_episode=report)
     finally:
+        # Release device control before archive scans or potentially slow pkl/PT exports.
+        # The finalization still runs if release fails, preserving committed evidence.
         try:
-            archive = getattr(env, "_record_archive", [])
-            if archive:
-                from real_world_rl.trajectory import end_episode
-                if archive[-1]["record_type"] != "episode_end":
-                    episode_id = archive[-1]["episode_id"]
-                    from real_world_rl.metrics import EpisodeOutcomeAccumulator
-                    interrupted_outcome = EpisodeOutcomeAccumulator()
-                    for record in archive:
-                        if record["record_type"] == "transition" and record["episode_id"] == episode_id:
-                            interrupted_outcome.observe(record)
-                    archive.append(end_episode(episode_id, step_count=interrupted_outcome.steps,
-                                               outcome=interrupted_outcome.finish(interrupted=True), interrupted=True))
-                from real_world_rl.metrics import EpisodeMetrics, EpisodeOutcome
-                metrics = EpisodeMetrics()
-                for record in archive:
-                    if record["record_type"] == "episode_end":
-                        outcome = record.get("outcome")
-                        if outcome is not None:
-                            metrics.add(EpisodeOutcome(**outcome))
-                        elif record.get("interrupted"):
-                            metrics.add(EpisodeOutcome(None, False, record.get("step_count", 0), 0,
-                                                       completed=False, interrupted=True))
-                print(f"[record] outcomes={metrics.summary()}", flush=True)
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-                if args.export_trajectory_pt:
-                    torch.save({"schema_version": 1, "records": list(archive), "action_contract": demo_contract_of(env)}, output_path.with_suffix(".trajectory.pt"))
-            if kept:
-                save_demos(kept, output_path, demo_contract_of(env))
-                print(f"[record] saved {num_kept} episodes ({len(kept)} transitions) to {output_path}", flush=True)
-            else:
-                print("[record] no episode kept; nothing saved", flush=True)
+            env.close()
         finally:
             try:
-                env._record_archive.close()
+                archive = getattr(env, "_record_archive", [])
+                if archive:
+                    from real_world_rl.trajectory import end_episode
+                    if archive[-1]["record_type"] != "episode_end":
+                        episode_id = archive[-1]["episode_id"]
+                        from real_world_rl.metrics import EpisodeOutcomeAccumulator
+                        interrupted_outcome = EpisodeOutcomeAccumulator()
+                        for record in archive:
+                            if record["record_type"] == "transition" and record["episode_id"] == episode_id:
+                                interrupted_outcome.observe(record)
+                        archive.append(end_episode(episode_id, step_count=interrupted_outcome.steps,
+                                                   outcome=interrupted_outcome.finish(interrupted=True), interrupted=True))
+                    from real_world_rl.metrics import EpisodeMetrics, EpisodeOutcome
+                    metrics = EpisodeMetrics()
+                    for record in archive:
+                        if record["record_type"] == "episode_end":
+                            outcome = record.get("outcome")
+                            if outcome is not None:
+                                metrics.add(EpisodeOutcome(**outcome))
+                            elif record.get("interrupted"):
+                                metrics.add(EpisodeOutcome(None, False, record.get("step_count", 0), 0,
+                                                           completed=False, interrupted=True))
+                    print(f"[record] outcomes={metrics.summary()}", flush=True)
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    if args.export_trajectory_pt:
+                        torch.save({"schema_version": 1, "records": list(archive), "action_contract": demo_contract_of(env)}, output_path.with_suffix(".trajectory.pt"))
+                if kept:
+                    save_demos(kept, output_path, demo_contract_of(env))
+                    print(f"[record] saved {num_kept} episodes ({len(kept)} transitions) to {output_path}", flush=True)
+                else:
+                    print("[record] no demo pkl exported; trajectory archive retained", flush=True)
             finally:
-                env.close()
+                env._record_archive.close()
     return output_path if kept else None

@@ -4,7 +4,7 @@
     {
       "source": "docs/README.md",
       "translation": "docs/zh-CN/README.md",
-      "source_sha256": "bac0736f10ed9d0d071ff48be710e415cb4c305dc0bb7770cfeee83ea611f301"
+      "source_sha256": "cbdadf408fff43ef4de935420df332ab83df68890662189945192d6f9e8157bf"
     },
     {
       "source": "docs/bimanual.md",
@@ -39,7 +39,7 @@
     {
       "source": "docs/recording-demos.md",
       "translation": "docs/zh-CN/recording-demos.md",
-      "source_sha256": "8761ccea55310a0917bf4d060502cf9d6548163e11453a82ac74413420ba757c"
+      "source_sha256": "bdebd90378c9bd99416f9dad96caa5ff02b3d7351981904024b419ae35789125"
     },
     {
       "source": "docs/residual.md",

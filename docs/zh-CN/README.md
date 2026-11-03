@@ -49,3 +49,9 @@
 - [机械臂控制配置](control-profiles.md)：工作站增益、后端能力与生效设置。
 - [已知问题与延期工作](known-issues.md)：首次真机运行可能遇到的问题、临时处理方式和计划修复。
 - [硬件入门](getting-started-hardware.md)（已迁入教程，保留旧链接）。
+
+<a id="hardware-test-cases"></a>
+
+## 真机测试案例
+
+- [双臂 Franka 与 GELLO 单机接管测试](testing/bimanual-franka-gello-smoke.md)：设备侧独立按键、单次尝试录制、操作指南及 CSV 记录表。真机结果在现场填写。

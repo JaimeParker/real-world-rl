@@ -696,6 +696,7 @@ def test_example_parses_the_hil_env_flags_over_a_training_preset(example, monkey
             "--teleop-onset", "arm",
             "--output-path", "demos/task.pkl",
             "--num-successes", "3",
+            "--max-episodes", "1",
             "--max-episode-steps", "40",
             "--start-tolerance-rad", "0.5",
             "--keep-syncing-steps",
@@ -708,6 +709,7 @@ def test_example_parses_the_hil_env_flags_over_a_training_preset(example, monkey
     assert args.real_robot.joint_limits == [[-1.0, 1.0]] * 7
     assert (args.teleop_device, args.teleop_event_device, args.teleop_onset) == ("gello", "keyboard", "arm")
     assert (args.output_path, args.num_successes, args.max_episode_steps) == ("demos/task.pkl", 3, 40)
+    assert args.max_episodes == 1
     assert args.start_tolerance_rad == 0.5 and args.keep_syncing_steps
     assert args.eval_freq == 0
 
@@ -770,6 +772,7 @@ def test_example_parses_the_teleop_event_reward_flags(example, monkeypatch):
 def test_recorder_defaults():
     args = record.RecordDemosArgs()
     assert (args.start_tolerance_rad, args.keep_syncing_steps, args.max_episode_steps) == (0.8, False, None)
+    assert args.max_episodes is None
     # Unlike the training entrypoints, the recorder rewards the success key by default.
     assert args.reward_from_teleop_events and args.teleop_success_reward == 1.0
     assert args.output_path is None and args.env_backend == "franka_real"
@@ -809,3 +812,86 @@ def test_run_recorder_interrupted_outcome_and_saved_trace_are_visible(tmp_path, 
     assert outcome["interrupted"] and not outcome["completed"]
     assert outcome["steps"] == outcome["intervention_steps"] == 1
     assert "interrupted_episodes" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("ending", ["success", "failure", "rerecord", "timeout", "episode_end"])
+def test_single_attempt_exits_before_second_reset_and_preserves_archive(tmp_path, monkeypatch, ending):
+    from real_world_rl.trajectory import DurableArchive
+
+    env = RecordingEnv("joint_delta")
+    if ending == "timeout":
+        step = env.step
+        def time_limited_step(action):
+            obs, reward, terminated, _, info = step(action)
+            return obs, reward, terminated, torch.tensor([True]), info
+        monkeypatch.setattr(env, "step", time_limited_step)
+    reading = _reading(delta=[0.0] * 7, events=() if ending in ("timeout", "episode_end") else (ending,),
+                       episode_end=ending == "episode_end")
+    wrapped = TeleopEventRewardWrapper(_wrap(env, [reading]))
+    reset = wrapped.reset
+    resets = []
+    def reset_once(**kwargs):
+        resets.append(True)
+        assert len(resets) == 1, "a single-attempt recorder must not reset for another episode"
+        return reset(**kwargs)
+    monkeypatch.setattr(wrapped, "reset", reset_once)
+    monkeypatch.setattr(env_building, "build_hil_env", lambda *args, **kwargs: wrapped)
+    saved = record.save_demos
+    def save_after_release(*args, **kwargs):
+        assert env.close_calls == 1
+        return saved(*args, **kwargs)
+    monkeypatch.setattr(record, "save_demos", save_after_release)
+    output = tmp_path / f"{ending}.pkl"
+    result = run_recorder(_args(output_path=str(output), num_successes=20, max_episodes=1))
+    assert len(resets) == env.close_calls == 1
+    assert (result == output) == output.exists() == (ending == "success")
+    archive = DurableArchive(output.with_suffix(".trajectory.sqlite3"))
+    try:
+        rows = list(archive)
+    finally:
+        archive.close()
+    assert [row["record_type"] for row in rows] == ["episode_start", "transition", "episode_end"]
+    outcome = rows[-1]["outcome"]
+    assert outcome["task_success"] is (True if ending == "success" else False if ending == "failure" else None)
+    assert outcome["discarded"] == (ending == "rerecord")
+    assert not outcome["interrupted"]
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_invalid_episode_limit_is_rejected_before_env_construction(tmp_path, monkeypatch, limit):
+    def unexpected_build(*args, **kwargs):
+        pytest.fail("invalid attempt count reached device construction")
+    monkeypatch.setattr(env_building, "build_hil_env", unexpected_build)
+    with pytest.raises(ValueError, match="--max-episodes must be positive"):
+        run_recorder(_args(output_path=str(tmp_path / "invalid.pkl"), max_episodes=limit))
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("failure_phase", ["close", "export"])
+def test_finalization_failure_still_releases_devices_and_preserves_archive(tmp_path, monkeypatch, failure_phase):
+    from real_world_rl.trajectory import DurableArchive
+
+    env = RecordingEnv("joint_delta")
+    wrapped = TeleopEventRewardWrapper(_wrap(env, [_reading(delta=[0.0] * 7, events=("success",))]))
+    monkeypatch.setattr(env_building, "build_hil_env", lambda *args, **kwargs: wrapped)
+    output = tmp_path / "finalization.pkl"
+    if failure_phase == "close":
+        close = wrapped.close
+        def fail_close():
+            close()
+            raise OSError("release failed")
+        monkeypatch.setattr(wrapped, "close", fail_close)
+    else:
+        def fail_export(*args, **kwargs):
+            assert env.close_calls == 1
+            raise OSError("export failed")
+        monkeypatch.setattr(record, "save_demos", fail_export)
+    with pytest.raises(OSError, match="failed"):
+        run_recorder(_args(output_path=str(output), max_episodes=1))
+    assert env.close_calls == 1
+    assert output.exists() == (failure_phase == "close")
+    archive = DurableArchive(output.with_suffix(".trajectory.sqlite3"))
+    try:
+        assert list(archive)[-1]["outcome"]["task_success"] is True
+    finally:
+        archive.close()

@@ -6,11 +6,12 @@ import json
 import pytest
 import yaml
 
-from robot_infra.devices import CameraConfig, DeviceFault, GripperConfig
+from robot_infra.devices import CameraConfig, DeviceFault, Gripper, GripperConfig
 from robot_infra.devices.claims import DeviceClaim, claim_key
 from robot_infra.devices.robot import Robot
 from robot_infra.devices.backends.arms.fake import FakeArm
 from robot_infra.devices.backends.cameras.fake import FakeCamera
+from robot_infra.devices.backends.grippers.fake import FakeGripper
 from robot_infra.devices.robots.franka import FrankaConfig
 from robot_infra.devices.robots.piper import PiperConfig
 from robot_infra.discovery import enumerate as probes
@@ -48,11 +49,55 @@ def by_layer(results, layer):
 def test_all_green(sdk_backed_fakes):
     results = run_doctor(franka_config())
     assert exit_code(results) == 0
-    assert {result.layer for result in results} == {1, 2, 3, 4, 5}
+    assert {result.layer for result in results} == {0, 1, 2, 3, 4, 5}
     assert all(result.ok and not result.skipped for result in results)
     names = {result.name for result in results}
     assert {"os:ping", "handshake", "feedback:arm", "feedback:gripper", "feedback:camera:wrist"} <= names
     assert "mode:none" in names
+
+
+def test_gripper_feedback_reports_width():
+    results = run_doctor(franka_config())
+    feedback = next(result for result in results if result.name == "feedback:gripper")
+    assert feedback.ok and not feedback.warning
+    assert " m (" in feedback.message and "max_width_m" in feedback.message
+    assert feedback.message == (
+        "gripper width 0.0800 m (1.00 of max_width_m 0.080), "
+        "grasped=unknown, source FakeGripper"
+    )
+
+
+@pytest.mark.parametrize(
+    ("width", "max_width_m"),
+    [
+        pytest.param(float("nan"), 0.08, id="nan-width"),
+        pytest.param(float("inf"), 0.08, id="infinite-width"),
+        pytest.param(float("-inf"), 0.08, id="negative-infinite-width"),
+        pytest.param(-0.1, 0.08, id="negative-width"),
+        pytest.param(1.1, 0.08, id="width-above-one"),
+        pytest.param(1.0, 0.0, id="zero-max-width"),
+        pytest.param(1.0, -0.08, id="negative-max-width"),
+        pytest.param(1.0, float("nan"), id="nan-max-width"),
+        pytest.param(1.0, float("inf"), id="infinite-max-width"),
+        pytest.param(1.0, float("-inf"), id="negative-infinite-max-width"),
+    ],
+)
+def test_gripper_feedback_warns_on_untrustworthy_width(monkeypatch, width, max_width_m):
+    class UntrustworthyGripper(FakeGripper):
+        @property
+        def width(self) -> float:
+            return width
+
+    monkeypatch.setitem(Gripper._BACKENDS, "fake", UntrustworthyGripper)
+    config = franka_config()
+    config.gripper.max_width_m = max_width_m
+    results = run_doctor(config)
+    feedback = next(result for result in results if result.name == "feedback:gripper")
+    assert feedback.ok and feedback.warning
+    assert feedback.hint
+    assert "max_width_m" in feedback.hint and "SDK" in feedback.hint
+    assert "source UntrustworthyGripper" in feedback.message
+    assert exit_code(results) == 0
 
 
 def test_ping_failure_does_not_skip_later_layers(monkeypatch, sdk_backed_fakes):
@@ -166,8 +211,8 @@ def test_cli_text_and_json(tmp_path, capsys):
     assert "summary:" in text and "[3/5] handshake ... OK" in text
     assert cli.main(["--config", path, "--mock", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert {entry["layer"] for entry in payload} == {1, 2, 3, 4, 5}
-    assert all("autofix" not in entry for entry in payload)
+    assert {entry["layer"] for entry in payload} == {0, 1, 2, 3, 4, 5}
+    assert all("autofix" not in entry and "details" not in entry for entry in payload)
 
 
 def write_station(tmp_path) -> str:
@@ -208,7 +253,7 @@ def test_cli_checks_every_robot_of_a_station_or_one(tmp_path, capsys):
 def test_cli_station_exit_code_fails_when_one_robot_fails(tmp_path, monkeypatch, capsys):
     path = write_station(tmp_path)
     monkeypatch.setattr(
-        cli, "run_doctor", lambda config, mock, fix: [CheckResult(1, "sdk:arm", config.name == "left", "checked")]
+        cli, "run_doctor", lambda config, **_: [CheckResult(1, "sdk:arm", config.name == "left", "checked")]
     )
     assert cli.main(["--config", path]) == 1
     assert "overall: 2 robots, failures on ['right']" in capsys.readouterr().out

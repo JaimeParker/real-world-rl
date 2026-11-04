@@ -10,7 +10,7 @@ import dataclasses
 import os
 import types
 import typing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -128,6 +128,8 @@ class StationRobot:
     config: RobotConfig
     bind: str = DEFAULT_DAEMON_BIND
     token: str | None = None
+    # The yaml has a ``daemon:`` block: the robot is meant to be served (the doctor then needs grpc).
+    daemon_declared: bool = field(default=False, compare=False)
 
 
 @dataclass
@@ -155,6 +157,7 @@ def _robot_config_from_mapping(data: Any, *, default_name: str | None = None) ->
     if not isinstance(data, Mapping):
         raise ValueError(f"a robot config must be a mapping, got {type(data).__name__}")
     values = dict(data)
+    daemon_declared = values.get(_DAEMON_KEY) is not None
     daemon = values.pop(_DAEMON_KEY, None) or {}
     if not isinstance(daemon, Mapping):
         raise ValueError(f"'daemon' must be a mapping with keys {sorted(_DAEMON_KEYS)}, got {daemon!r}")
@@ -172,6 +175,7 @@ def _robot_config_from_mapping(data: Any, *, default_name: str | None = None) ->
         config=config,
         bind=DEFAULT_DAEMON_BIND if bind is None else str(bind),
         token=None if token is None else str(token),
+        daemon_declared=daemon_declared,
     )
 
 

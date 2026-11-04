@@ -10,6 +10,7 @@ remainder of the control period since the previous step's command was sent.
 """
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any, Optional
 
@@ -28,6 +29,8 @@ _GRIPPER_OPEN_COMMAND = 1.0
 _SAFETY_TOLERANCE = 1e-9
 # Reading safety_clips costs a daemon round trip on a RemoteRobot, so it is refreshed sparsely.
 _SAFETY_CLIPS_REFRESH_STEPS = 10
+
+logger = logging.getLogger(__name__)
 
 
 def _state_field_shape(field: str, num_joints: int) -> tuple[int, ...]:
@@ -110,6 +113,7 @@ class RealRobotEnv(gym.Env):
         self._last_obs: Optional[dict] = None
         self._last_send_time: Optional[float] = None
         self._elapsed_steps = 0
+        self._step_watchdog = None  # robot_infra StepWatchdog, built on the first reset when watchdog_s is set
 
     def _frame_size(self, cam: str) -> tuple[int, int]:
         if self.config.image_size is not None:
@@ -253,8 +257,39 @@ class RealRobotEnv(gym.Env):
 
     # -- gym API ---------------------------------------------------------------------
 
+    # -- step watchdog (config.watchdog_s) ------------------------------------------
+
+    def _activate_step_watchdog(self) -> None:
+        if self.config.watchdog_s is None:
+            return
+        if self._step_watchdog is None:
+            from robot_infra.supervise import StepWatchdog
+            self._step_watchdog = StepWatchdog(self.robot.arm, timeout_s=self.config.watchdog_s)
+        self._step_watchdog.activate()
+
+    def _deactivate_step_watchdog(self) -> None:
+        """Before a reset: the reset motion blocks far longer than a step."""
+        watchdog = self._step_watchdog
+        if watchdog is None:
+            return
+        watchdog.deactivate()
+        if watchdog.tripped:
+            # Silence after the last step of an episode (finalization, saving) is not an error;
+            # the stop already happened and the reset re-homes the arm.
+            logger.warning("step watchdog stopped the arm before this reset: %s", watchdog.trip_message)
+
+    def _check_in_step_watchdog(self) -> None:
+        if self._step_watchdog is not None:
+            self._step_watchdog.check_in()
+
+    def _close_step_watchdog(self) -> None:
+        if self._step_watchdog is not None:
+            self._step_watchdog.close()
+            self._step_watchdog = None
+
     def _reset_begin(self):
         from robot_infra.devices.arm import ControlMode
+        self._deactivate_step_watchdog()
         self._connect_and_validate()
         self.robot.arm.set_control_mode(ControlMode.IDLE)
         self.robot.arm.configure_control(self.config.control or {})
@@ -274,7 +309,9 @@ class RealRobotEnv(gym.Env):
         self._elapsed_steps = 0
         self._last_send_time = None
         self._refresh_safety_clips()
-        return self._observe(raw), {"control_metadata": self._control_metadata}
+        obs = self._observe(raw)
+        self._activate_step_watchdog()
+        return obs, {"control_metadata": self._control_metadata}
 
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
         super().reset(seed=seed)
@@ -292,6 +329,7 @@ class RealRobotEnv(gym.Env):
     def step(self, action):
         if self._last_raw is None:
             raise RuntimeError("RealRobotEnv.step() called before reset()")
+        self._check_in_step_watchdog()
         action = np.asarray(action, dtype=np.float64).reshape(-1)
         if action.shape != self.action_space.shape:
             raise ValueError(f"expected action shape {self.action_space.shape}, got {action.shape}")
@@ -309,6 +347,7 @@ class RealRobotEnv(gym.Env):
                 time.sleep(remaining)
         self._last_send_time = time.monotonic()
         raw = self._send_and_observe(command)
+        self._check_in_step_watchdog()  # a send that blocked past watchdog_s raises here
 
         self._elapsed_steps += 1
         obs = self._observe(raw)
@@ -464,6 +503,7 @@ class RealRobotEnv(gym.Env):
         return next(iter(self._last_obs["frames"].values()))
 
     def close(self) -> None:
+        self._close_step_watchdog()
         if self.robot.is_connected:
             self.robot.disconnect()
         self._validated = False

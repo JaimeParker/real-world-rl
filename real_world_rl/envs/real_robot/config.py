@@ -60,6 +60,10 @@ class RealRobotEnvConfig:
     gripper_in_action: bool = True
     max_episode_steps: Optional[int] = None
     reset_settle_s: float = 0.5
+    # In-process step watchdog (robot_infra.supervise.StepWatchdog): after a reset, a gap of more
+    # than this many seconds between env steps calls arm.stop() once and the next step raises.
+    # None = off. Must exceed one control period. Not part of the experiment contract.
+    watchdog_s: Optional[float] = None
 
     def __post_init__(self) -> None:
         from real_world_rl.tasks.config import finite
@@ -138,6 +142,13 @@ class RealRobotEnvConfig:
             )
         if self.control_hz <= 0:
             raise ValueError(f"control_hz must be positive, got {self.control_hz}")
+        if self.watchdog_s is not None:
+            finite([self.watchdog_s], "watchdog_s")
+            if self.watchdog_s <= 1.0 / self.control_hz:
+                raise ValueError(
+                    f"watchdog_s ({self.watchdog_s}) must exceed one control period "
+                    f"(1/control_hz = {1.0 / self.control_hz:.4g} s), or be None to disable the watchdog"
+                )
         if self.max_episode_steps is not None and (type(self.max_episode_steps) is not int or self.max_episode_steps <= 0):
             raise ValueError(
                 f"max_episode_steps must be positive or None, got {self.max_episode_steps}"

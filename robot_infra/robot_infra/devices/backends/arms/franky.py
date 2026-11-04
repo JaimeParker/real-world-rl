@@ -9,6 +9,7 @@ from __future__ import annotations
 import inspect
 import contextlib
 import importlib.metadata
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -31,16 +32,48 @@ if TYPE_CHECKING:
 
 REALTIME_KERNEL_FLAG_PATH = "/sys/kernel/realtime"
 FRANKY_DISTRIBUTION = "franky-control"
-FRANKA_UNREACHABLE_HINT = (
-    "check: ping <ip>; FCI activated in Desk; cable on the Control (not Arm) port; "
-    "'UDP receive: Timeout' means a firewall"
-)
+FRANKY_WHEEL_INDEX_URL = "https://timschneider42.github.io/franky/whl/by-robot-server-version/{server_version}/"
+DESK_SYSTEM_VERSION_PATH = "Desk → Settings → System"
+FRANKA_COMPATIBILITY_URL = "https://frankarobotics.github.io/docs/compatibility.html"
 FRANKY_VERSION_HINT = (
     "install the franky wheel matching your robot server version: pip install franky-control "
-    "--extra-index-url https://timschneider42.github.io/franky/whl/by-robot-server-version/<N>/ "
-    "(see franky README; libfranka/docs/compatibility_matrix.rst maps firmware to server version)"
+    f"--extra-index-url {FRANKY_WHEEL_INDEX_URL.format(server_version='<N>')} "
+    f"(to find N, read the system version in {DESK_SYSTEM_VERSION_PATH} and look it up in the "
+    f"compatibility matrix {FRANKA_COMPATIBILITY_URL}; `python -m robot_infra.doctor --install-sdk` "
+    "reads N from the handshake error and installs the wheel)"
 )
 _BLOCKING_ROBOT_MODES = ("Reflex", "UserStopped", "Guiding")
+# "libfranka: Incompatible library version (server version: 10, library version: 9)."; other
+# builds word it "Incompatible library version. Server version: 10\nLibrary version: 9".
+_LIBFRANKA_MISMATCH = re.compile(
+    r"(?:incompatible\s+library\s+version\W*)?server\s+version\W*(\d+)\W+library\s+version\W*(\d+)",
+    re.IGNORECASE,
+)
+
+
+def franka_unreachable_hint(robot_ip: str) -> str:
+    return (
+        f"check: robot powered on and brakes released; Desk reachable at https://{robot_ip}/desk; "
+        "you hold control in Desk; FCI activated (Desk → Activate FCI); cable on the Control port; "
+        "firewall allows UDP"
+    )
+
+
+def server_version_cross_check(server_version: int) -> str:
+    """Desk shows the system version (e.g. 5.9.2), not the robot server version; the matrix maps one to the other."""
+    return (
+        f"the robot server version {server_version} comes from libfranka's handshake error (authoritative); "
+        f"to cross-check, read the system version in {DESK_SYSTEM_VERSION_PATH} and look it up in the "
+        f"compatibility matrix {FRANKA_COMPATIBILITY_URL}"
+    )
+
+
+def parse_libfranka_mismatch(message: str) -> tuple[int, int] | None:
+    """``(server_version, library_version)`` from a libfranka version-mismatch message, else None."""
+    match = _LIBFRANKA_MISMATCH.search(message)
+    if match is None:
+        return None
+    return int(match.group(1)), int(match.group(2))
 
 
 def require_franky(device_cls: type, device: str) -> ModuleType:
@@ -68,7 +101,7 @@ def franky_connect_error(franky: ModuleType, error: Exception, robot_ip: str, de
             device=device,
         )
     return DeviceNotFound(
-        f"cannot reach Franka at {robot_ip}: {error}", hint=FRANKA_UNREACHABLE_HINT, device=device
+        f"cannot reach Franka at {robot_ip}: {error}", hint=franka_unreachable_hint(robot_ip), device=device
     )
 
 

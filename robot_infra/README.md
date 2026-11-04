@@ -34,7 +34,7 @@ pip install -e '.[franky,grpc]'     # e.g. a Franka robot PC running the daemon
 
 | Extra | Installs | You need it when | Machine |
 |---|---|---|---|
-| `franky` | `franky-control` | Franka arm/hand via libfranka (`arm_backend: franky`). The default wheel bundles one libfranka version; for other robot firmware, install the matching wheel (see [libfranka version mismatch](#troubleshooting)). | robot PC |
+| `franky` | `franky-control` | Franka arm/hand via libfranka (`arm_backend: franky`). The default wheel bundles one libfranka version; for other robot firmware, install the matching wheel (see [Installing the right franky wheel](#installing-the-right-franky-wheel)). | robot PC |
 | `pyagxarm` | `pyAgxArm` (from GitHub) | Piper via `arm_backend: pyagxarm` (the default for Piper) | robot PC |
 | `piper-sdk` | `piper_sdk` | Piper via the vendor SDK (`arm_backend: piper_sdk`) | robot PC |
 | `realsense` | `pyrealsense2` | RealSense cameras | robot PC |
@@ -42,7 +42,7 @@ pip install -e '.[franky,grpc]'     # e.g. a Franka robot PC running the daemon
 | `gello` | `dynamixel-sdk>=3.7.31,<3.9` | `teleop: {backend: gello}` (GELLO leader arm) and its calibration CLI | robot PC |
 | `gello-events` | `evdev` | a gello `event_device` (pedal or keyboard toggle and events, Linux) | robot PC |
 | `grpc` | `grpcio>=1.60` | the daemon (`python -m robot_infra.server`) and `RemoteRobot` | robot PC **and** GPU machine |
-| `jpeg` | `pillow` | `python -m robot_infra.server --jpeg-quality N` (OpenCV also works as the codec) | robot PC **and** GPU machine |
+| `jpeg` | `pillow`, `opencv-python-headless` (`cv2`) | `python -m robot_infra.server --jpeg-quality N`; the JPEG path in `server/codec.py` imports `cv2` | robot PC **and** GPU machine |
 | `real` | `flask`, `pyzmq`, `scipy`, `pyspacemouse` | legacy Flask bridge/gripper server and the legacy `teleop/spacemouse/` (old `read_all()` API; do not combine with the `spacemouse` extra's 2.x pin; ROS1 must be installed separately) | robot PC |
 | `sim` | `mani_skill` | the ManiSkill impedance controllers in `controller/simulator/` | GPU machine |
 | `dev` | `pytest` | running the tests | any |
@@ -286,22 +286,27 @@ Without `--config` and without a station file, `hosts:` prints `none`.
 ### 3. Check with the doctor
 
 ```bash
-python -m robot_infra.doctor --config robot.yaml [--robot NAME] [--mock] [--fix] [--json]
+python -m robot_infra.doctor --config robot.yaml [--robot NAME] [--mock] [--fix] [--json] [--install-sdk [--yes]]
 ```
 
 Without `--config` the doctor checks the [station file](#setup-wizard). A station with several
 robots is checked robot by robot (`== robot '<name>' ==` before each report, an `overall:` line
 at the end); `--robot NAME` checks one.
 
-The doctor runs five layers in order (a `teleop:` section adds checks to layers 1, 2 and 4):
+The doctor runs six layers in order, 0 to 5 (a `teleop:` section adds checks to layers 0, 1, 2 and 4):
 
 | Layer | Checks | Notes |
 |---|---|---|
+| 0 `deps` | the pip extras this robot needs are installed: one per backend (`franky`, `pyagxarm`, `piper-sdk`, `realsense`, `spacemouse`, `gello`, plus `gello-events` for a gello `event_device`), and `grpc` when the robot's yaml has a `daemon:` block. FAIL `missing extras for this station: franky, gello`, hint `pip install -e 'robot_infra[franky,gello]'`; OK `extras ok: franky, gello, grpc`. Without a `daemon:` block (the single-process route) a missing `grpc` is a WARN `optional, not installed: grpc (daemon route)`; a missing `jpeg` is only mentioned | with `--mock` the fakes need none and grpc is never required |
 | 1 `sdk` | each backend name resolves and its SDK imports (`sdk:arm`, `sdk:gripper`, `sdk:camera:<name>`, `sdk:teleop:<backend>`) | an unknown backend skips layers 3-5 |
-| 2 `os` | ping `robot_ip` and port 1337 (informational); CAN interface exists / is up / bitrate; camera serial attached; `os:teleop:<name>` (a device of that backend is discovered); `os:hid` (a readable and writable `/dev/hidraw*` exists, SpaceMouse only); `os:serial` (the gello `port` exists and is readable and writable) | driven by config fields; skipped for backends that need no SDK (fakes) |
+| 2 `os` | ping `robot_ip` and port 1337 (informational); CAN interface exists / is up / bitrate; camera serial attached; `os:teleop:<name>` (a device of that backend is discovered); `os:hid` (a readable and writable `/dev/hidraw*` exists, SpaceMouse only); `os:serial` (the gello `port` exists and is readable and writable; `--fix` tries `setfacl -m u:$USER:rw <port>` without sudo); `os:groups` (the user's login session is in `dialout` for the gello port and `input` for its `event_device`); `os:brltty` (brltty would claim a CH340 adapter); `os:latency_timer` (an FTDI adapter's `latency_timer` is 1 ms) | driven by config fields; skipped for backends that need no SDK (fakes); never runs sudo |
 | 3 `handshake` | takes the robot's device claim (unless `claim: false`), then `robot.connect()` | a failure (including a held claim) skips layers 4-5 |
-| 4 `feedback` | the arm returns state; the gripper is readable; each camera delivers a frame within 2 s; `feedback:teleop:<name>`: the teleop poll thread is alive and healthy | |
+| 4 `feedback` | the arm returns state; the gripper reports its width; each camera delivers a frame within 2 s; `feedback:teleop:<name>`: the teleop poll thread is alive and healthy | |
 | 5 `mode` | backend preflight: Franka RT kernel, robot mode and libfranka version; Piper status, follower feedback and firmware profile (pyagxarm) or gripper stroke (piper_sdk) | |
+
+`feedback:gripper` prints the width in metres, its fraction of `max_width_m`, grasp status and
+backend source; non-finite values, a fraction outside [0, 1] or `max_width_m <= 0` produce a
+`WARN` with a hint to check `max_width_m` and the SDK's width units.
 
 Flags:
 
@@ -309,10 +314,17 @@ Flags:
   the install with no hardware.
 - `--fix` runs the autofix attached to a failed check, then re-runs that check. The useful
   autofixes are `arm.recover()` for a Franka in Reflex/UserStopped/Guiding mode
-  (`mode:robot_mode`) and `camera.reopen()` for a camera that delivers no frames.
-- `--json` prints a list of `{layer, name, ok, message, hint, skipped}` objects (several
+  (`mode:robot_mode`), `camera.reopen()` for a camera that delivers no frames, and a
+  non-privileged `setfacl` for a gello port this user cannot open (`os:serial`).
+- `--json` prints a list of `{layer, name, ok, message, hint, skipped, warning}` objects (several
   robots: `{<name>: [...]}`).
+- `--install-sdk` (with `--yes`: without asking) installs the franky wheel that matches the
+  robot after a libfranka version mismatch; see
+  [Installing the right franky wheel](#installing-the-right-franky-wheel).
 - Exit code: `1` if any check failed (on any robot), else `0`. Skipped checks do not fail the run.
+  A `WARN` line is an ok check with a hint worth acting on (for example a CH340 adapter that
+  brltty may claim on the next replug); it never fails the run, and the summary counts it as
+  `N ok (M with warnings)`.
 
 The doctor connects to the robot and disconnects it again. It never powers anything off.
 
@@ -320,6 +332,7 @@ A `--mock` run of the Franka example:
 
 ```text
 $ python -m robot_infra.doctor --config robot.yaml --mock
+[0/5] deps ... OK  no extras needed (fake or SDK-free backends)
 [1/5] sdk:arm ... OK  no SDK needed
 [1/5] sdk:gripper ... OK  no SDK needed
 [1/5] sdk:camera:wrist ... OK  no SDK needed
@@ -328,23 +341,25 @@ $ python -m robot_infra.doctor --config robot.yaml --mock
 [2/5] os:camera:wrist ... SKIP  skipped (--mock)
 [3/5] handshake ... OK  robot connected
 [4/5] feedback:arm ... OK  arm feedback received
-[4/5] feedback:gripper ... OK  gripper readable
+[4/5] feedback:gripper ... OK  gripper width 0.0800 m (1.00 of max_width_m 0.080), grasped=unknown, source FakeGripper
 [4/5] feedback:camera:wrist ... OK  frames arriving
 [5/5] mode:none ... OK  backend declares no mode checks
-summary: 8 ok, 0 failed, 3 skipped
+summary: 9 ok, 0 failed, 3 skipped
 ```
 
 The same config on a machine with no franky, no robot and no camera:
 
 ```text
 $ python -m robot_infra.doctor --config robot.yaml
+[0/5] deps ... FAIL  missing extras for this station: franky
+    hint: pip install -e 'robot_infra[franky]' (from the repository root; or pip install 'rlgarden-robot-infra[franky]'); if the handshake then reports a libfranka mismatch, rerun the doctor with --install-sdk
 [1/5] sdk:arm ... FAIL  FrankyArm needs the 'franky' package
     hint: pip install franky-control (or: pip install 'rlgarden-robot-infra[franky]')
 [1/5] sdk:gripper ... FAIL  FrankyGripper needs the 'franky' package
     hint: pip install franky-control (or: pip install 'rlgarden-robot-infra[franky]')
 [1/5] sdk:camera:wrist ... OK  'pyrealsense2' importable
 [2/5] os:ping ... FAIL  172.16.0.2 does not reply
-    hint: check the Ethernet cable to the robot's Control port and the robot IP in Desk
+    hint: check: robot powered on and brakes released; Desk reachable at https://172.16.0.2/desk; you hold control in Desk; FCI activated (Desk → Activate FCI); cable on the Control port; firewall allows UDP
 [2/5] os:tcp ... OK  port 1337 closed (informational)
 [2/5] os:camera:wrist ... FAIL  no RealSense device found (serial unset)
     hint: plug in the camera and run `python -m robot_infra.discovery`
@@ -352,7 +367,7 @@ $ python -m robot_infra.doctor --config robot.yaml
     hint: pip install franky-control (or: pip install 'rlgarden-robot-infra[franky]')
 [4/5] feedback ... SKIP  skipped: handshake failed
 [5/5] mode ... SKIP  skipped: handshake failed
-summary: 2 ok, 5 failed, 2 skipped
+summary: 2 ok, 6 failed, 2 skipped
 ```
 
 With a `teleop: {backend: spacemouse}` section, `--mock` swaps the teleop for the fake one
@@ -405,8 +420,13 @@ values are filled in from your config.
 
 | Symptom | Where / what you see | What to do |
 |---|---|---|
-| Franka unreachable: FCI not activated, cable on the Arm port, firewall | `os:ping` FAIL; `handshake` FAIL `cannot reach Franka at <ip>: ...`, hint `check: ping <ip>; FCI activated in Desk; cable on the Control (not Arm) port; 'UDP receive: Timeout' means a firewall` | Activate FCI in Desk. Plug the PC into the Control box (not the arm base). Allow UDP from the robot through the firewall. |
-| libfranka version mismatch | `handshake` FAIL `libfranka/robot firmware mismatch: ...`, hint `install the franky wheel matching your robot server version: pip install franky-control --extra-index-url https://timschneider42.github.io/franky/whl/by-robot-server-version/<N>/ ...` | Look up your robot server version in libfranka's compatibility matrix and install that wheel. `mode:libfranka_version` shows the installed libfranka. |
+| Missing pip extras | `deps` FAIL `missing extras for this station: franky, gello`, hint `pip install -e 'robot_infra[franky,gello]' ...` | Run the quoted command from the repository root (the list is exactly the missing extras). |
+| Franka unreachable: robot off, brakes locked, no control or FCI in Desk, cable on the Arm port, firewall | `os:ping` FAIL `<ip> does not reply` or `handshake` FAIL `cannot reach Franka at <ip>: ...` (for example `libfranka: Connection to FCI refused. Please install FCI feature or enable FCI mode in Desk.`), hint `check: robot powered on and brakes released; Desk reachable at https://<ip>/desk; you hold control in Desk; FCI activated (Desk → Activate FCI); cable on the Control port; firewall allows UDP` | Work through the hint in order. A Desk page that loads is not enough: you must hold control and FCI must be activated. Plug the PC into the Control box (not the arm base). Allow UDP from the robot through the firewall. |
+| libfranka version mismatch | `handshake` FAIL `libfranka mismatch: robot server 10, installed library 9`, hint `the robot server version 10 comes from libfranka's handshake error (authoritative); to cross-check, read the system version in Desk → Settings → System and look it up in the compatibility matrix https://frankarobotics.github.io/docs/compatibility.html; then: python -m robot_infra.doctor --config <cfg> --install-sdk` | See [Installing the right franky wheel](#installing-the-right-franky-wheel). `mode:libfranka_version` shows the installed libfranka once connected. |
+| User not in `dialout` / `input` | `os:groups` FAIL `not in group(s) dialout, input; no read/write access to [...]` (WARN when an ACL or udev rule grants access anyway), hint `sudo usermod -aG dialout,input $USER, then log out and back in` | Run the command, then log in again: a running session keeps its old groups. |
+| Gello port not readable | `os:serial` FAIL `no read/write access to <port>`, hint `grant this user access now: setfacl -m u:$USER:rw <port> ...` | `--fix` tries the `setfacl` without sudo; otherwise prefix sudo. An ACL is lost on replug; the group or a udev rule is permanent. |
+| brltty claims a CH340 adapter | `os:brltty` FAIL `brltty active and a CH340 adapter (USB id 1a86) is attached; brltty has likely claimed <port>` (WARN while the port still exists), hint `sudo systemctl mask --now brltty-udev.service brltty.service, then replug the adapter` | Mask brltty (a `--runtime` mask is lost on reboot), then replug. |
+| Slow FTDI reads | `os:latency_timer` WARN `ttyUSB0 latency_timer is 16 ms; 1 ms is recommended for Dynamixel reads`, hint with the udev rule `ACTION=="add", SUBSYSTEM=="usb-serial", DRIVER=="ftdi_sio", ATTR{latency_timer}="1"` | Install the udev rule (the hint names the file and the reload command) and replug. CH340 adapters have no `latency_timer`. |
 | No PREEMPT_RT kernel | with `realtime: enforce`: `mode:realtime_kernel` FAIL `realtime: enforce but the kernel is not PREEMPT_RT`, or `handshake` FAIL `libfranka realtime setup failed ...`; with `realtime: ignore` the check passes with `control jitter possible` | Install a PREEMPT_RT kernel and realtime group limits, or use `realtime: ignore`. |
 | Franka in Reflex / UserStopped / Guiding | `mode:robot_mode` FAIL `robot mode is Reflex`, hint `release the external activation device / clear errors in Desk, then run with --fix (recover)` | Release the activation device, then run the doctor with `--fix`. |
 | CAN interface missing / down / wrong bitrate | `os:can_exists`, `os:can_up`, `os:can_bitrate` FAIL (see output above); `handshake` FAIL `CAN interface 'can0' is down, not up` or `runs at N bit/s, expected 1000000` | `sudo ip link set can0 up type can bitrate 1000000` (or piper_sdk's `can_activate.sh can0 1000000`). |
@@ -419,6 +439,37 @@ values are filled in from your config.
 | Token mismatch | client `TransportError: token mismatch`, hint `pass the same --token to the daemon and the remote config` | Use the same token on both sides. |
 | Watchdog stopped the arm | client `DeviceFault: the daemon watchdog stopped the arm after 0.62s without actions (limit 0.5s)`, hint `... call set_control_mode(...) again to resume servoing, and keep the action rate above 1/watchdog_s` | Send actions faster than `1/watchdog_s`, or start the daemon with a larger `--watchdog-s`. Then call `set_control_mode` again. |
 | Robot already in use | client `DeviceBusy: device 'franka:172.16.0.2' is claimed by another process`, hint `stop the other process using 'franka:172.16.0.2', or set `claim: false` in the robot config` | Stop the other process on this host that serves this robot through `RobotService` (a daemon or a `LocalClient` setup). Plain `Robot.from_yaml` scripts do not take the claim. To opt out deliberately, set `claim: false` in the yaml. |
+
+#### Installing the right franky wheel
+
+The `franky` extra installs the default `franky-control` wheel, which bundles one libfranka
+version. A robot whose robot server version differs refuses the handshake, and the doctor
+reports `libfranka mismatch: robot server <N>, installed library <M>`. Then:
+
+```bash
+python -m robot_infra.doctor --config robot.yaml --install-sdk         # asks before installing
+python -m robot_infra.doctor --config robot.yaml --install-sdk --yes   # installs without asking
+```
+
+With `--install-sdk` the doctor prints the robot server version from libfranka's handshake error
+(authoritative). Desk does not show that number: to cross-check, read the system version (for
+example 5.9.2) in Desk → Settings → System and look it up in the
+[compatibility matrix](https://frankarobotics.github.io/docs/compatibility.html), which maps
+system versions to robot server versions. Then the doctor prints the exact command
+
+```bash
+<this python> -m pip install franky-control --extra-index-url https://timschneider42.github.io/franky/whl/by-robot-server-version/<N>/ --force-reinstall --no-deps
+```
+
+and asks `Install now? [y/N]`. Only `y` or `yes` installs (into the interpreter running the
+doctor); then it re-runs the doctor for those robots in a fresh interpreter, because the old
+libfranka stays loaded in the current one, and exits with that run's code. Nothing is installed
+without confirmation unless `--yes` is given. With `--json` the doctor never prompts or installs:
+it prints `{"results": <the --json report>, "install_sdk": [{robot, server_version,
+library_version, command}]}`. Robots that report different server versions are not installed
+automatically (one Python environment holds one franky wheel); the doctor prints one command per
+robot instead. `--no-deps` assumes franky's dependencies (`numpy`, `websockets`) are already
+installed, which installing the `franky` extra first takes care of.
 
 ### 4. Serve the robot
 
@@ -614,6 +665,25 @@ limits, however, are enforced here too: `Robot.from_yaml` builds the arm with th
 `safety_box`/`joint_limits`/`max_delta_per_step`, so `robot.arm.safety_limits`,
 `robot.arm.health().safety_clips` and `SafetyViolation` behave exactly as through the daemon.
 
+#### Supervising a single-process robot run
+
+Without a daemon, the robot process drives the arm through the in-process SDK, so nothing outside it can call `arm.stop()`. `python -m robot_infra.supervise` runs it as the child of a separate watchdog process:
+
+    python -m robot_infra.supervise --log runs/<run>/supervise.jsonl -- python examples/record_real_demos.py --config hil.yaml ...
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--heartbeat-timeout-s` | `2.0` | silence after which SIGINT, then SIGTERM, then SIGKILL go to the child's process group |
+| `--grace-s` | `3.0` | SIGINT to SIGTERM |
+| `--kill-s` | `2.0` | SIGTERM to SIGKILL |
+| `--startup-s` | `30.0` | no heartbeat required until the first message or this elapses |
+| `--long-op-s` | `60.0` | silence allowed after the child announces a long operation (an env reset) |
+| `--log` | none | jsonl: pid, escalations with monotonic timestamps, exit code/signal |
+
+The child runs in its own session and receives the write end of a pipe in `ROBOT_INFRA_HEARTBEAT_FD`. `robot_infra.supervise.Heartbeat.from_env()` is the child side: `beat()` once per step, `begin_long_operation()` before a reset. Without the variable it does nothing. Ctrl-C, SIGTERM or a closed terminal reach only the supervisor, which forwards SIGINT and waits for the child; it exits with the child's code, non-zero after an escalation. If the supervisor dies, the child gets SIGINT and its next heartbeat raises `SupervisorLost`. Linux only (prctl, process groups).
+
+The supervisor's only lever is the kill. libfranka then drops the control connection and the robot stops at the firmware level, in `Reflex`. Clear it in Desk or with `python -m robot_infra.doctor --config robot.yaml --fix`. A controlled out-of-process `stop()` exists only on the daemon route (`--watchdog-s`). The in-process first layer is `StepWatchdog`, enabled with `real_robot.watchdog_s` (see `docs/real-world-experiments.md`).
+
 ### 7. Add a teleop device
 
 A `teleop:` section makes an operator input device a part of the robot. Hardware-free, with
@@ -657,7 +727,7 @@ with the same keys:
 | `action_space` | `str` | `cartesian_delta`, `joint_abs` or `joint_delta` |
 | `gripper` | `float` or `None` | normalized width target in [0, 1]; `None` = the device has no gripper channel |
 | `buttons` | `dict[str, bool]` | current levels (SpaceMouse: `button_0`, `button_1`) |
-| `events` | `dict[str, bool]` | latched edges `episode_end`, `success`, `failure`, `rerecord` (always all four keys); `read()` clears them |
+| `events` | `dict[str, bool]` | latched edges `episode_end`, `success`, `failure`, `rerecord` (always all four keys), plus any backend-specific edge that fired (SpaceMouse: `button_0`, `button_1` presses); `read()` clears them |
 | `intervening` | `bool` | a human is operating (backend's `active`, extended by `hold_s`) |
 | `timestamp` | `float` | `time.monotonic()` on the machine that polled, not comparable across hosts |
 | `seq` | `int` | increases with every polled sample, also across reconnects; a gap means dropped samples |
@@ -669,8 +739,11 @@ split the events between them.
 
 `backend: spacemouse` (extra `spacemouse`; options `device_index` 0, `deadzone` 1e-3,
 `invert_axes`, `poll_interval_s` 0.005) is a `cartesian_delta` device with a gripper: the puck
-gives the twist `[-y, x, z, -roll, -pitch, -yaw]`, button 0 toggles the sticky gripper target
-(1.0 = open at connect), button 1 raises `episode_end`. It needs read/write access to
+gives the twist `[-y, x, z, -roll, -pitch, -yaw]`, every button press is latched as the event
+`button_0`/`button_1` (so a press between two reads is not lost), and button 0 toggles the sticky
+gripper target (1.0 = open at connect). Neither button raises `episode_end`. real_world_rl's
+`--teleop-device spacemouse` gives the buttons its own meaning (button 0 take-over, button 1
+gripper) and ignores `gripper` and `intervening`. It needs read/write access to
 `/dev/hidraw*`; `python -m robot_infra.doctor` checks this as `os:hid` and prints the udev
 rule. See [Known limitations](#known-limitations-and-needs-hardware-verification).
 
@@ -701,7 +774,9 @@ python -m robot_infra.devices.backends.teleops.gello_calibrate \
 It checks each joint's sign (move one joint in the robot's positive direction when asked),
 solves the offsets on the quarter-turn grid from the calibration pose, captures the trigger's
 open and closed angles, and takes the wrap centres from the yaml's `joint_limits`. The port
-needs read/write access (`dialout` group); the doctor checks it as `os:serial`. The baud rate
+needs read/write access (`dialout` group); the doctor checks it as `os:serial` and `os:groups`,
+and warns about brltty on CH340 adapters (`os:brltty`) and a slow FTDI `latency_timer`
+(`os:latency_timer`). The baud rate
 is never written to the servos: change it once in Dynamixel Wizard (1000000 gives about 130 Hz
 for 8 servos, 57600 about 25 Hz).
 

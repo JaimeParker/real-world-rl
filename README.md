@@ -76,24 +76,45 @@ Formerly `rlgarden-real-world` (package `rl_garden_real_world`, console scripts 
 
 ## Installation
 
-Clone with the rl-garden submodule:
+On the NUC or development machine, start in a parent directory with no venv active
+and clone with the pinned rl-garden submodule:
 
 ```bash
 git clone --recurse-submodules https://github.com/JaimeParker/real-world-rl.git
 cd real-world-rl
-# in an existing clone: git submodule update --init
 ```
 
-For development, install all three distributions in editable mode from the repository root:
+From the repository root on that same machine, with no venv active, run:
 
 ```bash
-pip install -e rl-garden -e robot_infra -e .
+bash scripts/install.sh
+source .venv/bin/activate
 ```
 
-`rl-garden/` is pinned to the commit the tests here pass against. Bump it deliberately
-(`git -C rl-garden checkout <commit>`, run the tests, then commit the new gitlink). A plain
-`pip install .` without the submodule takes the `rl_garden @ git+...` dependency from
-`pyproject.toml` instead.
+The installer creates or reuses `.venv` using `python3.10` by default, clears inherited
+`PYTHONPATH`, and installs all three local distributions in editable mode with the
+`franka-gello` and `test` extras. Without `--station`, the final doctor uses mock
+backends: this does not verify hardware. See the [hardware tutorial](docs/tutorial/01-install.md)
+for station setup. To check an existing station, run on the NUC, repository root,
+with the installed `.venv` active:
+
+```bash
+bash scripts/install.sh --station local/station.yaml
+```
+
+Doctor owns dependency checks (layer 0) and hardware diagnostics. For a libfranka
+mismatch, follow its `--install-sdk` hint to select the wheel for the robot server.
+The default `franka-gello` extra retains gRPC for the optional daemon route.
+Use `--extras franka-gello,spacemouse` for both controllers, `--no-doctor` to skip
+the final check, or `--torch-index https://download.pytorch.org/whl/cpu` to install
+torch from the CPU index first. `bash scripts/install.sh --help` lists all options.
+
+`rl_garden==0.0.1` and `rlgarden-robot-infra==0.0.1` are supplied by the same pip
+invocation from the local checkout; these versions are not commit locks. Development
+uses the pinned `rl-garden/` submodule. An isolated `pip install .` may not resolve
+these internal packages from a public index. For an existing checkout with an
+uninitialized submodule, run `git submodule update --init` on the NUC/development
+machine, from the repository root (no venv required), then retry the installer.
 
 On the robot PC only the device layer is needed (see [`robot_infra/README.md`](robot_infra/README.md)):
 `pip install -e robot_infra` (plus the extras for your hardware, e.g. `'robot_infra[franky,grpc]'`).
@@ -209,7 +230,8 @@ The limits live in the robot yaml on the robot PC (`safety_box`, `joint_limits`,
 
 The HIL methods (`hil_serl`, `residual_hil_serl`, `silri`) take human interventions through a
 `TeleopSource` selected with `--teleop-device` (`pico`, `spacemouse`, `robot`, `fake`, `gello`,
-`leader_arm`, `keyboard`, `leader_cartesian` or, for two arms, `bimanual`). Only the actor and
+`leader_arm`, `keyboard`, `leader_cartesian` or, for two arms, `bimanual`; `spacemouse_twist` is
+the raw-twist SpaceMouse of the sim examples, not for real robots). Only the actor and
 eval processes open the device; the learner builds its env with the teleop wrapper disabled, so no
 HID or ZMQ device is opened on the GPU box. `--teleop-device spacemouse` is a SpaceMouse on the
 actor's machine, driven through the device layer's `SpaceMouseTeleop` (needs `pyspacemouse>=2,<3`).
@@ -224,11 +246,13 @@ hil_serl can take interventions from the teleop part of the robot itself (the ro
 leader arms (`--teleop-device leader_arm`/`gello`, onset policies, event devices) see
 [Leader arms (GELLO)](docs/teleop.md#leader-arms-gello).
 `--teleop-options-yaml PATH` supplies device options the CLI has no flags for (GELLO port and
-calibration, SpaceMouse index, daemon address), and `--teleop-event-device keyboard|spacemouse` takes
+calibration, SpaceMouse index, daemon address), and `--teleop-event-device keyboard|stdin` takes
 the intervention toggle and events from a second device; both are described in
 [`docs/teleop.md`](docs/teleop.md).
 `--teleop-device spacemouse` opens a SpaceMouse on the actor's own machine through the same
-device-layer `SpaceMouseTeleop` instead (no robot yaml `teleop:` section needed); the device
+device-layer `SpaceMouseTeleop` instead (no robot yaml `teleop:` section needed): button 0 takes
+over and hands back, button 1 toggles the gripper, the puck is a velocity through the cartesian
+command tracker, and the labels come from `--teleop-event-device stdin`. The device
 table, the `TeleopSource` contract and how to add a device are in [`docs/teleop.md`](docs/teleop.md).
 For `--teleop-device robot`:
 

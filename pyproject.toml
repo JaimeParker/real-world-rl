@@ -8,19 +8,19 @@ version = "0.0.1"
 description = "Real-world RL orchestration for rl-garden: ActorLoop/LearnerLoop, the franka_real env backend, and SERL/HIL-SERL training loops. Imports rl_garden as a library; overrides/extends it here rather than living inside its repo."
 requires-python = ">=3.10"
 dependencies = [
-    # Non-dev installs take rl-garden from GitHub. For development the rl-garden/
-    # submodule pins the commit the tests pass against:
-    #   pip install -e rl-garden -e robot_infra -e .
-    "rl_garden @ git+https://github.com/JaimeParker/rl-garden.git",
+    # Supplied from local checkouts in the same pip invocation (scripts/install.sh).
+    # These versions are not commit locks; development uses the pinned submodule.
+    "rl_garden==0.0.1",
     "torch>=2.1",
     "numpy",
+    "scipy>=1.10",
     "gymnasium>=0.29",
     "tyro",
     "requests",
     # Device layer for the generic real_robot env backend (envs/real_robot).
     # Lives in this repository under robot_infra/ (torch-free). For development:
     #   pip install -e rl-garden -e robot_infra -e .
-    "rlgarden-robot-infra @ git+https://github.com/JaimeParker/real-world-rl.git#subdirectory=robot_infra",
+    "rlgarden-robot-infra==0.0.1",
 ]
 
 [project.optional-dependencies]
@@ -29,12 +29,21 @@ dependencies = [
 # itself, required only on the machine running
 # robot_infra/controller/real/franka_bridge.py, is not pip-installable --
 # see that module's docstring.
-robot-infra = ["rlgarden-robot-infra @ git+https://github.com/JaimeParker/real-world-rl.git#subdirectory=robot_infra"]
+robot-infra = ["rlgarden-robot-infra==0.0.1"]
 # collect_data.py's global success/failure keyboard listener.
 reward-collection = ["pynput"]
 # examples/record_teleop_wsrl.py, run_teleop_demo.py: ManiSkill sim envs.
 examples = ["mani_skill"]
 dev = ["pytest", "scipy"]
+# The daemon route needs grpc even when the main workflow runs directly on the NUC.
+# doctor --install-sdk selects/reinstalls the wheel for the robot server version.
+franka-gello = [
+    "rlgarden-robot-infra[franky,gello,gello-events,grpc]==0.0.1",
+    "franky-control",
+    "websockets>=13",
+]
+spacemouse = ["rlgarden-robot-infra[spacemouse]==0.0.1"]
+test = ["pytest", "opencv-python-headless", "ipython", "torchvision", "grpcio>=1.60"]
 
 [project.scripts]
 real-world-rl-train = "real_world_rl.training.__main__:main"

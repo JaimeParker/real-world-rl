@@ -79,7 +79,96 @@ cleanup releases the environment/provider before attempting the held-transition 
 episode finalization and sync drain, so artifact writes do not keep arm control active.
 A drain timeout leaves unacknowledged rows in the outbox and reports their count; restart
 with the same path to deliver them. A forced process kill cannot execute cleanup; the
-robot daemon's watchdog remains part of that failure path.
+robot daemon's watchdog remains part of that failure path. In single-process mode (no
+daemon) see [Watchdogs and the supervisor process](#watchdogs-and-the-supervisor-process).
+
+## Watchdogs and the supervisor process
+
+Three independent layers stop a robot whose control loop goes quiet. None of them replaces
+the physical stop button or the robot's own protections.
+
+| Layer | Where it runs | Detects | Action |
+|---|---|---|---|
+| Daemon watchdog, `python -m robot_infra.server --watchdog-s 0.5` | the daemon process on the robot PC (daemon route only) | no action for `watchdog_s` while servoing | `arm.stop()`, arm to `IDLE` |
+| Step watchdog, env config `watchdog_s` (default off) | a thread inside the robot process | no `env.step()` for `watchdog_s` after a reset | `arm.stop()` once; the next step raises `StepWatchdogTripped` |
+| Supervisor, `python -m robot_infra.supervise` | a separate parent process | no heartbeat for `--heartbeat-timeout-s` | SIGINT, then SIGTERM, then SIGKILL to the robot process group |
+
+### Step watchdog (in-process)
+
+`RealRobotEnvConfig.watchdog_s` (YAML `real_robot.watchdog_s`) starts a `StepWatchdog`
+when a reset finishes and pauses it at the start of every reset. The value must exceed one
+control period. Steps check in on entry and after the command returns, so a slow caller
+(policy, teleop source, logging) and a step blocked in a device call are both detected.
+After a trip, the arm has been stopped once and every later step raises until the next
+reset. A trip during silence after an episode's last step (finalization, saving) is logged
+as a warning at the next reset and is otherwise harmless. The setting is not part of the
+experiment contract.
+
+It shares the process and the GIL with the control loop. It does not cover a frozen process
+(SIGSTOP, a suspended machine, an extension call holding the GIL), a killed process, or a
+`stop()` that itself hangs. Those are what the supervisor is for.
+
+### Supervisor process
+
+Run the recorder or the actor as the child of a supervisor:
+
+```bash
+python -m robot_infra.supervise --log runs/<run>/supervise.jsonl -- \
+    python examples/record_real_demos.py --config hil.yaml ...
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--heartbeat-timeout-s` | `2.0` | silence after which the escalation starts |
+| `--grace-s` | `3.0` | SIGINT to SIGTERM |
+| `--kill-s` | `2.0` | SIGTERM to SIGKILL |
+| `--startup-s` | `30.0` | no heartbeat required until the first message arrives or this elapses |
+| `--long-op-s` | `60.0` | silence allowed after the child announces a long operation (an env reset) |
+| `--log` | none | jsonl: child pid, every escalation with monotonic and wall timestamps, exit code/signal |
+
+The child runs in its own session, so a terminal Ctrl-C (or SIGTERM, or the terminal closing)
+reaches only the supervisor. The supervisor forwards SIGINT to the child's process group and
+keeps supervising until the child exits; it never exits first. Its exit code is the child's
+(128 + N for signal N). After an escalation it is non-zero even when the child exited 0, and
+the reason is printed on stderr. When the child exits, anything left in its process group is
+killed. If the supervisor dies, the kernel sends the child SIGINT, and the child's next
+heartbeat raises `SupervisorLost`. Linux only.
+
+The recorder and the actor heartbeat through `robot_infra.supervise.Heartbeat`: one beat per
+step and after every reset, and a long-operation message before every reset. Without the
+supervisor the calls do nothing. Choose `--startup-s` longer than everything before the first
+reset, for the actor including `--sync-startup-timeout`.
+
+### What the supervisor can and cannot do
+
+In single-process mode the env drives the arm through the in-process SDK (franky). The
+supervisor has no connection to the robot. Its only lever is to kill the robot process.
+libfranka then loses its control connection and the robot stops at the firmware level: a
+reflex stop, with the robot left in `Reflex` mode. This is accepted as the last-resort stop.
+It is not a controlled stop: there is no deceleration profile chosen by us, and the gripper
+keeps its last command.
+
+It cannot:
+
+- stop the robot more gently than a firmware reflex, or call `arm.stop()`: that exists out of
+  process only on the daemon route (`--watchdog-s`);
+- detect a loop that keeps beating while doing the wrong thing (bad actions, a wrong target);
+- act when the whole machine is frozen or loses power, or when the network to the robot
+  fails: those rely on the robot's own communication timeout;
+- guarantee a bound on the stop time. The bound is roughly the heartbeat timeout plus
+  `--grace-s` plus `--kill-s` (7 s with the defaults) when SIGINT and SIGTERM are not
+  honoured, plus libfranka's own connection timeout.
+
+### Recovering after a supervisor kill
+
+1. Check that the arm is at rest and the work cell is safe; keep the physical stop in reach.
+2. Read the reason in the supervisor's stderr and the `escalate` events of `--log`.
+3. The robot is in `Reflex`: release the external activation device if it is pressed, clear
+   the errors in Desk, or run `python -m robot_infra.doctor --config robot.yaml --fix`, which
+   recovers the arm and re-runs the mode check.
+4. The killed run did not finalize. The SQLite outbox/journal keeps every committed row;
+   the recorder's last episode and the action in flight are lost. Restart with the same
+   outbox path to deliver pending rows.
 
 ## Learner checkpoints and recovery
 

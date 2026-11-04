@@ -3,6 +3,10 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import shlex
+import subprocess
+import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from robot_infra.discovery.autoconfig import (
@@ -10,33 +14,48 @@ from robot_infra.discovery.autoconfig import (
     load_station,
     resolve_station_config_path,
 )
-from robot_infra.doctor.checks import CheckResult, exit_code, run_doctor, summarize
+from robot_infra.devices.backends.arms.franky import server_version_cross_check
+from robot_infra.doctor.checks import (
+    LIBFRANKA_LIBRARY_VERSION,
+    LIBFRANKA_SERVER_VERSION,
+    CheckResult,
+    exit_code,
+    run_doctor,
+    summarize,
+)
+from robot_infra.doctor.deps import franky_wheel_install_argv
 
 _LAYER_COUNT = 5
+_JSON_EXCLUDED_FIELDS = ("autofix", "details")
+_YES_ANSWERS = ("y", "yes")
+_INSTALL_PROMPT = "Install now? [y/N] "
 
 
 def _status(result: CheckResult) -> str:
     if result.skipped:
         return "SKIP"
-    return "OK" if result.ok else "FAIL"
+    if not result.ok:
+        return "FAIL"
+    return "WARN" if result.warning else "OK"
 
 
 def format_text(results: list[CheckResult]) -> str:
     lines = []
     for result in results:
-        lines.append(
-            f"[{result.layer}/{_LAYER_COUNT}] {result.name} ... {_status(result)}  {result.message}"
-        )
-        if _status(result) == "FAIL" and result.hint:
+        status = _status(result)
+        lines.append(f"[{result.layer}/{_LAYER_COUNT}] {result.name} ... {status}  {result.message}")
+        if status in ("FAIL", "WARN") and result.hint:
             lines.append(f"    hint: {result.hint}")
     ok, failed, skipped = summarize(results)
-    lines.append(f"summary: {ok} ok, {failed} failed, {skipped} skipped")
+    warnings = sum(_status(result) == "WARN" for result in results)
+    warned = f" ({warnings} with warnings)" if warnings else ""
+    lines.append(f"summary: {ok} ok{warned}, {failed} failed, {skipped} skipped")
     return "\n".join(lines)
 
 
 def _result_dicts(results: list[CheckResult]) -> list[dict]:
     return [
-        {f.name: getattr(result, f.name) for f in dataclasses.fields(result) if f.name != "autofix"}
+        {f.name: getattr(result, f.name) for f in dataclasses.fields(result) if f.name not in _JSON_EXCLUDED_FIELDS}
         for result in results
     ]
 
@@ -48,12 +67,21 @@ def format_json(results: list[CheckResult]) -> str:
 def doctor_station(
     path: str | Path, *, robot: str | None = None, mock: bool = False, fix: bool = False
 ) -> dict[str, list[CheckResult]]:
-    """Run the doctor on ``robot`` of a station yaml, or on every robot in order."""
+    """Run the doctor on ``robot`` of a station yaml, or on every robot in order. A robot with a
+    ``daemon:`` block needs grpc."""
     station = load_station(path)
     names = [robot] if robot is not None else list(station.robots)
-    return {
-        name: run_doctor(fill_from_env(station.select(name).config), mock=mock, fix=fix) for name in names
-    }
+    results_by_robot = {}
+    for name in names:
+        station_robot = station.select(name)
+        results_by_robot[name] = run_doctor(
+            fill_from_env(station_robot.config),
+            mock=mock,
+            fix=fix,
+            config_path=str(path),
+            serves_daemon=station_robot.daemon_declared,
+        )
+    return results_by_robot
 
 
 def station_exit_code(results_by_robot: dict[str, list[CheckResult]]) -> int:
@@ -72,11 +100,107 @@ def format_station_text(results_by_robot: dict[str, list[CheckResult]]) -> str:
     return "\n".join([*blocks, overall])
 
 
+def _station_payload(results_by_robot: dict[str, list[CheckResult]]) -> list | dict:
+    if len(results_by_robot) == 1:
+        return _result_dicts(next(iter(results_by_robot.values())))
+    return {name: _result_dicts(results) for name, results in results_by_robot.items()}
+
+
 def format_station_json(results_by_robot: dict[str, list[CheckResult]]) -> str:
     """One robot: exactly ``format_json``. Several: ``{robot name: [result, ...]}``."""
-    if len(results_by_robot) == 1:
-        return format_json(next(iter(results_by_robot.values())))
-    return json.dumps({name: _result_dicts(results) for name, results in results_by_robot.items()})
+    return json.dumps(_station_payload(results_by_robot))
+
+
+# -- --install-sdk ---------------------------------------------------------------------------
+
+
+@dataclass
+class LibfrankaMismatch:
+    robot: str
+    server_version: int
+    library_version: int
+
+    @property
+    def install_argv(self) -> list[str]:
+        return franky_wheel_install_argv(self.server_version)
+
+
+def libfranka_mismatches(results_by_robot: dict[str, list[CheckResult]]) -> list[LibfrankaMismatch]:
+    """Every failed handshake that named the robot server and library versions."""
+    return [
+        LibfrankaMismatch(name, result.details[LIBFRANKA_SERVER_VERSION], result.details[LIBFRANKA_LIBRARY_VERSION])
+        for name, results in results_by_robot.items()
+        for result in results
+        if result.name == "handshake" and not result.ok and LIBFRANKA_SERVER_VERSION in result.details
+    ]
+
+
+def format_install_sdk_json(results_by_robot: dict[str, list[CheckResult]]) -> str:
+    """``{"results": <the --json report>, "install_sdk": [{robot, server_version, library_version, command}]}``."""
+    install = [
+        {
+            "robot": mismatch.robot,
+            "server_version": mismatch.server_version,
+            "library_version": mismatch.library_version,
+            "command": shlex.join(mismatch.install_argv),
+        }
+        for mismatch in libfranka_mismatches(results_by_robot)
+    ]
+    return json.dumps({"results": _station_payload(results_by_robot), "install_sdk": install})
+
+
+def _confirmed(prompt: str) -> bool:
+    try:
+        answer = input(prompt)
+    except EOFError:
+        return False
+    return answer.strip().lower() in _YES_ANSWERS
+
+
+def doctor_rerun_argv(path: str | Path, robot: str) -> list[str]:
+    return [sys.executable, "-m", "robot_infra.doctor", "--config", str(path), "--robot", robot]
+
+
+def install_franky_wheel(
+    path: str | Path, results_by_robot: dict[str, list[CheckResult]], *, assume_yes: bool = False
+) -> int:
+    """After a libfranka mismatch: show the server version, where to verify it and the pip command,
+    install on confirmation (or ``assume_yes``), then re-run the doctor on those robots in a fresh
+    interpreter, because this one keeps the old libfranka loaded. Returns the exit code."""
+    code = station_exit_code(results_by_robot)
+    mismatches = libfranka_mismatches(results_by_robot)
+    if not mismatches:
+        print("--install-sdk: no libfranka version mismatch found; nothing to install")
+        return code
+    server_versions = sorted({mismatch.server_version for mismatch in mismatches})
+    if len(server_versions) > 1:
+        print(
+            f"--install-sdk: the robots report different robot server versions {server_versions}; one Python "
+            "environment holds one franky wheel, so install on each robot PC by hand:"
+        )
+        for mismatch in mismatches:
+            print(f"  {mismatch.robot}: {shlex.join(mismatch.install_argv)}")
+        return code
+    first = mismatches[0]
+    robots = ", ".join(mismatch.robot for mismatch in mismatches)
+    print(
+        f"--install-sdk: robot server version {first.server_version} detected on {robots} "
+        f"(installed library version {first.library_version})"
+    )
+    print(f"{server_version_cross_check(first.server_version)} before installing")
+    print(f"command: {shlex.join(first.install_argv)}")
+    if not assume_yes and not _confirmed(_INSTALL_PROMPT):
+        print("not installed")
+        return code
+    completed = subprocess.run(first.install_argv)
+    if completed.returncode != 0:
+        print(f"pip exited with code {completed.returncode}; the handshake was not re-checked")
+        return 1
+    print("installed; re-running the doctor in a fresh interpreter")
+    rerun_codes = [subprocess.run(doctor_rerun_argv(path, mismatch.robot)).returncode for mismatch in mismatches]
+    mismatched = {mismatch.robot for mismatch in mismatches}
+    other_codes = [exit_code(results) for name, results in results_by_robot.items() if name not in mismatched]
+    return max([*rerun_codes, *other_codes], default=0)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -91,11 +215,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mock", action="store_true", help="swap every backend for its fake")
     parser.add_argument("--fix", action="store_true", help="run autofixes for failed checks")
     parser.add_argument("--json", action="store_true", help="machine-readable output")
+    parser.add_argument(
+        "--install-sdk",
+        action="store_true",
+        help="after a libfranka version mismatch, offer to pip install the franky wheel for the robot server "
+        "version (asks first; with --json only reports the command)",
+    )
+    parser.add_argument("--yes", action="store_true", help="with --install-sdk: install without asking")
     args = parser.parse_args(argv)
+    if args.yes and not args.install_sdk:
+        parser.error("--yes only applies to --install-sdk")
     try:
         path = resolve_station_config_path(args.config)
     except FileNotFoundError as error:
         parser.error(str(error))
     results_by_robot = doctor_station(path, robot=args.robot, mock=args.mock, fix=args.fix)
-    print(format_station_json(results_by_robot) if args.json else format_station_text(results_by_robot))
+    if args.json:
+        print(format_install_sdk_json(results_by_robot) if args.install_sdk else format_station_json(results_by_robot))
+        return station_exit_code(results_by_robot)
+    print(format_station_text(results_by_robot))
+    if args.install_sdk:
+        return install_franky_wheel(path, results_by_robot, assume_yes=args.yes)
     return station_exit_code(results_by_robot)

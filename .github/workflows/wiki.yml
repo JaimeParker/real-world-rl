@@ -1,0 +1,63 @@
+name: Sync Wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'README.md'
+      - 'robot_infra/README.md'
+      - 'robot_infra/docs/**'
+      - 'scripts/sync_wiki.py'
+      - '.github/workflows/wiki.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wiki
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Wiki token
+        env:
+          TOKEN: ${{ secrets.WIKI_PUSH_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo 'set repository secret WIKI_PUSH_TOKEN (fine-grained PAT, Contents: read and write on this repository)'
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Generate Wiki pages
+        run: python scripts/sync_wiki.py --out build/wiki --sha "$GITHUB_SHA"
+
+      - name: Replace and publish Wiki pages
+        env:
+          TOKEN: ${{ secrets.WIKI_PUSH_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git" build/wiki-repo
+          find build/wiki-repo -type f -name '*.md' -not -path 'build/wiki-repo/.git/*' -delete
+          cp build/wiki/*.md build/wiki-repo/
+          cd build/wiki-repo
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'wiki up to date'
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m "docs(wiki): sync from ${GITHUB_SHA}"
+            git push
+          fi

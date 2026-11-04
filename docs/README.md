@@ -49,3 +49,5 @@ Flags, file formats and hardware details.
 
 - [Hardware session checklists](testing/README.md): English primary checklists,
   record CSV conventions and evidence requirements. Hardware results are filled in on site.
+
+The GitHub Wiki is generated from these repository files by a GitHub Action; edit the files in the repository directly.

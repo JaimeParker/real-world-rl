@@ -1,95 +1,85 @@
-# 3. Start the daemon and check
+# 3. Process layout and optional daemon
 
-The robot daemon runs on the robot PC and serves the arm, the gripper, the camera and the GELLO over
-gRPC. Every other process (recorder, actor, eval, deploy) is a client of it.
+The main workflow runs the recorder or HIL actor on the NUC with a local
+`real_robot.robot` mapping and `arm_backend: franky`. That process opens the arm,
+Hand, cameras and GELLO directly. **Do not start a daemon for this route.**
+A learner on a GPU machine does not by itself require a robot daemon: the actor
+can remain on the NUC and send training data to the learner.
 
-## Check the station
+Only use the daemon route below when the **actor itself runs on another
+machine**, using `real_robot.remote` instead of `real_robot.robot`.
 
-With nothing serving the robot yet:
+| Property | Direct on the NUC (main workflow) | Remote actor (optional) |
+|---|---|---|
+| Hardware processes, one arm | one recorder or actor process | NUC daemon plus recorder or actor on the other machine |
+| Connection config | `real_robot.robot` mapping | `real_robot.remote: NUC_ADDRESS:50051`; omit `robot` |
+| Operator keyboard | attached to the NUC; target terminal keys in [00](00-overview.md#operator-keys) | read on the actor machine; current `pynput` route needs its desktop session |
+| Action watchdog | application checks share the hardware process | daemon can stop the arm when client actions stop arriving |
+| External stop | supervisor can kill a stuck process; firmware then handles lost control communication | a live daemon can issue stop independently of the actor |
 
-```bash
-python -m robot_infra.discovery     # what hardware is visible (never connects to a robot)
-python -m robot_infra.doctor        # the five-layer check of the station's robot
-```
+An application thread cannot guarantee `stop()` if its whole process hangs or
+is killed. A supervisor killing the direct process relies on the firmware's
+communication-loss response; it is not an independent application stop command.
+The daemon watchdog also cannot cover a hung daemon or failed NUC. Keep the
+physical emergency stop available in both layouts.
 
-*You should see* for discovery: the camera serials, the GELLO port, and
-`172.16.0.2: ping=ok open ports=<list>` (for Franka, port 1337 open usually means FCI is reachable).
-With nothing attached the sections read `none`
-([sample output](../../robot_infra/README.md#2-plug-in-and-discover)). For the doctor: one line per
-check, `[1/5] sdk:arm ... OK  ...` through `[5/5] mode:...`, then `summary: N ok, 0 failed, S skipped`;
-the exit code is 1 if anything failed. The doctor connects to the robot and disconnects it.
-`--fix` runs a failed check's autofix, `--json` prints machine output:
+## Start a daemon only for a remote actor
 
-```bash
-python -m robot_infra.doctor --fix
-```
-
-## Serve
-
-With no `--config` the daemon uses the station file:
-
-```bash
-python -m robot_infra.server --watchdog-s 5
-```
-
-`--watchdog-s 5` matters for training: the daemon idles an arm that gets no action for the watchdog
-time (default 0.5 s), and the first policy step after a reset can take longer. *You should see* the
-same doctor lines first (the daemon's preflight), then the robot's parts and
-`serving franka 'arm' on 0.0.0.0:50051`. The robot connects when the first client does. Leave the
-terminal open; Ctrl-C stops the daemon without powering the robot off.
-
-Do not run `python -m robot_infra.doctor` while the daemon serves the same robot: the doctor takes the
-same device claim and reports a failed `handshake`.
-
-## If a check fails: the three common failures
-
-Each failing line is followed by `hint: ...`; follow it. The most common:
-
-1. **GELLO serial permission.**
-   `[2/5] os:serial ... FAIL  no read/write access to /dev/serial/by-id/...` with the hint to add the
-   user to the `dialout` group (`sudo usermod -aG dialout $USER`, then log in again) or a udev rule.
-   `serial port ... not found` means a cable or the wrong port: list `/dev/serial/by-id/`.
-2. **Franka not reachable.** `os:ping` FAIL and `handshake ... FAIL  cannot reach Franka at <ip>: ...`
-   with the hint `check: ping <ip>; FCI activated in Desk; cable on the Control (not Arm) port;
-   'UDP receive: Timeout' means a firewall`. Activate FCI in Desk, plug into the Control box, allow
-   UDP from the robot through the firewall, and check the robot IP in the yaml.
-3. **Camera serial ambiguous or missing.** `os:camera:<name> ... FAIL  serial unset and N devices
-   attached; set serial to one of [...]`, or `camera '<name>' serial '<s>' not found`. The wizard
-   writes serials, so this appears after a hand edit or a re-plugged camera: copy the serial from
-   `python -m robot_infra.discovery` into `cameras[].serial`. `no frames within 2s` means USB 3
-   bandwidth or udev rules; try `--fix`.
-
-The full table, including libfranka version mismatch, Reflex mode and the real-time kernel, is the
-[robot_infra troubleshooting table](../../robot_infra/README.md#troubleshooting).
-
-## Dry run without hardware
-
-The doctor can swap every backend for its fake, which checks the station file itself:
+First finish the [real doctor handshake](01-install.md#5-configure-once-then-run-doctor).
+Run every command in this section on the **NUC**, from the **repository root**,
+with **`.venv` active**. Ensure no other process owns these devices.
+The remote route needs `robot_infra[grpc]` installed on both NUC and actor.
 
 ```bash
-python -m robot_infra.doctor --config local/station.yaml --mock
+python -m robot_infra.server --config local/station.yaml --watchdog-s 5
 ```
 
-The README's
-[End-to-end try-out with the fake robot](../../README.md#end-to-end-try-out-with-the-fake-robot)
-runs a daemon on fake backends, a learner, an actor and a deploy of the checkpoint on one machine.
-Run it once so the commands of the next pages are familiar. `--teleop-device fake` instead of
-`--teleop-device leader_arm` gives an actor without an operator (a scripted source that never
-intervenes, [teleop.md](../teleop.md#devices)). `tests/test_single_arm_station_smoke.py` runs the
-single-arm workflow of this tutorial on fakes:
+`--watchdog-s` defaults to **0.5 seconds**. The explicit **5 seconds** above allows
+for slow first inference after reset: if the interval exceeds the watchdog, the
+daemon idles the arm and the next action fails. Choose the timeout for the cell;
+5 seconds is an example, not a guarantee that a long pause is safe.
+
+*You should see:* preflight doctor checks followed by the serving address and
+robot parts. Leave the terminal open. Ctrl-C stops the daemon. A multi-arm station
+starts one daemon process per configured robot, on separate ports; the launcher
+can start both from the station file.
+
+*If not:* follow the named preflight hint in [01](01-install.md). Do not run doctor
+against the same devices while a recorder, actor or daemon owns them: the device
+claim and handshake will conflict.
+
+## Point the remote actor at the NUC
+
+On the **actor machine**, use its installed project venv, from its repository root.
+In its `hil.yaml`, remove `real_robot.robot` and set `real_robot.remote` to the
+NUC's reachable address and the station's daemon port (normally 50051). Set
+`real_robot.token` only if `daemon.token` is configured. With cameras, provide
+`obs.image_size` because remote sizes are only known after connecting. Keep the
+same action mode, 50 Hz frequency and observation contract as recording.
+
+Install the gRPC client in the actor's project venv:
 
 <!-- tutorial-test: skip -->
 ```bash
-python -m pytest tests/test_single_arm_station_smoke.py -q
+python -m pip install -e 'robot_infra[grpc]'
 ```
 
-## Check local storage before training
+Check that configuration without connecting, on the actor machine, repository
+root, project venv active:
 
-The actor writes an outbox on its own machine, while the learner writes a journal and checkpoint
-bundles on the GPU machine. Put both on local storage and budget for image data in both replay
-buffers. SQLite WAL uses `synchronous=NORMAL`: committed messages survive process crashes, while
-an OS crash or power failure may lose the most recent commits. The daemon watchdog still covers
-a process that is killed before cleanup. Paths and recovery commands are in
-[tutorial 07](07-hil-training.md#resume-an-interrupted-run).
+```bash
+python examples/train_real_world.py hil_serl --config hil.yaml --print-config
+```
 
-Next: [04 Record demos](04-record-demos.md) (read [06 Intervening](06-intervening.md) first).
+*You should see:* exactly one connection source (`remote`), the correct camera
+names, action mode and control frequency. During the actual run, the daemon
+connects the hardware when the client connects.
+
+*If not:* remove a leftover `robot` mapping. For a runtime connection failure,
+check the daemon's listening address, network/firewall reachability and token.
+Keyboard events belong to the actor's event source; a keyboard attached only to
+the NUC does not automatically become the remote actor's keyboard. Avoid opening
+the same GELLO independently in both processes: use the daemon's teleop part.
+
+Next: [04 Record demos](04-record-demos.md), with the workflow and key migration
+limitations described in [00](00-overview.md#known-limits).

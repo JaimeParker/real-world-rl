@@ -1,3 +1,5 @@
+<!-- English source: README.md -->
+
 <a id="real-world-rl"></a>
 
 # real-world-rl
@@ -63,23 +65,31 @@ real-world-rl/                   repository real-world-rl (top level)
 
 ## 安装
 
-克隆时同时获取 rl-garden 子模块：
+在 NUC 或开发机器上，从父目录、未激活 venv 时克隆带固定子模块的仓库：
 
 ```bash
 git clone --recurse-submodules https://github.com/JaimeParker/real-world-rl.git
 cd real-world-rl
-# in an existing clone: git submodule update --init
 ```
 
-开发时从仓库根目录以可编辑方式安装三个发行包：
+同机仓库根目录、未激活 venv 时运行：
 
 ```bash
-pip install -e rl-garden -e robot_infra -e .
+bash scripts/install.sh
+source .venv/bin/activate
 ```
 
-`rl-garden/` 固定在本仓库测试通过的提交。更新时有意执行 `git -C rl-garden checkout <commit>`，运行测试，再提交新 gitlink。若没有子模块，普通 `pip install .` 会改从 `pyproject.toml` 获取 `rl_garden @ git+...` 依赖。
+默认用 `python3.10` 创建或复用 `.venv`，清除继承的 `PYTHONPATH`，以 editable 方式安装三个本地发行包及 `franka-gello`、`test` extras。未传 `--station` 时末尾 doctor 为 mock，不验证硬件。工作站设置见[硬件教程](tutorial/01-install.md)。已有 station 时在 NUC、仓库根、已安装 `.venv` 激活后执行：
 
-机器人 PC 只需设备层，见 [`robot_infra/README.md`](robot-infra.md)：运行 `pip install -e robot_infra`，并添加硬件需要的可选组，如 `'robot_infra[franky,grpc]'`。`pyspacemouse` 用于 `--teleop-device spacemouse`，懒加载且仅需安装在实际使用设备的机器上。
+```bash
+bash scripts/install.sh --station local/station.yaml
+```
+
+doctor 负责 layer-0 依赖与硬件诊断；libfranka 不匹配时按 `--install-sdk` 提示安装适配 robot server 的 wheel。默认 `franka-gello` 保留可选守护进程需要的 gRPC。`--extras franka-gello,spacemouse` 安装两种控制器，`--no-doctor` 跳过末尾检查，`--torch-index https://download.pytorch.org/whl/cpu` 先从 CPU 索引装 torch；完整选项见 `bash scripts/install.sh --help`。
+
+`rl_garden==0.0.1`、`rlgarden-robot-infra==0.0.1` 由同次 pip 调用的本地 checkout 提供，不是提交锁。开发使用固定 `rl-garden/` 子模块。孤立 `pip install .` 未必能从公开索引解析内部包。已有 checkout 的子模块未初始化时，在 NUC/开发机仓库根、无需 venv，运行 `git submodule update --init` 后重试。
+
+机器人 PC 只需设备层，见 [robot_infra README](robot-infra.md)：`pip install -e robot_infra`，及硬件 extras 如 `'robot_infra[franky,grpc]'`。SpaceMouse 的 `pyspacemouse` 懒导入，仅设备所在机器安装。
 
 <a id="tests"></a>
 
@@ -165,21 +175,23 @@ hil_serl 的 `--env-backend real_robot` 在构建 `TeleopInterventionWrapper` �
 
 ### 遥操作
 
-HIL 方法 `hil_serl`、`residual_hil_serl`、`silri` 通过 `--teleop-device` 选择的 `TeleopSource` 接收人工介入，设备包括 `pico`、`spacemouse`、`robot`、`fake`、`gello`、`leader_arm`、`keyboard`、`leader_cartesian` 及双臂 `bimanual`。只有 actor 和 eval 打开设备，learner 禁用遥操作包装器，GPU 机器不打开 HID 或 ZMQ。`--teleop-device spacemouse` 经设备层 `SpaceMouseTeleop` 驱动 actor 本机设备，需要 `pyspacemouse>=2,<3`。接口约定、包装器 `info` 字段 `intervene_action`、`policy_action`、`intervened`、`intervention_onset`、`human_episode_end`、`teleop_events`，以及演示、录制和新增设备方式见 [`docs/teleop.md`](teleop.md)。
+HIL 方法 `hil_serl`、`residual_hil_serl`、`silri` 通过 `--teleop-device` 的 `TeleopSource` 接收介入：`pico`、`spacemouse`、`robot`、`fake`、`gello`、`leader_arm`、`keyboard`、`leader_cartesian`，双臂用 `bimanual`；`spacemouse_twist` 是模拟示例的原始 twist，不用于真机。只有 actor/eval 打开设备，learner 禁用 teleop wrapper，不在 GPU 机打开 HID/ZMQ。SpaceMouse 在 actor 本机，经设备层 `SpaceMouseTeleop`（`pyspacemouse>=2,<3`）驱动。契约、`info` 键（`intervene_action`、`policy_action`、`intervened`、`intervention_onset`、`human_episode_end`、`teleop_events`）、录制脚本和新增设备见 [teleop.md](teleop.md)。
 
 <a id="teleop---teleop-device-robot"></a>
 
-### 机器人遥操作（`--teleop-device robot`）
+### 机器人 teleop（`--teleop-device robot`）
 
-hil_serl 可以经守护进程读取机器人 YAML 的 `teleop:` 部件，支持 SpaceMouse、GELLO 主臂或 `fake`。`--teleop-device leader_arm` / `gello`、起始策略和事件设备见 [GELLO 主臂](teleop.md#leader-arms-gello)。`--teleop-options-yaml PATH` 提供 CLI 未暴露的端口、标定、设备索引和守护进程地址；`--teleop-event-device keyboard|spacemouse` 从第二设备接收切换和事件，均见 [`docs/teleop.md`](teleop.md)。`--teleop-device spacemouse` 直接通过相同设备层 `SpaceMouseTeleop` 打开 actor 本机设备，无需 YAML `teleop:` 段；设备表、`TeleopSource` 约定和扩展方法同见 [`docs/teleop.md`](teleop.md)。`--teleop-device robot` 的规则如下：
+HIL 可从机器人 YAML `teleop:` 部件接管，如 SpaceMouse、GELLO、fake，由守护进程提供。leader/onset/事件设备见 [GELLO](teleop.md#leader-arms-gello)。`--teleop-options-yaml PATH` 提供 CLI 未单独暴露的端口、标定、设备索引、守护地址；`--teleop-event-device keyboard|stdin` 从第二设备取接管状态和事件。
 
-- `cartesian_delta` 动作原样传递；`joint_abs` 按 `joint_limits` 归一化；`joint_delta` 转为 `(q_leader - q_follower) / joint_scale_rad`，要求 `state_fields` 含 `joint_pos`。
-- `[0, 1]` 中的遥操作夹爪值 `g` 转为 `2g - 1`。没有夹爪的遥操作保持上次发给环境的夹爪动作，reset 后为打开 `+1`，避免接管机械臂时丢下抓取物。
-- 遥操作 `episode_end` 将回合标为 `truncated`，设置 `info["human_episode_end"]`；`reset()` 回 home 期间的按键事件会被丢弃。遥操作读取失败会以 `DeviceFault` 停止 actor。
-- 远程机器人连接后才能报告遥操作部件，因此通过 `--robot-teleop-action-mode {cartesian_delta,joint_abs,joint_delta}` 声明；无夹爪设备再用 `--no-robot-teleop-has-gripper`。连接时与实际部件核对，不匹配抛 `DeviceFault`。
-- 配置的遥操作设备必须在场，机器人才能连接。无人接管部署使用 `--no-enable-teleop` 及无 `teleop:` 的机器人 YAML；辅助部署保留设备。
+`--teleop-device spacemouse` 也经设备层打开 actor 本机设备，无需 robot YAML teleop：按钮 0 接管/交还、按钮 1 夹爪，推杆速度经笛卡尔 tracker，标签来自 stdin。设备表、契约和扩展见 [teleop](teleop.md)。对 `--teleop-device robot`：
 
-无硬件 fake 遥操作演练，以下为机器人 YAML。`on_end: loop` 重复脚本，让回合持续结束：
+- cartesian_delta 直接传递；joint_abs 归一化到关节限位；joint_delta 为 `(q_leader - q_follower) / joint_scale_rad`，需 `joint_pos` 状态。
+- `[0,1]` 夹爪变成 `2g-1`；无夹爪源保持最后命令，reset 后为开 `+1`，避免接管掉物。
+- `episode_end` 使回合 truncated 并设置 `human_episode_end`，home 期间事件丢弃；读取失败以 DeviceFault 停 actor，不静默取消介入。
+- 远程 teleop 连接后才知道，先声明 `--robot-teleop-action-mode {cartesian_delta,joint_abs,joint_delta}`，无夹爪另传 `--no-robot-teleop-has-gripper`；连接时核对，不符报 DeviceFault。
+- 配置的 teleop 必须存在才能连接。无人部署用 `--no-enable-teleop` 与无 `teleop:` 的 YAML；辅助部署保留设备。
+
+fake teleop 无硬件演练，`on_end: loop` 重复脚本使回合继续结束：
 
 ```yaml
 teleop:

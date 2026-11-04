@@ -2,7 +2,7 @@
 
 这里提供 `docs/` 全部 20 篇文档的完整中文译文，并补充项目 README、设备层 README、ACT 说明和机械臂控制配置，共 24 篇。下方教程、专题与参考文档均链接到中文版，涵盖从配置 Franka 与 GELLO，到示范采集、基础策略、人工介入强化学习和部署的完整流程。各译文顶部的 English 链接可对照原文；命令、参数、配置键和程序输出保留原样。
 
-另提供原生中文[双臂 Franka 与 GELLO 单机接管测试案例](zh-CN/testing/bimanual-franka-gello-smoke.md)，包含新 Ubuntu 上位机安装、从 NUC 迁移、操作指南与[CSV 记录表](zh-CN/testing/bimanual-franka-gello-smoke-record.csv)。案例按一次尝试后退出组织，真机结果留待现场填写。
+另见[真机测试页索引（英文主版本）](testing/README.md)，说明单项命令、通过标准、记录 CSV 与证据归档约定。`docs/zh-CN/testing/` 为对应中文翻译，真机结果留待现场填写。
 
 项目由 `real_world_rl`（训练与环境）、`robot_infra`（设备与守护进程）和 `rl-garden`（算法依赖，Git 子模块）组成。GitHub 仓库名为 `real-world-rl`；已有本地目录可能仍叫 `rlgarden-real-world`。以下涉及的命令均从项目根目录运行。
 
@@ -18,7 +18,7 @@
 | 开始人工介入强化学习 | [06 操作员指南](zh-CN/tutorial/06-intervening.md) → [07 HIL 训练](zh-CN/tutorial/07-hil-training.md) |
 | 在已有 BC 或 ACT 上学习修正 | [残差 RL](zh-CN/residual.md) → [07 HIL 训练](zh-CN/tutorial/07-hil-training.md) |
 | 从不完全理想的人工介入中学习 | [SiLRI](zh-CN/silri.md) → [07 HIL 训练](zh-CN/tutorial/07-hil-training.md) |
-| 新上位机首次验证双臂 GELLO 接管 | [单机接管测试与操作指南](zh-CN/testing/bimanual-franka-gello-smoke.md) |
+| 规划现场测试与记录证据 | [真机测试页索引](testing/README.md) |
 | 使用双臂和两套 GELLO | [双臂环境](zh-CN/bimanual.md)，其中按教程步骤列出了单臂配置的改法 |
 | 把训练结果部署到机器人 | [08 部署](zh-CN/tutorial/08-deploy.md) |
 | 恢复中断实验、核对成功率与局部接管数据 | [真机实验](zh-CN/real-world-experiments.md) |

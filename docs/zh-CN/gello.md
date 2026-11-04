@@ -1,3 +1,5 @@
+<!-- English source: docs/gello.md -->
+
 <a id="gello-leader-arm-hardware-to-hil-training"></a>
 
 # GELLO 主臂 从硬件到 HIL 训练
@@ -154,16 +156,16 @@ real_robot:
 
 <a id="4-franka_real-the-stub-robot-daemon"></a>
 
-## 4. `franka_real` 的占位机器人守护进程
+## 4. `franka_real`：stub-robot 守护进程
 
-`franka_real` 访问仅接受笛卡尔目标的 SERL HTTP 桥接。GELLO 连接机器人主机，由占位机器人提供服务：`type: franka`、`arm_backend: fake`，无夹爪、无相机，唯一真实设备为 GELLO。配置示例为 `robot_infra/docs/robot.gello_station.example.yaml`：
+`franka_real` 连接只接受笛卡尔目标的 SERL HTTP 桥接。GELLO 接机器人主机，由 stub robot（`type: franka`、`arm_backend: fake`、无夹爪/相机）服务，只有 GELLO 是实体设备，配置参考 `robot_infra/docs/robot.gello_station.example.yaml`：
 
 ```bash
 # on the robot host, next to the SERL bridge
 python -m robot_infra.server --config robot.gello_station.yaml --bind 0.0.0.0:50052
 ```
 
-actor 用 Panda 正向运动学将主臂关节转换为笛卡尔速度增量，使用 `--teleop-device leader_cartesian --teleop-options-yaml station.yaml`，且 `station.yaml` 包含 `remote_address: robot-host:50052`。映射、夹爪和 DH 验证见 [teleop.md](teleop.md#leader-arm-on-a-cartesian-robot-leader_cartesian)。
+actor 用 Panda 正向运动学将关节转为笛卡尔 twist，选择 `--teleop-device leader_cartesian --teleop-options-yaml station.yaml`，选项文件含 `remote_address: robot-host:50052`。follower 跟踪持续 command target：无人驱动时固定 hold，命令领先实测最多 `--teleop-lead-cap-m 0.05` / `--teleop-lead-cap-rad 0.3`，推进速度最多 `--teleop-target-speed-m-s 0.05` / `--teleop-target-speed-rad-s 0.3`。环境尺度至少等于上限，real_robot 用 0.05/0.3，franka_real 用其 action scales。同一输入源也支持 real_robot cartesian_delta，`examples/presets/gello_cartesian.yaml` 为单臂 50 Hz 仅状态预设。映射、tracker、夹爪及 DH 核对见 [teleop](teleop.md#leader-arm-on-a-cartesian-robot-leader_cartesian)。
 
 <a id="5-recording-demos"></a>
 
@@ -183,20 +185,22 @@ python examples/record_real_demos.py --config hil.yaml \
 
 ## 6. HIL 训练
 
-三个 HIL 方法使用相同遥操作参数。`--robot-teleop-action-mode joint_delta` 在远程连接前声明机器人遥操作部件；主臂只需声明关节空间，实际输出由环境 `action_mode` 决定。
+三种 HIL 方法接受同样参数。`--robot-teleop-action-mode joint_delta` 在远程连接前声明 teleop 部件；leader 只需声明某个关节空间，实际输出由环境 action_mode 决定。
 
-`hil_serl`、`residual_hil_serl`（BC 或 ACT 基础策略）和 `silri` 的完整 learner / actor 命令见[教程 07](tutorial/07-hil-training.md)，共用 `--teleop-device leader_arm --robot-teleop-action-mode joint_delta --teleop-event-device keyboard`。操作员按键和接管方式见[教程 06](tutorial/06-intervening.md)。
+完整 learner/actor 命令见[教程 07](tutorial/07-hil-training.md)，该路线使用 `--teleop-device leader_arm --robot-teleop-action-mode joint_delta --teleop-event-device keyboard`；操作键与 onset 见[教程 06](tutorial/06-intervening.md)。
 
-人工介入切换信号可以来自：
+模式和 `--teleop-onset` 说明见[教程 06](tutorial/06-intervening.md)。接管状态来自：
 
-- `--teleop-event-device keyboard`，即教程方案：通过 `pynput` 读取 actor 机器桌面会话，Space 切换、Esc 结束回合、`s` / `f` / `r` 触发成功、失败、重录。也支持 `spacemouse`，介入状态随 SpaceMouse 活动变化。YAML 保持 `intervention: always`，事件设备的切换信号会覆盖它。
-- 机器人 PC 上的 evdev 脚踏或键盘：在 `teleop:` 选项中设置 `intervention: toggle` 和 `event_device: /dev/input/by-id/...`，安装 `gello-events` 并让用户加入 `input` 组，去掉 `--teleop-event-device`。按键由 `event_keys` 定义，默认值见上文。
+- `--teleop-event-device keyboard`（教程路线）：actor 桌面的 pynput，`t` 接管、`h` 交还、Esc 结束、`s`/`f`/`r` 成功/失败/重录、`q` 回合后退出。`stdin` 从命令终端读取同样按键，无需桌面且支持 SSH。YAML 保留 `intervention: always`，事件状态覆盖它。
+- 机器人 PC evdev 键盘/脚踏：在 teleop options 配 `intervention: toggle` 和 `/dev/input/by-id/...` 的 `event_device`，安装 `gello-events`、用户在 input 组，去掉 CLI 事件设备；按键由 `event_keys` 决定。
+
+向导 `python -m robot_infra.setup` 将 GELLO 选项、标定、teleop 和守护端口写入 station，见 [setup wizard](robot-infra.md#setup-wizard)，可直接用它代替手写机器人 YAML。
 
 <a id="two-gellos-two-arms"></a>
 
 ### 两套 GELLO 与双臂
 
-双臂工作站使用 `--env-backend real_robot_bimanual`，见 [bimanual.md](bimanual.md)，每台机器人配置自己的 GELLO。`python -m robot_infra.setup` 探测两条总线、依次标定，并生成 `robots: {left, right}`，各自包含 `teleop:` 和守护进程端口。向导说明见 [robot_infra README](robot-infra.md#setup-wizard)，带注释示例为 `robot_infra/docs/station.bimanual.example.yaml`。训练或录制时使用 `--teleop-device bimanual`；`--teleop-arm-device leader_arm` 通过各臂守护进程读取，`--teleop-arm-device gello --teleop-options-yaml <station.yaml>` 则用同一工作站文件的配置在 actor 上打开两套 GELLO。一个 `--teleop-event-device keyboard` 同时切换两臂，介入规则见 [teleop.md](teleop.md#two-arms-bimanual)。
+双臂 station 使用 `--env-backend real_robot_bimanual`，每台机器人各接一套 GELLO。向导探测两条总线并分别内联标定，写入 `robots: {left, right}`，各含 teleop 和守护端口；带注释示例为 `robot_infra/docs/station.bimanual.example.yaml`。用 `--teleop-device bimanual`；`--teleop-arm-device leader_arm` 读各臂服务的 GELLO，或 `--teleop-arm-device gello --teleop-options-yaml <station.yaml>` 在 actor 本机从同一 station 打开两套。一个 keyboard 或 stdin 事件设备可同时接管/交还两臂。规则见 [teleop](teleop.md#two-arms-bimanual)。
 
 <a id="7-what-the-hil-rows-record"></a>
 

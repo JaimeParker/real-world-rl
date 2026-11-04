@@ -1,94 +1,132 @@
 # 0. Overview and safety
 
-This tutorial takes one Franka arm from an empty robot PC to a deployed policy that picks an object
-and places it in a bin. It uses one GELLO leader arm, read through the robot daemon, and the
-keyboard of the actor machine for the operator's keys. Every page says what to run, what you should
-see, and what to do if you do not.
+This tutorial starts with a NUC and one Franka FR3, establishes a real doctor
+handshake, then prepares a pick-and-place experiment with a GELLO leader.
+The main workflow runs the recorder or HIL actor **in one hardware process on
+the NUC**, connecting directly through franky with `real_robot.robot`. A GPU
+learner can run separately. Use a robot daemon only when the actor runs on
+another machine, with `real_robot.remote` instead.
 
-The worked example throughout is **pick and place**: one object, one bin. Runs are named
-`*-pick-and-place` (`runs/bc-pick-and-place`, `runs/hil-pick-and-place`, ...).
-Keep the same run identity and local storage when recovering an interrupted experiment;
-use a new identity for an independent experiment.
+The control contract is **cartesian GELLO at 50 Hz**. Use the same action
+mode, frequency, cameras, state fields and gripper contract for demos, BC/ACT,
+HIL and deployment. Run names such as `runs/bc-pick-and-place` and
+`runs/hil-pick-and-place` identify separate experiments; reuse an identity and
+its local storage only when resuming that experiment.
 
 ## The pipeline
 
 ```text
-01 install --> 02 station.yaml + hil.yaml --> 03 daemon + doctor
-    --> 04 record demos (GELLO + keyboard)       demos/pick-and-place.pkl
-    --> 05 base policy: BC or ACT                runs/bc-pick-and-place, runs/act-pick-and-place
-    --> 06 how to intervene (read before 04 and 07)
-    --> 07 HIL training: hil_serl | residual_hil_serl | silri
-    --> 08 deploy a checkpoint
+New cell: power --> Control network --> Desk control + FCI --> install
+                                                               |
+Already commissioned: take Desk control --> confirm FCI --------+
+                                                               v
+                     station.yaml --> real doctor handshake
+                                                               |
+                       gello_cartesian.yaml (NUC, direct) <-----+
+                            |                    |
+                   record GELLO demos     remote actor needed?
+                            |                    |
+                       BC or ACT          optional daemon + remote:
+                            |                    |
+                            +-----> HIL actor + learner --> deploy
 ```
 
 | Page | What you do |
 |---|---|
-| [01 Install](01-install.md) | hardware checklist, network, permissions, install per machine |
-| [02 Station](02-station.md) | run the setup wizard (GELLO calibration included), check the safety limits, create `hil.yaml` |
-| [03 Daemon](03-daemon.md) | discovery, doctor, serve the robot; a dry run without hardware |
-| [04 Record demos](04-record-demos.md) | record successful pick-and-place demos into a pkl |
-| [05 Base policy](05-base-policy.md) | train BC or ACT on the demos |
-| [06 Intervening](06-intervening.md) | the operator page: keys, takeover, what gets recorded, when to intervene |
-| [07 HIL training](07-hil-training.md) | learner and actor for `hil_serl`, `residual_hil_serl` (BC or ACT base) and `silri`; what to watch |
-| [08 Deploy](08-deploy.md) | run a checkpoint with no learner and no operator |
+| [01 Install](01-install.md) | power, cabling, persistent networking, six Desk checks, install and doctor |
+| [02 Station](02-station.md) | select per-arm hardware, calibrate GELLO, verify limits and prepare direct `hil.yaml` |
+| [03 Process layout](03-daemon.md) | use one hardware process on the NUC; configure a daemon only for a remote actor |
+| [04 Record demos](04-record-demos.md) | supervised GELLO or SpaceMouse recording |
+| [05 Base policy](05-base-policy.md) | train BC or ACT from compatible demos |
+| [06 Intervening](06-intervening.md) | operator keys, bounded following, gripper latch and recorded data |
+| [07 HIL training](07-hil-training.md) | learner and actor for HIL-SERL, residual HIL-SERL or SiLRI |
+| [08 Deploy](08-deploy.md) | deploy a checkpoint with its saved observation/action contract |
 
 ## Names used in the commands
 
 | Name | Meaning |
 |---|---|
-| `ROBOT_PC` | the machine wired to the arm, the cameras and the GELLO; runs the robot daemon |
-| `LEARNER_IP` | the GPU machine that runs the learner and trains BC and ACT; may be the robot PC |
-| actor machine | the machine with the keyboard that runs the actor and the recorder (often the robot PC) |
+| NUC / robot PC | wired to the Control port, cameras and GELLO; runs the direct recorder/actor by default |
+| `ROBOT_PC` | the NUC's reachable address, needed only for remote daemon clients |
+| `LEARNER_IP` | GPU learner's reachable address; may be the NUC |
+| actor machine | NUC by default; another machine only for the optional remote route |
 
-On a single machine use `127.0.0.1` wherever a command says `ROBOT_PC` or `LEARNER_IP`. Run every
-command from the repository root (`real-world-rl/`).
+Every command states its machine, working directory and venv. The default is the
+NUC, repository root (`real-world-rl/`), `.venv` active after installation.
+For services on the same machine use `127.0.0.1`; a remote client must use a
+reachable address instead.
 
 ## Action mode
 
-The main line uses `action_mode: joint_delta` for every stage: the recorded demos, the base policy,
-every HIL run and the deployment must share one action mode, because the learners reject a demo pkl
-whose contract sidecar differs from their env and a residual base must act in the env's action
-space. `joint_abs` is also supported; the pages where it differs carry a **joint_abs** callout
-(recording, the base policy).
+The main workflow uses `action_mode: cartesian_delta`, `control_hz: 50` and
+`tcp_pose` feedback. GELLO's joint readings must pass through a cartesian mapping
+(`leader_cartesian`), not be sent as joint commands to a cartesian env.
+Calibrate signs and offsets and verify motion directions and scale before use.
+50 Hz is the requested application update rate, not a guarantee about SDK
+servo timing or measured USB sampling throughput.
 
-Two arms are not part of this tutorial: [bimanual.md](../bimanual.md#two-arms-the-tutorial-steps)
-lists what changes at each step.
+Pages 04–07 use `examples/presets/gello_cartesian.yaml`: state-only, 50 Hz,
+`xyz_scale_m: 0.05`, `rot_scale_rad: 0.3`, with a direct robot mapping. Recording
+and hardware actor commands run under `robot_infra.supervise`. Joint-space
+examples are separate modes requiring their own compatible demos and base policies. Two-arm setup starts with
+[per-arm Desk and wizard checks](02-station.md#multiple-arms), then
+[bimanual.md](../bimanual.md).
+
+## Operator keys
+
+The NUC's terminal (`stdin`) and desktop (`keyboard`) event sources share these keys:
+
+| Key | Effect |
+|---|---|
+| `t` | GELLO takeover; anchor the relative mapping (not a toggle) |
+| `h` | GELLO hand-back; recorder holds measured pose, HIL returns to the policy |
+| `s` | label success and end the episode |
+| `f` | label failure and end the episode |
+| `r` | discard and rerecord the recorder episode |
+| Esc | end the current episode without a success label |
+| `q` | stop the run and close the devices |
+
+SpaceMouse uses button 0 for takeover/hand-back and button 1 for the gripper;
+its terminal `t`/`h` are ignored. Puck movement alone never takes over. Outcome
+keys and quit still use the terminal. See [06](06-intervening.md).
+Terminal stdin needs no evdev permissions; a desktop keyboard source needs the
+actor's desktop session.
 
 ## Safety
 
-Treat the first runs as commissioning:
+Keep the workspace clear and the emergency stop accessible. Before any motion,
+check the station's `home_joints`, `joint_limits`, `safety_box` and
+`max_delta_per_step` against this physical arm and cell. Wizard defaults are
+starting points, not validated FR3 limits or a commissioned home path. The device
+layer enforces limits in both direct and daemon layouts; the env may tighten them.
+Never copy a recorded home pose to another arm.
 
-- Keep a hand on the emergency stop, start with a clear workspace, and read each step's output before
-  moving on.
-- Check the `safety_box`, `joint_limits` and `max_delta_per_step` of `station.yaml` before the first
-  motion ([02](02-station.md#check-the-safety-limits)); commission with low `max_delta_per_step`
-  values. The daemon clips every servo target to them; the env can only be tighter.
-- A configured teleop must be present for the robot to connect, so deployment uses a station yaml
-  without the `teleop:` section ([08](08-deploy.md)).
+The direct process cannot issue an independent stop if it hangs as a whole.
+A supervisor can kill it, after which stopping relies on the firmware's loss-of-
+communication behavior. A separate live daemon can stop a silent actor, but its
+watchdog does not cover a failed daemon or NUC. See the
+[process comparison](03-daemon.md).
+
+A robot configured with a teleop device requires that device to connect. For
+unattended deployment use a matching station without `teleop`; for assisted
+deployment keep the operator devices and their contract.
 
 ## Known limits
 
-Known bugs with their workarounds and planned fixes: [Known issues and deferred work](../known-issues.md).
+- Real hardware commissioning has established a left-arm FCI handshake and a
+  single-arm GELLO recording session, plus separate right-Hand checks. This is
+  not a full two-arm or online RL validation. Cartesian scale, following lag and
+  process-wide watchdog limitations still need attention.
+- Existing joint demos cannot be silently relabeled as cartesian demos. ACT training on physical recordings and
+  the complete online training/deployment path remain to be validated.
+- With `task.name: none`, the env returns zero reward and does not detect success;
+  use explicit operator labels or a reward classifier. A positive reward alone
+  does not establish an autonomous success.
+- Actor uploads and learner ingestion use local SQLite storage. Keep their
+  outbox, journal and checkpoint bundles on local storage; process-crash recovery
+  and power-loss durability have different guarantees. See
+  [Real-world experiments](../real-world-experiments.md) and
+  [known issues](../known-issues.md).
 
-- **Everything hardware-side was verified against fakes only.** In the robot_infra README's words:
-  "Nothing below has been exercised on real hardware; the fakes cover the logic only"
-  ([Known limitations](../../robot_infra/README.md#known-limitations-and-needs-hardware-verification)),
-  and [gello.md](../gello.md#8-not-verified-yet): "no run on a physical GELLO or robot has been made
-  yet". The GELLO hardware numbers (baud rate, read time, latency), the per-unit offsets and signs,
-  and torque-on behaviour are unverified. Expect to debug on the first day.
-- **ACT training from recorded pkls** has not been exercised on real demos yet.
-- **`leader_cartesian`**: the Panda forward-kinematics DH table that turns a GELLO into a cartesian
-  twist has not been compared with a real robot
-  ([teleop.md](../teleop.md#verify-the-dh-table-on-the-robot)). This tutorial does not use it.
-- **`franka_real`** (the SERL HTTP bridge) is single-arm and cartesian only; this tutorial uses
-  `real_robot` (robot_infra).
-- **Reward**: with the tutorial preset (`task.name: none`, the default), `real_robot` returns
-  reward 0 and does not declare task success on its own. The reward comes
-  from the operator's `s` key (`--reward-from-teleop-events`, [06](06-intervening.md#where-the-reward-comes-from))
-  or from a reward classifier ([07](07-hil-training.md#optional-a-reward-classifier)).
-- **Recovery and metrics**: actor uploads and learner ingestion use local SQLite storage;
-  checkpoints include complete replay bundles. Success requires an explicit outcome label,
-  and autonomous success excludes action-assisted episodes. The storage, process-crash and
-  power-loss boundaries are in [Real-world experiments](../real-world-experiments.md).
-- **Configured teleop is mandatory**: a robot yaml with a `teleop:` section fails to connect when the
-  device is absent.
+Next: [01 Power-on through doctor](01-install.md), or the
+[already commissioned shortcut](01-install.md#a-robot-someone-else-has-already-commissioned).

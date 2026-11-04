@@ -47,6 +47,5 @@ Flags, file formats and hardware details.
 
 ## Hardware test cases
 
-- [Bimanual Franka/GELLO single-PC smoke test (中文)](zh-CN/testing/bimanual-franka-gello-smoke.md): a practical
-  commissioning procedure with independent keys, single-attempt recording and a CSV evidence sheet.
-  Hardware results are filled in on site.
+- [Hardware session checklists](testing/README.md): English primary checklists,
+  record CSV conventions and evidence requirements. Hardware results are filled in on site.

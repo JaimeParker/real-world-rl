@@ -1,64 +1,122 @@
 # 6. Intervening: the operator page
 
-This page is for the person at the keyboard and the GELLO, in the recorder ([04](04-record-demos.md))
-and in HIL training ([07](07-hil-training.md)). Keep it open next to the robot.
+Use this page beside the robot for [recording](04-record-demos.md) and
+[HIL training](07-hil-training.md). The hardware process runs directly on the NUC,
+under `robot_infra.supervise`, with the 50 Hz state-only cartesian preset.
+GELLO uses `--teleop-device leader_cartesian --teleop-event-device stdin`.
+SpaceMouse uses `--teleop-device spacemouse --teleop-event-device stdin`.
 
-The setup: the GELLO is read through the robot daemon (`--teleop-device leader_arm`), the keys come
-from the actor machine's keyboard (`--teleop-event-device keyboard`, read with a `pynput` listener,
-which needs that machine's desktop session).
+`stdin` reads the terminal running the supervised command, including over SSH;
+`keyboard` uses the same keys through `pynput` and needs a desktop session.
 
-| Key | Effect |
+| Input | Effect |
 |---|---|
-| **Space** | toggle the intervention: take control, press again to give it back |
-| **s** | success. Recorder: the episode is a success and ends. HIL with `--reward-from-teleop-events`: reward 1, the step is stored as terminal and the episode ends |
-| **f** | failure. Recorder: the episode is discarded. HIL with `--reward-from-teleop-events`: the episode ends as truncated (not terminal) |
-| **r** | rerecord. Recorder: the episode is discarded and the next one starts at once. HIL: no effect |
-| **Esc** | end the episode (truncated, never terminal; `info["human_episode_end"]`) |
-| trigger | the gripper: squeezed past half travel closes it (`-1`), released opens it (`+1`) |
+| `t` | GELLO: take over and anchor the relative mapping; repeated presses do not toggle it off |
+| `h` | GELLO: hand back; recorder holds the measured pose at that moment, HIL returns control to the policy |
+| `s` | success and episode end; recorder defaults to reward 1 and a terminal step; HIL requires `--reward-from-teleop-events` for key rewards |
+| `f` | failure; discard the recorder attempt, or truncate the HIL episode |
+| `r` | discard and rerecord in the recorder; no rerecord action in HIL |
+| Esc | end the episode without a success label (`human_episode_end`) |
+| `q` | end the current episode and stop the recorder/actor after processing it |
+| GELLO trigger | close (`-1`) when squeezed, open (`+1`) when released, after the takeover latch is matched |
+| SpaceMouse button 0 | take over; next press hands back; only this button controls takeover on this route |
+| SpaceMouse button 1 | while driving, toggle gripper open/closed; ignored while handed back |
+| SpaceMouse puck | velocity input while driving; movement alone does not count as takeover |
 
-Keys pressed while the robot homes during a reset are dropped.
+With SpaceMouse, terminal `t`/`h` are ignored; `s`/`f`/`r`/Esc/`q` still work.
+Keys pressed during reset/home are dropped. Keep the physical stop accessible.
 
 ## The sequence
 
-1. **Reset.** The env resets: the arm homes, the gripper opens. Wait until it is still.
-2. **Leader near follower.** Bring the GELLO into the follower's pose, joint by joint.
-3. **Space.** You take control. With `--teleop-onset arm` control starts only once every leader
-   joint is within `--teleop-arm-tolerance-rad` (0.1 rad) of the follower; until then the policy
-   keeps acting and the actor logs the per-joint error once per second. With `ramp` it starts at once.
-4. **Drive.** Move the GELLO; the follower follows at up to `joint_scale_rad` (0.05 rad) per joint
-   per step in `joint_delta`, and the daemon clips every target to `max_delta_per_step`.
-5. **Trigger.** Squeeze to grasp, release to drop into the bin.
-6. **Space again** to give control back (HIL), once the robot is back on track.
-7. **s / f / r** when the outcome is known. Press `s` **while you still hold control** when you are
-   recording, or whenever the step that achieved the task should be the stored terminal one.
-8. **Esc** to end an episode that has no outcome (the step cap ends it too).
+### GELLO
 
-During `--role eval` ([07](07-hil-training.md#evaluate)), keep Space released to measure an
-unassisted episode. Takeover remains available when needed; a successful assisted episode counts
-in `task_success_rate`, while the primary `success_rate` is `autonomous_success_rate`. Press `s`
-to label a success when using key rewards. Label-only `s`/`f` presses do not count as action
-intervention. A failure label vetoes a success label, even when both arrive on the same step.
+1. Wait for reset and any home/gripper motion to finish.
+2. Hold the leader comfortably and press **`t`**. The current leader pose anchors
+   the relative mapping to the follower's command; no joint-by-joint matching is
+   required on this cartesian path.
+3. Move the leader to guide the tool. Squeeze/release the trigger for the gripper.
+   If its position disagrees with the last gripper command at takeover, match
+   that state first; the latch prevents an immediate unintended opening.
+4. Press **`h`** to hand back. In the recorder the measured pose is held; in HIL
+   the policy resumes. Press `t` again for a fresh anchor on the next takeover.
+5. Use **`s`/`f`/`r`** for the outcome. In the recorder press `s` while intervening
+   so the successful terminal step enters the human-only pkl export. After `h`,
+   use `t` to re-anchor before recording that label.
+6. Use **Esc** for an unlabeled episode end or **`q`** to end the run.
 
-## Onset: `arm` or `ramp`
+### SpaceMouse
 
-`--teleop-onset` decides what happens at the moment you press Space:
+1. Wait for reset. Release the puck and buttons before starting a new takeover.
+2. Press **button 0** to take over. Nudging the puck alone never takes control.
+3. Deflect the puck for tool velocity; release it to stop adding motion to the
+   command. The arm can still settle by at most the lead cap. Use **button 1** to
+   toggle the gripper; takeover itself keeps its last commanded state.
+4. Press **button 0** again to hand back; a later press begins another takeover.
+   Keyboard `t` and `h` do not change this device's takeover state.
+5. Use keyboard **`s`/`f`/`r`/Esc/`q`** for outcomes and quit. In the recorder label
+   success while button-0 takeover remains active.
 
-- `arm` (used for recording in [04](04-record-demos.md)): the toggle counts only once the leader is
-  within 0.1 rad of the follower; every env reset disarms it, and once armed it stays armed until you
-  release the toggle. The takeover never moves the robot by itself, at the cost of matching the leader
-  to the follower by hand before every takeover.
-- `ramp` (the default; used in [07](07-hil-training.md)): control starts at once. In `joint_delta` the
-  follower moves towards the leader at up to `joint_scale_rad` per step until they are aligned. In
-  `joint_abs` the first targets are rate-limited to `--teleop-ramp-step-rad` (0.05) per step. In both
-  modes catch-up is tagged `teleop_syncing`: `joint_delta` marks the initial steps until the
-  leader first comes within `joint_scale_rad` of the follower; `joint_abs` marks each rate-limited
-  ramp step. Executed actions and actual human masks remain in the archive, while the training
-  projection excludes syncing supervision. After initial alignment, later saturated `joint_delta`
-  teaching steps are supervised normally. Recorder pkl exports can keep syncing rows as ordinary
-  supervision with `--keep-syncing-steps`; archive-derived training views still exclude them.
+During [evaluation](07-hil-training.md#evaluate), leave action control with the
+policy to measure autonomous success. An assisted success counts in
+`task_success_rate`, while the primary `success_rate` is
+`autonomous_success_rate`. Label-only `s`/`f` events do not count as action
+intervention; a failure label vetoes a simultaneous success label.
 
-Prefer `arm` when every demonstration should start from a still robot, `ramp` for quick takeovers
-while the policy is moving. Either way, hold the leader near the follower before you press Space.
+## How the robot follows you
+
+The cartesian source keeps a fixed hold pose after reset and every hand-back.
+The recorder's hold policy shares that tracker, so holding sends commands back
+to that fixed pose rather than a zero twist that would drift with measured pose.
+HIL hands control back to the policy; it is not a command to freeze policy motion.
+
+At GELLO takeover, the source anchors the leader's current pose to its existing
+command pose. Leader displacement becomes a requested translation and rotation.
+The command advances at up to **0.05 m/s** and **0.3 rad/s** and leads measured TCP
+by at most **0.05 m** and **0.3 rad**. Excess lead is discarded, never queued.
+When the leader stops, the follower can still travel at most one lead cap toward
+the retained command. Verify physical direction and scale during commissioning.
+
+SpaceMouse uses the same tracker. Full puck deflection requests the configured
+velocity; letting go stops further velocity requests. It does not remove the
+bounded distance between the arm and its existing command.
+
+A gap of more than **0.3 s** between intervened polls holds the follower and logs
+the delay; the next poll re-anchors the GELLO, avoiding a jump across the pause.
+This tracker behavior is separate from an env StepWatchdog trip, which stops the
+arm and requires reset, and from the external supervisor's heartbeat escalation.
+
+A requested position outside the safety box logs **`WORKSPACE HOLD: <axes>`**,
+hands back and holds the measured pose. Clear the leader request and use `h`
+then `t` to resume GELLO with a new anchor; on SpaceMouse press button 0 to take
+over again. Do not widen the workspace simply to clear a HOLD.
+
+The four `--teleop-lead-cap-m`, `--teleop-lead-cap-rad`,
+`--teleop-target-speed-m-s`, `--teleop-target-speed-rad-s` values enter
+`experiment.teleop_control`. Keep them and the selected teleop device consistent
+through this tutorial's recording, training and deployment. Current HEAD
+compares the shared tracker block rather than physical device identity; see
+[04's compatibility note](04-record-demos.md#files-and-compatibility).
+
+<details>
+<summary>Other modes: Onset arm or ramp (joint-space leader_arm only)</summary>
+
+This section concerns the joint-space leader path, not `leader_cartesian` or
+SpaceMouse. `--teleop-onset` decides what happens when `t` requests takeover:
+
+- `arm` waits until every leader joint is within `--teleop-arm-tolerance-rad`
+  (0.1 rad) of the follower; reset disarms it. Keep the leader aligned first.
+- Default `ramp` begins immediately. `joint_delta` moves toward the leader by at
+  most `joint_scale_rad` per step; `joint_abs` initial targets are limited by
+  `--teleop-ramp-step-rad` (0.05) per step.
+
+Only these joint modes emit `teleop_syncing`: initial catch-up in `joint_delta`
+and rate-limited initial targets in `joint_abs`. Executed actions and masks stay
+in the archive; syncing supervision is excluded from archive-derived training
+views. `--keep-syncing-steps` can retain these rows in recorder pkl exports.
+Joint-space trigger takeover still needs the operator to match gripper state;
+the cartesian gripper latch does not apply to that route.
+
+</details>
 
 ## What the system records
 
@@ -71,17 +129,18 @@ The intervention wrapper writes these `info` keys on every step:
 | `intervened` | the operator's action was executed |
 | `intervention_onset` | intervened now and not on the previous step of this episode |
 | `human_episode_end` | the operator's episode-end key (Esc) |
-| `teleop_events` | the `success`/`failure`/`rerecord` keys that fired (leader arms add `teleop_syncing` on catch-up steps); **only when some did** |
+| `teleop_events` | the `success`/`failure`/`rerecord`/`operator_quit` events that fired; `teleop_syncing` applies only to joint-space leaders; **only when some did** |
 | `human_action_mask` | action dimensions actually controlled by the human |
 | `override_mask` | overridden dimensions, including idle-hold supplements |
 | `task_success`, `task_success_source` | explicit outcome and its source when available; a positive reward or terminal flag alone is insufficient |
 
-An episode end makes `step()` return `truncated=True` (never `terminated`). The stored `action` of an
+Esc makes `step()` return `truncated=True` (never `terminated`); `q` also requests
+shutdown after the episode. A success key can instead make its step terminal. The stored `action` of an
 intervened step is always the executed one, the human's. What each method does with it:
 
 | Method | Executed action and supervision | Replay or export |
 |---|---|---|
-| recorder | stores actual executed actions; human masks select supervised dimensions | complete SQLite archive; successful human pkl view, excluding syncing unless `--keep-syncing-steps` |
+| recorder | stores actual executed actions; human masks select supervised dimensions | complete SQLite archive; successful human pkl view, excluding joint-space syncing by default |
 | `hil_serl` | learns from all executed actions; human, nonsyncing rows also populate demo replay | online replay plus growing demo replay, mixed at `--demo-data-ratio` |
 | `residual_hil_serl` | human action is the total executed action; retains `policy_action`, `base_actions`, `next_base_actions` | residual BC intersects the actual human mask with nonzero residual scales |
 | `silri` | retains proposal, actual masks and the predecessor's `intervention_onset` | behavior fitting and pretraining supervise human dimensions; onset rows are not relabeled as expert |

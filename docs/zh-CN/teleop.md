@@ -1,3 +1,5 @@
+<!-- English source: docs/teleop.md -->
+
 <a id="teleoperation"></a>
 
 # 遥操作
@@ -43,9 +45,7 @@ class TeleopSource(ABC):
 
 ## 设备
 
-`TeleopInterventionWrapper(env, device=..., **kwargs)` 通过 `make_teleop_source(device, env, **kwargs)` 构建输入源。hil_serl 的设备来自 `--teleop-device`。
-
-hil_serl、残差方法和 SiLRI 先从参数生成输入源 kwargs：`robot` / `leader_arm` 使用机器人部件声明与限制，`gello` / `leader_arm` 读取接管参数；随后合并 `--teleop-options-yaml PATH` 的 YAML 映射，文件中的值覆盖推导值。可用它提供 CLI 未暴露的设备选项，例如本地 GELLO：
+`TeleopInterventionWrapper(env, device=..., **kwargs)` 经 `make_teleop_source` 构建输入源，HIL 用 `--teleop-device` 选择。HIL、残差、SiLRI 从参数派生 kwargs，再将 `--teleop-options-yaml PATH` 映射合并覆盖，用于 CLI 没有单独参数的选项。例如本机 GELLO：
 
 ```yaml
 # gello.yaml, for --teleop-device gello --teleop-options-yaml gello.yaml
@@ -59,43 +59,62 @@ gripper_closed_rad: ...
 hold_s: 0.0
 ```
 
-第二台 SpaceMouse 可设置 `device_index: 1`；在 `franka_real` 栈使用 `--teleop-device leader_cartesian` 时，可指定提供主臂服务的机器人守护进程，见[笛卡尔机器人上的主臂](#leader-arm-on-a-cartesian-robot-leader_cartesian)：
+第二 SpaceMouse 可用 `device_index: 1`，以及 deadzone、invert_axes；franka_real 栈的 leader_cartesian 可指定服务 leader 的地址，见[笛卡尔 leader](#leader-arm-on-a-cartesian-robot-leader_cartesian)：
 
 ```yaml
 # leader_cartesian.yaml, for --teleop-device leader_cartesian --teleop-options-yaml leader_cartesian.yaml
 remote_address: <robot-host>:<port>
 ```
 
-使用 `--teleop-event-device` 时，该文件配置组合输入源中的运动部分。
+组合事件设备时，此文件配置运动半部。wrapper 将“最后发出的夹爪命令”传给 robot、leader_arm、gello、leader_cartesian、spacemouse、bimanual 及其组合运动源，让无夹爪 leader 保持原命令、防止掉物，也让 SpaceMouse 从当前命令接管。动作末尾每臂一夹爪维，getter 每臂一项，单臂取 0，bimanual 各取对应项。未声明 num_arms 默认为一臂；声明的臂数或 arm_names 顺序不符即拒绝。
 
-包装器将“最后发送的夹爪动作”传给 `robot`、`leader_arm`、`gello`、`leader_cartesian`、`bimanual`，以及以这些输入源构建的组合运动部分。因此主臂没有夹爪通道时可以保持夹爪，避免掉落物体。环境动作末尾按动作约定每臂一个夹爪维度，getter 返回每臂一项；单臂输入源读取第 0 项，`bimanual` 将对应项分给各臂。输入源未声明 `num_arms` 时默认为单臂。包装器会拒绝臂数不同，或声明的 `arm_names` 与环境名称和顺序不一致的输入源。
-
-| `device` | 输入源 | 读取方式 | 动作空间 | 说明 |
-| --- | --- | --- | --- | --- |
-| `pico` | `PicoTeleopSource` | 经 ZeroMQ `SUB` 套接字读取 Pico VR 控制器，使用 `EETwistTeleOpWrapper`。 | cartesian_delta，6 维加夹爪。 | kwargs：`zmq_url`、`hand`、`pos_scale`、`rot_scale`、`twist_limit`、`intervention_threshold`。数据格式见下文。 |
-| `spacemouse` | `SpaceMouseTeleopSource` | 通过设备层 `SpaceMouseTeleop` 读取本机设备。 | cartesian_delta，6 维加夹爪。 | kwargs：`device_index=0`、`deadzone=1e-3`、`invert_axes=()`、`poll_interval_s=0.005`、`hold_s=0.0`、`read_timeout_s`。需要 `pyspacemouse>=2,<3`，在 `start()` 时导入。 |
-| `robot` | `TeleopPartSource` | 读取 `real_robot` 环境背后机器人的遥操作部件，即 YAML 的 `teleop:`，可本地或经守护进程服务。 | cartesian_delta、joint_abs 或 joint_delta，映射至环境空间。 | kwargs：`teleop_contract`、`joint_limits`、`joint_scale_rad`、`read_timeout_s`；hil_serl 对应 `--robot-teleop-action-mode`、`--no-robot-teleop-has-gripper`。部件归机器人所有，`close()` 保持其连接。 |
-| `fake` | `ScriptedTeleopSource` | 脚本化读数；未提供 `readings` 时模拟从不介入的操作员。 | 遵循环境动作约定，包括臂数。 | 可传 `readings=[TeleopReading, ...]`，最后一条读数重复。 |
-| `gello` | `GelloTeleopSource` | 经设备层 `gello` 遥操作后端读取本机 Dynamixel 总线。 | 环境的 joint_abs 或 joint_delta，关节映射与 `robot` 相同。 | kwargs：`port`、`joint_ids`、`joint_offsets_rad`、`joint_signs` 等设备选项，见[主臂](#leader-arms-gello)；另有 `hold_s`、`read_timeout_s`、`onset`、`arm_tolerance_rad`、`ramp_step_rad`。依赖 `dynamixel-sdk`，属于 robot_infra 的 `gello` 可选组，在 `start()` 时导入。 |
-| `leader_arm` | `LeaderArmPartSource` | 将 `real_robot` 背后的遥操作部件视为关节主臂，通常为守护进程服务的 GELLO。 | 环境的 joint_abs 或 joint_delta。 | 包含 `robot` 的 kwargs，另有 `onset`、`arm_tolerance_rad`、`ramp_step_rad`；hil_serl 对应 `--teleop-onset`、`--teleop-arm-tolerance-rad`、`--teleop-ramp-step-rad`。 |
-| `keyboard` | `KeyboardTeleopSource` | 经 `pynput` 读取本机键盘。 | 遵循环境约定，动作始终为零。 | Space 切换介入，Esc 结束回合，`s` / `f` / `r` 触发 `success` / `failure` / `rerecord`。作为事件设备，单独使用仅适合事件测试。需要 `pynput`，来自 `reward-collection`，在 `start()` 导入。 |
-| `composite` | `CompositeTeleopSource` | 一个运动输入源加一个事件输入源。 | 采用运动输入源空间。 | kwargs：注册名 `motion`、`events`，以及 `motion_kwargs`、`events_kwargs`、`intervention_from="events"`，后者也可设为 `"motion"`。hil_serl 通过 `--teleop-event-device` 构建。 |
-| `leader_cartesian` | `LeaderArmCartesianSource` | 用 Panda 正向运动学把关节主臂转换为笛卡尔速度增量，用于 `franka_real` 栈。 | cartesian_delta，6 维加夹爪。 | 见[笛卡尔机器人上的主臂](#leader-arm-on-a-cartesian-robot-leader_cartesian)。 |
-| `bimanual` | `BimanualTeleopSource` | `real_robot_bimanual` 每臂一个单臂输入源，由 `--teleop-arm-device` 选择。 | 环境空间，先两臂动作，再两夹爪。 | kwargs：`device_per_arm`、`per_arm_kwargs`、`common_kwargs`、`intervention_from="any"`，也可 `"all"`。见[双臂](#two-arms-bimanual)。 |
+| device | 输入源 | 读取内容 | 动作空间 | 说明 |
+|---|---|---|---|---|
+| `pico` | `PicoTeleopSource` | ZeroMQ SUB Pico VR | cartesian_delta，6＋夹爪 | zmq_url、hand、pos_scale、rot_scale、twist_limit、intervention_threshold，见下文格式 |
+| `spacemouse` | `SpaceMouseTeleopSource` | 本机 SpaceMouse 经设备层，速度输入到 tracker | cartesian_delta，6＋夹爪 | 0 接管/交还，1 夹爪；device_index=0、deadzone=0.05、invert_axes=()、poll_interval_s=0.005、read_timeout_s，及四个 lead-cap/target-speed 参数；pyspacemouse>=2,<3 在 start 导入 |
+| `spacemouse_twist` | `SpaceMouseTwistTeleopSource` | 同设备原始 twist，仅模拟示例 | cartesian_delta，6＋夹爪 | 动作直接进环境，移动即介入，hold_s 延长；0 切换 reset 后为开的夹爪，1 结束；默认 device_index=0、deadzone=1e-3、invert_axes=()、poll_interval_s=0.005、hold_s=0.0、read_timeout_s |
+| `robot` | `TeleopPartSource` | 环境机器人 teleop 部件，本地或远程 | cartesian_delta / joint_abs / joint_delta | teleop_contract、joint_limits、joint_scale_rad、read_timeout_s；机器人拥有部件，close 不断开；CLI 声明 robot-teleop-action-mode 与夹爪 |
+| `fake` | `ScriptedTeleopSource` | 测试脚本 | 遵循环境、含臂数 | 无 readings 时永不介入，末行重复 |
+| `gello` | `GelloTeleopSource` | actor 本机 Dynamixel GELLO | joint_abs / joint_delta | 端口、ID、符号偏移等及 hold_s、read_timeout_s、onset、arm_tolerance_rad、ramp_step_rad；gello extra 的 SDK 在 start 导入 |
+| `leader_arm` | `LeaderArmPartSource` | robot teleop 作为关节 leader | joint_abs / joint_delta | robot 参数加 onset、arm-tolerance-rad、ramp-step-rad |
+| `keyboard` | `KeyboardTeleopSource` | pynput 桌面键盘 | 遵循环境，动作零 | t 接管、h 交还、Esc 结束，s/f/r 结果，q 结束并发 operator_quit，recorder/actor 回合后停；单独只适合事件测试；需 reward-collection、桌面，start 时导入 |
+| `stdin` | `StdinTeleopSource` | 本进程终端，cbreak，close 恢复，支持 SSH | 遵循环境，动作零 | 与 keyboard 同键；fd 默认 stdin、poll_interval_s=0.02；EOF 下轮抛 DeviceFault |
+| `composite` | `CompositeTeleopSource` | 运动与事件源组合 | 运动源空间 | motion、events、对应 kwargs，intervention_from 默认 events 或 motion；HIL 由 event-device 构建 |
+| `leader_cartesian` | `LeaderArmCartesianSource` | Panda FK 关节转笛卡尔 | cartesian_delta，6＋夹爪 | 见[笛卡尔 leader](#leader-arm-on-a-cartesian-robot-leader_cartesian) |
+| `bimanual` | `BimanualTeleopSource` | 每臂独立源 | 先双臂再双夹爪 | device_per_arm、per_arm_kwargs、common_kwargs、intervention_from=any 或 all；见[双臂](#two-arms-bimanual) |
 
 <a id="spacemouse"></a>
 
 ### SpaceMouse
 
-`SpaceMouseTeleopSource` 通过设备层 `SpaceMouseTeleop` 打开设备，使用 `TeleopConfig(backend="spacemouse")`，轮询线程向 `read()` 供数；再由 `TeleopPartSource` 映射到环境空间。其语义沿用设备层：
+cartesian_delta 环境（real_robot 或 franka_real）使用终端标签，因为 Compact 两个按钮均已占用：
 
-- 操纵帽驱动 `[-1, 1]` 笛卡尔速度增量，pyspacemouse 状态轴映射为 `[-y, x, z, -roll, -pitch, -yaw]`；`invert_axes` 翻转指定输出索引 0–5 的符号。
-- 速度增量范数超过 `deadzone` 或按钮按住时介入；最后活动后继续保持 `hold_s` 秒。
-- 按钮 0 切换锁存夹爪，启动及每次 `reset()` 后打开；`+1` 打开、`-1` 闭合。按钮 1 触发 `episode_end`。
-- 按钮在按下边沿触发。reset 会清空记忆的按钮状态，因此重置时仍按住的按钮会再次触发。
-- 包装器调用 `start()` 打开设备时才导入 SDK，因此未安装 `pyspacemouse` 也可构建输入源；缺少 SDK 时抛出带安装提示的 `SdkMissing`。
+```bash
+python examples/record_real_demos.py --config hil.yaml \
+    --teleop-device spacemouse --teleop-event-device stdin \
+    --output-path demos/task_20.pkl --num-successes 20
+```
 
-hil_serl 使用 `--teleop-device spacemouse`。机器人 YAML 路径使用 `--teleop-device robot` 并配置 `backend: spacemouse`，通过机器人及守护进程读取同一设备，语义相同。
+HIL actor 用相同两参数。源通过设备层 SpaceMouseTeleop 打开，TeleopConfig(backend=spacemouse)，轮询线程供 read，轴映射 `[-y, x, z, -roll, -pitch, -yaw]`，invert_axes 翻转 0–5 输出。与 leader_cartesian 共用 CartesianTargetTracker，见[映射](#mapping)。
+
+| 输入 | 作用 |
+|---|---|
+| 按钮 0 | 接管，再按交还；移动推杆不算接管 |
+| 按钮 1 | 驱动时切换夹爪 ±1 |
+| 推杆 | 驱动时输入速度 |
+| stdin / keyboard 的 s/f/r、Esc、q | 成功/失败/重录、结束、退出 |
+
+- **速度：**介入步请求 `twist * target_speed * dt`，dt 为两次介入间隔，接管时为零，因此无跳变。平移在基坐标系，旋转向量左乘；全幅为 0.05 m/s、0.3 rad/s，tracker 同样限制对角总速度。各轴 deadzone 默认满幅 0.05，忽略静止噪声。
+- **领先：**命令领先实测最多 0.05 m / 0.3 rad，多余丢弃。请求从 command 而非旧 request 开始，滞后不会积累；释放后停在现有 command，最多再走一个 cap。环境尺度至少 0.05/0.3，默认 0.02/0.1 会在构建时拒绝。
+- **交还：**保持实测姿态；recorder 共用 tracker，持续固定保持而非零 twist。请求越界记录 WORKSPACE HOLD，输入或跟踪故障也交还；重新按 0。两次介入间隔超过 0.3 s 时保持实测，下一步从该处继续。
+- **夹爪：**每次接管从 wrapper 的 last_gripper_action_getter 原值开始，闭合夹爪不会因接管张开；按钮 1 才切换，交还时无效。
+- **按钮按下沿只生效一次：**设备层锁存直到读取，短于控制步也不漏，长按一次，跨 reset 长按不算新按。
+- **事件源 t/h 被忽略并警告：**否则会与按钮 0 状态冲突，只有按钮 0 控制接管。
+- start 打开设备才导入 SDK，构建无需 pyspacemouse，缺失报 SdkMissing 和安装提示。
+
+运行记录与 leader_cartesian 同一 teleop_control tracker 块。旧 `--teleop-event-device spacemouse` 已移除，旧命令/预设报错并指向 `--teleop-device spacemouse --teleop-event-device stdin`。
+
+robot YAML 的 `--teleop-device robot` / backend spacemouse 仍经机器人读取设备层旧语义：原始 twist 直传，推杆或按钮活动即介入、hold_s 延长，0 切换 sticky gripper。所有路线 SpaceMouse 按钮均不结束回合，须事件设备 Esc。
 
 <a id="robot-teleop-part---teleop-device-robot"></a>
 
@@ -147,13 +166,13 @@ python examples/train_real_world.py hil_serl --role actor --env-backend real_rob
 
 `q_follower` 来自环境最近观测的 `joint_pos`，所以 `state_fields` 必须包含 `joint_pos`。默认切换取部件的 `intervening`，即机器人 PC 上由 evdev `event_device` 驱动的 `intervention: toggle`，或 `always`；也可由事件设备提供：
 
-`--teleop-event-device keyboard` 或 `spacemouse` 用 `CompositeTeleopSource` 包装运动设备：运动来自 `--teleop-device`，介入切换和 `episode_end` / `success` / `failure` / `rerecord` 来自 actor 机器上的事件设备。键盘使用 Space、Esc、`s` / `f` / `r`。主臂仍对切换应用自身起始策略，部件原有 `intervention` 设置被覆盖。事件设备为 `spacemouse` 时，介入跟随操纵帽或按住按钮的活动状态。
+`--teleop-event-device keyboard` 或 `stdin` 将运动源包为 CompositeTeleopSource：运动来自 teleop-device，介入状态及 episode_end/success/failure/rerecord/operator_quit 来自 actor 本机事件源。t 接管、h 交还、Esc 结束、s/f/r 结果、q 退出。关节源仍对该状态应用 onset，部件自己的 intervention 被忽略。SpaceMouse 则由按钮 0 自管接管，仅使用事件源标签，见 [SpaceMouse](#spacemouse)。
 
 <a id="leader-arm-on-a-cartesian-robot-leader_cartesian"></a>
 
 ### 笛卡尔机器人上的主臂（`leader_cartesian`）
 
-GELLO 报告关节角；仅接受笛卡尔速度增量的环境可通过 Panda 正向运动学接收它们。`LeaderArmCartesianSource` 位于 `real_world_rl/teleop/leader_cartesian.py`，设备名 `device="leader_cartesian"`，将主臂关节转换为末端目标，并输出使从臂靠近目标的速度增量。
+GELLO 报告关节角；仅接受笛卡尔速度增量的环境可通过 Panda 正向运动学接收它们。`LeaderArmCartesianSource` 位于 `real_world_rl/teleop/leader_cartesian.py`，设备名 `device="leader_cartesian"`，将主臂关节转为请求末端姿态，再由 `CartesianTargetTracker`（`real_world_rl/teleop/cartesian_tracker.py`）产生 follower 的 twist，见[映射](#mapping)。`examples/presets/gello_cartesian.yaml` 是单臂 50 Hz 预设。
 
 <a id="why"></a>
 
@@ -196,15 +215,15 @@ fake 机械臂不占用硬件，也从未被发送控制命令，因此不会与
 
 <a id="actor-side"></a>
 
-#### actor 侧
+#### Actor 侧
 
-输入源必须且只能指定一个主臂来源：
+必须且只能指定一个 leader：
 
-- `remote_address="host:port"`，可选 `remote_token`：为占位守护进程构建 `RemoteRobot`，由包装器调用 `start()` 连接，在 `close()` 时断开。
-- `robot_yaml=<path>`：在本机加载同类占位 YAML，用于 GELLO 连接 actor 的情况，`start()` 时连接。
-- `leader=<part or resolver>`：调用方持有的遥操作部件，用于测试或自定义配置。
+- remote_address="host:port"，可选 remote_token：start 连接 stub RemoteRobot，close 断开。
+- robot_yaml 路径：本机加载同一 stub YAML，本机连接 GELLO，start 时连接。
+- leader 部件/解析器：调用方拥有，供测试或定制。
 
-从臂姿态和单步缩放来自环境：沿包装器链获取 `FrankaRealEnv.last_tcp_pose` 和 `cfg.action_scale`；`real_robot` 笛卡尔环境则使用 `last_observation["state"]["tcp_pose"]` 及动作约定 `xyz_scale_m` / `rot_scale_rad`。可用 `follower_pose_getter=`、`pos_scale_m=`、`rot_scale_rad=` 覆盖。
+follower 位姿、尺度、安全盒来自 wrapper 深处环境：FrankaRealEnv.last_tcp_pose、cfg.action_scale、cfg.safety_box_low/high；real_robot 为最新 state.tcp_pose、动作契约 xyz_scale_m/rot_scale_rad、配置 safety_box。None 表示源不查盒，环境与设备层仍裁剪。可用 follower_pose_getter、pos_scale_m、rot_scale_rad、safety_box 覆盖。尺度必须至少等于 lead caps，否则构建拒绝；默认 0.02/0.1 需扩大至预设的 0.05/0.3（或 franka-real action-scale-pos/rot），或减小 cap。
 
 ```python
 from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
@@ -217,7 +236,7 @@ env = TeleopInterventionWrapper(
 )
 ```
 
-训练 CLI 通过 `--teleop-device leader_cartesian` 选择，kwargs 以 YAML 映射由 `--teleop-options-yaml` 传入，合并至运动输入源参数：
+训练 CLI 选 leader_cartesian，用 teleop-options-yaml 将映射合并到运动源 kwargs：
 
 ```yaml
 # station.yaml (actor side)
@@ -231,40 +250,51 @@ python examples/train_real_world.py hil_serl --role actor --env-backend franka_r
     --teleop-device leader_cartesian --teleop-options-yaml station.yaml
 ```
 
-默认 `intervention: always` 时操作员每步都控制，适合纯遥操作或示范采集。HIL 可在机器人主机配置 `intervention: toggle` 与 `event_device`，或使用 actor 侧 `--teleop-event-device keyboard`，见[主臂](#leader-arms-gello)。
+默认 intervention always 每步驱动，适合纯遥操作/示范。HIL 可用 robot-host 的 toggle + event_device，或 actor 侧 stdin/keyboard 的 t/h，见[leader](#leader-arms-gello)。
 
 <a id="mapping"></a>
 
 #### 映射
 
-机械臂动作是从测得的从臂姿态 `(p, R)` 到目标 `(p*, R*)` 的基坐标系速度增量，使用环境归一化单位：
+real_robot 的 cartesian_delta 发 `measured + action * scale`，阻抗后端将其作平衡点。每步从实测重新算的零 twist 会把平衡点锚到漂移位置（首次实机 24 s 漂移 137 mm）。每臂改用 CartesianTargetTracker 保留目标：
+
+- hold pose 在 reset 和交还采样一次，然后无人驱动时固定。
+- 持续 command pose，接管时沿用现有 hold，无跳变；按四个 tracker 速度/上限（0.05 m/s、0.3 rad/s、0.05 m、0.3 rad）推进并拉回距实测 cap 内，多余丢弃不排队，leader 突然往返不会积累超调。
+
+归一化动作使 follower 指向 command：
 
 ```
-a_pos = clip((p* - p) / pos_scale_m, -1, 1)
-a_rot = clip(rotvec(R* R^T) / rot_scale_rad, -1, 1)
+a_pos = (p_cmd - p) / pos_scale_m
+a_rot = rotvec(R_cmd R^T) / rot_scale_rad
 ```
 
-该过程是 `FrankaRealEnv.step` 的逆运算：位置更新为 `p + a_pos * pos_scale_m`，旋转更新为 `from_rotvec(a_rot * rot_scale_rad) * R`。旋转左乘，因此旋转向量位于基坐标系。未饱和动作直接到达目标；饱和动作在默认超过 0.02 米或 0.1 rad 时走一个完整步幅，下次轮询再从新实测姿态重算，避免误差累积与漂移。
+这是环境 step 的逆，平移 `p + a_pos * pos_scale_m`，旋转 `from_rotvec(a_rot * rot_scale_rad) * R`，左乘意味着基坐标系。尺度不小于 cap 时动作不超 [-1,1]；否则抛 CommandOutOfRange，不静默裁剪。交还、输入/跟踪失败、回合结束均在实测处 hold。两次介入轮询相隔超过 0.3 s 当输入丢失，保持、警告间隔，下轮重新锚定；时钟倒退抛 MissedControlDeadline。请求越安全盒时记录 WORKSPACE HOLD 并返回未介入，直到交还再接管。
 
-`mapping` 选择目标：
+recorder 的 CartesianHold 共用源 tracker，以固定姿态动作保持，每步最多一个 cap。无 leader_cartesian/spacemouse 时独立 tracker，cap 为 min(0.05 m, xyz_scale_m) / min(0.3 rad, rot_scale_rad)，偏离很远时饱和逐步回位，不报越幅错误。
 
-- 默认 `anchored`：每次介入起始，即未介入后的首次介入轮询，以及 reset 后首次介入，保存从臂姿态 `(p_f0, R_f0)` 和主臂姿态 `(p_l0, R_l0) = FK(q_0)`。随后将主臂基坐标系位移应用于从臂，平移与旋转解耦：
+leader_cartesian/spacemouse 运行将 tracker 版本 cartesian_tracker_v1 与四值写入实验 teleop_control，缺失或值不同的示范不接受。契约标 tracker 而非设备，相同参数的 GELLO/SpaceMouse 数据可混用。
+
+mapping 决定请求姿态：
+
+- anchored 默认：每次从未介入到介入及 reset 后首次接管时，保存 command `(p_c0, R_c0)` 与 leader `(p_l0, R_l0)=FK(q_0)`，之后分别叠加基坐标系平移和旋转：
 
   ```
-  p* = p_f0 + (p_l - p_l0)
-  R* = (R_l R_l0^T) R_f0
+  p* = p_c0 + (p_l - p_l0)
+  R* = (R_l R_l0^T) R_c0
   ```
 
-  起始步骤输出零速度增量，避免接管抖动。无论主从臂位置相距多远，主臂腕部旋转都会让从臂绕自身 TCP 原地旋转。若使用组合式 `FK(q) T_l0^{-1} T_f0`，则会绕基坐标原点摆动，产生约 `|p_f0| * theta` 的平移。FK 误差只通过起始后变化量影响结果。主从臂姿态可不同，像离合器一样在介入之间重新握持主臂；与所有笛卡尔命令相同，忽略主臂肘部和零空间运动。
-- `absolute`：`T* = FK(q)`，从臂前往主臂末端位置，要求 `PandaKinematics.ee_pose` 与机器人 `O_T_EE` 一致，验证方式见下文。接管前主臂需靠近从臂，否则从臂会以饱和速率前往主臂姿态；默认缩放下 10 Hz 对应 0.2 米/秒和 1 rad/秒。
+  接管保持 hold，不猛跳。leader 腕转让 follower 绕自身 TCP 原地转，距离无关；若用 `FK(q) T_l0^{-1} T_f0` 组合反而绕基原点，约平移 `|p_f0| * theta`。FK 误差只通过接管后变化进入；leader/follower 可不同姿态，交还后可重新握持如离合器，leader 肘/null-space 不参与笛卡尔命令。
+- absolute：`T* = FK(q)`，follower 去 leader 末端位置，需 FK 与真实 O_T_EE 一致并在接管前将 leader 放近，否则按目标速度从 hold 向 leader 走。
 
-在主臂完成标定并与真机对照验证前，优先使用 `anchored`。
+除非已标定并实机核对，优先 anchored。
 
 <a id="gripper"></a>
 
 #### 夹爪
 
-主臂宽度目标 `w` 位于 `[0, 1]`，1 表示打开；当 `w > gripper_binarize_threshold` 时输出 `+1` 打开，否则 `-1` 闭合。默认阈值 0.5，即扳机超过半程时关闭。精确 +-1 为混合离散夹爪 critic 提供清晰标签，`franka_real` 在 `a > 0.5` 时打开，因此执行明确。`gripper_binarize_threshold=None` 改为连续 `2w - 1`。缺少夹爪通道时保持最后发送动作，需要 `last_gripper_action_getter`，与 `--teleop-device robot` 相同。
+leader 宽度 w 属于 [0,1]，1 为开；超过 gripper_binarize_threshold 为 +1，否则 -1，默认 0.5 即扳机过半闭合。精确 ±1 是 hybrid 离散 critic 的清晰标签，franka_real 的 a>0.5 开判定也明确。阈值 None 则连续输出 2w-1。无夹爪通道保留环境最后夹爪命令，需 last_gripper_action_getter，如 robot 路线。
+
+接管时扳机与最后命令不符（开为 action>0），源持续最后命令直到扳机跨到对应状态才跟随。最后命令由 wrapper getter 提供，因此释放扳机接管不会立即掉物。
 
 <a id="verify-the-dh-table-on-the-robot"></a>
 
@@ -292,7 +322,7 @@ print("rotation error [rad]:", (Rotation.from_quat(quat) * Rotation.from_quat(po
 
 ### 双臂（`bimanual`）
 
-`--env-backend real_robot_bimanual` 的动作布局为 `[left arm, right arm, left gripper, right gripper]`，见 [bimanual.md](bimanual.md)，会拒绝单臂设备 `robot`、`leader_arm`、`gello`、`leader_cartesian`、`spacemouse`、`pico`。`--teleop-device bimanual` 对应 `real_world_rl/teleop/bimanual.py` 的 `BimanualTeleopSource`，在每臂自身 `RealRobotEnv` 上构建单臂源，独立读取机器人和从臂，再组装双臂动作。`--teleop-arm-device` 选择逐臂设备：
+`--env-backend real_robot_bimanual` 的动作布局为 `[left arm, right arm, left gripper, right gripper]`，见 [bimanual.md](bimanual.md)，会拒绝单臂设备 `robot`、`leader_arm`、`gello`、`leader_cartesian`、`spacemouse`、`spacemouse_twist`、`pico`。`--teleop-device bimanual` 对应 `real_world_rl/teleop/bimanual.py` 的 `BimanualTeleopSource`，在每臂自身 `RealRobotEnv` 上构建单臂源，独立读取机器人和从臂，再组装双臂动作。`--teleop-arm-device` 选择逐臂设备：
 
 | `--teleop-arm-device` | 每臂输入源 | 说明 |
 | --- | --- | --- |
@@ -304,7 +334,7 @@ print("rotation error [rad]:", (Rotation.from_quat(quat) * Rotation.from_quat(po
 
 双臂输入源请求介入：默认 `intervention_from: any` 在任一操作员介入时令 `intervened` 为真；`all` 要求两人同时介入。`any` 下未介入操作员对应的机械臂保持：`joint_abs` 使用从臂关节位置，增量模式用零；夹爪保持上次发送动作。因此空闲主臂和扳机不会移动从臂或打开夹爪。`episode_end` 和事件在两臂间取 OR；`info["teleop_events"]` 同时包含 `<arm>_<event>` 和普通 `<event>`（`success`、`teleop_syncing` 等）。
 
-使用 `--teleop-event-device keyboard` 时，双臂源作为组合中的运动部分，一个键盘同时切换两臂，各臂起始策略仍生效，并提供回合结束与结果按键。
+使用 `--teleop-event-device keyboard` 或 stdin 将 bimanual 作为组合运动半部：t/h 同时接管/交还双臂，各臂 onset 仍有效；键盘提供结束、结果和退出键。
 
 `bimanual` 的 `--teleop-options-yaml` 可以使用按臂名分段的映射加公共键。`intervention_from` 属于双臂源自身，其余公共键传给每臂，各臂段覆盖公共值：
 
@@ -465,8 +495,10 @@ python robot_infra/robot_infra/teleop/examples/run_twist_input_inspector.py \
 相同演示可使用 SpaceMouse，通过 `--spacemouse-index`、`--spacemouse-deadzone`、`--spacemouse-invert-axes`、`--spacemouse-hold-s` 调整，也可使用空闲 `fake` 输入源：
 
 ```bash
-python examples/run_teleop_demo.py --env-id PegInsertionSidePegOnly-v1 --device spacemouse
+python examples/run_teleop_demo.py --env-id PegInsertionSidePegOnly-v1 --device spacemouse_twist
 ```
+
+模拟示例使用 `spacemouse_twist` 原始 twist：推杆移动即介入，动作直传环境，按钮 0 切夹爪、1 结束回合。仅模拟可用，真机使用 `--teleop-device spacemouse`，见 [SpaceMouse](#spacemouse)。
 
 `run_teleop_demo.py` 创建 ManiSkill 环境，通过 `make_teleop_source` 构建输入源，轮询动作，将 Pico 物理速度增量按控制器动作范围归一化，然后步进环境。SpaceMouse 动作已经归一化。
 
@@ -498,14 +530,14 @@ python examples/record_teleop_wsrl.py \
 
 只有 `intervened=True` 的样本会步进环境并保存。`intervened=False` 时持续轮询设备，不记录 transition。
 
-操作员回合结束按钮，即 Pico 对应按钮或 SpaceMouse 按钮 1，会结束当前回合。每个回合后，终端打印回合长度、`max_episode_steps`、成功标记与回报，再询问是否保存。
+操作员回合结束按钮，即 Pico 对应按钮或 `spacemouse_twist` 按钮 1，会结束当前回合。每个回合后，终端打印回合长度、`max_episode_steps`、成功标记与回报，再询问是否保存。
 
 <a id="important-arguments"></a>
 
 ### 重要参数
 
 - `output_path`：写入的 H5 数据集文件。
-- `device`：`pico`、`spacemouse` 或 `fake`，设备专属参数与演示相同。
+- `device`：`pico`、`spacemouse_twist` 或 `fake`，设备专属参数与演示相同。
 - `dt`：遥操作轮询周期，单位秒，默认 `1 / 30`，约 `30 Hz`；值越小，轮询与步进越快。
 - `env_id`：ManiSkill 环境 ID。
 - `obs_mode`：观测模式，通常为 `state`、`rgb` 或 `rgbd`。

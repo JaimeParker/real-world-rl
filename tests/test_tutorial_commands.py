@@ -1,4 +1,6 @@
-"""Every command of the hardware tutorial (``docs/tutorial/*.md``) parses against the current CLIs.
+"""Hardware tutorial and testing-page bash blocks parse against the current CLIs.
+
+Pages are collected from ``docs/tutorial/*.md`` and ``docs/testing/*.md``.
 
 Each ```bash block of a page is read as a small shell script: backslash-newline continuations are
 joined, ``NAME=value`` lines define variables for the later blocks of the same page, and ``$NAME``
@@ -30,6 +32,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TUTORIAL_DIR = REPO_ROOT / "docs" / "tutorial"
+TESTING_DIR = REPO_ROOT / "docs" / "testing"
 DOCS_INDEX = REPO_ROOT / "docs" / "README.md"
 PRESET = REPO_ROOT / "examples" / "presets" / "hil_single_arm.yaml"
 
@@ -37,6 +40,8 @@ SKIP_MARKER = "<!-- tutorial-test: skip -->"
 PRESET_COPY = "hil.yaml"
 # The tutorial's joint_abs copy of the preset: action_mode switched and joint_limits uncommented.
 PRESET_ABS_COPY = "hil_abs.yaml"
+# The testing page's commissioned local copy; parse its CLI against the source preset.
+BIMANUAL_PRESET_COPY = "local/bimanual.smoke.yaml"
 HOST_PLACEHOLDERS = {"ROBOT_PC": "127.0.0.1", "LEARNER_IP": "127.0.0.1"}
 # The tutorial must keep at least this many commands under test (guards the extractor).
 MIN_PARSED_COMMANDS = 30
@@ -97,7 +102,7 @@ def bash_blocks(page: Path) -> list[BashBlock]:
             index += 1
         if index == len(lines):
             raise ValueError(f"{page.name}:{start + 1}: unterminated ```bash block")
-        blocks.append(BashBlock(page.name, start + 1, "\n".join(body), skipped))
+        blocks.append(BashBlock(str(page.relative_to(REPO_ROOT)), start + 1, "\n".join(body), skipped))
         index += 1
     return blocks
 
@@ -163,6 +168,8 @@ def substitute_placeholders(argv: Sequence[str]) -> tuple[str, ...]:
             token = str(PRESET)
         elif token == PRESET_ABS_COPY:
             token = str(joint_abs_preset())
+        elif token == BIMANUAL_PRESET_COPY:
+            token = str(REPO_ROOT / "examples" / "presets" / "bimanual_gello_smoke.yaml")
         for placeholder, value in HOST_PLACEHOLDERS.items():
             token = token.replace(placeholder, value)
         substituted.append(token)
@@ -199,7 +206,7 @@ def page_commands(page: Path) -> list[TutorialCommand]:
                     variables[name] = value
                 continue
             argv = substitute_placeholders(tokens[assignments:])
-            commands.append(TutorialCommand(page.name, block.line, argv))
+            commands.append(TutorialCommand(block.page, block.line, argv))
     return commands
 
 
@@ -207,10 +214,14 @@ def tutorial_pages() -> list[Path]:
     return sorted(TUTORIAL_DIR.glob("*.md"))
 
 
+def session_pages() -> list[Path]:
+    return sorted(TESTING_DIR.glob("*.md"))
+
+
 def _collect() -> tuple[list[TutorialCommand], list[str]]:
     commands: list[TutorialCommand] = []
     errors: list[str] = []
-    for page in tutorial_pages():
+    for page in [*tutorial_pages(), *session_pages()]:
         try:
             commands.extend(page_commands(page))
         except ValueError as error:
@@ -355,6 +366,11 @@ def parser_for(argv: Sequence[str]) -> tuple[Callable[[Sequence[str]], None], li
     """The parser of ``argv``'s program and the arguments it takes."""
     if argv[0] in CONSOLE_SCRIPT_PARSERS:
         return CONSOLE_SCRIPT_PARSERS[argv[0]], list(argv[1:])
+    if argv[0] in _PYTHONS and len(argv) >= 3 and argv[1] == "-m" and argv[2] == "robot_infra.supervise":
+        # The supervisor validates its own options and hands back the supervised command.
+        from robot_infra.supervise.supervisor import parse_args as parse_supervisor_args
+        _options, supervised, _log = parse_supervisor_args(list(argv[3:]))
+        return parser_for(supervised)
     if argv[0] in _PYTHONS and len(argv) >= 3 and argv[1] == "-m" and argv[2] in MODULE_PARSERS:
         return MODULE_PARSERS[argv[2]], list(argv[3:])
     if argv[0] in _PYTHONS and len(argv) >= 2 and argv[1] in SCRIPT_PARSERS:
@@ -380,6 +396,19 @@ def test_the_docs_index_links_every_tutorial_page():
     index = DOCS_INDEX.read_text()
     missing = [page.name for page in tutorial_pages() if f"tutorial/{page.name}" not in index]
     assert not missing, f"docs/README.md does not link {missing}"
+
+
+def test_testing_pages_include_a_parsed_supervised_recorder():
+    """Testing pages cannot skip every expanded supervisor + recorder command."""
+    assert session_pages(), f"no testing pages under {TESTING_DIR}"
+    supervised = [
+        command for command in COMMANDS
+        if command.page.startswith("docs/testing/")
+        and command.argv[:3] == ("python", "-m", "robot_infra.supervise")
+    ]
+    assert any(parser_for(command.argv)[0] is parse_recorder for command in supervised), (
+        "docs/testing/*.md must retain a parsed supervisor + recorder expansion"
+    )
 
 
 @pytest.mark.parametrize("command", COMMANDS, ids=[command.id for command in COMMANDS])

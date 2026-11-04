@@ -1,106 +1,139 @@
+<!-- English source: docs/tutorial/06-intervening.md -->
+
 <a id="6-intervening-the-operator-page"></a>
 
-# 6. 人工介入操作员指南
+# 6. 人工介入：操作员指南
 
 [中文入口](../../README.zh-CN.md) · [English](../../tutorial/06-intervening.md)
 
-本页供使用键盘和 GELLO 的操作员在录制示范（[04](04-record-demos.md)）和 HIL 训练（[07](07-hil-training.md)）时查阅。建议在机器人旁保持打开。
+[录制](04-record-demos.md)和 [HIL 训练](07-hil-training.md)时在机器人旁保留本页。硬件进程在 NUC 上直接连接，使用 50 Hz 仅状态笛卡尔预设，由 `robot_infra.supervise` 监督。GELLO 用 `--teleop-device leader_cartesian --teleop-event-device stdin`；SpaceMouse 用 `--teleop-device spacemouse --teleop-event-device stdin`。
 
-配置方式：GELLO 通过机器人守护进程读取（`--teleop-device leader_arm`）；按键来自 actor 机器的键盘（`--teleop-event-device keyboard`），由 `pynput` 监听器读取，因此需要该机器的桌面会话。
+`stdin` 从监督命令所在终端读取，也支持 SSH。`keyboard` 通过 `pynput` 使用同样按键，但需要桌面会话。
 
-| 按键 | 效果 |
+| 输入 | 作用 |
 |---|---|
-| **Space** | 切换人工介入：按一次接管，再按一次交还控制。 |
-| **s** | 成功。录制器将回合标为成功并结束；启用 `--reward-from-teleop-events` 的 HIL 训练赋予奖励 1，将该步存为终止步骤并结束回合。 |
-| **f** | 失败。录制器丢弃回合；启用 `--reward-from-teleop-events` 的 HIL 训练以截断方式结束回合，保持非终止状态。 |
-| **r** | 重录。录制器丢弃当前回合并立即开始下一回合；对 HIL 训练无效果。 |
-| **Esc** | 结束回合，以截断方式结束并保持非终止状态，设置 `info["human_episode_end"]`。 |
-| 扳机 | 控制夹爪；捏过一半行程时闭合（`-1`），松开时打开（`+1`）。 |
+| `t` | GELLO 接管并锚定相对映射；反复按不会切换为交还 |
+| `h` | GELLO 交还；录制器保持此刻实测姿态，HIL 交还策略 |
+| `s` | 成功并结束；录制器默认奖励 1 且终止，HIL 按键奖励需 `--reward-from-teleop-events` |
+| `f` | 失败；录制丢弃尝试，HIL 截断回合 |
+| `r` | 录制器丢弃并重录，HIL 无重录动作 |
+| Esc | 无成功标签结束回合，`human_episode_end` |
+| `q` | 结束当前回合，处理后停止 recorder/actor |
+| GELLO 扳机 | 接管锁存匹配后，握紧闭合 `-1`、释放张开 `+1` |
+| SpaceMouse 按键 0 | 接管，再按交还；此路线只有它控制接管 |
+| SpaceMouse 按键 1 | 驱动时切换夹爪开闭，交还时忽略 |
+| SpaceMouse 推杆 | 接管中输入速度，单独推动不算接管 |
 
-reset 归位期间按下的键会被丢弃。
+SpaceMouse 忽略终端 `t`/`h`，其他 `s`/`f`/`r`/Esc/`q` 有效。reset/home 中按键被丢弃。物理停止装置须可用。
 
 <a id="the-sequence"></a>
 
 ## 操作顺序
 
-1. **Reset。** 环境重置，机械臂归位、夹爪打开，等待其静止。
-2. **主臂靠近从臂。** 逐关节调整 GELLO，使其姿态接近从臂。
-3. **Space。** 开始接管。使用 `--teleop-onset arm` 时，每个主臂关节与从臂的误差都小于 `--teleop-arm-tolerance-rad`（0.1 rad）后才接管；此前策略继续执行，actor 每秒打印一次关节误差。`ramp` 会立即接管。
-4. **移动。** 操作 GELLO；`joint_delta` 中从臂以每关节每步最多 `joint_scale_rad`（0.05 rad）跟随，守护进程还会按 `max_delta_per_step` 裁剪所有目标。
-5. **扳机。** 捏紧抓取，松开将物体放入箱子。
-6. 机器人回到正确轨迹后，**再次按 Space** 交还控制（HIL 训练）。
-7. 结果明确时按 **s / f / r**。录制时要在**仍然接管**的状态按 `s`；需要把达成任务的那一步记录为终止步骤时也应及时按下。
-8. **Esc** 结束没有明确结果的回合；达到步数上限也会结束。
+<a id="gello"></a>
 
-`--role eval`（[07](07-hil-training.md#evaluate)）中保持 Space 未接管状态，可测量自主回合。需要时仍能接管；辅助成功计入 `task_success_rate`，主要 `success_rate` 等于 `autonomous_success_rate`。采用按键奖励时，成功仍需按 `s` 标注。只按 `s` / `f` 标注结果不算动作介入；失败标签否决成功标签，同一步同时出现也按失败处理。
+### GELLO
 
-<a id="onset-arm-or-ramp"></a>
+1. 等待 reset 及 home/夹爪运动结束。
+2. 舒适握住 leader，按 **`t`**，以当前 leader 姿态锚到 follower 命令；笛卡尔路线无需逐关节对齐。
+3. 移动 leader 引导工具，用扳机开闭夹爪。接管时若与最后夹爪命令不符，先匹配该状态，锁存会防止立即误开。
+4. **`h`** 交还；录制固定保持实测姿态，HIL 恢复策略。下次 **`t`** 使用新锚点。
+5. **`s`/`f`/`r`** 标结果。录制时须在接管中 `s`，成功终止步才进入人工 pkl。已 `h` 时先 `t` 再锚定后标记。
+6. **Esc** 无标签结束，**`q`** 结束运行。
 
-## 接管起始方式 `arm` 或 `ramp`
+<a id="spacemouse"></a>
 
-`--teleop-onset` 决定按 Space 时的行为：
+### SpaceMouse
 
-- `arm` 用于 [04](04-record-demos.md) 录制：主从臂误差在 0.1 rad 内时切换才生效，每次 reset 解除就绪，就绪后保持至释放切换信号。接管本身不会导致追赶运动，但每次前需手工对齐。
-- 默认 `ramp` 用于 [07](07-hil-training.md)：立即接管。`joint_delta` 中从臂每步以最多 `joint_scale_rad` 靠近主臂；`joint_abs` 初始目标按 `--teleop-ramp-step-rad`（0.05）限速。两种模式都用 `teleop_syncing` 标记追赶：`joint_delta` 标记直到主臂首次进入从臂一个 `joint_scale_rad` 范围内的初始步骤，`joint_abs` 标记各次 ramp 限速步骤。归档保留实际动作和真实人工掩码，训练投影排除同步监督。`joint_delta` 初次对齐后，即使之后操作者运动过快而再次饱和，也正常作为教学步骤。录制器可用 `--keep-syncing-steps` 将同步步骤作为普通监督写入 pkl，归档派生训练视图仍会排除。
+1. 等 reset，开始新接管前释放推杆和按键。
+2. **按键 0** 接管，仅碰推杆不接管。
+3. 推杆控制速度；释放停止新增运动请求，臂仍可在一个领先上限内收敛。**按键 1** 切换夹爪，接管本身保留最后夹爪命令。
+4. 再按 **0** 交还，下次再按进入新接管。键盘 `t`/`h` 不改变此设备接管状态。
+5. 键盘 **`s`/`f`/`r`/Esc/`q`** 处理结果和退出；录制成功标签须在按钮 0 的接管仍有效时按。
 
-希望每条示范从静止机器人开始时选择 `arm`；策略运动中需要快速接管时选择 `ramp`。两种方式都应在按 Space 前让主臂接近从臂。
+[评估](07-hil-training.md#evaluate)时保持策略控制，以测自主成功。辅助成功计入 `task_success_rate`，主 `success_rate` 为 `autonomous_success_rate`。单纯 `s`/`f` 标签不算动作介入，同时失败标签否决成功。
+
+<a id="how-the-robot-follows-you"></a>
+
+## 机器人如何跟随
+
+笛卡尔源在 reset 和每次交还后保留固定 hold pose。录制器 hold policy 共用 tracker，持续发回固定姿态的动作，不是会随实测漂移的零 twist。HIL 则交还策略，不意味着冻结策略运动。
+
+GELLO 接管时将 leader 当前姿态锚到现有 command pose，其位移成为平移和旋转请求。command 最多 **0.05 m/s、0.3 rad/s** 推进，领先实测 TCP 最多 **0.05 m、0.3 rad**。多余领先丢弃、不排队。leader 停下后 follower 仍可向保留命令走一个领先上限。配置时验证物理方向和尺度。
+
+SpaceMouse 共用 tracker；全幅推杆请求配置速度，松手停止新增速度请求，不会消除机械臂与现有命令间的有界距离。
+
+介入轮询间隔超过 **0.3 s** 时保持 follower 并记录延迟，下一轮重新锚定 GELLO，避免跨暂停跳动。这与环境 StepWatchdog 超时停臂、需 reset，以及外部 supervisor 心跳升级不同。
+
+请求位置越出安全盒时记录 **`WORKSPACE HOLD: <axes>`**，交还并保持实测姿态。清除请求后用 `h` 再 `t` 重新锚定 GELLO；SpaceMouse 再按 0。不要仅为清 HOLD 扩大工作区。
+
+`--teleop-lead-cap-m`、`--teleop-lead-cap-rad`、`--teleop-target-speed-m-s`、`--teleop-target-speed-rad-s` 四值进入 `experiment.teleop_control`。本教程录制、训练、部署沿用它们和同一 teleop 设备。当前 HEAD 比较的是共享 tracker 块而非实体设备身份，见 [04 兼容性](04-record-demos.md#files-and-compatibility)。
+
+<details>
+<summary>其他模式：onset arm 或 ramp（仅关节空间 leader_arm）</summary>
+
+此节只讨论关节 leader，不用于 `leader_cartesian` 或 SpaceMouse。`t` 请求接管时，`--teleop-onset` 决定：
+
+- `arm` 等待每关节误差小于 `--teleop-arm-tolerance-rad`（0.1 rad）；reset 解除 armed，先对齐 leader。
+- 默认 `ramp` 立即开始。`joint_delta` 每步最多 `joint_scale_rad` 向 leader 推进；`joint_abs` 初始目标受 `--teleop-ramp-step-rad`（0.05）限制。
+
+只有这些关节模式发出 `teleop_syncing`：joint_delta 初始追赶，以及 joint_abs 初始限速目标。执行动作和 mask 均保留在归档，但归档派生视图排除 syncing 监督。`--keep-syncing-steps` 可在录制 pkl 保留这些行。关节 trigger 仍需手动匹配夹爪状态，不享有笛卡尔锁存保护。
+
+</details>
 
 <a id="what-the-system-records"></a>
 
 ## 系统记录什么
 
-介入包装器在每步写入以下 `info` 字段：
+介入 wrapper 每步写以下 `info`：
 
-| `info` 键 | 值 |
-| --- | --- |
-| `intervene_action` | 实际执行的 `(1, A)` 动作，**仅介入时存在**。 |
-| `policy_action` | 原样保留策略提案。 |
-| `intervened` | 是否实际执行人工动作。 |
-| `intervention_onset` | 本步介入、同回合上一步未介入。 |
-| `human_episode_end` | 操作员结束回合按键（Esc）。 |
-| `teleop_events` | 触发的 `success` / `failure` / `rerecord`，主臂追赶时增加 `teleop_syncing`；**仅有事件时存在**。 |
-| `human_action_mask` | 实际由人控制的动作维度。 |
-| `override_mask` | 覆盖策略的维度，包含未选部件的保持补充。 |
-| `task_success`、`task_success_source` | 显式结果及来源；正奖励或终止标记本身不足以判成功。 |
+| 键 | 值 |
+|---|---|
+| `intervene_action` | 实际执行的 `(1, A)` 动作，仅介入时存在 |
+| `policy_action` | 策略原始提议 |
+| `intervened` | 执行了操作员动作 |
+| `intervention_onset` | 本步介入，上一步未介入 |
+| `human_episode_end` | Esc 回合结束键 |
+| `teleop_events` | 触发的 `success`/`failure`/`rerecord`/`operator_quit`；`teleop_syncing` 仅关节 leader；有事件才出现 |
+| `human_action_mask` | 人实际控制的动作维度 |
+| `override_mask` | 被覆盖维度，含 idle hold 补位 |
+| `task_success`, `task_success_source` | 显式结果及来源；正奖励或 terminal 本身不足以判断 |
 
-结束回合事件使 `step()` 返回 `truncated=True`，保持 `terminated` 为假。介入步骤保存的 `action` 始终是实际执行的人工动作。各方法的处理方式如下：
+Esc 返回 `truncated=True` 而非 `terminated`；`q` 还请求回合后停止。成功键可使该步 terminal。介入时存储的 action 始终是人实际执行的动作，各方法用途如下：
 
-| 方法 | 执行动作与监督 | 回放或导出 |
+| 方法 | 执行动作和监督 | 回放/导出 |
 |---|---|---|
-| 录制器 | 保存实际执行动作，人工掩码选择监督维度。 | 完整 SQLite 归档；成功人工 pkl 视图默认排除同步步骤，`--keep-syncing-steps` 可保留。 |
-| `hil_serl` | 使用全部实际动作学习，非同步人工数据也进入示范回放。 | 在线回放与持续增长的示范回放，按 `--demo-data-ratio` 混合。 |
-| `residual_hil_serl` | 人工动作是实际总动作，保留 `policy_action`、`base_actions`、`next_base_actions`。 | 残差 BC 取真实人工掩码与非零残差缩放维度的交集。 |
-| `silri` | 保留提案、真实掩码及介入前一步的 `intervention_onset`。 | 行为拟合和预训练只监督人工维度，起始标记数据不会改为专家标签。 |
+| recorder | 存执行动作，由 human mask 选监督维度 | 完整 SQLite，成功人工 pkl 默认排除关节 syncing |
+| `hil_serl` | 学全部执行动作，人工非 syncing 行进入 demo replay | 在线与增长 demo 回放，按 `--demo-data-ratio` 混合 |
+| `residual_hil_serl` | 人工动作是总执行动作，保留策略及前后 base | residual BC 取 human mask 与非零残差尺度交集 |
+| `silri` | 保留提议、实际 mask 及前驱 onset | 行为拟合/预训练监督人工维度，不将 onset 行改标专家 |
 
-夹爪头（`hil_serl` 的 DQN、`--residual-variant hybrid`、`silri` 的离散头）将保存的夹爪动作标记为 `-1` / `0` / `+1` 中最近的值。向导默认的 `gripper_binarize_threshold: 0.5` 让扳机恰好输出 `+1` 或 `-1`。细节见 [residual.md](../residual.md#human-intervention)、[silri.md](../silri.md#data-flow)、[teleop.md](../teleop.md#interventionwrapper)。
+夹爪头（HIL DQN、残差 hybrid、SiLRI 离散头）将动作标为最近的 `-1`/`0`/`+1`；向导默认 `gripper_binarize_threshold: 0.5` 使扳机严格输出 ±1。详见[残差](../residual.md#human-intervention)、[SiLRI](../silri.md#data-flow)、[wrapper](../teleop.md#interventionwrapper)。
 
 <a id="where-the-reward-comes-from"></a>
 
-## 奖励来源
+## 奖励来自哪里
 
-教程默认 `task.name: none` 时，`real_robot` 返回奖励 0，没有任务成功检测器。需要配置按键奖励或分类器。版本化任务可提供显式结果和 reset、终止规则；TCP 位置代理指标单独报告。
+教程默认 `task.name: none`，环境返回零奖励且无成功检测。须配置按键或分类器；版本化任务可提供显式结果及复位/终止规则，TCP 位置代理指标仍独立。
 
-- **录制器**默认从按键生成奖励，使用 `--no-reward-from-teleop-events` 可关闭。按 `s` 将当前步存为奖励 1 的成功终止步骤。
-- **HIL 训练**（`hil_serl`、`residual_hil_serl`、`silri`）未使用 `--classifier-checkpoint` 时，需要向 actor 传入 `--reward-from-teleop-events`；[07](07-hil-training.md) 的命令已经包含。两项都未设置时，actor 和 learner 会打印警告。
+- **录制器：**默认按键奖励，`--no-reward-from-teleop-events` 关闭；`s` 终止成功并奖励 1。
+- **HIL：**无 `--classifier-checkpoint` 时传 `--reward-from-teleop-events`，如 [07](07-hil-training.md)。两者都无时 actor/learner 警告。
 
-录制器中按 `s` 的规则是：**仍在接管时按下**。录制器只保存介入步骤，释放接管后再按 `s` 会让示范全程奖励为 0。HIL 训练中 `s` 对人工步骤和策略步骤都生效，应在物体落入箱子的那一步按下。使用分类器时取两个奖励的较大值，按键不会降低分类器奖励。
+录制须在接管中 `s`，否则终止步不进人工示范，pkl 可能全零奖励；HIL 中任何控制方的步骤都可标成功，在物体落箱那步按键。并有分类器时取两者较大奖励，按键不会降低分类器奖励。
 
 <a id="when-to-intervene"></a>
 
 ## 何时介入
 
-策略即将任务失败、碰撞或离开安全区域时接管，恢复正确行为后交还控制。策略正常运行时保持自主执行：actor 保存每一步，只有人工介入步骤进入示范缓冲区。训练初期通常需要频繁介入，随后随策略改进逐渐减少。
+策略将失败、碰撞或离开安全区时接管，恢复正常后交还；正常时不介入。actor 存每步，只有介入步进入 demo，起初介入多、随后应减少。
 
-两类接管及其教学作用：
+- **恢复：**策略失误后把机器人带回可继续任务的状态，在完成任务前交还。这些行展示策略自己到达、原始示范未覆盖的状态如何脱困。
+- **修正：**策略基本正确但抓取偏心或过早释放时，短暂接管修正后交还，每个人工步骤信息更集中。
 
-- **恢复**：策略已经偏离，例如漏抓物体或漂出工作区。接管后将机器人带回可以继续任务的状态，在自己完成整个任务前交还控制。这些数据展示了策略自主到达、而原始示范未覆盖的状态的恢复路径。
-- **纠正**：策略大致正确但细节有误，例如抓取位置偏心或过早松开。只在该时刻接管，纠正后交还。关键步骤的短暂修正能提高每条介入数据的信息量。
-
-每次接管应有明确目的且动作一致。在 `silri` 中，人工动作训练行为模型，操作不一致会增大模型分散程度并放宽约束。在 `residual_hil_serl` 中，人工动作是总动作；BC 项会把隐含残差裁剪到 `base +/- scale` 范围，因此远离基础动作的纠正只能将残差教到边界，但 critic 仍会学习实际执行动作的价值。无法恢复的回合用 Esc 结束。
-
+介入应有明确目的且一致。SiLRI 根据人工模型分散程度放松约束；残差方法的人动作是总动作，BC 只在 `base +/- scale` 范围内拉动残差，超出范围的纠正只能学到边界，critic 仍学习真实执行动作价值。不可恢复时用 Esc 结束。
 
 <a id="take-over-selected-parts"></a>
 
-## 只接管指定部件
+## 接管指定部件
 
-`--teleop-selected-parts arm.arm` 选择教程机器人的机械臂运动，`arm.gripper` 选择夹爪。双臂可用 `left.arm`、`right.arm`、`left.gripper`、`right.gripper`，名称与 `arm_names` 一致。空列表采用输入源所有可用部件。默认 `--teleop-idle-behavior hold` 在接管时保持未选部件，`policy` 让其继续由策略控制。只有 `human_action_mask` 维度提供专家监督；`override_mask` 还包含保持部件。部件选择与空闲行为进入实验约定，录制和训练需一致，见[部分接管](../real-world-experiments.md#part-takeover-and-imitation)。
+`--teleop-selected-parts arm.arm` 选教程的臂，`arm.gripper` 选夹爪。双臂用与 `arm_names` 一致的 `left.arm`、`right.arm`、`left.gripper`、`right.gripper`。空列表使用可用全部部件。默认 `--teleop-idle-behavior hold` 保持未选部件，`policy` 留给策略。只有 human mask 维度提供专家监督，override mask 还包括保持维度。录制与训练应保持同样选择和 idle 行为，它们属于实验契约。见[部分接管](../real-world-experiments.md#part-takeover-and-imitation)。

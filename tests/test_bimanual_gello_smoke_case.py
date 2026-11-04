@@ -20,7 +20,7 @@ def inspector():
     return module
 
 
-def test_smoke_preset_records_one_attempt_on_two_local_fake_daemons(tmp_path, station_daemons):
+def test_smoke_preset_records_one_attempt_on_two_local_fake_daemons(tmp_path, station_daemons):  # noqa: F811 (fixture injected by name)
     output = tmp_path / "left.pkl"
     args = parse_record_args([
         "--config", str(ROOT / "examples/presets/bimanual_gello_smoke.yaml"),

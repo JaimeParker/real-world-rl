@@ -1,3 +1,5 @@
+<!-- English source: docs/recording-demos.md -->
+
 <a id="recording-demos-on-the-real-robot"></a>
 
 # 在真实机器人上录制示范
@@ -12,7 +14,7 @@
 
 ## 命令
 
-由机器人守护进程提供 GELLO 服务，从臂使用教程全流程采用的 `joint_delta`，按键来自键盘：
+GELLO 由机器人守护进程提供，follower 为 joint_delta（教程各阶段的配置），按键走键盘：
 
 ```bash
 python examples/record_real_demos.py --config hil.yaml \
@@ -21,15 +23,26 @@ python examples/record_real_demos.py --config hil.yaml \
     --output-path demos/task_20.pkl --num-successes 20
 ```
 
-为 `joint_abs` 流程录制 `joint_abs` 数据时，增加 `--real_robot.action_mode joint_abs --robot-teleop-action-mode joint_abs`，并在预设中提供 `joint_limits`。
+joint_abs 数据用于独立 joint_abs 流水线，增加对应环境和 robot-teleop-action-mode 参数，预设需 joint_limits。`hil.yaml` 是[单臂预设](../../examples/presets/hil_single_arm.yaml)副本；列表对不能由 CLI 表达，因此限位来自 YAML。非 recorder 字段（算法超参数）跳过。
 
-`hil.yaml` 由训练预设 [`examples/presets/hil_single_arm.yaml`](../../examples/presets/hil_single_arm.yaml) 复制而来。`joint_limits` 必须在预设中配置，因为命令行无法表达成对列表。预设中不属于录制器字段的键，例如算法超参数，会被跳过。
+其他运动设备同理：本机 GELLO 用 `--teleop-device gello --teleop-options-yaml gello.yaml`；real_robot 或 franka_real 笛卡尔臂用 leader_cartesian，[50 Hz 单臂预设](../../examples/presets/gello_cartesian.yaml)及四个 tracker 参数见 [teleop](teleop.md#leader-arm-on-a-cartesian-robot-leader_cartesian)。SpaceMouse 用 `--teleop-device spacemouse --teleop-event-device stdin`。两种 tracker 输入源均将 teleop_control 写入契约，无 tracker 的部署设备会拒绝使用其训练策略。设备和 GELLO 设置见 [teleop](teleop.md)、[gello](gello.md)。
 
-其他运动输入设备采用相同方式：本机 GELLO 使用 `--teleop-device gello` 并配合 `--teleop-options-yaml gello.yaml`；笛卡尔环境使用 `--teleop-device spacemouse`；`franka_real` 使用 `--teleop-device leader_cartesian`。GELLO 设置见 [gello.md](gello.md)，设备说明见 [teleop.md](teleop.md)。
+SpaceMouse 参数，详见 [SpaceMouse](teleop.md#spacemouse)：
 
-双臂环境使用 `--env-backend real_robot_bimanual`，配合 `--teleop-device bimanual --teleop-arm-device leader_arm`，也可选择 `gello` 或 `robot`。每臂读取一套主臂，录制器逐臂处理。保持动作按每臂独立计算，`joint_abs` 使用各从臂自身关节与限制；回合起始检查逐一比较主从臂，并指出误差最大的臂。`--max-episode-steps` 覆盖 `--real_robot_bimanual.max_episode_steps`。任一操作员介入时记录该步，另一臂保持静止。命令见 [bimanual.md](bimanual.md#teleop-and-demo-recording)。
+| 参数 | 默认 | 含义 |
+|---|---|---|
+| `--teleop-device spacemouse` | | 本机设备，0 接管/交还，1 从最后命令切换夹爪，推杆为速度 |
+| `--teleop-event-device stdin` / `keyboard` | | s/f/r、Esc、q；t/h 忽略，0 才是切换键 |
+| `--teleop-target-speed-m-s`, `--teleop-target-speed-rad-s` | 0.05, 0.3 | 推杆全幅速度 |
+| `--teleop-lead-cap-m`, `--teleop-lead-cap-rad` | 0.05, 0.3 | 命令领先实测上限，释放后在此距离内停止 |
+| `--real-robot.xyz-scale-m`, `--real-robot.rot-scale-rad` | 0.02, 0.1 | 至少为领先上限，须传 0.05、0.3 |
+| `--teleop-options-yaml`：`device_index`, `deadzone`, `invert_axes` | 0, 0.05, `[]` | 设备序号、各轴静止噪声死区（满幅比例）、翻转输出轴 0–5 |
 
-随后使用示范训练：
+keyboard（本机桌面）与 stdin（命令终端，含 SSH）的操作键：t 接管，h 交还，s 成功，f 失败，r 重录，Esc 结束回合，q 结束并在处理后停 recorder。
+
+双臂用 real_robot_bimanual 和 bimanual teleop，每臂选 leader_arm/gello/robot。保持动作按各臂独立计算，joint_abs 用自身限位；初始逐臂比较并指出差距最大的臂。max-episode-steps 覆盖 bimanual 对应字段。任一臂介入记录该步，另一臂保持。命令见[双臂](bimanual.md#teleop-and-demo-recording)。
+
+再用示范训练：
 
 ```bash
 python examples/train_real_world.py hil_serl --role learner --config hil.yaml \
@@ -57,23 +70,23 @@ python examples/train_real_world.py hil_serl --role learner --config hil.yaml \
 
 ## 回合内的处理流程
 
-1. 环境 reset，机器人回到 home、夹爪打开。
-2. 仅 `joint_abs`：录制器读取一次主臂，与从臂 `joint_pos` 比较。任何关节差距超过 `--start-tolerance-rad` 时，打印逐关节误差并停止；手动对齐后重启。容差内由 `--teleop-onset` 决定接管：`ramp` 每步按 `--teleop-ramp-step-rad` 追赶；`arm` 等待差距进入 `--teleop-arm-tolerance-rad`。读取经过运动设备且接管开关释放，因此不会被 onset 逻辑掩盖差距，也不消耗事件设备按钮。
-3. 录制器每步发送保持动作；操作员介入时，介入包装器改为执行人工动作。保持动作让机器人停在当前位置：`joint_delta` 和 `cartesian_delta` 的机械臂动作为零，`joint_abs` 使用从臂当前关节位置，夹爪保持上次执行动作，reset 后为打开。每臂各有一项，夹爪位于动作最后 `num_arms` 维，遵守动作布局约定。
-4. 所有步骤均归档。pkl 视图选择介入步骤；两种关节模式的主臂追赶均带 `teleop_syncing`，默认排除，设置 `--keep-syncing-steps` 可保留。由归档生成的训练视图仍排除同步步骤。人工掩码选择专家维度，空闲保持补充动作没有专家标签。
-5. 环境终止或截断时回合结束：操作员结束按钮（键盘 Esc）和步数上限造成截断；成功键在默认 `--reward-from-teleop-events` 下造成终止，奖励分类器也可终止回合。在仍介入时按成功键，pkl 只记录介入步骤，终止步骤也需包含在内。
+1. reset，机器人回 home、夹爪打开。
+2. 仅 joint_abs：读 leader 与 follower joint_pos，任一差距超过 start-tolerance-rad 则报逐关节误差并停；对齐重启。容差内 onset ramp 按 ramp-step-rad 跟随，arm 等待 arm-tolerance-rad。读取时开关释放，不隐藏差距、不消耗事件按钮。
+3. 每步发 hold，人工介入时 wrapper 改执行人工。joint_delta 和双臂 cartesian_delta 为零臂动作，joint_abs 为实测关节，单臂 cartesian_delta 返回固定 hold（reset 与交还采样，leader_cartesian 共用源 tracker，见[映射](teleop.md#mapping)），避免漂移。距 hold 超一步尺度时动作饱和、逐步回位。夹爪保留最后执行命令，reset 后开；各臂独立，位于动作末尾 num_arms 维。`run_recorder(args, hold_action_fn_factory=...)` 可注入另一 hold policy，接收构建后的环境。
+4. 每步归档，pkl 选介入步。两关节模式初始追赶标 teleop_syncing，默认排除，keep-syncing-steps 可保留；归档训练视图仍排除。human mask 选专家维度，idle hold 补位无专家标签。
+5. Esc、步数上限 truncated，成功键在默认按键奖励下 terminated，分类器亦可终止。成功键须在介入中按，终止步才进人工 pkl。
 
-回合结果来自操作员事件，各事件路径均适用，包括键盘、SpaceMouse 按钮、GELLO 的 evdev 设备：
+事件来自键盘、终端、GELLO evdev；SpaceMouse 按钮不产生结果事件：
 
-| 事件 | 效果 |
-| --- | --- |
-| `success`（`s`）或环境/分类器的显式成功标签 | 未被失败否决时计为成功；单独正奖励不能作为成功标签。 |
-| `failure`（`f`） | 丢弃回合，即使先前已标成功。 |
-| `rerecord`（`r`） | 立即丢弃回合，开始下一个。 |
+| 事件 | 作用 |
+|---|---|
+| success（s）或环境/分类器显式成功 | 未被 failure 否决才成功，正奖励不是标签 |
+| failure（f） | 丢弃，即使先前 success |
+| rerecord（r） | 立即丢弃并开始下一回合 |
 
-只保留至少录制一步的成功回合，每个已结束回合都会打印结果。Ctrl-C 停止录制，仍会保存此前保留的回合。
+只保留至少一步的成功回合，打印每回合结果。Ctrl-C 保存已保留回合并停；q（operator_quit）按正常规则判断当前回合后同样停止。
 
-`joint_delta` 跳过起始检查：主臂读数按每步一个 `joint_scale_rad` 饱和，无法测量更大的间距；该饱和也已限制从臂靠近主臂的速度。
+joint_delta 跳过开始差距检查，因为 leader 读数已饱和到每步 joint_scale_rad，不能测更大差距，同时该饱和限制跟随速度。
 
 <a id="output"></a>
 
@@ -89,4 +102,6 @@ pkl 包含成功人工 transition 字典：`obs`、`next_obs`、实际执行 `ac
 
 使用 `--max-episodes 1` 可在一次尝试后结束，即使没有保留成功示范。录制器在扫描归档和导出 pkl/PT 前关闭设备控制。成功、失败、重录、超时和中断均保留完整 SQLite 归档；只有成功人工示范生成 pkl。再次启动命令会执行新一轮 reset，包含回 home 和开夹爪，每次重启前核实工作站与工作区。未设置尝试次数上限时，默认持续录制到 `--num-successes` 满足。
 
-完整的[双臂 Franka 与 GELLO 单机接管测试](testing/bimanual-franka-gello-smoke.md)包含安装、NUC 配置迁移、设备侧独立按键、操作步骤和 CSV 记录模板。独立 actor 服务器的网络联调另列后续案例。
+`examples/inspect_teleop_archive.py <archive>` 只读归档；对带 `tcp_pose` 的单臂状态，按 human_action_mask 分段报告保持漂移（含前 `--drift-window-s` 秒的窗口值）、残余位移和接管跳动（mm），以及每个 `--stop-time-s` 之后的稳定时间；`--measurements PATH` 把它们写成测试页 `measurements.csv` 的行。
+
+参见[真机测试页索引（英文主版本）](../testing/README.md)，查看英文主测试页、记录 CSV 约定与证据要求。真机结果在现场填写。

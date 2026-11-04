@@ -54,4 +54,4 @@
 
 ## 真机测试案例
 
-- [双臂 Franka 与 GELLO 单机接管测试](testing/bimanual-franka-gello-smoke.md)：设备侧独立按键、单次尝试录制、操作指南及 CSV 记录表。真机结果在现场填写。
+- [真机测试页索引（英文主版本）](../testing/README.md)：英文测试页、记录 CSV 约定与证据要求；本目录的 testing 页面为对应中文翻译，真机结果在现场填写。

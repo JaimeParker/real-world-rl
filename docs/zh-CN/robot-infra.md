@@ -1,3 +1,5 @@
+<!-- English source: robot_infra/README.md -->
+
 <a id="rlgarden-robot-infra"></a>
 
 # rlgarden-robot-infra
@@ -35,7 +37,7 @@ pip install -e '.[franky,grpc]'     # e.g. a Franka robot PC running the daemon
 | `gello` | `dynamixel-sdk>=3.7.31,<3.9` | GELLO `teleop: {backend: gello}` 与标定命令。 | 机器人 PC。 |
 | `gello-events` | `evdev` | Linux 上 GELLO `event_device` 脚踏或键盘切换与事件。 | 机器人 PC。 |
 | `grpc` | `grpcio>=1.60` | `python -m robot_infra.server` 守护进程及 `RemoteRobot`。 | 机器人 PC **与** GPU 机器。 |
-| `jpeg` | `pillow` | `python -m robot_infra.server --jpeg-quality N`；也可由 OpenCV 编解码。 | 机器人 PC **与** GPU 机器。 |
+| `jpeg` | `pillow`、`opencv-python-headless`（`cv2`） | `python -m robot_infra.server --jpeg-quality N`；`server/codec.py` 的 JPEG 路线导入 `cv2`。 | 机器人 PC **与** GPU 机器。 |
 | `real` | `flask`、`pyzmq`、`scipy`、`pyspacemouse` | 旧 Flask 桥接、夹爪服务与 `teleop/spacemouse/` 的旧 `read_all()` API，勿与 `spacemouse` 组的 2.x 固定版本混用。ROS1 另装。 | 机器人 PC。 |
 | `sim` | `mani_skill` | `controller/simulator/` 中 ManiSkill 阻抗控制器。 | GPU 机器。 |
 | `dev` | `pytest` | 运行测试。 | 任意机器。 |
@@ -242,27 +244,31 @@ hid devices:
 ### 3. 运行 doctor 检查
 
 ```bash
-python -m robot_infra.doctor --config robot.yaml [--robot NAME] [--mock] [--fix] [--json]
+python -m robot_infra.doctor --config robot.yaml [--robot NAME] [--mock] [--fix] [--json] [--install-sdk [--yes]]
 ```
 
 未传 `--config` 时检查[工作站文件](#setup-wizard)。多机器人逐台检查，每份报告前有 `== robot '<name>' ==`，末尾有 `overall:`；`--robot NAME` 只检查一台。
 
-doctor 按顺序执行五层检查，`teleop:` 会为第 1、2、4 层增加检查：
+doctor 按 0–5 顺序执行六层，teleop 为 0、1、2、4 层增加检查：
 
 | 层 | 检查 | 说明 |
 |---|---|---|
+| 0 `deps` | 按后端检查 franky、pyagxarm、piper-sdk、realsense、spacemouse、gello extras；GELLO event_device 需 gello-events，YAML 含 daemon 时需 grpc。缺失报 FAIL `missing extras for this station: franky, gello` 并给精确安装命令；完整为 OK `extras ok: franky, gello, grpc`。无 daemon 时缺 grpc 仅 WARN `optional, not installed: grpc (daemon route)`，jpeg 仅提示 | mock 不需 SDK extras，也不要求 grpc |
 | 1 `sdk` | 后端名称可解析且 SDK 可导入，包括 `sdk:arm`、`sdk:gripper`、`sdk:camera:<name>`、`sdk:teleop:<backend>`。 | 未知后端跳过第 3–5 层。 |
-| 2 `os` | ping `robot_ip` 与探测 1337；CAN 存在、启动、波特率；相机序列号；`os:teleop:<name>` 设备发现；SpaceMouse 专属 `os:hid` 可读写 `/dev/hidraw*`；GELLO `os:serial` 的 `port` 存在及可读写。 | 配置驱动，无 SDK 的 fake 跳过。 |
+| 2 `os` | ping/IP 与 1337；CAN 接口/状态/波特率；相机序列号；teleop 发现、SpaceMouse HID 权限；GELLO 串口。--fix 尝试非 sudo setfacl；os:groups 检查 dialout 和 evdev input；os:brltty 查 CH340 占用，os:latency_timer 查 FTDI 是否 1 ms | 按配置驱动，无 SDK 后端跳过，绝不 sudo |
 | 3 `handshake` | 除 `claim: false` 外取得设备占用锁，然后 `robot.connect()`。 | 失败或锁被占用时跳过第 4–5 层。 |
-| 4 `feedback` | 机械臂返回状态、夹爪可读、各相机 2 秒内有帧、`feedback:teleop:<name>` 轮询线程存活健康。 | |
+| 4 `feedback` | 机械臂返回状态、夹爪报告宽度、各相机 2 秒内有帧、`feedback:teleop:<name>` 轮询线程存活健康。 | |
 | 5 `mode` | Franka 实时内核、模式与 libfranka 版本；Piper 状态、从臂反馈与 pyagxarm 固件配置，或 piper_sdk 夹爪行程。 | |
+
+`feedback:gripper` 打印宽度（米）、占 `max_width_m` 的比例、抓取状态和后端来源；非有限数、比例超出 [0, 1] 或 `max_width_m <= 0` 会报 `WARN`，并提示读数不可信，核对 `max_width_m` 与 SDK 的宽度单位。
 
 参数：
 
 - `--mock` 用 fake 替换每个后端并跳过第 2 层，无硬件检查 YAML 与安装。
-- `--fix` 对失败项执行自动修复再重查，例如 Franka Reflex/UserStopped/Guiding 下 `mode:robot_mode` 的 `arm.recover()`，以及无帧相机的 `camera.reopen()`。
-- `--json` 输出 `{layer, name, ok, message, hint, skipped}` 对象列表，多机器人为 `{<name>: [...]}`。
-- 退出码：任何机器人的任何检查失败为 `1`，否则 `0`，跳过项不算失败。
+- `--fix` 对失败项执行自动修复再重查，例如 Franka Reflex/UserStopped/Guiding 下 `mode:robot_mode` 的 `arm.recover()`，无帧相机的 `camera.reopen()`，以及当前用户不能打开 GELLO 端口时不提权执行 `setfacl`（`os:serial`）。
+- `--json` 输出 `{layer, name, ok, message, hint, skipped, warning}` 对象列表，多机器人为 `{<name>: [...]}`。
+- `--install-sdk` 在 libfranka 不匹配后安装适配 wheel，确认后安装；加 `--yes` 不询问，见[wheel 选择](#installing-the-right-franky-wheel)。
+- 退出码：任何机器人的任何检查失败为 `1`，否则 `0`，跳过项不算失败。 WARN 是通过但带操作提示，例如下次重插可能被 brltty 占用，不使运行失败；汇总为 `N ok (M with warnings)`。
 
 doctor 会连接并断开机器人，不会关闭电源。
 
@@ -270,6 +276,7 @@ Franka 示例的 `--mock` 运行结果：
 
 ```text
 $ python -m robot_infra.doctor --config robot.yaml --mock
+[0/5] deps ... OK  no extras needed (fake or SDK-free backends)
 [1/5] sdk:arm ... OK  no SDK needed
 [1/5] sdk:gripper ... OK  no SDK needed
 [1/5] sdk:camera:wrist ... OK  no SDK needed
@@ -278,23 +285,25 @@ $ python -m robot_infra.doctor --config robot.yaml --mock
 [2/5] os:camera:wrist ... SKIP  skipped (--mock)
 [3/5] handshake ... OK  robot connected
 [4/5] feedback:arm ... OK  arm feedback received
-[4/5] feedback:gripper ... OK  gripper readable
+[4/5] feedback:gripper ... OK  gripper width 0.0800 m (1.00 of max_width_m 0.080), grasped=unknown, source FakeGripper
 [4/5] feedback:camera:wrist ... OK  frames arriving
 [5/5] mode:none ... OK  backend declares no mode checks
-summary: 8 ok, 0 failed, 3 skipped
+summary: 9 ok, 0 failed, 3 skipped
 ```
 
 相同配置在没有 franky、机器人和相机的机器上：
 
 ```text
 $ python -m robot_infra.doctor --config robot.yaml
+[0/5] deps ... FAIL  missing extras for this station: franky
+    hint: pip install -e 'robot_infra[franky]' (from the repository root; or pip install 'rlgarden-robot-infra[franky]'); if the handshake then reports a libfranka mismatch, rerun the doctor with --install-sdk
 [1/5] sdk:arm ... FAIL  FrankyArm needs the 'franky' package
     hint: pip install franky-control (or: pip install 'rlgarden-robot-infra[franky]')
 [1/5] sdk:gripper ... FAIL  FrankyGripper needs the 'franky' package
     hint: pip install franky-control (or: pip install 'rlgarden-robot-infra[franky]')
 [1/5] sdk:camera:wrist ... OK  'pyrealsense2' importable
 [2/5] os:ping ... FAIL  172.16.0.2 does not reply
-    hint: check the Ethernet cable to the robot's Control port and the robot IP in Desk
+    hint: check: robot powered on and brakes released; Desk reachable at https://172.16.0.2/desk; you hold control in Desk; FCI activated (Desk → Activate FCI); cable on the Control port; firewall allows UDP
 [2/5] os:tcp ... OK  port 1337 closed (informational)
 [2/5] os:camera:wrist ... FAIL  no RealSense device found (serial unset)
     hint: plug in the camera and run `python -m robot_infra.discovery`
@@ -302,7 +311,7 @@ $ python -m robot_infra.doctor --config robot.yaml
     hint: pip install franky-control (or: pip install 'rlgarden-robot-infra[franky]')
 [4/5] feedback ... SKIP  skipped: handshake failed
 [5/5] mode ... SKIP  skipped: handshake failed
-summary: 2 ok, 5 failed, 2 skipped
+summary: 2 ok, 6 failed, 2 skipped
 ```
 
 加入 `teleop: {backend: spacemouse}` 后，`--mock` 替换为 fake 并丢弃设备选项，增加以下输出：
@@ -350,8 +359,13 @@ $ python -m robot_infra.doctor --config robot.yaml --mock
 
 | 症状 | 检查位置与输出 | 处理方式 |
 |---|---|---|
-| Franka 无法访问，FCI 未开启、网线接错或防火墙阻挡。 | `os:ping` 失败，`handshake` 报 `cannot reach Franka at <ip>: ...`，提示 `check: ping <ip>; FCI activated in Desk; cable on the Control (not Arm) port; 'UDP receive: Timeout' means a firewall`。 | 在 Desk 开启 FCI，PC 连接 Control 控制箱，允许机器人 UDP 通过防火墙。 |
-| libfranka 版本不匹配。 | `handshake` 报 `libfranka/robot firmware mismatch: ...`，提示 `install the franky wheel matching your robot server version: pip install franky-control --extra-index-url https://timschneider42.github.io/franky/whl/by-robot-server-version/<N>/ ...`。 | 按 libfranka 兼容矩阵安装对应机器人服务器版本的 wheel，`mode:libfranka_version` 显示已装版本。 |
+| 缺 pip extras | deps FAIL，提示 `pip install -e 'robot_infra[franky,gello]'` 等缺失项列表 | 仓库根执行对应命令 |
+| Franka 不可达：未上电/解锁、无控制权或 FCI、Arm 口、防火墙 | os:ping 不回复或 handshake 报 cannot reach Franka；FCI refused 提示需安装或激活功能 | 按提示先供电/释放制动，确认 Desk 可达、本机持控制权、FCI 已激活、接 Control 口、允许 UDP；页面能打开不足以证明就绪 |
+| libfranka 不匹配 | handshake 报 `libfranka mismatch: robot server 10, installed library 9`；server 来自握手错误，为权威值 | Desk 系统版本经兼容表交叉核对，再 doctor --install-sdk；连接后 mode:libfranka_version 给已装版本 |
+| 不在 dialout / input | os:groups FAIL；ACL/udev 已允许时 WARN；提示 `sudo usermod -aG dialout,input $USER` | 注销重登，当前会话不会自动刷新组 |
+| GELLO 串口不可读 | os:serial FAIL，提示 `setfacl -m u:$USER:rw <port>` | --fix 不加 sudo 尝试，否则手动 sudo；重插丢 ACL，组或 udev 才持久 |
+| brltty 占 CH340 | os:brltty FAIL，端口尚存在时 WARN；提示 mask brltty-udev.service 与 brltty.service 后重插 | mask 服务，runtime mask 重启失效，再重插 |
+| FTDI 读取慢 | os:latency_timer WARN 16 ms，建议 1 ms，提示 udev `ACTION=="add", SUBSYSTEM=="usb-serial", DRIVER=="ftdi_sio", ATTR{latency_timer}="1"` | 按提示安装规则、reload、重插；CH340 无 latency_timer |
 | 无 PREEMPT_RT 内核。 | `realtime: enforce` 下 `mode:realtime_kernel` 报 `realtime: enforce but the kernel is not PREEMPT_RT`，或 `handshake` 报 `libfranka realtime setup failed ...`；`realtime: ignore` 时通过并显示 `control jitter possible`。 | 安装 PREEMPT_RT 和实时组限制，或用 `realtime: ignore`。 |
 | Franka 为 Reflex / UserStopped / Guiding。 | `mode:robot_mode` 报 `robot mode is Reflex`，提示 `release the external activation device / clear errors in Desk, then run with --fix (recover)`。 | 释放外部激活设备后运行 doctor `--fix`。 |
 | CAN 接口缺失、未启动或波特率错。 | `os:can_exists`、`os:can_up`、`os:can_bitrate` 失败，握手报 `CAN interface 'can0' is down, not up` 或 `runs at N bit/s, expected 1000000`。 | `sudo ip link set can0 up type can bitrate 1000000`，或运行 piper_sdk 的 `can_activate.sh can0 1000000`。 |
@@ -364,6 +378,25 @@ $ python -m robot_infra.doctor --config robot.yaml --mock
 | 令牌不匹配。 | 客户端 `TransportError: token mismatch`，提示 `pass the same --token to the daemon and the remote config`。 | 两端使用同一令牌。 |
 | watchdog 已停臂。 | 客户端 `DeviceFault: the daemon watchdog stopped the arm after 0.62s without actions (limit 0.5s)`，提示 `... call set_control_mode(...) again to resume servoing, and keep the action rate above 1/watchdog_s`。 | 提高动作频率至 `1/watchdog_s` 以上，或增大 `--watchdog-s`，再调用 `set_control_mode`。 |
 | 机器人已被占用。 | 客户端 `DeviceBusy: device 'franka:172.16.0.2' is claimed by another process`，提示停止占用者或设置 `claim: false`。 | 停止本机通过 `RobotService` 使用同设备的守护进程或 `LocalClient`；普通 `Robot.from_yaml` 脚本不持该锁。有意退出锁保护时配置 `claim: false`。 |
+
+<a id="installing-the-right-franky-wheel"></a>
+
+#### 安装正确的 franky wheel
+
+franky extra 安装捆绑某个 libfranka 的默认 franky-control wheel。robot server 不同会拒绝握手并报告 server N/library M：
+
+```bash
+python -m robot_infra.doctor --config robot.yaml --install-sdk         # asks before installing
+python -m robot_infra.doctor --config robot.yaml --install-sdk --yes   # installs without asking
+```
+
+doctor 从 libfranka 握手错误获取权威 robot server 版本。Desk 不直接显示该数值；在 Settings → System 读取系统版本如 5.9.2，通过[兼容表](https://frankarobotics.github.io/docs/compatibility.html)映射交叉核对，然后打印实际 pip 命令：
+
+```bash
+<this python> -m pip install franky-control --extra-index-url https://timschneider42.github.io/franky/whl/by-robot-server-version/<N>/ --force-reinstall --no-deps
+```
+
+随后询问 `Install now? [y/N]`，只 y/yes 才装到当前解释器；之后用新解释器重跑相关机器人 doctor，避免旧 libfranka 已加载，并返回该退出码。除非 --yes，否则不自动确认。--json 永不询问或安装，仅输出 `{"results": <the --json report>, "install_sdk": [{robot, server_version, library_version, command}]}`。多个不同 server 不能自动安装，因为同一 Python 环境只有一个 wheel；改为逐臂打印命令。--no-deps 假设 numpy、websockets 已具备，先安装 franky extra 即可满足。
 
 <a id="4-serve-the-robot"></a>
 
@@ -508,6 +541,27 @@ robot.disconnect()
 
 本地路径不使用守护进程的 watchdog 和占用锁，但仍执行安全限制。`Robot.from_yaml` 按 YAML 的 `safety_box` / `joint_limits` / `max_delta_per_step` 构建机械臂，因此 `robot.arm.safety_limits`、`robot.arm.health().safety_clips` 和 `SafetyViolation` 行为与经守护进程相同。
 
+<a id="supervising-a-single-process-robot-run"></a>
+
+#### 监督单进程机器人运行
+
+无守护进程时由进程内 SDK 驱动，外部不能调用 arm.stop。supervise 将硬件进程作为独立 watchdog 的子进程：
+
+    python -m robot_infra.supervise --log runs/<run>/supervise.jsonl -- python examples/record_real_demos.py --config hil.yaml ...
+
+| 参数 | 默认 | 含义 |
+|---|---|---|
+| `--heartbeat-timeout-s` | `2.0` | 静默后向子进程组依次 SIGINT、SIGTERM、SIGKILL |
+| `--grace-s` | `3.0` | SIGINT 到 SIGTERM |
+| `--kill-s` | `2.0` | SIGTERM 到 SIGKILL |
+| `--startup-s` | `30.0` | 首消息或此时间前不要求心跳 |
+| `--long-op-s` | `60.0` | 报告 reset 等长操作后允许的静默 |
+| `--log` | 无 | jsonl，pid、单调时间升级事件、退出码/信号 |
+
+子进程独立 session，通过 ROBOT_INFRA_HEARTBEAT_FD 继承管道写端，Heartbeat.from_env 每步 beat、reset 前 begin_long_operation；无变量则无操作。Ctrl-C/SIGTERM/终端关闭只到 supervisor，它转发 SIGINT 并等子进程；通常返回其码，升级后非零。supervisor 死亡时子进程收到 SIGINT，下次心跳抛 SupervisorLost。仅 Linux，依赖 prctl 和进程组。
+
+supervisor 只能杀进程，libfranka 断连后固件以 Reflex 停臂。在 Desk 清错或 doctor --config robot.yaml --fix 恢复。独立受控 stop 只存在于守护路线；进程内第一层为 real_robot.watchdog_s 启用的 StepWatchdog，见[真机实验](real-world-experiments.md)。
+
 <a id="7-add-a-teleop-device"></a>
 
 ### 7. 添加遥操作设备
@@ -549,14 +603,14 @@ robot.teleop.reset()                           # drops latched events and the ho
 | `action_space` | `str` | `cartesian_delta`、`joint_abs` 或 `joint_delta`。 |
 | `gripper` | `float` 或 `None` | [0, 1] 归一化宽度目标；`None` 表示无夹爪通道。 |
 | `buttons` | `dict[str, bool]` | 当前电平；SpaceMouse 为 `button_0`、`button_1`。 |
-| `events` | `dict[str, bool]` | 锁存边沿 `episode_end`、`success`、`failure`、`rerecord`，始终包含四键，`read()` 后清除。 |
+| `events` | `dict[str, bool]` | 锁存边沿 `episode_end`、`success`、`failure`、`rerecord`，以及实际触发的后端专属边沿（SpaceMouse 的 button_0/button_1），始终包含四键，`read()` 后清除。 |
 | `intervening` | `bool` | 人工正在操作，由后端 `active` 加 `hold_s` 延长。 |
 | `timestamp` | `float` | 轮询机器的 `time.monotonic()`，不能跨主机直接比较。 |
 | `seq` | `int` | 每个样本递增，跨重连仍连续；间断表示丢样本。 |
 
 `read(timeout_s)` 超时抛 `DeviceFault`，连续 5 次轮询失败后抛可恢复 `DeviceFault`，需重连机器人；等待期间断开则抛 `DeviceNotConnected`。它是单消费者接口，两个客户端读取同一遥操作设备会分走事件。
 
-`backend: spacemouse` 使用可选组 `spacemouse`，选项包括 `device_index` 默认 0、`deadzone` 默认 1e-3、`invert_axes`、`poll_interval_s` 默认 0.005。它是带夹爪的 `cartesian_delta` 设备，操纵帽输出 `[-y, x, z, -roll, -pitch, -yaw]`，按钮 0 切换锁存夹爪，连接时 1.0 表示打开，按钮 1 触发 `episode_end`。需要 `/dev/hidraw*` 读写权限，`python -m robot_infra.doctor` 通过 `os:hid` 检查并打印 udev 规则，见[已知限制](#known-limitations-and-needs-hardware-verification)。
+`backend: spacemouse`（extra spacemouse，device_index=0、deadzone=1e-3、invert_axes、poll_interval_s=0.005）是带夹爪的 cartesian_delta 设备。推杆 twist 为 [-y,x,z,-roll,-pitch,-yaw]；每次按键锁存为 button_0/button_1 事件，避免两次读取间漏按。0 仍切换设备层 sticky gripper（连接时开），两按钮均不发 episode_end。real_world_rl 的 spacemouse 源另赋语义：0 接管、1 夹爪，忽略设备 gripper/intervening。需可读写 /dev/hidraw*，doctor os:hid 给 udev 提示，见[限制](#known-limitations-and-needs-hardware-verification)。
 
 `backend: gello` 使用 `gello` 组，`event_device` 另需 `gello-events`。它读取经 U2D2 或 OpenRB-150 连接、Protocol 2.0 的被动 Dynamixel 主臂，输出 `joint_abs`，每个 `joint_ids` 一关节，设置 `gripper_id` 后有夹爪。每次轮询同步读一次，关节 `i` 为 `wrap((raw_rad - joint_offsets_rad[i]) * joint_signs[i])`，环绕区间 `[wrap_centers_rad[i] - pi, wrap_centers_rad[i] + pi)`，连接无需指定起始姿态；中心应取 `joint_limits` 中点，Panda 第 6 关节超过 pi，需正中心。夹爪为 `clip((raw - gripper_closed_rad) / (gripper_open_rad - gripper_closed_rad), 0, 1)`，1 表示打开，可用 `gripper_binarize_threshold` 二值化。默认 `intervention: always` 每次都报告 `intervening`；`toggle` 经 `evdev` 读取机器人 PC 的 `event_device` 脚踏或键盘，其他键由 `event_keys` 触发 `episode_end` / `success` / `failure` / `rerecord`。连接和断开都关闭力矩，缺舵机或同步读取失败会使轮询失败，避免复用旧样本。完整选项见 [`docs/robot.franka.example.yaml`](../../robot_infra/docs/robot.franka.example.yaml)。每台需标定一次，关闭力矩并手动移动；[配置向导](#setup-wizard)直接执行并写入工作站文件。独立标定命令会打印可粘贴配置：
 
@@ -567,7 +621,7 @@ python -m robot_infra.devices.backends.teleops.gello_calibrate \
     --calibration-pose 0 0 0 -1.57 0 1.57 0 --joint-limits-yaml robot.yaml
 ```
 
-标定逐关节要求沿机器人正方向移动以检查方向，根据标定姿态在四分之一圈网格求偏移，捕获扳机开闭角，并读取 YAML `joint_limits` 的环绕中心。串口需要 `dialout` 组等读写权限，doctor 的 `os:serial` 会检查。后端不写舵机波特率，需在 Dynamixel Wizard 中设置；8 舵机估计 1000000 波特约 130 Hz、57600 波特约 25 Hz。
+标定逐关节要求沿机器人正方向移动以检查方向，根据标定姿态在四分之一圈网格求偏移，捕获扳机开闭角，并读取 YAML `joint_limits` 的环绕中心。串口需要 `dialout` 组等读写权限，doctor 的 `os:serial` 和 `os:groups` 会检查，并以 `os:brltty` 提醒 CH340 冲突，以 `os:latency_timer` 提醒 FTDI 读取延迟。后端不写舵机波特率，需在 Dynamixel Wizard 中设置；8 舵机估计 1000000 波特约 130 Hz、57600 波特约 25 Hz。
 
 <a id="architecture"></a>
 

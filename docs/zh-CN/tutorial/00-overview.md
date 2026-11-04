@@ -1,36 +1,45 @@
+<!-- English source: docs/tutorial/00-overview.md -->
+
 <a id="0-overview-and-safety"></a>
 
 # 0. 总览与安全
 
 [中文入口](../../README.zh-CN.md) · [English](../../tutorial/00-overview.md)
 
-本教程从尚未配置的机器人 PC 开始，带你在一台 Franka 机械臂上部署抓取物体并放入箱子的策略。它使用一套经机器人守护进程读取的 GELLO 主臂，并用 actor 机器的键盘接收操作员按键。每一页都说明要运行什么、预期看到什么，以及结果不符时如何处理。
+本教程从一台 NUC 和一台 Franka FR3 开始，先完成真实 doctor 握手，再准备使用 GELLO leader 的抓取放置实验。主线由 NUC 上**一个硬件进程**运行 recorder 或 HIL actor，通过 `real_robot.robot` 直接连接 franky。GPU learner 可以单独运行；只有 actor 在另一台机器上时才使用机器人守护进程，并改用 `real_robot.remote`。
 
-全文使用的任务是**抓取放置**：一个物体、一个箱子。运行目录以 `*-pick-and-place` 命名，例如 `runs/bc-pick-and-place`、`runs/hil-pick-and-place`。恢复中断实验时保留相同运行身份和本地存储；独立实验使用新身份。
+控制契约为 **50 Hz 笛卡尔 GELLO**。示范、BC/ACT、HIL 和部署须保持动作模式、频率、相机、状态字段及夹爪契约一致。`runs/bc-pick-and-place`、`runs/hil-pick-and-place` 等名称标识不同实验；只有恢复同一次实验时才复用其身份和本地存储。
 
 <a id="the-pipeline"></a>
 
 ## 流程
 
 ```text
-01 install --> 02 station.yaml + hil.yaml --> 03 daemon + doctor
-    --> 04 record demos (GELLO + keyboard)       demos/pick-and-place.pkl
-    --> 05 base policy: BC or ACT                runs/bc-pick-and-place, runs/act-pick-and-place
-    --> 06 how to intervene (read before 04 and 07)
-    --> 07 HIL training: hil_serl | residual_hil_serl | silri
-    --> 08 deploy a checkpoint
+New cell: power --> Control network --> Desk control + FCI --> install
+                                                               |
+Already commissioned: take Desk control --> confirm FCI --------+
+                                                               v
+                     station.yaml --> real doctor handshake
+                                                               |
+                       gello_cartesian.yaml (NUC, direct) <-----+
+                            |                    |
+                   record GELLO demos     remote actor needed?
+                            |                    |
+                       BC or ACT          optional daemon + remote:
+                            |                    |
+                            +-----> HIL actor + learner --> deploy
 ```
 
-| 页面 | 需要完成的工作 |
+| 页面 | 要做的事 |
 |---|---|
-| [01 安装](01-install.md) | 核对硬件、网络与权限，并按机器角色安装依赖。 |
-| [02 工作站](02-station.md) | 运行配置向导，完成 GELLO 标定，检查设备限制并创建 `hil.yaml`。 |
-| [03 守护进程](03-daemon.md) | 发现设备、运行 doctor、启动机器人服务，并进行无硬件演练。 |
-| [04 录制示范](04-record-demos.md) | 将成功的抓取放置示范录制到 pkl 文件。 |
-| [05 基础策略](05-base-policy.md) | 使用示范训练 BC 或 ACT。 |
-| [06 人工介入](06-intervening.md) | 操作员指南：按键、接管、记录内容与介入时机。 |
-| [07 HIL 训练](07-hil-training.md) | 为 `hil_serl`、`residual_hil_serl`（BC 或 ACT 基础策略）和 `silri` 启动 learner 与 actor，并观察训练进展。 |
-| [08 部署](08-deploy.md) | 在无 learner、无操作员的情况下执行 checkpoint。 |
+| [01 安装](01-install.md) | 上电、接线、持久网络、Desk 六项检查、安装和 doctor |
+| [02 工作站](02-station.md) | 逐臂选择硬件、标定 GELLO、检查限位并准备直接连接的 `hil.yaml` |
+| [03 进程布局](03-daemon.md) | NUC 单硬件进程；仅远程 actor 配置守护进程 |
+| [04 录制示范](04-record-demos.md) | 在监督下使用 GELLO 或 SpaceMouse 录制 |
+| [05 基础策略](05-base-policy.md) | 用兼容示范训练 BC 或 ACT |
+| [06 人工介入](06-intervening.md) | 按键、有界跟随、夹爪锁存和记录数据 |
+| [07 HIL 训练](07-hil-training.md) | HIL-SERL、残差 HIL-SERL 或 SiLRI 的 learner 与 actor |
+| [08 部署](08-deploy.md) | 按保存的观测/动作契约运行 checkpoint |
 
 <a id="names-used-in-the-commands"></a>
 
@@ -38,40 +47,56 @@
 
 | 名称 | 含义 |
 |---|---|
-| `ROBOT_PC` | 连接机械臂、相机和 GELLO 的机器，运行机器人守护进程。 |
-| `LEARNER_IP` | 运行 learner 并训练 BC 和 ACT 的 GPU 机器，也可以与机器人 PC 共用。 |
-| actor 机器 | 连接操作员键盘、运行 actor 和录制器的机器，通常也是机器人 PC。 |
+| NUC / 机器人 PC | 连接 Control 口、相机和 GELLO；默认直接运行 recorder/actor |
+| `ROBOT_PC` | NUC 可达地址，仅远程守护进程客户端需要 |
+| `LEARNER_IP` | GPU learner 的可达地址，也可以是 NUC |
+| actor 机器 | 默认 NUC；仅可选远程路线使用另一台机器 |
 
-单机运行时，将命令中的 `ROBOT_PC` 和 `LEARNER_IP` 都替换为 `127.0.0.1`。所有命令均从项目根目录（`real-world-rl/`）运行。
+每条命令注明机器、工作目录和 venv。默认是 NUC、仓库根目录 `real-world-rl/`，安装后激活 `.venv`。同机服务使用 `127.0.0.1`；远程客户端必须使用可达地址。
 
 <a id="action-mode"></a>
 
 ## 动作模式
 
-主流程在所有阶段使用 `action_mode: joint_delta`：录制示范、基础策略、每次 HIL 训练和部署必须使用相同的动作模式。learner 会拒绝约定附属文件与环境不符的示范 pkl，残差基础策略也必须在环境动作空间中输出动作。项目同时支持 `joint_abs`；录制和基础策略页面会用 **joint_abs** 提示说明差异。
+主线使用 `action_mode: cartesian_delta`、`control_hz: 50` 和 `tcp_pose` 反馈。GELLO 关节读数必须经过笛卡尔映射 `leader_cartesian`，不能作为关节命令直接送给笛卡尔环境。先标定符号和偏移，再验证运动方向和尺度。50 Hz 是请求的应用更新率，不保证 SDK 伺服时序或实际 USB 采样吞吐量。
 
-双臂流程的逐步修改方式见 [bimanual.md](../bimanual.md#two-arms-the-tutorial-steps)。
+04–07 使用 `examples/presets/gello_cartesian.yaml`：仅状态观测、50 Hz、`xyz_scale_m: 0.05`、`rot_scale_rad: 0.3`，采用本地 robot 映射。录制和硬件 actor 命令由 `robot_infra.supervise` 监督。关节空间示例属于其他模式，需要各自兼容的示范和基础策略。双臂先做[逐臂 Desk 与向导检查](02-station.md#multiple-arms)，再读 [bimanual.md](../bimanual.md)。
+
+<a id="operator-keys"></a>
+
+## 操作员按键
+
+NUC 终端 `stdin` 和桌面 `keyboard` 事件源使用相同按键：
+
+| 按键 | 作用 |
+|---|---|
+| `t` | GELLO 接管，锚定相对映射；不是切换键 |
+| `h` | GELLO 交还；录制器保持实测位姿，HIL 返回策略控制 |
+| `s` | 标记成功并结束回合 |
+| `f` | 标记失败并结束回合 |
+| `r` | 录制器丢弃并重录回合 |
+| Esc | 无成功标签地结束当前回合 |
+| `q` | 停止运行并关闭设备 |
+
+SpaceMouse 用按键 0 接管/交还、按键 1 控制夹爪；终端 `t`/`h` 被忽略。只推动推杆不会接管，结果标签和退出仍走终端。见 [06](06-intervening.md)。终端 stdin 无需 evdev 权限；桌面键盘源需要 actor 的桌面会话。
 
 <a id="safety"></a>
 
 ## 安全
 
-将最初几次运行视为设备调试：
+保持工作区清空，物理急停触手可及。运动前按当前实臂和工位核对 `home_joints`、`joint_limits`、`safety_box`、`max_delta_per_step`。向导默认值只是起点，不是已经验证的 FR3 限位或 home 路径。直接连接和守护进程路线均由设备层执行限位，环境只能收紧。不可将记录的 home 复制给另一台臂。
 
-- 保持一只手能够操作急停，清空工作区，并在进入下一步前阅读当前步骤的输出。
-- 首次运动前检查 `station.yaml` 中的 `safety_box`、`joint_limits` 和 `max_delta_per_step`（见 [02](02-station.md#check-the-safety-limits)）；调试时使用较低的 `max_delta_per_step`。守护进程会按这些限制裁剪每个伺服目标，环境侧的限制只能更严格。
-- 配置了遥操作设备后，机器人连接时该设备必须在场；因此部署使用移除 `teleop:` 配置段的工作站 YAML（见 [08](08-deploy.md)）。
+直接连接的整个进程挂起时无法独立发 stop；监督进程可杀死它，此后依赖固件的通信丢失响应停机。独立且仍存活的守护进程能停止失去响应的 actor，但其 watchdog 不覆盖守护进程或 NUC 故障。见[进程比较](03-daemon.md)。
+
+配置了 teleop 的机器人需要该设备才能连接。无人部署使用匹配且没有 `teleop` 的工作站；辅助部署保留操作设备及其契约。
 
 <a id="known-limits"></a>
 
 ## 已知限制
 
-已知缺陷、临时处理方式与计划修复见[已知问题与待办工作](../known-issues.md)。
+- 实机已完成左臂 FCI 握手和单臂 GELLO 录制，以及独立右 Hand 检查；不代表完整双臂或在线 RL 验证。笛卡尔尺度、跟随滞后和整个进程失效时的 watchdog 限制仍需关注。
+- 旧关节示范不能直接改标签冒充笛卡尔示范。物理录制上的 ACT 训练及完整在线训练/部署流程仍待验证。
+- `task.name: none` 时环境奖励为零且不检测成功；须使用明确的操作员标签或奖励分类器。正奖励本身不等于自主成功。
+- actor 上传与 learner 入库使用本地 SQLite。outbox、journal、checkpoint bundle 应放在本地存储；进程崩溃恢复与断电持久性有不同保证。见[真机实验](../real-world-experiments.md)和[已知问题](../known-issues.md)。
 
-- **硬件侧目前仅通过 fake 设备验证。** robot_infra README 的[已知限制](../robot-infra.md#known-limitations-and-needs-hardware-verification)说明，以下内容尚未在真实硬件运行，fake 仅覆盖逻辑；[gello.md](../gello.md#8-not-verified-yet)也说明尚未在物理 GELLO 或机器人上运行。GELLO 波特率、读取时间、延迟、每台设备偏移与方向，以及使能力矩后的行为都需上机验证，首次运行需要调试。
-- **使用录制 pkl 训练 ACT** 尚未在真实示范上验证。
-- **`leader_cartesian`** 使用 Panda 正向运动学 DH 表把 GELLO 转为笛卡尔速度增量，尚未与真机对照，见 [teleop.md](../teleop.md#verify-the-dh-table-on-the-robot)。本教程使用关节空间路径。
-- **`franka_real`** 是 SERL HTTP 桥接后端，仅支持单臂笛卡尔动作；本教程使用 `real_robot`（robot_infra）。
-- **奖励**：教程预设默认 `task.name: none`，此时 `real_robot` 返回奖励 0，不会自行判定任务成功。奖励来自 `s` 键（`--reward-from-teleop-events`，见 [06](06-intervening.md#where-the-reward-comes-from)）或奖励分类器（见 [07](07-hil-training.md#optional-a-reward-classifier)）。
-- **恢复与指标**：actor 上传和 learner 接收都使用本地 SQLite，checkpoint 包含完整回放 bundle。成功需要显式结果标签，自主成功排除发生动作接管的回合。存储、进程崩溃和断电边界见[真机实验](../real-world-experiments.md)。
-- **已配置遥操作设备必须存在**：机器人 YAML 包含 `teleop:` 而设备缺席时，连接会失败。
+下一步：[01 从上电到 doctor](01-install.md)，或[已配置机器快捷流程](01-install.md#a-robot-someone-else-has-already-commissioned)。

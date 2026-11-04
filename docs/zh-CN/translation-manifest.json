@@ -4,7 +4,7 @@
     {
       "source": "docs/README.md",
       "translation": "docs/zh-CN/README.md",
-      "source_sha256": "cbdadf408fff43ef4de935420df332ab83df68890662189945192d6f9e8157bf"
+      "source_sha256": "08ed3a7cbde9f715e4e3fd4e8e3f077fa96ecffb499b99acb9bed48a20ac3a88"
     },
     {
       "source": "docs/bimanual.md",
@@ -14,12 +14,12 @@
     {
       "source": "docs/gello.md",
       "translation": "docs/zh-CN/gello.md",
-      "source_sha256": "0c9c036914ddef210eb0fd6af98bf41286c890a97ee5c5a2bb9462d743b5bc1e"
+      "source_sha256": "ae8a7eece0628f40ad063d31d342efcbc2285ee941283fb4a20a11e21e81a2f2"
     },
     {
       "source": "docs/getting-started-hardware.md",
       "translation": "docs/zh-CN/getting-started-hardware.md",
-      "source_sha256": "4ba8e0d2b4396874b504ace47a16570d235cf76376d570d4f75b40986ab1ccc7"
+      "source_sha256": "22386abe4984bf77f0f53f1ec4357427f53dfc1848105fdcfaa7f9f8e668bd21"
     },
     {
       "source": "docs/hil-serl-roadmap.md",
@@ -29,17 +29,17 @@
     {
       "source": "docs/known-issues.md",
       "translation": "docs/zh-CN/known-issues.md",
-      "source_sha256": "32c975c60c4bc1722b643d2c90402f701c17a06db39d843d2dd288d565f37894"
+      "source_sha256": "511f400ced10476ff1d5358315f803cc73d698f89c676fb99de06c418e1bfe87"
     },
     {
       "source": "docs/real-world-experiments.md",
       "translation": "docs/zh-CN/real-world-experiments.md",
-      "source_sha256": "35e174bcab905d9983d39542988f954e5d7b1c29e589f95ce18ac33a54d18c41"
+      "source_sha256": "c50f3f7385a4aeb75baa27ea9f3246cbb0631060c0119c6228bea60ddf86a891"
     },
     {
       "source": "docs/recording-demos.md",
       "translation": "docs/zh-CN/recording-demos.md",
-      "source_sha256": "bdebd90378c9bd99416f9dad96caa5ff02b3d7351981904024b419ae35789125"
+      "source_sha256": "33de7682e6f55623327f63c6c004edb5308881e0aa864bfc7159bb19a0459106"
     },
     {
       "source": "docs/residual.md",
@@ -54,62 +54,62 @@
     {
       "source": "docs/teleop.md",
       "translation": "docs/zh-CN/teleop.md",
-      "source_sha256": "4f23ba4b3ffa7e26b5d681cd3722dcd5ba7507ae1bc7474ecfae69f4da3b8e20"
+      "source_sha256": "50f743c85e7d07371f60fd70e53d14c7ef65cf060b348e96b03d9057d5f231c4"
     },
     {
       "source": "docs/tutorial/00-overview.md",
       "translation": "docs/zh-CN/tutorial/00-overview.md",
-      "source_sha256": "8285ddf070516b7423cbaf6839d34b3776df6b6fe8065c411b623b63fc9c3c56"
+      "source_sha256": "df08f43ffa0a8817ce5364f2daf8ba909c7be57484605c77702ff78e55335a13"
     },
     {
       "source": "docs/tutorial/01-install.md",
       "translation": "docs/zh-CN/tutorial/01-install.md",
-      "source_sha256": "1faa04b1c6d92f7c1c7ad1382b3e61e89e4c0cfb6e353b8c0b6f99608e6dea42"
+      "source_sha256": "6223d6677b5a6089b1a48609ccd1df4e4d21736c6aa7e1410698f8653db5effc"
     },
     {
       "source": "docs/tutorial/02-station.md",
       "translation": "docs/zh-CN/tutorial/02-station.md",
-      "source_sha256": "bc9ee32d799aeb2b059f4ae9ee5831d7569708c84ae21418b581a407aee8b1bb"
+      "source_sha256": "a878827fcfff3e92d9b0780de9946f8263f98b72bcabb058655c21075f2f7e75"
     },
     {
       "source": "docs/tutorial/03-daemon.md",
       "translation": "docs/zh-CN/tutorial/03-daemon.md",
-      "source_sha256": "a1edef6076caa8b9044cddca8e0d2abbe9908f62ecd89ca3fb5501bc925835b2"
+      "source_sha256": "ef49fdee1b5fafd065fa57ff952aaec1425b08fd7a1b49a382a29d87f8c05f2b"
     },
     {
       "source": "docs/tutorial/04-record-demos.md",
       "translation": "docs/zh-CN/tutorial/04-record-demos.md",
-      "source_sha256": "c2d4778d592406e5d75249b83038d498f3281d6bc46b3fd237bc1ef9f3a44b70"
+      "source_sha256": "4ed6ee5442a231e5bfc56dfcfa3d5c4d5499011d532022b78f5a31526d64dd8f"
     },
     {
       "source": "docs/tutorial/05-base-policy.md",
       "translation": "docs/zh-CN/tutorial/05-base-policy.md",
-      "source_sha256": "56a3a074cd8eab784dad3c4212f8b8b5d4b665f3b3b31f075840bcc057cbbec0"
+      "source_sha256": "25772f87b7029420658e7c9dad0f3cea9d94278d2493de1d140abc927d92d8f4"
     },
     {
       "source": "docs/tutorial/06-intervening.md",
       "translation": "docs/zh-CN/tutorial/06-intervening.md",
-      "source_sha256": "94f961e7098d472bf8d799e77294800b8a2f35b651e197d5f15b1e1a2aaa66c1"
+      "source_sha256": "0fefecb5efab26e1715bba601a0c2fe6a58e91f66c1b9c9c5705944137d44869"
     },
     {
       "source": "docs/tutorial/07-hil-training.md",
       "translation": "docs/zh-CN/tutorial/07-hil-training.md",
-      "source_sha256": "2300179dc0bbfe5a076553da088c0e02e4f398872d1decc2e7bb023277653df2"
+      "source_sha256": "2c45c4cdc46391d6a53e186cf9db47819bd9d48c33239e0781287198bbf72324"
     },
     {
       "source": "docs/tutorial/08-deploy.md",
       "translation": "docs/zh-CN/tutorial/08-deploy.md",
-      "source_sha256": "6442cc52aabc4fbee02400909d3711707218a1f14a54f515bef0b43b64c52601"
+      "source_sha256": "faf9129ddb1506e7a19ee8c469f1c13d7a12c337cf61629f56e892db4f32a247"
     },
     {
       "source": "README.md",
       "translation": "docs/zh-CN/project-readme.md",
-      "source_sha256": "acdc0fb58c61da05550e58f28a989176f7dcb20a1534477141bceae05caa38f6"
+      "source_sha256": "2104322037f6d0515213119c2a68184470c79be9b4fcbd4026869a86c1d78987"
     },
     {
       "source": "robot_infra/README.md",
       "translation": "docs/zh-CN/robot-infra.md",
-      "source_sha256": "8a8c6dfe11155ab1f545644bb243dfdf84404b47df6c92baf11f02994b7c9933"
+      "source_sha256": "36fcb30fbb5dad29278eed3a260667e354ed3888b74e32ac603ca62c1cb23372"
     },
     {
       "source": "rl-garden/rl_garden/models/act/README.md",
@@ -120,6 +120,26 @@
       "source": "robot_infra/docs/control-profiles.md",
       "translation": "docs/zh-CN/control-profiles.md",
       "source_sha256": "929958053f8a04bae6c3530654203fa341e0ca6e5792935d5c204bc4269caa63"
+    },
+    {
+      "source": "docs/testing/single-arm-gripper-session2.md",
+      "translation": "docs/zh-CN/testing/single-arm-gripper-session2.md",
+      "source_sha256": "31e4d026569f26ef324f9ed065f7165ed95c8afa6fb028cf62e40c3033ee7575"
+    },
+    {
+      "source": "docs/testing/single-arm-gripper-session2-record.csv",
+      "translation": "docs/zh-CN/testing/single-arm-gripper-session2-record.csv",
+      "source_sha256": "674848baa293caeb542a7720c303c6f0b04a27a82056191fd6d526658efec6d5"
+    },
+    {
+      "source": "docs/testing/bimanual-gello-session.md",
+      "translation": "docs/zh-CN/testing/bimanual-gello-session.md",
+      "source_sha256": "4df96aafdab8dd6ac50e771493a4e6487c4702d392a95c896fd9ee0d4494aefd"
+    },
+    {
+      "source": "docs/testing/bimanual-gello-session-record.csv",
+      "translation": "docs/zh-CN/testing/bimanual-gello-session-record.csv",
+      "source_sha256": "230a14979d9b07de90d7111d08d88d182408b3efe387dc84f02f237cee569366"
     }
   ]
 }

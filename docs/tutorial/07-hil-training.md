@@ -9,17 +9,46 @@ protocol. Run one at a time, each with its own `--exp-name`:
 | `residual_hil_serl` | a bounded residual on top of a frozen base policy (BC or ACT from [05](05-base-policy.md)) | [residual.md](../residual.md) |
 | `silri` | an actor pulled towards a learned model of your interventions | [silri.md](../silri.md) |
 
-Processes and where they run: the daemon on the robot PC ([03](03-daemon.md), `--watchdog-s 5`), the
-learner on the GPU machine, the actor on the actor machine. The learner binds `--sync-host` and the
-actor connects to it, so both get the learner's address. Start the learner first. Read
-[06 Intervening](06-intervening.md) before the first actor run.
+The actor is the single hardware process on the **NUC**, connecting directly to
+franky. Run the learner on the GPU machine (or on the same NUC), and start it
+first. Read [06 Intervening](06-intervening.md) before starting hardware.
+
+All commands run from the **repository root**, with the machine's project
+**`.venv` active**. Set the following variables in **both the learner and NUC
+shells**. The example uses `127.0.0.1` for a learner on the same machine; for a
+separate GPU learner replace it with that machine's reachable IP in both shells.
+Ensure both checkouts have the same preset and experiment inputs.
 
 ```bash
-ENV_FLAGS="--config hil.yaml --teleop-device leader_arm --robot-teleop-action-mode joint_delta \
-    --teleop-event-device keyboard --reward-from-teleop-events"
-COMMON="$ENV_FLAGS --sync-host LEARNER_IP --sync-port 6000 --log-dir runs \
+LEARNER_IP=127.0.0.1
+ENV_FLAGS="--config examples/presets/gello_cartesian.yaml --teleop-device leader_cartesian \
+    --teleop-event-device stdin --reward-from-teleop-events"
+COMMON="$ENV_FLAGS --sync-host $LEARNER_IP --sync-port 6000 --log-dir runs \
     --checkpoint-freq 1000 --buffer-size 20000 --demo-buffer-size 20000"
 ```
+
+Use the station-specific [04 setup](04-record-demos.md#prepare-the-nuc), including
+`gello_leader.yaml`, on the NUC. The preset is state-only `cartesian_delta` at
+50 Hz, with `xyz_scale_m: 0.05` and `rot_scale_rad: 0.3`.
+Keep the recording device and the four tracker caps/speeds unchanged. The demo
+sidecar's `experiment.teleop_control` records the tracker version and values;
+changing or omitting it is rejected. Current HEAD compares tracker identity,
+not physical input-device identity; the tutorial requires the same device as an
+operator workflow rule ([compatibility note](04-record-demos.md#files-and-compatibility)).
+
+To use SpaceMouse recordings instead, set `--teleop-device spacemouse` and
+`--teleop-options-yaml None` in `ENV_FLAGS` in both shells, use the matching demo
+path, and keep the four values unchanged. Button 0 handles takeover; stdin supplies
+`s`/`f`/`r`/Esc/`q`. Moving the puck alone never takes over.
+
+Each hardware command below is wrapped by `robot_infra.supervise`. Its heartbeat
+silence threshold defaults to **2.0 s**. `--startup-s 60` allows initial policy
+loading and the actor's snapshot wait before its first reset heartbeat. Check that
+this exceeds startup work on your machine; the default startup allowance is 30 s.
+The current preset leaves the **env StepWatchdog off** (no `real_robot.watchdog_s`);
+this is separate from the supervisor. Recording in [04](04-record-demos.md)
+explicitly enables a 0.3-second StepWatchdog. No actor StepWatchdog value is
+specified in the current [experiment guide](../real-world-experiments.md#step-watchdog-in-process).
 
 - `--reward-from-teleop-events`: your `s` key is the reward (1, terminal) and `f` ends an episode as
   a failure. Training does not turn it on by default; without it, and without
@@ -31,21 +60,26 @@ COMMON="$ENV_FLAGS --sync-host LEARNER_IP --sync-port 6000 --log-dir runs \
   30000 for `silri`), held on `--buffer-device cuda`; with several 128 x 128 cameras size it to your
   GPU memory or use `--buffer-device cpu`. Every checkpoint bundle copies both replay buffers at
   full capacity to host memory and disk. Size both `--buffer-size` and `--demo-buffer-size` to
-  available GPU/host memory and disk; 20000 rows is about 33 minutes at 10 Hz. Each periodic save
+  available GPU/host memory and disk; 20000 rows is about 6 minutes 40 seconds at 50 Hz. Each periodic save
   creates another generation. Keep the generation referenced by the manifest with its journal.
-- The learner ignores the teleop flags (it never opens a device).
+- The learner does not open a teleop device, but still uses the tracker settings
+  to validate the experiment contract.
 
 ## hil_serl
 
 ```bash
+# Learner machine: repository root, project .venv active.
 python examples/train_real_world.py hil_serl --role learner $COMMON --exp-name hil-pick-and-place \
     --demo-dataset-paths demos/pick-and-place.pkl
-python examples/train_real_world.py hil_serl --role actor $COMMON --exp-name hil-pick-and-place
+# NUC: repository root, .venv active.
+python -m robot_infra.supervise --startup-s 60 --log runs/hil-pick-and-place/supervise.jsonl -- \
+    python examples/train_real_world.py hil_serl --role actor $COMMON --exp-name hil-pick-and-place
 ```
 
 The actor waits up to `--sync-startup-timeout` (default 30 seconds) for an initial learner
-snapshot before reset/step. That snapshot can still contain an untrained policy. Nonresidual
-`joint_abs` does not yet have a measured-pose startup hold, so the tutorial uses `joint_delta`.
+snapshot before reset/step. That snapshot can still contain an untrained policy;
+cartesian teleop does not make its autonomous actions safe. Be ready to take over
+with `t` and use the physical stop when needed.
 The learner preloads demos, waits for `--learning-starts` online transitions (default 4000;
 preloaded demos do not count), then trains. It publishes the first ready policy and later
 snapshots every `--publish-freq` updates (default 100). Snapshot session/version identifies
@@ -53,17 +87,25 @@ updates across a learner restart. Be ready to intervene while the policy is lear
 
 ## residual_hil_serl, BC base
 
+Set `RESIDUAL` and `BASE_BC` in both project-venv shells; run the learner first on
+the learner machine, then the supervised actor on the NUC, from each repository root.
+
 ```bash
 RESIDUAL="--residual-variant hybrid --residual-action-scale 0.1 --residual-bc-weight 0.1 \
     --critic-only-updates 500"
 BASE_BC='checkpoint:runs/bc-pick-and-place/checkpoints/final.pt?algo=real_world_bc'
 python examples/train_real_world.py residual_hil_serl --role learner $COMMON $RESIDUAL \
     --exp-name residual-bc-pick-and-place --base-provider "$BASE_BC"
-python examples/train_real_world.py residual_hil_serl --role actor $COMMON $RESIDUAL \
+# NUC: repository root, .venv active.
+python -m robot_infra.supervise --startup-s 60 --log runs/residual-bc-pick-and-place/supervise.jsonl -- \
+    python examples/train_real_world.py residual_hil_serl --role actor $COMMON $RESIDUAL \
     --exp-name residual-bc-pick-and-place --base-provider "$BASE_BC"
 ```
 
 ## residual_hil_serl, ACT base
+
+Set `RESIDUAL` and `BASE_ACT` in both project-venv shells; run the learner first on
+the learner machine, then the supervised actor on the NUC, from each repository root.
 
 ```bash
 RESIDUAL="--residual-variant hybrid --residual-action-scale 0.1 --residual-bc-weight 0.1 \
@@ -71,12 +113,14 @@ RESIDUAL="--residual-variant hybrid --residual-action-scale 0.1 --residual-bc-we
 BASE_ACT='act:runs/act-pick-and-place/checkpoints/final.pt?temporal_agg=1'
 python examples/train_real_world.py residual_hil_serl --role learner $COMMON $RESIDUAL \
     --exp-name residual-act-pick-and-place --base-provider "$BASE_ACT"
-python examples/train_real_world.py residual_hil_serl --role actor $COMMON $RESIDUAL \
+# NUC: repository root, .venv active.
+python -m robot_infra.supervise --startup-s 60 --log runs/residual-act-pick-and-place/supervise.jsonl -- \
+    python examples/train_real_world.py residual_hil_serl --role actor $COMMON $RESIDUAL \
     --exp-name residual-act-pick-and-place --base-provider "$BASE_ACT"
 ```
 
 The actor executes `clamp(base + scale * residual, -1, 1)`; your interventions override the total
-action by default; selected-part takeover uses the masks described in [06](06-intervening.md#take-over-selected-parts). The base must come from the same `hil.yaml` (same observation and action spaces, the
+action by default; selected-part takeover uses the masks described in [06](06-intervening.md#take-over-selected-parts). The base must come from the same cartesian preset and tracker contract (same observation and action spaces, the
 [contract of 05](05-base-policy.md#the-act-checkpoint-contract)). The base spec is quoted: `?` is a
 glob character and `&` backgrounds. Only the actor and eval build the base; the learner trains on the
 base actions the actor stores. With the ACT base the actor replans the chunk after every intervened
@@ -95,9 +139,12 @@ residuals from a zero base, see [residual.md](../residual.md#human-intervention)
 ## silri
 
 ```bash
+# Learner machine: repository root, project .venv active.
 python examples/train_real_world.py silri --role learner $COMMON --exp-name silri-pick-and-place \
     --demo-dataset-paths demos/pick-and-place.pkl
-python examples/train_real_world.py silri --role actor $COMMON --exp-name silri-pick-and-place
+# NUC: repository root, .venv active.
+python -m robot_infra.supervise --startup-s 60 --log runs/silri-pick-and-place/supervise.jsonl -- \
+    python examples/train_real_world.py silri --role actor $COMMON --exp-name silri-pick-and-place
 ```
 
 Before its first update the SiLRI learner pretrains its human-behaviour model on the demo buffer
@@ -107,10 +154,12 @@ does and are consumed afterwards. It then refreshes the model as your interventi
 
 ## Stopping
 
-Finish the current episode in a safe state, then stop the actor with Ctrl-C while the learner
-is still running. Cleanup releases the environment/provider and attempts to drain uploads for
+Finish the episode in a safe state, then press `q` to stop the NUC actor while the
+learner is still running. Ctrl-C at the supervisor terminal also requests cleanup. Cleanup releases the environment/provider and attempts to drain uploads for
 `--sync-drain-timeout` (default 30 seconds). A timeout leaves unacknowledged rows in the local
-outbox for the next restart. A forced kill relies on the daemon watchdog. Then stop the learner:
+outbox for the next restart. If cleanup stalls, the supervisor escalates signals; a final kill breaks the
+libfranka connection and relies on firmware Reflex stopping. Inspect the cell
+and supervisor log before clearing faults and restarting. Then stop the learner:
 under a normal stop it writes
 `runs/<exp-name>/checkpoints/final.pt` and a checkpoint bundle (model, optimizers, both replay
 buffers and the journal position, published through `bundle_manifest.json`) on the way out.
@@ -125,21 +174,29 @@ its own `--actor-id` and outbox.
 Deterministic episodes on the robot, no learner, no data collection; a success is an explicit
 success label (your `s` with `--reward-from-teleop-events`, or the classifier), and it only counts as
 autonomous when you did not take over during the episode. Stop the actor first, and do not
-intervene ([06](06-intervening.md#the-sequence)):
+intervene ([06](06-intervening.md#the-sequence)). Run each eval command on the
+NUC, repository root, `.venv` active, after defining `ENV_FLAGS` and the matching
+base variables above:
 
 ```bash
-python examples/train_real_world.py hil_serl --role eval $ENV_FLAGS --exp-name hil-pick-and-place \
+python -m robot_infra.supervise --startup-s 60 --log runs/hil-pick-and-place/eval-supervise.jsonl -- \
+    python examples/train_real_world.py hil_serl --role eval $ENV_FLAGS --exp-name hil-pick-and-place \
     --load-checkpoint runs/hil-pick-and-place/checkpoints/final.pt --eval-n-trajs 10
-python examples/train_real_world.py residual_hil_serl --role eval $ENV_FLAGS $RESIDUAL \
+python -m robot_infra.supervise --startup-s 60 --log runs/residual-bc-pick-and-place/eval-supervise.jsonl -- \
+    python examples/train_real_world.py residual_hil_serl --role eval $ENV_FLAGS $RESIDUAL \
     --exp-name residual-bc-pick-and-place --base-provider "$BASE_BC" \
     --load-checkpoint runs/residual-bc-pick-and-place/checkpoints/final.pt --eval-n-trajs 10
-python examples/train_real_world.py residual_hil_serl --role eval $ENV_FLAGS $RESIDUAL \
+python -m robot_infra.supervise --startup-s 60 --log runs/residual-act-pick-and-place/eval-supervise.jsonl -- \
+    python examples/train_real_world.py residual_hil_serl --role eval $ENV_FLAGS $RESIDUAL \
     --exp-name residual-act-pick-and-place --base-provider "$BASE_ACT" \
     --load-checkpoint runs/residual-act-pick-and-place/checkpoints/final.pt --eval-n-trajs 10
-python examples/train_real_world.py silri --role eval $ENV_FLAGS --exp-name silri-pick-and-place \
+python -m robot_infra.supervise --startup-s 60 --log runs/silri-pick-and-place/eval-supervise.jsonl -- \
+    python examples/train_real_world.py silri --role eval $ENV_FLAGS --exp-name silri-pick-and-place \
     --load-checkpoint runs/silri-pick-and-place/checkpoints/final.pt --eval-n-trajs 10
 ```
 
+Keep GELLO handed back (`h`) or SpaceMouse button-0 takeover off for autonomous
+episodes. `s`/`f` label outcomes; `q` exits. A takeover makes the episode assisted.
 A periodic `checkpoint_<update>.pt` evaluates the same way. *You should see*
 `[eval] episode=... task_success=... autonomous_success=... return=...` per episode and a final
 `[eval] ...` line with `autonomous_success_rate` (successes without a takeover over completed
@@ -147,7 +204,8 @@ episodes), `task_success_rate`, the intervention rates and `mean_return`.
 
 ## What to watch
 
-The learner logs to `--log-type` (TensorBoard by default) under `runs/`:
+On the learner machine, repository root, project `.venv` active, view the logs
+from `--log-type` (TensorBoard by default) under `runs/`:
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -156,7 +214,7 @@ tensorboard --logdir runs
 
 **The x axis of every metric is the number of transitions the learner has received**, not wall
 time or updates. Learner metrics are logged on `--log-freq` boundaries (default 1000 transitions,
-about 100 s at 10 Hz); the actor posts one set of `actor/*` scalars per episode.
+about 20 s at 50 Hz); the actor posts one set of `actor/*` scalars per episode.
 
 | Metric | Methods | What to look for |
 |---|---|---|
@@ -182,36 +240,30 @@ loaded again on top of an authoritative bundle.
 
 ## Optional: a reward classifier
 
-Instead of (or as well as) the `s` key, a classifier on the wrist image can give the reward. Neither
-step has been exercised on real data yet. Collect labelled frames with the daemon running: drive with
-the GELLO as usual, press `s` when the object is in the bin and move around inside the success region,
-`f` when leaving it (`s` latches success labels until `f` or the episode end):
-
-```bash
-python -m real_world_rl.reward.collect_data --env-backend real_robot --config hil.yaml \
-    --teleop-device leader_arm --robot-teleop-action-mode joint_delta --teleop-event-device keyboard \
-    --output-dir classifier_data --exp-name pick-and-place --successes-needed 200
-python -m rl_garden.models.reward.success.train --success_paths 'classifier_data/*success*.pkl' \
-    --failure_paths 'classifier_data/*failure*.pkl' --output_dir runs/classifier-pick-and-place
-```
-
-The trainer's frozen ResNet needs its pretrained weights (`--pretrained_weights`, see
-`rl-garden/rl_garden/encoders/resnet.py`). Then add to `ENV_FLAGS`
-`--classifier-checkpoint runs/classifier-pick-and-place/success_classifier.pt --classifier-image-keys rgb_wrist`
-(`--classifier-threshold`, default 0.5). With both reward sources the larger reward wins.
+The main preset has no RGB cameras, so it cannot use a wrist-image classifier.
+For a separate image experiment, configure cameras and image observations before
+recording demos, training the base and running HIL. Keep that image contract
+consistent through all stages. Frame collection and classifier training are in
+[Real-world experiments](../real-world-experiments.md) and
+[teleop.md](../teleop.md#recording-demos-on-the-real-robot), including
+terminal outcome labels. Classifier collection on physical data remains to be
+validated. With keys and a classifier, the larger reward wins.
 
 ## If not
 
-- `DeviceFault: the daemon watchdog stopped the arm ...` on the first step after a reset: the
-  daemon's `--watchdog-s` is too small.
-- `Unknown env backend 'real_robot'`: the `real-world-rl` package is not installed.
-- `TransportError: robot daemon unreachable at <addr>`: the daemon is not running or `remote` in
-  `hil.yaml` is wrong.
-- The actor stops with a `DeviceFault` from the teleop: the GELLO read failed (it is never silently
-  dropped).
-- `ValueError: ... recorded action contract does not match the env's`: the demo pkl was recorded with
-  a different preset.
-- `--base-provider is required`: every `residual_hil_serl` role needs it, the learner included.
+- `Unknown env backend 'real_robot'`: install this package in the interpreter
+  running the NUC actor.
+- Missing leader configuration or failed reads: inspect `gello_leader.yaml`, the
+  calibrated local leader-only YAML and serial permissions. A failed teleop read
+  stops the actor rather than silently removing an intervention.
+- `WORKSPACE HOLD`: use the recovery sequence in [06](06-intervening.md#how-the-robot-follows-you).
+- A difference naming `experiment.teleop_control`: restore the recording's
+  device, tracker version, lead caps and target speeds. Check other named
+  action/observation fields too.
+- The supervisor escalates before startup completes: inspect its log and startup
+  allowance; a running loop that stops heartbeating is a separate failure.
+- `--base-provider is required`: every residual role needs the base spec,
+  including the learner.
 
 ## Resume an interrupted run
 
@@ -220,11 +272,14 @@ generations together. Restart the learner first with the same preset, experiment
 paths and capacities. For the `hil_serl` run above:
 
 ```bash
+# Learner machine: repository root, project .venv active.
 python examples/train_real_world.py hil_serl --role learner $COMMON --exp-name hil-pick-and-place \
     --demo-dataset-paths demos/pick-and-place.pkl --load-checkpoint \
     runs/hil-pick-and-place/checkpoints/bundle_manifest.json --checkpoint-dir \
     runs/hil-pick-and-place/checkpoints
-python examples/train_real_world.py hil_serl --role actor $COMMON --exp-name hil-pick-and-place
+# NUC: repository root, .venv active.
+python -m robot_infra.supervise --startup-s 60 --log runs/hil-pick-and-place/supervise.jsonl -- \
+    python examples/train_real_world.py hil_serl --role actor $COMMON --exp-name hil-pick-and-place
 ```
 
 The actor reuses its existing outbox; acknowledged IDs are admitted once. A learner/network outage

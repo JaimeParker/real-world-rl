@@ -1,3 +1,5 @@
+<!-- English source: docs/tutorial/08-deploy.md -->
+
 <a id="8-deploy"></a>
 
 # 8. 部署
@@ -49,7 +51,7 @@ python examples/deploy_real_robot.py --checkpoint \
 
 ## 保留操作员接管
 
-`enable_teleop` 默认 true。激活版本化任务或提供 `--teleop-device` 时，部署会组合遥操作输入源。要保留教程的 GELLO 和键盘，使用含 `teleop:` 的工作站 YAML，不传 `--no-enable-teleop`，并指定 `--teleop-device leader_arm --teleop-event-device keyboard`；其余介入约定从已保存设置恢复。任务运行可保留已保存的操作员配置。测量自主能力时让策略掌握动作控制，需要时接管并将该回合报告为辅助回合。只按成功、失败标注键不算动作介入。
+`enable_teleop` 默认 true。激活版本化任务或提供 `--teleop-device` 时，部署会组合遥操作输入源。要保留教程的 GELLO 和键盘，使用含 `teleop:` 的工作站 YAML，不传 `--no-enable-teleop`，并指定 `--teleop-device leader_arm --teleop-event-device stdin`；其余介入约定从已保存设置恢复。任务运行可保留已保存的操作员配置。测量自主能力时让策略掌握动作控制，需要时接管并将该回合报告为辅助回合。只按成功、失败标注键不算动作介入。终端事件源中，`t` 接管、`h` 交还、`s`/`f` 标结果、Esc 结束回合、`q` 退出。
 
 分类器移动后可用 `--classifier-checkpoint` 替换。逐臂任务分类器路径也可在任务配置中替换，但任务、控制、预处理、观测布局和部件选择仍须一致。奖励来源属于已记录来源元数据，因此更换分类器内容会留下记录，同时保持动作和观测约定。
 

@@ -3,7 +3,10 @@
 A base policy trained on the demos is useful twice: deployed on its own ([08](08-deploy.md)) it is
 the baseline, and in [07](07-hil-training.md) `residual_hil_serl` trains a bounded correction on top
 of it. Train either or both, on the GPU machine, from the pkl of [04](04-record-demos.md). Neither
-connects to the robot.
+connects to the robot. Run all commands from the repository root on the GPU
+machine, with its installed project `.venv` active. Use the same station-specific
+cartesian action/observation settings as recording. Offline training does not
+open a motion device.
 
 | | BC (`real_world_bc`) | ACT |
 |---|---|---|
@@ -19,6 +22,14 @@ robot. The `--config` preset defines the target action/observation and experimen
 The loader validates the recorded contract before training. Partial demonstrations supervise
 only `human_action_mask` dimensions; idle hold supplements are not expert labels. Old demos
 without intervention metadata retain full-action supervision; explicit empty masks remain empty.
+
+Prepare an **offline-only `hil.yaml`** in the repository root on the GPU machine:
+copy the station-specific `examples/presets/gello_cartesian.yaml`, then remove
+all root `teleop_*` keys (device, event device, options path and four tracker
+values). Keep `env_backend`, `env_id`, `obs` and the full `real_robot` mapping
+unchanged. BC does not accept the online teleop CLI fields. Its offline loader
+restores the recorded tracker contract from the demo metadata; keep the sidecar
+with the pkl. This copy is for BC only; 04 and 07 use the full cartesian preset.
 
 ```bash
 python examples/train_real_world.py real_world_bc --config hil.yaml \
@@ -50,20 +61,20 @@ or glob matched nothing.
 ## ACT
 
 rl-garden trains ACT from the same pkls, without a simulator. With rl-garden installed
-(`pip install -e rl-garden`, [01](01-install.md#install)) run it from the repository root:
+([01](01-install.md#4-install-in-a-clean-venv)) run it from the repository root:
 
 ```bash
 python -m rl_garden.models.act.train_trajectories --demo-paths demos/pick-and-place.pkl \
-    --total-iters 50000 --batch-size 256 --num-queries 30 \
+    --total-iters 50000 --batch-size 256 --num-queries 30 --no-use-cameras \
     --log-dir runs --exp-name act-pick-and-place
 ```
 
-- Each `rgb_<camera>` key of the demos' observations becomes a camera of a visual policy (here
-  `rgb_wrist`); `--no-use-cameras` trains on `state` alone. Images are resized to `--image-size`
+- Each `rgb_<camera>` key of the demos' observations becomes a camera of a visual policy (none in this preset); the command
+  uses `--no-use-cameras` to train on `state` alone. Images are resized to `--image-size`
   (224) and ImageNet-normalised.
 - `--backbone-weights` initialises the ResNet: `imagenet` (default; downloads torchvision's
   `IMAGENET1K_V1`), `none`, or a torchvision state-dict path for an offline machine.
-- `--num-queries` is the chunk length (30 steps = 3 s at 10 Hz). Episodes end at `done`, so chunks
+- `--num-queries` is the chunk length (30 steps = 0.6 s at 50 Hz). Episodes end at `done`, so chunks
   never cross the end of a demo.
 - `--save-freq N` also writes `<iter>.pt` every `N` iterations. There is no evaluation during
   training.
@@ -78,9 +89,9 @@ The residual actor loads the checkpoint with the `act:` provider:
 
 - `obs["state"]` must have the checkpoint's width, and the action space its action width (both are
   checked when the provider is built): train on demos recorded with the same `state_fields` (here
-  `[joint_pos, gripper_pos]`, 8 values).
+  `[tcp_pose, tcp_vel, joint_pos, joint_vel]`, 27 values).
 - A visual checkpoint reads the env's `rgb_<camera>` keys in sorted order; record and run with the
-  same `obs.rgb` in `hil.yaml`.
+  same `obs.rgb` in `examples/presets/gello_cartesian.yaml`.
 - The provider uses the `ema_agent` weights by default (`state_dict_key=ema_agent`) and rebuilds the
   model from the `act_config` stored in the checkpoint; the actions are de-normalised with the
   checkpoint's statistics and clipped to `[-1, 1]`, so they mean what the demos' actions meant (same

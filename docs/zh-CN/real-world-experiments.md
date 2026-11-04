@@ -1,3 +1,5 @@
+<!-- English source: docs/real-world-experiments.md -->
+
 <a id="running-and-recovering-real-world-experiments"></a>
 
 # 运行与恢复真机实验
@@ -38,9 +40,75 @@ learner 不可达时，例如重启或断网，actor 继续运行；上传按 0.
 
 ## 启动与停止
 
-`--sync-startup-timeout` 默认 30 秒，actor 在 reset/step 前等待初始 learner 策略快照。快照包含 learner session/version、训练阶段和策略就绪状态，因此 learner 新 session 即使版本号降低，actor 仍会刷新。残差预热遵循就绪状态，使用配置的基础策略和残差预热。
+`--sync-startup-timeout` 默认 30 s，actor 在 reset/step 前等待初始 learner 快照。快照含 session/version、训练阶段和策略就绪状态，learner 重启后即使新 session 版本更低仍可刷新。残差预热遵循就绪状态及 base/residual 预热设置。
 
-`--sync-drain-timeout` 默认 30 秒。正常或异常停止时，采样清理先释放环境和提供器，再发送暂存 transition、完成回合记录并排空同步队列，避免写文件时继续占用机械臂控制。超时后未确认数据留在 outbox，并报告条数，使用原路径重启可续传。强制终止无法执行清理，仍需机器人 watchdog。
+`--sync-drain-timeout` 默认 30 s，正常/异常停止时先释放 env/provider，再 flush 暂存行、完成回合和 drain，同步写盘不继续占用控制。超时将未确认行留 outbox 并报告数量，原路径重启续传。强杀无法清理，守护 watchdog 仍是该故障路线的一环；无守护进程时见[看门狗与监督](#watchdogs-and-the-supervisor-process)。
+
+<a id="watchdogs-and-the-supervisor-process"></a>
+
+## 看门狗与监督进程
+
+三个独立层可停止失去控制循环更新的机器人，都不能代替物理停止或固件保护。
+
+| 层 | 所在位置 | 检测 | 动作 |
+|---|---|---|---|
+| 守护 watchdog，`python -m robot_infra.server --watchdog-s 0.5` | 机器人 PC 守护进程，仅该路线 | 伺服时超过 watchdog_s 无动作 | arm.stop，切 IDLE |
+| Step watchdog，环境 watchdog_s，默认关闭 | 机器人进程内线程 | reset 后超过阈值无 step | stop 一次，下个 step 抛 StepWatchdogTripped |
+| Supervisor，`python -m robot_infra.supervise` | 独立父进程 | 超过 heartbeat-timeout-s 无心跳 | 对子进程组依次 SIGINT、SIGTERM、SIGKILL |
+
+<a id="step-watchdog-in-process"></a>
+
+### Step watchdog（进程内）
+
+`RealRobotEnvConfig.watchdog_s`，即 YAML `real_robot.watchdog_s`，在 reset 完成后启动 StepWatchdog，reset 开始时暂停。值须超过一个控制周期。step 入口和命令返回后均签到，因此调用方慢、设备调用阻塞都可检测。触发后 stop 一次，后续 step 持续抛异常直到 reset。回合末步后因导出/保存静默触发时，下次 reset 只记录警告，除此无害。该值不属于实验契约。
+
+它与控制循环共用进程/GIL，不能覆盖 SIGSTOP、整机挂起、持 GIL 扩展调用、进程被杀，或 stop 自己卡住；这些由 supervisor 处理。
+
+<a id="supervisor-process"></a>
+
+### Supervisor 进程
+
+将 recorder 或 actor 作为监督子进程：
+
+```bash
+python -m robot_infra.supervise --log runs/<run>/supervise.jsonl -- \
+    python examples/record_real_demos.py --config hil.yaml ...
+```
+
+| 选项 | 默认 | 含义 |
+|---|---|---|
+| `--heartbeat-timeout-s` | `2.0` | 静默到此开始信号升级 |
+| `--grace-s` | `3.0` | SIGINT 到 SIGTERM |
+| `--kill-s` | `2.0` | SIGTERM 到 SIGKILL |
+| `--startup-s` | `30.0` | 首消息到达或此时间前不要求心跳 |
+| `--long-op-s` | `60.0` | 子进程报告长操作（reset）后的静默宽限 |
+| `--log` | 无 | jsonl：child pid、每次升级的单调/墙钟时间、退出码/信号 |
+
+子进程独立 session，终端 Ctrl-C、SIGTERM、关闭终端仅到 supervisor；它转发 SIGINT 并一直等子进程退出，不先退出。返回子进程码，信号 N 为 128+N。发生升级后，即使子进程返回零也非零，并向 stderr 写原因。子进程退出后清理残余进程组。supervisor 死亡时内核发 SIGINT 给子进程，下一心跳抛 SupervisorLost。仅 Linux。
+
+recorder/actor 通过 `robot_infra.supervise.Heartbeat` 每步和 reset 后发心跳，reset 前发长操作消息；无 supervisor 时无操作。startup-s 应长于首次 reset 前所有工作，actor 包括 sync-startup-timeout。
+
+<a id="what-the-supervisor-can-and-cannot-do"></a>
+
+### Supervisor 能做与不能做的事
+
+单进程模式由进程内 franky 驱动，supervisor 不连接机器人，只能杀进程。libfranka 断连后固件 reflex 停止，状态为 Reflex，可作为最后保护；这不是自主选择减速曲线的受控停止，夹爪保留最后命令。
+
+不能：
+
+- 比固件 reflex 更温和地停机或独立调用 arm.stop；后者只在守护路线存在。
+- 检测仍持续心跳但发错误动作/目标的循环。
+- 在整机冻结、断电或机器人网络故障时发挥作用；此时靠机器人自身通信超时。
+- 保证停止时间上界。SIGINT/SIGTERM 未被响应时约为心跳超时＋grace＋kill（默认 7 s），还要加 libfranka 通信超时。
+
+<a id="recovering-after-a-supervisor-kill"></a>
+
+### Supervisor 杀进程后的恢复
+
+1. 确认机器人静止、工位安全、物理停止可达。
+2. 读 stderr 原因及 log 的 escalate 事件。
+3. Reflex 时释放外部激活装置，在 Desk 清错，或 `python -m robot_infra.doctor --config robot.yaml --fix` 恢复并复查模式。
+4. 被杀运行未完成收尾。SQLite outbox/journal 保留已提交行，但 recorder 最后回合及执行中的动作可能丢失。用同一 outbox 路径重启续传。
 
 <a id="learner-checkpoints-and-recovery"></a>
 

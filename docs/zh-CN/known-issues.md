@@ -1,3 +1,5 @@
+<!-- English source: docs/known-issues.md -->
+
 <a id="known-issues-and-deferred-work"></a>
 
 # 已知问题与待办工作
@@ -23,17 +25,26 @@
 
 状态：启动保持与预热行为仍未解决（S8）。
 
-<a id="s3-taking-over-can-open-the-gripper"></a>
+<a id="s3-joint-space-leaders-taking-over-can-open-the-gripper"></a>
 
-### S3. 接管可能打开夹爪
+### S3（关节 leader）：接管可能误开夹爪
 
-- **症状**：策略正抓着物体，扳机松开时按 Space，夹爪立即打开。
-- **影响**：物体掉落，并产生错误的介入数据。
-- **位置**：扳机直接映射为 `2w - 1`（`real_world_rl/teleop/part.py:273`）；接管策略只处理关节（`real_world_rl/teleop/leader_arm.py:161`），夹爪在 `:164` 加入。
-- **当前处理**：按 Space 前使扳机匹配当前夹爪状态，抓着物体时先捏紧。
-- **计划修复**：在扳机状态一致前保持最后夹爪命令。测试验证不一致接管时夹爪保持，直到扳机越过对应位置。
-- **状态**：未解决（S3）。
+- **症状：**leader_arm、gello 或 robot 路线，策略持物而扳机释放时 `t` 接管会立即张开。
+- **影响：**物体掉落和错误介入行。
+- **位置：**`real_world_rl/teleop/part.py` 的 `TeleopPartSource._gripper_action` 直接做 `2w - 1`；`leader_arm.py` 的 `_poll` onset 仅处理关节。
+- **当前处理：**接管前匹配夹爪状态，持物时先捏紧。
+- **计划修复：**采用 leader_cartesian 的接管锁存，见[已关闭项](#s3-leader_cartesian-taking-over-can-open-the-gripper)。
+- **状态：**关节 leader 路线仍开放。
 
+<a id="zero-twist-holds-left-on-cartesian_delta"></a>
+
+### cartesian_delta 仍使用零 twist 的保持路线
+
+- **症状：**保持仍发零 twist 而非固定姿态时，阻抗后端平衡点跟随实测而漂移。
+- **位置：**wrapper 对人工未控制维度补位（selected-parts + idle-behavior hold，或无夹爪 teleop）；InterventionWrapper 未调用 hold 的 reset/observe_step hooks；分类帧采集器 `real_world_rl/reward/collect_real_robot.py`；双臂 cartesian_delta 的 `hold_action_fn_for` 在 `num_arms > 1` 时仍用零臂动作。
+- **当前处理：**示范用固定保持的 recorder；笛卡尔分类器采帧时让操作员保持控制。
+- **计划修复：**wrapper/collector 调用 hold hooks，双臂逐臂独立 tracker。
+- **状态：**开放。
 
 <a id="docs-stale-items-in-hil-serl-roadmapmd"></a>
 
@@ -46,7 +57,7 @@
 ## B. 暂无计划的工作
 
 - **GELLO 力矩跟随**：主臂跟踪从臂需要 robot_infra 的 Dynamixel 电流控制和操作员安全评估。`ramp`、`arm` 已覆盖接管，见 [gello.md](gello.md#9-future-work-leader-tracking-wp8)，实测 GELLO 延迟后再评估。
-- **放开主臂即交还控制**：缺少握持传感器，暂停操作可能误交还。使用 Space 或 GELLO `event_device` 的脚踏，见 [teleop.md](teleop.md#leader-arms-gello)。
+- **放开主臂即交还控制**：缺少握持传感器，暂停操作可能误交还。使用 `h`（keyboard 或 stdin 事件源）或 GELLO `event_device` 的脚踏，见 [teleop.md](teleop.md#leader-arms-gello)。
 - **遥操作读故障使 actor 停止**：属于设计行为。异常经 `real_world_rl/teleop/base.py:86` 向上传播，包装器在每步前轮询（`real_world_rl/envs/wrappers/intervention.py:147`），避免将丢读数当成策略步骤。actor 清理现在会关闭环境，强制终止仍依赖 watchdog。
 
 
@@ -59,6 +70,30 @@
 <a id="closed"></a>
 
 ## 已关闭
+
+<a id="cartesian-hold-drift-cartesian_delta-control-v2"></a>
+
+### 笛卡尔保持漂移（cartesian_delta，控制 v2）
+
+real_robot 发送 `measured + action * scale`，零 hold 曾使阻抗平衡点随漂移移动，首次实机 24 s 漂移 137 mm。现在 recorder 在 reset、每次交还采样固定 hold，leader_cartesian 维护持续命令，以最多 0.05 m/s / 0.3 rad/s 推进、领先实测最多 0.05 m / 0.3 rad，多余丢弃。环境尺度须不小于上限。契约记录 `teleop_control` / `cartesian_tracker_v1`，见 [teleop](teleop.md#leader-arm-on-a-cartesian-robot-leader_cartesian)。仍用零 twist 的路线见上方开放项。
+
+状态：recorder 与 leader_cartesian 已修复，仅离线、尚未重跑实臂。回归：`tests/test_cartesian_tracker.py`、`tests/test_leader_cartesian_source.py`、`tests/test_real_demo_recorder.py`。
+
+<a id="s3-leader_cartesian-taking-over-can-open-the-gripper"></a>
+
+### S3（leader_cartesian）：接管误开夹爪
+
+接管时不匹配的扳机被忽略，持续发送 wrapper 的 `last_gripper_action_getter` 最后命令，直到扳机跨到对应状态。
+
+状态：leader_cartesian 和下述 spacemouse 已修复；关节 leader 仍开放。回归：`tests/test_leader_cartesian_source.py` 的夹爪锁存测试。
+
+<a id="s3-spacemouse-taking-over-can-open-the-gripper"></a>
+
+### S3（spacemouse）：接管误开夹爪
+
+旧实现每次 reset 将 sticky gripper 设开，策略持物时接管会发 +1 掉物。现在 SpaceMouse 每次按钮 0 接管从 wrapper 最后夹爪命令开始，包括连续值；只有按钮 1 在驱动时切换 ±1，交还时按钮 1 无效。
+
+状态：spacemouse 已修复，仅离线、尚未跑臂。回归为 `tests/test_spacemouse_teleop_source.py`（接管夹爪、连续最后动作、未接管按钮 1）。robot YAML 的 backend spacemouse 路线仍是旧原始 twist 语义：运动即介入、按钮 0 切换 reset 后开的夹爪；模拟专用 spacemouse_twist 亦同。
 
 <a id="s1-fwbw-intervention-tracing"></a>
 

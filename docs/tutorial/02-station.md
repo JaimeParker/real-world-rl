@@ -4,68 +4,38 @@
 cameras and the GELLO plugged in and powered. It probes the hardware, asks a few questions,
 calibrates the GELLO inline, writes one annotated `station.yaml`, runs the doctor on it and prints
 the next commands. The questions are in `robot_infra/setup/wizard.py`; every one has a flag
-(`python -m robot_infra.setup --help`).
+(`python -m robot_infra.setup --help`). All commands on this page run on the NUC,
+from the repository root, with `.venv` active.
 
 ```bash
 python -m robot_infra.setup
 ```
 
-## What it asks
+## Select the hardware
 
-The transcript below is a `--mock` run (canned hardware, so you can try it anywhere) with the answers
-typed after each colon; an empty answer accepts the default in brackets. A real run prints what it
-actually found: the Franka hosts that answered on TCP 22, 443 or 1337, the RealSense serials, and
-each U2D2 or OpenRB-150 port with the servo ids that answered a broadcast ping.
+All commands on this page run on the NUC, from the repository root, with
+`.venv` active (see [01](01-install.md#4-install-in-a-clean-venv)). Stop any
+recorder, actor or daemon using the devices before running the wizard.
+It is interactive unless `--non-interactive` is supplied. For example:
 
-```text
-$ python -m robot_infra.setup --mock --output /tmp/station.mock.yaml
-hardware probe (--mock: canned results):
-franka hosts:
-  172.16.0.2: open ports 22, 443, 1337
-  172.16.1.2: open ports 22, 443, 1337
-realsense cameras:
-  123422070001 (D400)
-  123422070002 (D400)
-  123422070003 (D400)
-gello / dynamixel buses:
-  /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_MOCK0-if00-port0: 57600 baud, servo ids [1, 2, 3, 4, 5, 6, 7, 8]
-  /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_MOCK1-if00-port0: 57600 baud, servo ids [1, 2, 3, 4, 5, 6, 7, 8]
-spacemouse devices:
-  none
-number of arms (1 or 2) [1]:
-arm name(s) [arm]:
--- arm 'arm' (1/1) --
-franka hosts that answered:
-  1) 172.16.0.2
-  2) 172.16.1.2
-robot IP of 'arm' (number or IP) [172.16.0.2]:
-arm backend (franky | serl_http | fake) [franky]:
-gripper backend (franky | serl_http | fake | none) [franky]:
-home joints of 'arm' (7 values in rad, or none) [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]:
-realsense cameras:
-  1) 123422070001 (D400)
-  2) 123422070002 (D400)
-  3) 123422070003 (D400)
-cameras of 'arm': numbers or serials, each optionally =name (e.g. 1=wrist,2=front), or none [123422070001=wrist,123422070002=front,123422070003=front_2]: 1=wrist
-teleop device of 'arm' (gello | spacemouse | fake | none) [gello]:
-gello / dynamixel buses:
-  1) /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_MOCK0-if00-port0: 57600 baud, ids [1, 2, 3, 4, 5, 6, 7, 8]
-  2) /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_MOCK1-if00-port0: 57600 baud, ids [1, 2, 3, 4, 5, 6, 7, 8]
-GELLO serial port of 'arm' (number or path) [/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_MOCK0-if00-port0]:
-GELLO baud rate [57600]:
-GELLO joint servo ids (7, in the Panda's joint order) [1,2,3,4,5,6,7]:
-GELLO gripper trigger servo id (or none) [8]:
-intervention (always | toggle: toggle needs a pedal or keyboard) [always]:
-event device for toggle/episode keys (/dev/input/by-id/... or none) [none]:
-calibrate the GELLO on /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_MOCK0-if00-port0 now (yes | no) [yes]:
-  ... the calibration prompts (below) ...
-daemon port of 'arm' [50051]:
-wrote /tmp/station.mock.yaml
-checking it with the doctor (--mock):
-  ... one doctor line per check, then "summary: ..." ...
-next steps:
-  ...
+```bash
+python -m robot_infra.setup --arms 1 --arm-names arm --robot-ip 172.16.0.2 --teleop gello --scope local
 ```
+
+| Flag | Meaning and default when omitted |
+|---|---|
+| `--arms 1` or `--arms 2` | number of arms; a new interactive station suggests 1 |
+| `--arm-names arm` or `--arm-names left right` | names in config; suggestions are `arm` or `left right` |
+| `--robot-ip 172.16.0.2` | addresses to probe/select, in arm order |
+| `--cameras none` | cameras for an arm; otherwise choose discovered cameras interactively |
+| `--cameras SERIAL=wrist` | serial and observation name; use actual discovered serials, one comma-separated value per arm |
+| `--teleop gello` | select GELLO; a single value applies to every arm |
+| `--no-calibrate` | defer calibration; default is to ask interactively, or skip in noninteractive mode |
+
+Do not use deferred calibration values for motion. The wizard probes Franka hosts,
+camera serials and serial buses; choose each device by identity, not discovery order.
+*You should see:* an annotated station YAML and doctor results. *If not:* use
+[01's failure layers](01-install.md#5-configure-once-then-run-doctor) before proceeding.
 
 Answer notes:
 
@@ -73,8 +43,8 @@ Answer notes:
   find is refused unless you pass `--allow-unprobed`.
 - **Cameras** are `SERIAL[=NAME]` or a list number, comma separated. The `NAME` is the observation
   key later used in `obs.rgb` (`rgb_<name>`); this tutorial uses one camera named `wrist`.
-- **Intervention.** Keep `always`: the keyboard of the actor machine supplies the toggle
-  (`--teleop-event-device keyboard`), and its toggle replaces this setting. `toggle` is for an evdev
+- **Intervention.** Keep `always` when the actor supplies the keyboard toggle; its event source
+  replaces this setting. The target key contract is in [00](00-overview.md#operator-keys). `toggle` is for an evdev
   pedal or keyboard on the robot PC ([gello.md](../gello.md#6-hil-training)).
 - **Without `--output` or `--scope`** it asks last where to write
   (`write the station to (local = ./local/station.yaml, user = ~/.config/robot_infra/station.yaml, or a path) [local]:`).
@@ -122,6 +92,45 @@ without `--config`, taking the first of:
 `--config <yaml>` always wins. Run all later `robot_infra` commands from the same directory, or set
 `ROBOT_INFRA_CONFIG`.
 
+## Multiple arms
+
+Each arm has its own IP, its own Desk page and an independently activated FCI
+session. In this example **left is `172.16.0.2`, right is `172.16.0.4`**; verify
+against the physical arm before assigning cameras, GELLO ports or a home pose.
+A shared switch is supported. Refresh each Desk page, request control on this NUC,
+and activate FCI separately on both arms.
+
+On the NUC, repository root, `.venv` active, an interactive two-arm example with
+no cameras and calibration deferred is:
+
+```bash
+python -m robot_infra.setup --arms 2 --arm-names left right \
+    --robot-ip 172.16.0.2 172.16.0.4 --cameras none none \
+    --teleop gello --no-calibrate --scope local
+```
+
+Select a distinct serial port for each GELLO. Calibrate both before motion. For a
+station like the commissioned example, select no gripper for the left arm and a
+Franka Hand for the right; a software width reading does not prove a Hand exists.
+Never copy one arm's home joints to another. Home is a seven-joint target tied to
+that physical robot; a recorded TCP is a reference measurement, not an additional
+independent reset target.
+
+*You should see:* `robots.left` and `robots.right` with the intended IPs and
+per-arm devices. Check one arm at a time on the NUC, repository root, `.venv` active:
+
+```bash
+python -m robot_infra.doctor --config local/station.yaml --robot left
+python -m robot_infra.doctor --config local/station.yaml --robot right
+```
+
+*If not:* check the identity and FCI session on the failing arm's Desk. A Hand
+initialization failure often means the wrong arm's Desk is open or an old page
+shows stale state. Refresh the correct IP, confirm control ownership, physical
+Hand presence and end-effector power. Hand reinitialization can move the fingers;
+it is not a read-only diagnostic. Further bimanual experiment settings are in
+[bimanual.md](../bimanual.md).
+
 ## Check the safety limits
 
 The wizard writes the Panda joint limits and a servo step cap
@@ -129,7 +138,7 @@ The wizard writes the Panda joint limits and a servo step cap
 `safety_box`, suggesting a table-top workspace box. Open `station.yaml` and check the three against
 your cell before the first motion: the box is in the robot base frame (`tcp_pose = O_T_EE`, metres)
 and must contain the home pose, the object and the bin; `home_joints` must lie inside `joint_limits`.
-The daemon clips servo targets to these limits and refuses out-of-range `move_to_*` targets
+The device layer clips servo targets to these limits in either process layout and refuses out-of-range `move_to_*` targets
 ([Safety rules](../../robot_infra/README.md#safety-rules)). The training env can only be tighter than
 the yaml. Re-running the wizard with `--from` keeps the values you edited.
 
@@ -146,35 +155,55 @@ use see `--non-interactive` in the [robot_infra README](../../robot_infra/README
 
 ## The env preset (`hil.yaml`)
 
-Every training, recording and collection command takes the env settings from one YAML preset
-(`--config`): the camera names of the station, the daemon address and the action contract. The
-canonical single-arm preset is [`examples/presets/hil_single_arm.yaml`](../../examples/presets/hil_single_arm.yaml).
-Copy it next to the repository root and edit the copy:
+The default workflow records demos and runs the HIL actor **directly on the NUC**.
+Use `real_robot.robot`, an embedded robot configuration, with `arm_backend: franky`;
+do not start a daemon. `real_robot.remote` is for an actor on another machine
+([03](03-daemon.md)). Exactly one of `robot` and `remote` must be set.
+
+The checked-in [single-arm preset](../../examples/presets/hil_single_arm.yaml)
+still describes the older remote, 10 Hz joint-delta workflow. Copy it on the NUC,
+repository root, `.venv` active, then edit the copy before running anything:
 
 <!-- tutorial-test: skip -->
 ```bash
 cp examples/presets/hil_single_arm.yaml hil.yaml
 ```
 
-- `real_robot.remote`: `ROBOT_PC:50051` (the daemon port from `station.yaml`), or `127.0.0.1:50051`
-  when the actor runs on the robot PC;
-- `obs.rgb`: the camera names of `station.yaml` (`[wrist]`);
-- `real_robot.token`: uncomment only if you set `daemon.token` in the station file.
+For the direct, cartesian workflow:
 
-Check it without touching the robot:
+- Remove `real_robot.remote` and `real_robot.token`.
+- Under `real_robot.robot`, copy the single-arm station's robot mapping, including
+  `type: franka`, device options, calibrated `teleop`, home and safety limits.
+  Exclude the station's `daemon` block. For a multi-arm station take each named
+  robot's mapping separately, following the bimanual guide.
+- Set `real_robot.action_mode: cartesian_delta` and `real_robot.control_hz: 50`.
+  Include `tcp_pose` in `real_robot.state_fields` for cartesian teleoperation.
+- Set `obs.rgb` to the station's camera names (`[wrist]` for the worked example),
+  or `[]` for no cameras. Keep `obs.image_size: [128, 128]` with images.
+- With a physical Hand, retain `gripper_pos` and `gripper_in_action: true`.
+  Without one, use `robot.gripper: null`, `gripper_in_action: false` and omit
+  `gripper_pos` from the state fields.
+
+`robot` is a mapping, not a path to `station.yaml`. Keep the copied hardware
+settings synchronized when the station changes. Configure GELLO's cartesian
+mapping through the `leader_cartesian` source; the raw GELLO reports joint
+positions and cannot be substituted directly for a cartesian twist source.
+The target terminal key path is pending implementation (see
+[00](00-overview.md#operator-keys)); do not interpret a successful config parse
+as verification of that runtime path.
+
+Check without touching hardware, on the NUC, repository root, `.venv` active:
 
 ```bash
 python examples/train_real_world.py hil_serl --config hil.yaml --print-config
 ```
 
-*You should see* the resolved configuration as JSON, with `env_backend: real_robot` and
-`real_robot.action_mode: joint_delta`.
-
-> **joint_abs.** Make a second copy, `hil_abs.yaml`, with `action_mode: joint_abs` and the
-> `joint_limits` line uncommented (a list of pairs, which the command line cannot express); the
-> tutorial names that copy wherever a `joint_abs` run differs. `joint_abs` also needs `max_delta_per_step.joint_rad`
-> in `station.yaml` (the wizard writes it): consecutive `joint_abs` actions can jump across the whole
-> joint range.
+*You should see:* JSON with `env_backend: real_robot`, a `real_robot.robot`
+mapping, no remote address, `action_mode: cartesian_delta` and `control_hz: 50`.
+*If not:* check YAML indentation and ensure the old remote connection and
+joint-delta settings were removed. The examples on later tutorial pages still
+need synchronization to this target workflow; keep one action/observation
+contract across recording, BC/ACT, HIL and deployment.
 
 ## Task, images and control profiles
 
@@ -199,4 +228,4 @@ Use `real_robot.control_hz` as the robot's control frequency. A nondefault globa
 global and environment frequencies are rejected. Record, train and deploy at the resolved
 frequency; it is part of the experiment contract.
 
-Next: [03 Daemon](03-daemon.md).
+Next: [03 Process layout and optional daemon](03-daemon.md).

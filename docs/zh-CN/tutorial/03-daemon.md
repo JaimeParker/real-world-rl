@@ -1,75 +1,62 @@
-<a id="3-start-the-daemon-and-check"></a>
+<!-- English source: docs/tutorial/03-daemon.md -->
 
-# 3. 启动守护进程并检查
+<a id="3-process-layout-and-optional-daemon"></a>
+
+# 3. 进程布局与可选守护进程
 
 [中文入口](../../README.zh-CN.md) · [English](../../tutorial/03-daemon.md)
 
-机器人守护进程在机器人 PC 上运行，通过 gRPC 提供机械臂、夹爪、相机和 GELLO 服务。其他进程，包括录制器、actor、eval 和 deploy，都是它的客户端。
+主线在 NUC 使用本地 `real_robot.robot` 映射和 `arm_backend: franky` 运行 recorder 或 HIL actor，由该进程直接打开机械臂、Hand、相机和 GELLO。**此路线不要启动守护进程。**GPU learner 单独运行也不需要机器人守护进程；actor 仍可留在 NUC 并上传训练数据。
 
-<a id="check-the-station"></a>
+只有 **actor 本身在另一机器**，用 `real_robot.remote` 替换 `real_robot.robot` 时才使用以下可选路线。
 
-## 检查工作站
+| 属性 | NUC 直接连接（主线） | 远程 actor（可选） |
+|---|---|---|
+| 单臂硬件进程 | 一个 recorder 或 actor | NUC 守护进程，加另一机器的 recorder/actor |
+| 连接配置 | `real_robot.robot` 映射 | `real_robot.remote: NUC_ADDRESS:50051`，移除 `robot` |
+| 键盘 | 接 NUC，目标终端键见 [00](00-overview.md#operator-keys) | 在 actor 机器读取；当前 `pynput` 需要桌面 |
+| 动作 watchdog | 应用检查与硬件同进程 | 客户端停止动作后守护进程可停臂 |
+| 外部停止 | 监督者杀死卡住的进程，随后固件处理控制通信丢失 | 存活的守护进程可独立于 actor 发 stop |
 
-在尚未启动机器人服务时运行：
+应用线程无法保证整个进程挂起或被杀时执行 `stop()`。监督者杀直接进程依赖固件的通信丢失响应，不是独立的应用 stop 命令。守护 watchdog 也不覆盖其自身或 NUC 挂起。两种布局都保留物理急停。
 
-```bash
-python -m robot_infra.discovery     # what hardware is visible (never connects to a robot)
-python -m robot_infra.doctor        # the five-layer check of the station's robot
-```
+<a id="start-a-daemon-only-for-a-remote-actor"></a>
 
-*预期结果*：discovery 输出相机序列号、GELLO 串口，以及 `172.16.0.2: ping=ok open ports=<list>`。对于 Franka，1337 端口开放通常表示 FCI 可访问。未连接设备时，各部分显示 `none`，见[示例输出](../robot-infra.md#2-plug-in-and-discover)。doctor 为每项检查输出一行，从 `[1/5] sdk:arm ... OK  ...` 到 `[5/5] mode:...`，最后显示 `summary: N ok, 0 failed, S skipped`；任意检查失败时退出码为 1。doctor 会连接机器人，检查后断开。`--fix` 尝试自动修复失败项，`--json` 输出机器可读结果：
+## 仅远程 actor 启动守护进程
 
-```bash
-python -m robot_infra.doctor --fix
-```
-
-<a id="serve"></a>
-
-## 启动服务
-
-不传 `--config` 时，守护进程使用工作站文件：
+先完成[真实 doctor 握手](01-install.md#5-configure-once-then-run-doctor)。本节所有命令在 **NUC、仓库根、`.venv` 激活**时执行，确保没有其他进程占设备。NUC 和 actor 均需 `robot_infra[grpc]`。
 
 ```bash
-python -m robot_infra.server --watchdog-s 5
+python -m robot_infra.server --config local/station.yaml --watchdog-s 5
 ```
 
-训练时需要注意 `--watchdog-s 5`：机械臂超过看门狗时间未收到动作就会进入空闲模式，默认值为 0.5 秒，而 reset 后首次策略推理可能更久。*预期结果*：先出现与 doctor 相同的预检查输出，再列出机器人部件并显示 `serving franka 'arm' on 0.0.0.0:50051`。第一个客户端连接时才连接机器人。保持终端打开；Ctrl-C 停止守护进程，机器人电源保持开启。
+`--watchdog-s` 默认 **0.5 秒**，示例显式 **5 秒**允许 reset 后首次推理较慢。间隔超限时守护进程将臂置 idle，下一动作失败。按现场选择，5 秒只是示例，不保证长暂停安全。
 
-同一机器人由守护进程服务期间，请先停止服务再运行 `python -m robot_infra.doctor`：doctor 会争用同一设备锁并报告 `handshake` 失败。
+*应该看到：* preflight doctor 后打印服务地址和部件。保持终端打开；Ctrl-C 停守护进程。多臂 station 每臂启动一个独立端口进程，launcher 可从同一文件同时启动。
 
-<a id="if-a-check-fails-the-three-common-failures"></a>
+*否则：* 按 [01](01-install.md) 的 preflight 提示处理。recorder、actor 或守护进程占设备时不要对同设备跑 doctor，否则 claim 和握手冲突。
 
-## 检查失败时的三类常见问题
+<a id="point-the-remote-actor-at-the-nuc"></a>
 
-每条失败输出后都有 `hint: ...`，按提示处理。最常见的情况如下：
+## 将远程 actor 指向 NUC
 
-1. **GELLO 串口权限。** 出现 `[2/5] os:serial ... FAIL  no read/write access to /dev/serial/by-id/...` 时，将用户加入 `dialout` 组（`sudo usermod -aG dialout $USER`，之后重新登录）或配置 udev 规则。`serial port ... not found` 表示线缆或端口有误，检查 `/dev/serial/by-id/`。
-2. **无法访问 Franka。** `os:ping` 失败，或显示 `handshake ... FAIL  cannot reach Franka at <ip>: ...`，并提示 `check: ping <ip>; FCI activated in Desk; cable on the Control (not Arm) port; 'UDP receive: Timeout' means a firewall`。在 Desk 启用 FCI，将网线插入 Control 控制箱端口，允许机器人的 UDP 数据通过防火墙，并检查 YAML 中的机器人 IP。
-3. **相机序列号不明确或设备缺失。** 出现 `os:camera:<name> ... FAIL  serial unset and N devices attached; set serial to one of [...]` 或 `camera '<name>' serial '<s>' not found`。向导本会写入序列号，因此这种情况通常来自手工修改或重新插拔。将 `python -m robot_infra.discovery` 输出的序列号写入 `cameras[].serial`。`no frames within 2s` 可能是 USB 3 带宽或 udev 规则问题，可尝试 `--fix`。
+在 **actor 机器的仓库根、已安装的项目 venv** 中，将 `hil.yaml` 的 `real_robot.robot` 移除，`remote` 设为 NUC 可达地址及 station 端口（通常 50051）。仅配置了 `daemon.token` 才设 `real_robot.token`。相机需 `obs.image_size`，远程尺寸连接后才知道。动作模式、50 Hz 和观测契约均与录制一致。
 
-完整故障表还包括 libfranka 版本不匹配、Reflex 模式与实时内核，见 [robot_infra 故障排查表](../robot-infra.md#troubleshooting)。
-
-<a id="dry-run-without-hardware"></a>
-
-## 无硬件演练
-
-doctor 可以把各后端替换为 fake，检查工作站文件本身：
-
-```bash
-python -m robot_infra.doctor --config local/station.yaml --mock
-```
-
-README 的 [fake 机器人端到端演练](../project-readme.md#end-to-end-try-out-with-the-fake-robot)在单机上依次运行 fake 守护进程、learner、actor 和 checkpoint 部署。先运行一次，熟悉后续页面的命令。将 `--teleop-device leader_arm` 换成 `--teleop-device fake`，即可运行无需操作员的 actor；该脚本化输入源不会介入，见 [teleop.md](../teleop.md#devices)。`tests/test_single_arm_station_smoke.py` 使用 fake 设备执行本教程的单臂流程：
+在 actor 的项目 venv 安装 gRPC 客户端：
 
 <!-- tutorial-test: skip -->
 ```bash
-python -m pytest tests/test_single_arm_station_smoke.py -q
+python -m pip install -e 'robot_infra[grpc]'
 ```
 
-<a id="check-local-storage-before-training"></a>
+在 actor 机器、仓库根、项目 venv 中，无连接检查：
 
-## 训练前检查本地存储
+```bash
+python examples/train_real_world.py hil_serl --config hil.yaml --print-config
+```
 
-actor 在自身机器写入 outbox，learner 在 GPU 机器写入 journal 与 checkpoint bundle。两侧使用本地存储，并为两个回放缓冲区中的图像数据预留容量。SQLite WAL 使用 `synchronous=NORMAL`：已提交消息可在进程崩溃后恢复，操作系统崩溃或断电可能丢失最近提交。进程在清理前被强制终止时，仍由机器人守护进程 watchdog 处理。路径和恢复命令见[教程 07](07-hil-training.md#resume-an-interrupted-run)。
+*应该看到：* 唯一连接源 `remote`、正确相机、动作模式和频率。实跑时客户端连接才触发硬件连接。
 
-下一步：[04 录制示范](04-record-demos.md)，操作前先读 [06 人工介入](06-intervening.md)。
+*否则：* 移除残留 `robot`。运行连接失败时查监听地址、网络/防火墙和 token。键盘事件属于 actor 事件源，只接 NUC 的键盘不会自动成为远程键盘。不要两个进程各自打开同一 GELLO，应使用守护进程的 teleop 部件。
+
+下一步：[04 录制](04-record-demos.md)，并注意 [00](00-overview.md#known-limits) 的工作流和按键迁移限制。

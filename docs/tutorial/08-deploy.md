@@ -53,8 +53,10 @@ and give each arm's connection/camera settings as in [bimanual.md](../bimanual.m
 `enable_teleop` defaults to true. Deployment composes a takeover source when a versioned task is
 active or `--teleop-device` is supplied. To keep the tutorial's GELLO and keyboard available,
 use the station YAML with its `teleop:` block, omit `--no-enable-teleop`, and supply
-`--teleop-device leader_arm --teleop-event-device keyboard`. The saved settings supply the rest
-of the intervention contract. Task runs can retain their saved operator setup. For an autonomous
+`--teleop-device leader_arm --teleop-event-device stdin`. The saved settings supply the rest
+of the intervention contract. With the terminal event source, `t` takes over,
+`h` hands back, `s`/`f` label outcomes, Esc ends an episode and `q` quits.
+Task runs can retain their saved operator setup. For an autonomous
 measurement, leave action control with the policy; take over when needed and report that episode
 as assisted. Only pressing success/failure labels does not count as action intervention.
 

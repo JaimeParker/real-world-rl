@@ -1,73 +1,128 @@
+<!-- English source: docs/tutorial/04-record-demos.md -->
+
 <a id="4-record-demos"></a>
 
 # 4. 录制示范
 
 [中文入口](../../README.zh-CN.md) · [English](../../tutorial/04-record-demos.md)
 
-`examples/record_real_demos.py` 与 HIL actor 使用相同方式构建环境，将每个步骤和回合结果归档到 SQLite，再把成功回合中由人监督的步骤导出为 BC、ACT 和 HIL learner 使用的示范 pkl。先读 [06 人工介入](06-intervening.md)，它是本步骤与 [07](07-hil-training.md) 共用的操作员指南。
+`examples/record_real_demos.py` 与 HIL actor 构建同一环境，将全部尝试归档到 SQLite，再把成功回合的人工监督步骤导出给 BC、ACT、HIL 使用。先读 [06 人工介入](06-intervening.md)。
 
-先启动守护进程（[03](03-daemon.md)），再在 actor 机器上运行：
+<a id="prepare-the-nuc"></a>
+
+## 准备 NUC
+
+本页全部命令在 **NUC、仓库根、`.venv` 激活**时运行。先完成 station 与真实 doctor，清空工作区、保持物理停止装置可用。reset 可能回 home 并开夹爪，之前核对实臂 FCI IP、Hand、home、关节和工作空间限制。
+
+主预设为 [`examples/presets/gello_cartesian.yaml`](../../../examples/presets/gello_cartesian.yaml)：仅状态、`cartesian_delta`、50 Hz、`xyz_scale_m: 0.05`、`rot_scale_rad: 0.3`，其 robot 映射在 NUC 直接连接 franky。先填入现场值，示例工作空间不等于工位批准。无实体 Hand 时在 robot 映射设 `gripper: null`，环境设 `gripper_in_action: false`。
+
+`teleop_options_yaml` 指向仓库根的 `gello_leader.yaml`。在该本地选项文件写 `robot_yaml: gello_station.yaml`。后者须是只描述 leader 的本地机器人 YAML：`type: franka`、独立 `name`、`arm_backend: fake`、`gripper: null`、`cameras: []`，加上已配置的 GELLO `teleop:`（串口与标定）。不要指向实臂 follower station，因为该输入源会连接整份 leader YAML，导致重复连接实臂。标定和其他本地 leader 配置见 [gello.md](../gello.md)。
+
+<a id="record-with-gello"></a>
+
+## 用 GELLO 录制
+
+NUC、仓库根、`.venv` 激活：
 
 ```bash
-ENV_FLAGS="--config hil.yaml --teleop-device leader_arm --robot-teleop-action-mode joint_delta \
-    --teleop-event-device keyboard"
-python examples/record_real_demos.py $ENV_FLAGS --teleop-onset arm \
+python -m robot_infra.supervise --log runs/record-pick-and-place/supervise.jsonl -- \
+    python examples/record_real_demos.py --config examples/presets/gello_cartesian.yaml \
+    --teleop-device leader_cartesian --teleop-event-device stdin \
+    --real_robot.watchdog_s 0.3 \
     --output-path demos/pick-and-place.pkl --num-successes 20
 ```
 
-- `--teleop-device leader_arm` 读取由守护进程作为机器人 `teleop:` 部件提供的 GELLO。`--robot-teleop-action-mode` 在远程机器人连接前声明该部件；对主臂只需指定关节空间，实际输出由环境 `action_mode` 决定。
-- `--teleop-event-device keyboard` 提供人工介入切换与回合按键。
-- `--teleop-onset arm` 让切换信号在主臂与从臂距离小于 `--teleop-arm-tolerance-rad`（0.1）时才生效，使每条示范从静止且对齐的机器人开始，见 [06](06-intervening.md#onset-arm-or-ramp)。
-- 录制器默认从按键生成奖励；仅录制器默认打开 `reward_from_teleop_events`，可用 `--no-reward-from-teleop-events` 关闭。按 `s` 会将当前步骤保存为成功终止步骤，奖励为 1、`done` 为 True，并结束回合。
-- `--max-episode-steps N` 为本次录制覆盖预设的 `max_episode_steps`；10 Hz 下 200 步等于 20 秒。
+supervisor 将硬件进程作为子进程启动，终端键送给子进程，无需桌面会话或 evdev 键盘权限。显式 StepWatchdog 为 **0.3 s**，当前 HEAD 预设尚未包含它；它在进程内检查缺失的 step。独立 supervisor 默认 **2.0 s** 心跳静默后升级信号，清理卡住时最终杀进程，依赖 libfranka 断连触发固件 reflex 停止，不能另发机器人 stop。见[监督说明](../robot-infra.md#supervising-a-single-process-robot-run)。
+
+预设已设置以下 tracker 参数，整条流水线须一致：
+
+| 参数 | 值 | 含义 |
+|---|---|---|
+| `--teleop-lead-cap-m` | `0.05` | 命令领先实测 TCP 的最大平移，米 |
+| `--teleop-lead-cap-rad` | `0.3` | 最大旋转领先，弧度 |
+| `--teleop-target-speed-m-s` | `0.05` | 命令最大平移速度，m/s |
+| `--teleop-target-speed-rad-s` | `0.3` | 命令最大旋转速度，rad/s |
+
+环境尺度须至少等于领先上限。3000 步在 50 Hz 为 60 秒，录制可用 `--max-episode-steps` 覆盖。
 
 <a id="an-episode"></a>
 
 ## 一个回合
 
-1. 环境 reset，机械臂归位，夹爪打开。
-2. 将 GELLO 移到从臂姿态并按 **Space**。每个关节与从臂的差值都在 0.1 rad 内时开始接管。
-3. 移动 GELLO 接近物体，捏扳机闭合夹爪，将物体移至箱子，再松开扳机。
-4. 在仍然接管时按 **s**，回合以成功结束，机械臂归位。
+1. **reset：**等待 home 和开夹爪结束。无人驱动时，录制器保持固定姿态。
+2. **`t`：**接管，以当前 leader 姿态为锚，相对位移映射到 follower 命令姿态；此笛卡尔路线无需逐关节对齐。
+3. **驱动：**移动 GELLO 完成接近、搬运和放置。命令按配置速度推进，领先实测 TCP 不超过上限，多余部分丢弃而不排队。
+4. **扳机：**握紧闭合、释放张开。接管时扳机与夹爪最后命令不一致，会忽略扳机直到跨到当前状态，避免立即误开。
+5. **`h`：**适时交还；录制器采样实测位姿后固定保持。再按 `t` 重新锚定继续。
+6. **`s`：**标成功并结束。成功终止步要进入人工 pkl，须在接管中按 `s`。若已按 `h`，先再按 `t` 无跳变锚定，再标记。
 
-**f** 丢弃当前回合，**r** 丢弃并立即开始下一回合，**Esc** 以未成功结束并丢弃。只保留成功且至少有一个已录制步骤的回合；Ctrl-C 停止录制并保存此前保留的数据。按 `s` 时要保持接管：pkl 导出只选择介入步骤，因此交还控制后再按 `s` 虽然会结束回合，终止步骤却不会进入示范，保留的数据将全程奖励为 0。
+`f` 丢弃，`r` 丢弃并开始下一次，Esc 无成功标签地结束。`q` 结束当前回合，处理结果后停止；Ctrl-C 也停止并保存已保留回合。默认按键奖励令 `s` 终止且奖励 1。交还后标记仍能结束回合，但终止步不会进入人工 pkl 视图。
 
-*预期结果*：每个已结束回合打印一行，最后打印保存结果。下方数字仅为示例：
+*应该看到：* 回合结果和最终保存行，例如：
 
 ```text
 [record] episode=0 steps=87 transitions=87 kept successes=1/20
 [record] episode=1 steps=40 transitions=0 discarded (<reason>) successes=1/20
-...
 [record] saved 20 episodes (1734 transitions) to demos/pick-and-place.pkl
 ```
 
-成功录制会得到 `demos/pick-and-place.pkl`、约定附属文件 `demos/pick-and-place.contract.json` 和 `demos/pick-and-place.trajectory.sqlite3`。归档保留实际动作、策略提案、human/override 掩码、同步步骤和回合结果，也包含失败与重录尝试。pkl 仅保留成功回合的人工步骤；没有回合被保留时，归档仍存在，但不生成示范 pkl。`--output-path` 必须指向新的 `.pkl` 文件，各条示范应改变物体初始姿态。
+`WORKSPACE HOLD: <axes>` 表示请求目标越出安全盒。输入源交还并保持实测姿态；清除请求后 `h`、`t` 再锚定。这不是成功步骤，也不是扩大安全盒的许可。
 
-附属文件包含版本化实验约定：任务、控制设置、动作与观测布局、相机预处理和遥操作部件选择必须匹配使用数据的运行。奖励来源路径和工作站管理的 reset 信息作为来源元数据保留。不符时会指出差异字段，需让附属文件与 pkl 一同保存。`--export-trajectory-pt` 额外生成可移植 `.trajectory.pt`；BC 和 HIL 也可直接读取 SQLite，选取完整成功回合中的非同步人工步骤。ACT 轨迹训练器继续使用 pkl。
+<a id="record-with-a-spacemouse"></a>
 
-*结果不符时：*
+## 用 SpaceMouse 录制
 
-- 任务完成前回合就结束：增大 `hil.yaml` 中的 `max_episode_steps`，或传入 `--max-episode-steps`。
-- Space 没有效果：主从臂关节误差超过 0.1 rad。actor 每秒记录一次各关节误差，将主臂移至从臂姿态。
-- GELLO 完全读不到数据：查看守护进程的 `feedback:teleop` doctor 检查，或录制器抛出的 `DeviceFault`。
-- `--keep-syncing-steps` 和 `--start-tolerance-rad` 详见 [recording-demos.md](../recording-demos.md#recorder-flags)。
+同样在 NUC、仓库根、`.venv` 激活。按 [teleop.md](../teleop.md#spacemouse) 安装 extra。覆盖 GELLO 选项文件，避免把 leader 选项传入 SpaceMouse：
 
-> **joint_abs。** 使用预设副本 `hil_abs.yaml`，以 `joint_abs` 模式另录一套数据；其中设置 `action_mode: joint_abs` 和 `joint_limits`，见 [02](02-station.md#the-env-preset-hilyaml)。这套示范只加载到 `joint_abs` 运行中。
->
-> ```bash
-> python examples/record_real_demos.py --config hil_abs.yaml \
->     --teleop-device leader_arm --robot-teleop-action-mode joint_abs --teleop-event-device keyboard \
->     --output-path demos/pick-and-place-abs.pkl --num-successes 20
-> ```
->
-> 每回合开始前，录制器读取一次主臂；任一关节与从臂误差大于 `--start-tolerance-rad`（0.8）时，打印逐关节误差并停止。对齐后重启。默认 `ramp` 使从臂每步以 `--teleop-ramp-step-rad`（0.05）向主臂靠近，除非启用 `--keep-syncing-steps`，这些步骤不进入示范 pkl；启用后作为普通监督步骤保留。`joint_delta` 的读取按每步一个 `joint_scale_rad` 饱和，因此跳过起始检查，初次追赶对齐之前的步骤标记为同步。
+```bash
+python -m robot_infra.supervise --log runs/record-spacemouse/supervise.jsonl -- \
+    python examples/record_real_demos.py --config examples/presets/gello_cartesian.yaml \
+    --teleop-device spacemouse --teleop-event-device stdin --teleop-options-yaml None \
+    --real_robot.watchdog_s 0.3 \
+    --output-path demos/pick-and-place-spacemouse.pkl --num-successes 20
+```
 
-更多细节见 [recording-demos.md](../recording-demos.md)。
+按键 **0** 接管，再按交还；只推杆不算接管。接管时推杆输入速度，全幅最多 0.05 m/s、0.3 rad/s。松手停止新增速度请求，机械臂仍可向现有命令收敛，最多一个领先上限。按键 **1** 只在驱动时切换夹爪；接管保留最后夹爪命令。结果和退出用终端 `s`/`f`/`r`/Esc/`q`，终端 `t`/`h` 被忽略。工作空间 HOLD 后须重新按键 0 接管。
+
+<a id="files-and-compatibility"></a>
+
+## 文件与兼容性
+
+成功运行产生 `demos/pick-and-place.pkl`、`.contract.json` 和 `.trajectory.sqlite3`。归档保存全部请求/执行动作、mask、结果，包括失败、重录、中断尝试；pkl 只选成功人工步骤，没有保留回合则无 pkl。新数据集使用新 `.pkl` 路径；`--export-trajectory-pt` 另存可移植 `.trajectory.pt`。
+
+sidecar 必须与 pkl 同行，包含版本化实验契约及 `teleop_control`（`cartesian_tracker_v1`、领先上限、目标速度）。本教程录制、训练、部署使用**同一 teleop 设备与四个 tracker 值**。缺少或改变 tracker 设置会报 `experiment.teleop_control` 差异。
+
+**当前 HEAD 差异：**契约标识 tracker，而非实体输入设备。实现允许相同 tracker 参数的 GELLO 与 SpaceMouse 共用数据；同设备是本教程的工作流要求，单纯设备不同不会被当前契约拒绝。
+
+*否则：*
+
+- 超时：检查 60 秒回合上限，仅按合适任务时长增加 `--max-episode-steps`。
+- `t` 无效：查终端焦点、GELLO 连接/标定，及 workspace HOLD 是否需 `h` 后 `t`；SpaceMouse 则按键 0。
+- 读设备失败：停止，检查串口/HID 权限和硬件，确保无硬件进程占 station 后再跑 doctor。
+- 契约不匹配：恢复录制的预设、设备和 tracker 值，不要修改 sidecar 凑兼容。
+
+<details>
+<summary>其他模式：关节空间 leader_arm 与 joint_abs（非主线）</summary>
+
+这些模式需要独立关节预设和示范。`leader_arm` 的 `--teleop-onset arm` 等 leader 到 follower 的每关节误差不超过 `--teleop-arm-tolerance-rad`（0.1 rad）才接管。默认 `ramp` 立即开始：`joint_abs` 初始目标按 `--teleop-ramp-step-rad`（0.05）每步限速，`joint_delta` 在进入一个 `joint_scale_rad` 步长前标记初始追赶。只有这些关节 leader 路线使用 `teleop_syncing`，笛卡尔主线没有。
+
+在 NUC、仓库根、`.venv` 激活，使用单独配置的 `hil_abs.yaml`（`joint_abs`、关节限位、本地 robot 与 GELLO teleop 部件）：
+
+```bash
+python -m robot_infra.supervise --log runs/record-joint-abs/supervise.jsonl -- \
+    python examples/record_real_demos.py --config hil_abs.yaml \
+    --teleop-device leader_arm --robot-teleop-action-mode joint_abs --teleop-event-device stdin \
+    --output-path demos/pick-and-place-abs.pkl --num-successes 20
+```
+
+`joint_abs` 初始任一关节差超过 `--start-tolerance-rad`（0.8）会拒绝开始，先对齐 leader。pkl 默认排除 syncing；`--keep-syncing-steps` 将其保留为普通监督步，但归档派生训练视图仍排除 syncing 监督。关节空间夹爪没有笛卡尔锁存，接管前须匹配扳机与当前夹爪状态。
+
+</details>
 
 <a id="continue-after-an-interruption"></a>
 
-## 中断后继续录制
+## 中断后继续
 
-SQLite 随录制推进提交记录。pkl 尚不存在时，重新使用同一输出文件名会保留已有归档，将未结束回合标为中断，并为后续尝试创建新回合 ID。pkl 导出包含本次调用保留的成功回合；此前完整回合应从归档恢复。持久化保证从 append 返回时开始，动作已执行但尚未 append 的结果仍可能丢失。进程崩溃与断电的 SQLite 边界见[真机实验](../real-world-experiments.md#trajectory-archives-and-training-views)。
+归档在录制中提交。pkl 尚不存在时重开同一输出 stem 会保留归档，将未完尝试标为中断，新尝试获新 ID。pkl 只导出当前调用保留的成功，早先完整成功从归档恢复。持久性始于 append 返回，之前执行但未 append 的动作可能丢失。进程崩溃与断电边界见[真机实验](../real-world-experiments.md#trajectory-archives-and-training-views)。重启停止进程前先读 supervisor 日志，核对工位并清除机器人故障后再 reset。
 
-下一步：[05 基础策略](05-base-policy.md)。
+详见[录制参考](../recording-demos.md)。下一步：[05 基础策略](05-base-policy.md)。

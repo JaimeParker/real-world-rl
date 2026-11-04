@@ -2,52 +2,63 @@
 (registered as ``device="leader_cartesian"``).
 
 For envs that only take a cartesian twist: ``franka_real`` (the SERL HTTP bridge has no joint
-command endpoint) and ``real_robot`` in ``cartesian_delta`` mode. The leader's joints ``q`` become
-an end-effector target ``T* = (p*, R*)``, and the emitted arm action is the base-frame twist that
-moves the follower's measured TCP pose ``(p, R)`` onto it, in the env's normalized units:
+command endpoint) and ``real_robot`` in ``cartesian_delta`` mode, whose step sends
+``measured + action * scale``. The leader's joints ``q`` become a requested end-effector pose,
+and a ``CartesianTargetTracker`` (``real_world_rl.teleop.cartesian_tracker``) turns it into the
+emitted arm action: the tracker's persistent command advances towards the request at
+``target_speed_m_s``/``target_speed_rad_s``, never leads the follower's measured TCP pose by more
+than ``lead_cap_m``/``lead_cap_rad`` (the excess is dropped, never queued), and the action is
+``(command - measured)`` in the env's normalized units (``[xyz / pos_scale_m, rotvec(R_cmd
+R_meas^T) / rot_scale_rad]``), which the env's own update lands back on the command. The scales
+must be at least the lead caps (checked at construction), so the action never saturates.
 
-    a_pos = clip((p* - p) / pos_scale_m, -1, 1)
-    a_rot = clip(rotvec(R* R^T) / rot_scale_rad, -1, 1)
+Mappings of the leader pose ``(p_l, R_l) = FK(q)`` onto the requested pose:
 
-This inverts the env's own update (``p + a_pos * pos_scale_m``, ``from_rotvec(a_rot *
-rot_scale_rad) * R``: base-frame translation, left-multiplied rotation), so an unsaturated
-action lands the follower on ``T*``. The twist is recomputed from the measured pose every poll,
-so saturation only delays convergence; it never drifts.
+- ``anchored`` (default): at the take-over the tracker's current command ``(p_c, R_c)`` (the hold
+  pose: the follower does not jump) and the leader pose ``(p_l0, R_l0)`` are stored; then the
+  leader's base-frame displacement is applied to it, translation and rotation decoupled:
+  ``p* = p_c + (p_l - p_l0)``, ``R* = (R_l R_l0^T) R_c``. A leader rotation turns the follower in
+  place, and FK errors only enter through their change since the take-over.
+- ``absolute``: ``FK(q)``. Needs ``FK`` to match the follower's TCP frame; the command then moves
+  from the hold pose to the leader's pose at the target speed.
 
-Mappings:
-
-- ``anchored`` (default): at the intervention onset (the first intervened poll after a
-  non-intervened one, and the first after ``reset()``) the follower pose ``(p_f0, R_f0)`` and the
-  leader pose ``(p_l0, R_l0) = FK(q_0)`` are stored; then the leader's base-frame displacement is
-  applied to the follower, translation and rotation decoupled: ``p* = p_f0 + (p_l - p_l0)``,
-  ``R* = (R_l R_l0^T) R_f0``. A leader rotation turns the follower in place (it never swings it
-  about the base origin), the onset poll emits a zero twist, and FK errors only enter through
-  their change since onset.
-- ``absolute``: ``T* = FK(q)``. Needs ``FK`` to match the follower's TCP frame and the leader
-  to be near the follower at onset, or the follower moves (rate-limited) to the leader's pose.
+The take-over is the rising edge of the operator's intervention signal (the part's
+``intervening``, or the toggle ``CompositeTeleopSource`` hands to ``poll_with_toggle``). Its
+falling edge (hand-back), an input or tracking failure and an episode end put the tracker in
+hold at the measured pose. A stalled control loop (more than ``max_dt_s`` between two intervened
+polls) counts as an input loss: the follower holds, a warning gives the gap, and the next poll
+re-anchors the leader as at a take-over. A requested position outside ``safety_box`` does too, logs
+``WORKSPACE HOLD: <axes>`` once, and reads as not intervened until the operator hands back and
+takes over again. The tracker (``cartesian_tracker``) is shared with the recorder's hold policy
+(``real_world_rl.teleop.hold``), which keeps the follower on the hold pose while nobody drives.
 
 The gripper action comes from the leader's width target ``w`` in ``[0, 1]`` (1 = open): ``+1``
 if ``w > gripper_binarize_threshold`` else ``-1`` (default 0.5: the trigger closes past half
 travel), so the hybrid gripper records clean +-1 labels; ``None`` emits the continuous
-``2w - 1``. A leader without a gripper holds the gripper action last sent to the env, as
-``TeleopPartSource`` does.
+``2w - 1``. With ``last_gripper_action_getter`` (the intervention wrapper passes it), a trigger
+that disagrees at the take-over with the gripper's last commanded state (open: action > 0) is
+ignored: the last commanded action is held until the trigger crosses to that state, so taking
+over never drops a grasped object. A leader without a gripper always holds the last action.
 """
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any, Callable, Mapping, Optional, Sequence, Union
 
 import numpy as np
 
 from real_world_rl.kinematics.panda import PandaKinematics
 from real_world_rl.kinematics.transforms import (
-    matrix_to_rotvec,
+    matrix_to_quat_xyzw,
     pose_to_transform,
 )
-from real_world_rl.teleop.base import (
-    TeleopReading,
-    TeleopSource,
-    held_gripper_action,
+from real_world_rl.teleop.base import TeleopReading, held_gripper_action
+from real_world_rl.teleop.cartesian_tracker import (
+    CartesianTargetTracker,
+    CartesianTrackerConfig,
 )
+from real_world_rl.teleop.composite import ToggleableTeleopSource
 from real_world_rl.teleop.part import (
     DEFAULT_READ_TIMEOUT_S,
     TeleopContract,
@@ -57,7 +68,7 @@ from real_world_rl.teleop.part import (
 )
 from real_world_rl.teleop.registry import register_teleop_source
 
-__all__ = ["LeaderArmCartesianSource", "MAPPINGS"]
+__all__ = ["LeaderArmCartesianSource", "MAPPINGS", "follower_pose_from_env"]
 
 MAPPINGS = ("anchored", "absolute")
 _LEADER_ACTION_SPACE = "joint_abs"
@@ -68,9 +79,11 @@ _DEFAULT_REMOTE_NAME = "leader"
 
 PoseGetter = Callable[[], Optional[np.ndarray]]
 
+logger = logging.getLogger(__name__)
+
 
 @register_teleop_source("leader_cartesian")
-class LeaderArmCartesianSource(TeleopSource):
+class LeaderArmCartesianSource(ToggleableTeleopSource):
     """A ``joint_abs`` leader arm mapped to the env's ``cartesian_delta`` twist (module docstring).
 
     The leader is either ``teleop`` (a ``Teleop``/``RemoteTeleop`` part or a zero-arg resolver
@@ -83,7 +96,11 @@ class LeaderArmCartesianSource(TeleopSource):
 
     ``follower_pose_getter`` returns the follower's measured TCP pose ``xyz + quat_xyzw`` in the
     base frame (None before the env's first reset). ``pos_scale_m``/``rot_scale_rad`` are the
-    env's per-step scales. Read failures propagate; nothing ever turns into an idle reading.
+    env's per-step scales and must be at least ``lead_cap_m``/``lead_cap_rad``. ``clock`` (a
+    monotonic clock in seconds) times the tracker's advances; more than ``max_dt_s`` between two
+    intervened polls holds the follower and re-anchors at the next poll, a clock going backwards
+    raises ``MissedControlDeadline``. Read failures propagate; nothing ever turns into an idle
+    reading.
     """
 
     def __init__(
@@ -96,11 +113,18 @@ class LeaderArmCartesianSource(TeleopSource):
         teleop_contract: Optional[Sequence] = None,
         kinematics: Optional[PandaKinematics] = None,
         mapping: str = "anchored",
-        pos_scale_m: float = 0.02,
-        rot_scale_rad: float = 0.1,
+        pos_scale_m: float = 0.05,
+        rot_scale_rad: float = 0.3,
+        lead_cap_m: float = 0.05,
+        lead_cap_rad: float = 0.3,
+        target_speed_m_s: float = 0.05,
+        target_speed_rad_s: float = 0.3,
+        max_dt_s: float = 0.3,
+        safety_box: Optional[Sequence[float]] = None,
         gripper_binarize_threshold: Optional[float] = 0.5,
         last_gripper_action_getter: Optional[Callable[[], Any]] = None,
         read_timeout_s: float = DEFAULT_READ_TIMEOUT_S,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         from real_world_rl.action_contract import LEGACY_ACTION_CONTRACT
 
@@ -112,6 +136,22 @@ class LeaderArmCartesianSource(TeleopSource):
             raise ValueError(
                 f"pos_scale_m and rot_scale_rad must be positive, got {pos_scale_m}, {rot_scale_rad}"
             )
+        tracker_config = CartesianTrackerConfig(
+            lead_cap_m=lead_cap_m,
+            lead_cap_rad=lead_cap_rad,
+            speed_m_s=target_speed_m_s,
+            speed_rad_s=target_speed_rad_s,
+            max_dt_s=max_dt_s,
+        )
+        if pos_scale_m < lead_cap_m or rot_scale_rad < lead_cap_rad:
+            raise ValueError(
+                "leader_cartesian needs xyz_scale_m >= lead_cap_m and rot_scale_rad >= lead_cap_rad, "
+                "so one env step reaches every command the lead cap allows; got "
+                f"xyz_scale_m={pos_scale_m}, lead_cap_m={lead_cap_m}, rot_scale_rad={rot_scale_rad}, "
+                f"lead_cap_rad={lead_cap_rad}. Raise --real-robot.xyz-scale-m/--real-robot.rot-scale-rad "
+                "or lower --teleop-lead-cap-m/--teleop-lead-cap-rad"
+            )
+        self._tracker = CartesianTargetTracker(tracker_config, safety_box=safety_box)
         self._kinematics = PandaKinematics() if kinematics is None else kinematics
         self._mapping = mapping
         self._pos_scale_m = float(pos_scale_m)
@@ -120,6 +160,7 @@ class LeaderArmCartesianSource(TeleopSource):
         self._follower_pose = follower_pose_getter
         self._last_gripper_action = last_gripper_action_getter
         self._read_timeout_s = read_timeout_s
+        self._clock = clock
         contract = LEGACY_ACTION_CONTRACT if env_contract is None else env_contract
         self._env_gripper = bool(contract["gripper_in_action"])
 
@@ -141,8 +182,14 @@ class LeaderArmCartesianSource(TeleopSource):
                 raise ValueError(problem)
             self._accept(resolved)
 
-        self._previously_intervened = False
-        self._anchor: Optional[tuple[np.ndarray, np.ndarray]] = None  # (p_f0 - p_l0, R_l0^T R_f0)
+        self._previously_requested = False
+        # Set by a workspace rejection or an episode end: following again needs a new take-over.
+        self._needs_new_takeover = False
+        # Set by a stalled control loop: the next intervened poll re-anchors on its own.
+        self._reanchor_pending = False
+        self._anchor: Optional[tuple[np.ndarray, np.ndarray]] = None  # (p_c0 - p_l0, R_l0^T R_c0)
+        self._last_advance_s: Optional[float] = None
+        self._gripper_latched = False
 
     @property
     def action_mode(self) -> str:
@@ -161,6 +208,11 @@ class LeaderArmCartesianSource(TeleopSource):
         """The robot this source owns (connected by ``start()``), or None for a caller-owned part."""
         return self._leader_robot
 
+    @property
+    def cartesian_tracker(self) -> CartesianTargetTracker:
+        """The follower's command tracker, shared with the hold policy."""
+        return self._tracker
+
     @classmethod
     def from_env(
         cls,
@@ -178,10 +230,11 @@ class LeaderArmCartesianSource(TeleopSource):
         its teleop part; a ``RemoteRobot`` is connected in ``start()``) or ``robot_yaml`` (a local
         robot yaml with a ``teleop:`` section, built here and connected in ``start()``).
 
-        Unless passed, the follower pose and the scales come from the env: a ``FrankaRealEnv``
-        found down the wrapper chain (``last_tcp_pose``, ``cfg.action_scale``), else a
-        ``real_robot`` env in ``cartesian_delta`` mode (``last_observation["state"]["tcp_pose"]``,
-        ``xyz_scale_m``/``rot_scale_rad`` of its action contract).
+        Unless passed, the follower pose, the scales and the safety box come from the env: a
+        ``FrankaRealEnv`` found down the wrapper chain (``last_tcp_pose``, ``cfg.action_scale``,
+        ``cfg.safety_box_low/high``), else a ``real_robot`` env in ``cartesian_delta`` mode
+        (``last_observation["state"]["tcp_pose"]``, ``xyz_scale_m``/``rot_scale_rad`` of its
+        action contract, the configured ``safety_box`` of its experiment).
         """
         from real_world_rl.action_contract import (
             LEGACY_ACTION_CONTRACT,
@@ -199,10 +252,11 @@ class LeaderArmCartesianSource(TeleopSource):
         contract = get_env_action_contract(env)
         kwargs.setdefault("env_contract", LEGACY_ACTION_CONTRACT if contract is None else contract)
         if "follower_pose_getter" not in kwargs:
-            getter, (pos_scale_m, rot_scale_rad) = _follower_pose_from_env(env, contract)
+            getter, (pos_scale_m, rot_scale_rad) = follower_pose_from_env(env, contract)
             kwargs["follower_pose_getter"] = getter
             kwargs.setdefault("pos_scale_m", pos_scale_m)
             kwargs.setdefault("rot_scale_rad", rot_scale_rad)
+        kwargs.setdefault("safety_box", _safety_box_from_env(env, contract))
         if leader is not None:
             return cls(leader, **kwargs)
         if remote_address is not None:
@@ -233,11 +287,19 @@ class LeaderArmCartesianSource(TeleopSource):
             raise
 
     def reset(self) -> None:
-        """Drops the anchor (the next intervened poll re-anchors) and the leader's latched events."""
+        """After the env reset: the tracker holds the follower's pose, the next intervened poll
+        is a take-over, and the leader's latched events are dropped."""
         from robot_infra.devices.errors import DeviceNotConnected
 
-        self._previously_intervened = False
+        self._previously_requested = False
+        self._needs_new_takeover = False
+        self._reanchor_pending = False
         self._anchor = None
+        self._last_advance_s = None
+        self._gripper_latched = False
+        pose = self._follower_pose()
+        if pose is not None:
+            self._tracker.reset(pose)
         teleop = self._resolve()
         if teleop is None:
             return
@@ -248,64 +310,165 @@ class LeaderArmCartesianSource(TeleopSource):
             return
 
     def poll(self) -> TeleopReading:
-        teleop = self._require_part()
-        sample = teleop.read(self._read_timeout_s)
-        if sample.action_space != _LEADER_ACTION_SPACE:
-            raise self._device_fault(
-                f"leader sample has action_space {sample.action_space!r}, expected "
-                f"{_LEADER_ACTION_SPACE!r}",
-                teleop,
-            )
-        q = np.asarray(sample.action, dtype=np.float64)
-        intervened = bool(sample.intervening)
-        onset = intervened and not self._previously_intervened
-        arm = self._arm_action(q, onset) if intervened else np.zeros(_CARTESIAN_ARM_DIM)
-        self._previously_intervened = intervened  # after the mapping: a failed onset retries
-        parts = [arm]
-        if self._env_gripper:
-            parts.append(np.array([self._gripper_action(sample, teleop)]))
-        return TeleopReading(
-            action=np.concatenate(parts).astype(np.float32),
-            intervened=intervened,
-            episode_end=bool(sample.events.get("episode_end", False)),
-            events={key: True for key in _FORWARDED_EVENTS if sample.events.get(key, False)},
-            timestamp=float(getattr(sample, "timestamp", 0.0)),
-        )
+        """One leader read; the part's own ``intervening`` is the operator's signal."""
+        return self._poll(toggle=None)
+
+    def poll_with_toggle(self, toggle: bool) -> TeleopReading:
+        return self._poll(toggle=bool(toggle))
 
     def close(self) -> None:
         if self._leader_robot is not None:
             self._leader_robot.disconnect()
 
-    # -- mapping -------------------------------------------------------------------
+    # -- polling -------------------------------------------------------------------
 
-    def _arm_action(self, q: np.ndarray, onset: bool) -> np.ndarray:
+    def _poll(self, toggle: Optional[bool]) -> TeleopReading:
+        teleop = self._require_part()
+        try:
+            sample = teleop.read(self._read_timeout_s)
+            if sample.action_space != _LEADER_ACTION_SPACE:
+                raise self._device_fault(
+                    f"leader sample has action_space {sample.action_space!r}, expected "
+                    f"{_LEADER_ACTION_SPACE!r}",
+                    teleop,
+                )
+        except BaseException:
+            self._hold_after_failure()
+            raise
+        q = np.asarray(sample.action, dtype=np.float64)
+        requested = bool(sample.intervening) if toggle is None else toggle
+        episode_end = bool(sample.events.get("episode_end", False))
+        measured = self._measured_pose()
+        if not self._tracker.initialized:
+            self._tracker.reset(measured)
+        takeover = requested and not self._previously_requested
+        intervened, arm = self._arm_action(q, measured, requested, takeover)
+        self._previously_requested = requested  # after the mapping: a failed take-over retries
+        if episode_end and self._tracker.following:
+            self._tracker.hold_at(measured)
+            self._needs_new_takeover = True
+            arm = self._tracker.action_for(measured, self._pos_scale_m, self._rot_scale_rad)
+        parts = [arm]
+        if self._env_gripper:
+            parts.append(np.array([self._gripper_action(sample, teleop, takeover, requested)]))
+        return TeleopReading(
+            action=np.concatenate(parts).astype(np.float32),
+            intervened=intervened,
+            episode_end=episode_end,
+            events={key: True for key in _FORWARDED_EVENTS if sample.events.get(key, False)},
+            timestamp=float(getattr(sample, "timestamp", 0.0)),
+        )
+
+    def _arm_action(
+        self, q: np.ndarray, measured: np.ndarray, requested: bool, takeover: bool
+    ) -> tuple[bool, np.ndarray]:
+        """``(intervened, arm action)``; the arm action only matters while intervened."""
+        idle = np.zeros(_CARTESIAN_ARM_DIM)
+        tracker = self._tracker
+        if not requested:
+            if tracker.following:
+                tracker.hold_at(measured)  # hand-back
+            self._needs_new_takeover = False
+            self._reanchor_pending = False
+            return False, idle
+        if takeover or self._reanchor_pending:
+            self._take_over(q)
+        elif self._needs_new_takeover:
+            return False, idle
+        try:
+            update = tracker.advance(self._requested_pose(q), measured, self._elapsed_s())
+            if update.workspace_violations:
+                self._needs_new_takeover = True
+                logger.warning(
+                    "WORKSPACE HOLD: %s; the follower holds its pose, hand back and take over "
+                    "again to continue",
+                    ", ".join(update.workspace_violations),
+                )
+                return False, idle
+            if update.missed_deadline_s is not None:
+                # Treated as an input loss: hold here, then re-anchor the leader as at a take-over.
+                self._reanchor_pending = True
+                logger.warning(
+                    "control loop stalled: %.3f s between two leader commands (max %.3f s); the "
+                    "follower holds its pose and the leader is re-anchored at the next poll",
+                    update.missed_deadline_s,
+                    tracker.config.max_dt_s,
+                )
+            return True, tracker.action_for(measured, self._pos_scale_m, self._rot_scale_rad)
+        except BaseException:
+            self._hold_after_failure()
+            raise
+
+    def _take_over(self, q: np.ndarray) -> None:
+        self._tracker.take_over()
+        self._needs_new_takeover = False
+        self._reanchor_pending = False
+        self._last_advance_s = None
+        if self._mapping == "anchored":
+            leader = self._kinematics.ee_transform(q)
+            command = pose_to_transform(self._tracker.command)
+            # p_c0 - p_l0 and R_l0^T R_c0: p* = p_l + (p_c0 - p_l0), R* = R_l (R_l0^T R_c0).
+            self._anchor = (command[:3, 3] - leader[:3, 3], leader[:3, :3].T @ command[:3, :3])
+
+    def _requested_pose(self, q: np.ndarray) -> np.ndarray:
         leader = self._kinematics.ee_transform(q)
-        follower = self._follower_transform()
-        leader_pos, leader_rot = leader[:3, 3], leader[:3, :3]
-        if self._mapping == "absolute":
-            target_pos, target_rot = leader_pos, leader_rot
-        else:
-            if onset or self._anchor is None:
-                # p_f0 - p_l0 and R_l0^T R_f0: p* = p_l + (p_f0 - p_l0), R* = R_l (R_l0^T R_f0).
-                self._anchor = (follower[:3, 3] - leader_pos, leader_rot.T @ follower[:3, :3])
+        position, rotation = leader[:3, 3], leader[:3, :3]
+        if self._mapping == "anchored":
             position_offset, rotation_offset = self._anchor
-            target_pos, target_rot = leader_pos + position_offset, leader_rot @ rotation_offset
-        pos = (target_pos - follower[:3, 3]) / self._pos_scale_m
-        rot = matrix_to_rotvec(target_rot @ follower[:3, :3].T) / self._rot_scale_rad
-        return np.clip(np.concatenate([pos, rot]), -1.0, 1.0)
+            position, rotation = position + position_offset, rotation @ rotation_offset
+        return np.concatenate([position, matrix_to_quat_xyzw(rotation)])
 
-    def _follower_transform(self) -> np.ndarray:
+    def _elapsed_s(self) -> float:
+        """Seconds since the previous advance; 0 for the first one of a take-over."""
+        now = float(self._clock())
+        elapsed = 0.0 if self._last_advance_s is None else now - self._last_advance_s
+        self._last_advance_s = now
+        return elapsed
+
+    def _measured_pose(self) -> np.ndarray:
         pose = self._follower_pose()
         if pose is None:
             raise RuntimeError("leader_cartesian polled before the env was reset (no follower pose yet)")
-        return pose_to_transform(pose)
+        return np.asarray(pose, dtype=np.float64)
 
-    def _gripper_action(self, sample: Any, teleop: Any) -> float:
+    def _hold_after_failure(self) -> None:
+        """Input or tracking failure: hold the measured pose; following needs a new take-over."""
+        if not self._tracker.following:
+            return
+        pose = self._follower_pose()
+        if pose is not None:
+            self._tracker.hold_at(pose)
+        self._needs_new_takeover = True
+
+    # -- gripper -------------------------------------------------------------------
+
+    def _gripper_action(self, sample: Any, teleop: Any, takeover: bool, requested: bool) -> float:
         if not self._leader_has_gripper:
             return held_gripper_action(self._last_gripper_action)
         if sample.gripper is None:
             raise self._device_fault("leader declares a gripper but its sample carries none", teleop)
-        width = float(sample.gripper)
+        trigger = self._trigger_action(float(sample.gripper))
+        if self._last_gripper_action is None:
+            return trigger
+        if not requested:
+            self._gripper_latched = False
+            return trigger
+        held = held_gripper_action(self._last_gripper_action)
+        if takeover and _gripper_open(trigger) != _gripper_open(held):
+            self._gripper_latched = True
+            logger.info(
+                "leader gripper trigger disagrees with the gripper (%s); holding it until the "
+                "trigger is %s too",
+                "open" if _gripper_open(held) else "closed",
+                "open" if _gripper_open(held) else "closed",
+            )
+        if self._gripper_latched:
+            if _gripper_open(trigger) != _gripper_open(held):
+                return held
+            self._gripper_latched = False
+        return trigger
+
+    def _trigger_action(self, width: float) -> float:
         if self._gripper_binarize_threshold is None:
             return float(np.clip(2.0 * width - 1.0, -1.0, 1.0))
         return 1.0 if width > self._gripper_binarize_threshold else -1.0
@@ -367,7 +530,11 @@ class LeaderArmCartesianSource(TeleopSource):
         )
 
 
-def _follower_pose_from_env(env: Any, contract: Optional[Mapping[str, Any]]) -> tuple[PoseGetter, tuple]:
+def _gripper_open(action: float) -> bool:
+    return action > 0.0
+
+
+def follower_pose_from_env(env: Any, contract: Optional[Mapping[str, Any]]) -> tuple[PoseGetter, tuple]:
     """The follower TCP pose getter and ``(pos_scale_m, rot_scale_rad)`` of ``env``."""
     from real_world_rl.envs.franka_real.env import FrankaRealEnv
 
@@ -385,10 +552,22 @@ def _follower_pose_from_env(env: Any, contract: Optional[Mapping[str, Any]]) -> 
 
         return tcp_pose_from_observation, (contract["xyz_scale_m"], contract["rot_scale_rad"])
     raise ValueError(
-        "device='leader_cartesian' needs the follower's TCP pose: a franka_real env "
-        "(FrankaRealEnv.last_tcp_pose) or a real_robot env with action_mode cartesian_delta; "
+        "the follower's TCP pose is read from a franka_real env (FrankaRealEnv.last_tcp_pose) or "
+        "a real_robot env with action_mode cartesian_delta (and tcp_pose in its state_fields); "
         "otherwise pass follower_pose_getter=..."
     )
+
+
+def _safety_box_from_env(env: Any, contract: Optional[Mapping[str, Any]]) -> Optional[list]:
+    """``[xmin, ymin, zmin, xmax, ymax, zmax]`` the env clips commands to, if configured."""
+    from real_world_rl.envs.franka_real.env import FrankaRealEnv
+
+    franka_env = _find_in_wrapper_chain(env, FrankaRealEnv)
+    if franka_env is not None:
+        return [*franka_env.cfg.safety_box_low, *franka_env.cfg.safety_box_high]
+    experiment = (contract or {}).get("experiment") or {}
+    box = experiment.get("safety_box")
+    return None if box is None else list(box)
 
 
 def _find_in_wrapper_chain(env: Any, env_cls: type) -> Optional[Any]:

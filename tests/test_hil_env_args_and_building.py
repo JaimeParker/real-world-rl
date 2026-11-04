@@ -69,6 +69,10 @@ HIL_SERL_OWN_DEFAULTS = {
     "teleop_arm_tolerance_rad": 0.1,
     "teleop_ramp_step_rad": 0.05,
     "teleop_options_yaml": None,
+    "teleop_lead_cap_m": 0.05,
+    "teleop_lead_cap_rad": 0.3,
+    "teleop_target_speed_m_s": 0.05,
+    "teleop_target_speed_rad_s": 0.3,
     "convert_obs_rotation": False,
     "demo_buffer_size": 100_000,
     "demo_data_ratio": 0.5,
@@ -128,6 +132,10 @@ def test_hil_env_args_holds_exactly_the_env_teleop_classifier_and_demo_fields():
         "teleop_arm_tolerance_rad",
         "teleop_ramp_step_rad",
         "teleop_options_yaml",
+        "teleop_lead_cap_m",
+        "teleop_lead_cap_rad",
+        "teleop_target_speed_m_s",
+        "teleop_target_speed_rad_s",
         "convert_obs_rotation",
         "demo_buffer_size",
         "demo_data_ratio",
@@ -318,9 +326,17 @@ def _onset_args(**overrides) -> HilSerlArgs:
     )
 
 
-@pytest.mark.parametrize("device", ["pico", "spacemouse", "fake", "keyboard"])
+@pytest.mark.parametrize("device", ["pico", "fake", "keyboard"])
 def test_devices_without_arguments_get_the_device_alone(device):
     assert env_building.teleop_wrapper_kwargs(HilSerlArgs(teleop_device=device)) == {"device": device}
+
+
+def test_spacemouse_gets_the_command_tracker_arguments():
+    args = HilSerlArgs(teleop_device="spacemouse")
+    assert env_building.teleop_wrapper_kwargs(args) == {
+        "device": "spacemouse",
+        **env_building.cartesian_tracker_kwargs(args),
+    }
 
 
 def test_robot_device_keeps_its_part_arguments_and_no_onset():
@@ -382,7 +398,7 @@ def test_build_hil_env_wraps_a_composite_when_an_event_device_is_set(fake_backen
         "motion": "spacemouse",
         "events": "keyboard",
         "intervention_from": "events",
-        "motion_kwargs": {},
+        "motion_kwargs": env_building.cartesian_tracker_kwargs(args),
     }
 
 
@@ -397,11 +413,12 @@ def test_build_hil_env_passes_no_teleop_arguments_for_the_default_device(fake_ba
 
 def test_options_yaml_reaches_the_spacemouse_source(tmp_path, fake_backend, monkeypatch):
     options = tmp_path / "spacemouse.yaml"
-    options.write_text("device_index: 2\nhold_s: 0.3\n", encoding="utf-8")
+    options.write_text("device_index: 2\ndeadzone: 0.08\n", encoding="utf-8")
     monkeypatch.setattr(env_building, "hil_env_request", lambda args, run_name: None)
     args = HilSerlArgs(teleop_device="spacemouse", teleop_options_yaml=str(options))
     env = env_building.build_hil_env(args, role="actor")
-    assert env.device == "spacemouse" and env.kwargs == {"device_index": 2, "hold_s": 0.3}
+    assert env.device == "spacemouse"
+    assert env.kwargs == {**env_building.cartesian_tracker_kwargs(args), "device_index": 2, "deadzone": 0.08}
 
 
 def test_options_yaml_overrides_the_derived_kwargs_and_feeds_the_composite_motion(tmp_path):
@@ -433,7 +450,7 @@ def test_options_yaml_must_hold_a_mapping(tmp_path):
 def test_options_yaml_device_index_opens_that_spacemouse(tmp_path, monkeypatch):
     import sys
 
-    from _teleop_fakes import FakeEnv, make_pyspacemouse
+    from _teleop_fakes import CartesianPoseEnv, make_pyspacemouse
 
     from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
 
@@ -442,7 +459,7 @@ def test_options_yaml_device_index_opens_that_spacemouse(tmp_path, monkeypatch):
     options = tmp_path / "spacemouse.yaml"
     options.write_text("device_index: 2\n", encoding="utf-8")
     args = HilSerlArgs(teleop_device="spacemouse", teleop_options_yaml=str(options))
-    wrapped = TeleopInterventionWrapper(FakeEnv(), **env_building.teleop_wrapper_kwargs(args))
+    wrapped = TeleopInterventionWrapper(CartesianPoseEnv(), **env_building.teleop_wrapper_kwargs(args))
     try:
         assert pyspacemouse.devices[0].kwargs == {"device_index": 2}
     finally:

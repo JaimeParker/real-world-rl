@@ -188,20 +188,46 @@ def test_held_button_toggles_only_once(spacemouse, pyspacemouse):
     assert teleop.read().gripper == 0.0
 
 
-def test_button_one_latches_episode_end_once(spacemouse, pyspacemouse):
+@pytest.mark.parametrize("button", [0, 1])
+def test_a_held_button_latches_one_press_event_and_never_ends_the_episode(spacemouse, pyspacemouse, button):
     teleop = spacemouse()
-    pyspacemouse.buttons = (0, 1)
+    name = f"button_{button}"
+    pyspacemouse.buttons = tuple(int(index == button) for index in range(2))
     seen = []
     for _ in range(200):
         sample = teleop.read()
-        seen.append(sample.events["episode_end"])
-        if sample.buttons["button_1"] and len(seen) > 1 and any(seen):
+        seen.append(sample.events.get(name, False))
+        assert sample.events["episode_end"] is False
+        if sample.buttons[name] and len(seen) > 1 and any(seen):
             break
     pyspacemouse.buttons = (0, 0)
     time.sleep(0.05)
     assert seen.count(True) == 1  # the held button fires one edge
-    assert teleop.read().events["episode_end"] is False
-    assert teleop.read().events["episode_end"] is False
+    for _ in range(2):
+        sample = teleop.read()
+        assert sample.events.get(name, False) is False and sample.events["episode_end"] is False
+
+
+def settled_latest(teleop, predicate, attempts=400):
+    """Wait, without consuming events, until the poll thread published a matching sample."""
+    for _ in range(attempts):
+        sample = teleop.latest()
+        if sample is not None and predicate(sample):
+            return sample
+        time.sleep(0.001)
+    raise AssertionError("mocked state never reached the sample")
+
+
+def test_a_press_released_between_two_reads_is_still_latched(spacemouse, pyspacemouse):
+    teleop = spacemouse()
+    teleop.read()
+    pyspacemouse.buttons = (0, 1)
+    settled_latest(teleop, lambda s: s.buttons["button_1"])
+    pyspacemouse.buttons = (0, 0)
+    settled_latest(teleop, lambda s: not s.buttons["button_1"])
+    sample = teleop.read()
+    assert not sample.buttons["button_1"] and sample.events["button_1"] is True
+    assert sample.events.get("button_0", False) is False
 
 
 def test_disconnect_closes_device_and_stops_thread(spacemouse, pyspacemouse):

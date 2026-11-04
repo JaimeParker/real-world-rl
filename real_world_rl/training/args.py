@@ -117,12 +117,15 @@ class HilEnvArgs:
     # "leader_arm": the same part read as a joint-space leader arm (GELLO over the daemon), with
     # the --teleop-onset policy. "gello": a GELLO on this machine. "fake": a scripted source for
     # dry runs without hardware. "bimanual": one --teleop-arm-device per arm of a
-    # real_robot_bimanual env. See docs/teleop.md for every device.
+    # real_robot_bimanual env. "spacemouse": a SpaceMouse over the cartesian command tracker
+    # (button 0 takes over); "spacemouse_twist": the old raw twist, sim only, not for real robots.
+    # See docs/teleop.md for every device.
     teleop_selected_parts: list[str] = field(default_factory=list)
     teleop_idle_behavior: Literal["hold", "policy"] = "hold"
     teleop_device: Literal[
         "pico",
         "spacemouse",
+        "spacemouse_twist",
         "robot",
         "fake",
         "gello",
@@ -138,10 +141,22 @@ class HilEnvArgs:
     # whose part is only known after connecting (checked then; a mismatch raises DeviceFault).
     robot_teleop_action_mode: Optional[Literal["cartesian_delta", "joint_abs", "joint_delta"]] = None
     robot_teleop_has_gripper: bool = True
-    # A second device for the operator's buttons (intervention toggle, episode end, success/
-    # failure/rerecord): the env then takes its motion from --teleop-device and intervention plus
-    # events from this one (CompositeTeleopSource). None: --teleop-device alone.
-    teleop_event_device: Optional[Literal["keyboard", "spacemouse"]] = None
+    # A second device for the operator's buttons (take over / hand back, episode end, success/
+    # failure/rerecord, quit): the env then takes its motion from --teleop-device and intervention
+    # plus events from this one (CompositeTeleopSource). "keyboard" reads this machine's keyboard
+    # (pynput, needs a desktop session), "stdin" the terminal running the process; both use the
+    # keys t/h/s/f/r/Esc/q. None: --teleop-device alone. (The SpaceMouse is no longer an event
+    # device: use --teleop-device spacemouse with --teleop-event-device stdin or keyboard.)
+    teleop_event_device: Optional[Literal["keyboard", "stdin"]] = None
+    # --teleop-device leader_cartesian/spacemouse: the persistent command target of the follower
+    # (CartesianTargetTracker). It leads the measured TCP pose by at most lead_cap (the excess is
+    # dropped) and advances towards the leader (the SpaceMouse: at full deflection) at most
+    # target_speed. xyz_scale_m/rot_scale_rad of the env must be at least the lead caps. Recorded in
+    # the experiment contract (teleop_control).
+    teleop_lead_cap_m: float = 0.05
+    teleop_lead_cap_rad: float = 0.3
+    teleop_target_speed_m_s: float = 0.05
+    teleop_target_speed_rad_s: float = 0.3
     # Leader-arm takeover (--teleop-device gello/leader_arm, and every arm of bimanual): "ramp"
     # rate-limits joint_abs targets to ramp_step_rad per step until the follower caught up; "arm"
     # ignores the toggle until the leader is within arm_tolerance_rad of the follower.
@@ -150,7 +165,7 @@ class HilEnvArgs:
     teleop_ramp_step_rad: float = 0.05
     # Yaml mapping merged into the --teleop-device source kwargs (after the ones derived from the
     # args above, so it overrides them): device options such as port/joint_ids/joint_offsets_rad/
-    # joint_signs for gello, device_index/deadzone for spacemouse, hold_s, read_timeout_s. A
+    # joint_signs for gello, device_index/deadzone/invert_axes for spacemouse, hold_s, read_timeout_s. A
     # robot_infra station yaml also works for gello: its teleop: options become the source kwargs.
     # For bimanual: per-arm sections keyed by arm name (left: {...}) plus common keys, or a station
     # yaml with robots: {left, right}.

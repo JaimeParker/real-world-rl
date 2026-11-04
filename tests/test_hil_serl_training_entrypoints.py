@@ -671,6 +671,58 @@ def test_build_env_robot_teleop_device_wraps_teleop_part_source_in_order(_fake_r
         env.close()
 
 
+def _step_until(env, predicate, attempts=400):
+    """Steps until the mocked device state has propagated through the device poll thread."""
+    for _ in range(attempts):
+        info = env.step(torch.zeros(1, 7))[4]
+        if predicate(info):
+            return info
+    raise AssertionError("the mocked device state never reached a step")
+
+
+def test_hil_actor_env_with_the_spacemouse_takes_over_on_button_0(_fake_robot_claims, monkeypatch):
+    """One HIL actor env (fake robot, real_robot cartesian_delta) with --teleop-device spacemouse
+    over a mocked pyspacemouse: the puck alone does not intervene; button 0 takes over through the
+    intervention wrapper, the gripper starts from the last sent action, the twist stays bounded."""
+    import dataclasses
+    import sys
+
+    from _teleop_fakes import make_pyspacemouse
+
+    import real_world_rl.envs.backends.real_robot  # noqa: F401  (registers the backend)
+    from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
+    from real_world_rl.teleop.spacemouse import SpaceMouseTeleopSource
+    from real_world_rl.training.entrypoints.hil_serl import _hil_serl_env_request
+
+    pyspacemouse = make_pyspacemouse()
+    monkeypatch.setitem(sys.modules, "pyspacemouse", pyspacemouse)
+    args = _fake_robot_args(teleop_device="spacemouse")
+    # The env scales must reach the tracker's lead cap (0.05 m / 0.3 rad).
+    args = dataclasses.replace(
+        args, real_robot=dataclasses.replace(args.real_robot, xyz_scale_m=0.05, rot_scale_rad=0.3)
+    )
+    env = _build_env(args, _hil_serl_env_request(args, run_name="t"))
+    try:
+        (wrapper,) = [layer for layer in _chain(env) if isinstance(layer, TeleopInterventionWrapper)]
+        source = wrapper.source
+        assert isinstance(source, SpaceMouseTeleopSource)
+        env.reset()
+        pyspacemouse.twist = (0.0, 0.0, 0.5, 0.0, 0.0, 0.0)  # output axis 2: base z
+        for _ in range(5):
+            assert env.step(torch.zeros(1, 7))[4]["intervened"] is False  # the puck alone
+        pyspacemouse.buttons = (1, 0)
+        _step_until(env, lambda info: info["intervened"])
+        pyspacemouse.buttons = (0, 0)
+        info = _step_until(env, lambda info: info["intervened"] and info["intervene_action"][0, 2] > 0)
+        executed = info["intervene_action"].reshape(-1)
+        assert executed.abs().max() <= 1.0
+        assert executed[6] == 0.0  # the policy's last gripper action (zeros here), kept at the take-over
+        assert source.cartesian_tracker.following
+    finally:
+        env.close()
+    assert pyspacemouse.devices[0].closed
+
+
 def test_robot_teleop_device_requires_real_robot_backend():
     from real_world_rl.training.entrypoints.hil_serl import _robot_teleop_kwargs
 

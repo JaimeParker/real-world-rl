@@ -34,9 +34,33 @@ has to come from it because the command line cannot express a list of pairs. Key
 not recorder fields (the algorithm's hyperparameters) are skipped.
 
 Other motion devices work the same way: `--teleop-device gello` with `--teleop-options-yaml
-gello.yaml` for a GELLO on this machine, `--teleop-device spacemouse` for a cartesian env,
-`--teleop-device leader_cartesian` on `franka_real`. The GELLO setup itself is in
-[gello.md](gello.md), the devices in [teleop.md](teleop.md).
+gello.yaml` for a GELLO on this machine, `--teleop-device leader_cartesian` for a GELLO driving a
+`cartesian_delta` arm (`real_robot` or
+`franka_real`; [`examples/presets/gello_cartesian.yaml`](../examples/presets/gello_cartesian.yaml)
+is a single-arm 50 Hz preset, its tracker flags `--teleop-lead-cap-m`, `--teleop-lead-cap-rad`,
+`--teleop-target-speed-m-s`, `--teleop-target-speed-rad-s` are in
+[teleop.md](teleop.md#leader-arm-on-a-cartesian-robot-leader_cartesian)), and
+`--teleop-device spacemouse --teleop-event-device stdin` for a SpaceMouse driving a
+`cartesian_delta` arm. Demos recorded with `leader_cartesian` or `spacemouse` carry the tracker in
+the experiment contract (`teleop_control`), so a policy trained on them is rejected by a deploy
+built with a `--teleop-device` without it. The GELLO setup itself is in [gello.md](gello.md), the
+devices in [teleop.md](teleop.md).
+
+SpaceMouse flags (details in [teleop.md](teleop.md#spacemouse)):
+
+| Flag | Default | What |
+| --- | --- | --- |
+| `--teleop-device spacemouse` | | the SpaceMouse on this machine; button 0 takes over and hands back, button 1 toggles the gripper (starting from its last command), the puck is a velocity |
+| `--teleop-event-device stdin` (or `keyboard`) | | the outcome keys `s`/`f`/`r`, Esc, `q`; its `t`/`h` are ignored (button 0 is the toggle) |
+| `--teleop-target-speed-m-s`, `--teleop-target-speed-rad-s` | 0.05, 0.3 | the speed at full puck deflection |
+| `--teleop-lead-cap-m`, `--teleop-lead-cap-rad` | 0.05, 0.3 | how far the command may lead the arm; releasing the puck stops it within this |
+| `--real-robot.xyz-scale-m`, `--real-robot.rot-scale-rad` | 0.02, 0.1 | must be at least the lead caps: pass 0.05 and 0.3 |
+| `--teleop-options-yaml` with `device_index`, `deadzone`, `invert_axes` | 0, 0.05, `[]` | which SpaceMouse, the per-axis rest-noise deadzone (of full scale), the output axes (0-5) to flip |
+
+The operator keys of `--teleop-event-device keyboard` (this machine's desktop session) and
+`--teleop-event-device stdin` (the terminal running the recorder, also over SSH): `t` takes over,
+`h` hands back, `s` success, `f` failure, `r` rerecord, Esc ends the episode, `q` ends the episode
+and stops the recorder after it.
 
 Two arms (`--env-backend real_robot_bimanual`): `--teleop-device bimanual --teleop-arm-device
 leader_arm` (or `gello`, or `robot`) reads one leader per arm, and the recorder works per arm.
@@ -80,9 +104,15 @@ python examples/train_real_world.py hil_serl --role learner --config hil.yaml \
    released, so the onset policy does not hide the gap and no event-device button is consumed.
 3. Every step the recorder sends a hold action; while the operator intervenes the intervention
    wrapper executes the operator's action instead. The hold action keeps the robot where it is:
-   a zero arm action in `joint_delta` and `cartesian_delta`, the follower's current joint
-   positions in `joint_abs`, and the last executed gripper action (open after a reset), one per
-   arm: the grippers are the last `num_arms` action dims (the action contract's layout).
+   a zero arm action in `joint_delta` (and on two `cartesian_delta` arms), the follower's current
+   joint positions in `joint_abs`, and on one `cartesian_delta` arm the action back onto a fixed
+   hold pose (sampled after the reset and at every hand-back; with `leader_cartesian` the source's
+   own tracker, see [teleop.md](teleop.md#mapping)), so the arm does not drift. An arm further
+   from the hold pose than one step (`--real-robot.xyz-scale-m`/`--real-robot.rot-scale-rad`)
+   gets a saturated action and returns one step at a time. The gripper dims hold the last
+   executed gripper action (open after a reset), one per arm: the grippers are the last
+   `num_arms` action dims (the action contract's layout). `run_recorder(args,
+   hold_action_fn_factory=...)` injects another hold policy (called with the built env).
 4. Every step is archived. The pkl view selects intervened steps; leader catch-up carries
    `teleop_syncing` in both joint modes and is excluded unless `--keep-syncing-steps` is set.
    Archive-derived training views still exclude syncing. Human masks select expert dimensions,
@@ -92,8 +122,8 @@ python examples/train_real_world.py hil_serl --role learner --config hil.yaml \
    default `--reward-from-teleop-events`), a reward classifier terminates. Press the success key
    while still intervening: only intervened steps are recorded, so the terminal step must be one.
 
-Episode outcome, from the operator's events (any event path: keyboard, SpaceMouse buttons, the
-GELLO's evdev device):
+Episode outcome, from the operator's events (any event path: keyboard, terminal, the GELLO's
+evdev device; the SpaceMouse buttons raise none):
 
 | Event | Effect |
 | --- | --- |
@@ -102,7 +132,9 @@ GELLO's evdev device):
 | `rerecord` (`r`) | the episode is discarded at once and the next one starts |
 
 Only successful episodes with at least one recorded step are kept; each finished episode is
-printed with its outcome. Ctrl-C stops the session and still saves the episodes kept so far.
+printed with its outcome. Ctrl-C stops the session and still saves the episodes kept so far; the
+`q` key (`operator_quit`) ends the current episode, which is judged as usual, and then stops the
+session the same way.
 
 In `joint_delta` the start check is skipped: the leader reading saturates at one
 `joint_scale_rad` per step, so it cannot measure a larger gap, and the same saturation already
@@ -135,6 +167,10 @@ only successful human demonstrations produce a pkl. Restarting the command begin
 reset, including home motion and gripper opening. Verify the station and workspace before
 each restart. The default, with no attempt limit, continues until `--num-successes` is met.
 
-A complete Chinese [single-PC bimanual Franka/GELLO commissioning case](zh-CN/testing/bimanual-franka-gello-smoke.md)
-includes installation, NUC configuration migration, independent device-side keys, operating
-steps and a CSV record template. Independent actor-server networking is a later case.
+`examples/inspect_teleop_archive.py <archive>` reads the archive read-only and, for a single-arm
+state with `tcp_pose`, reports per human_action_mask segment the hold drift (also over the first
+`--drift-window-s`), the residual and the take-over jump in mm, plus the settle time after each
+`--stop-time-s`; `--measurements PATH` writes them as the test pages' `measurements.csv` rows.
+
+See the [hardware session checklist index](testing/README.md) for the English primary
+test pages, record CSV conventions and evidence requirements. Fill hardware results on site.

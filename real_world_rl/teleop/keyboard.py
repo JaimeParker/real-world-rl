@@ -1,4 +1,13 @@
-"""Keyboard of this machine as an event device (``device="keyboard"``), read with ``pynput``."""
+"""Keyboard of this machine as an event device (``device="keyboard"``), read with ``pynput``.
+
+The operator keys, shared with the terminal source (``device="stdin"``):
+
+- ``t`` takes over (``intervened`` becomes true), ``h`` hands back (false);
+- ``s``/``f``/``r`` raise the ``success``/``failure``/``rerecord`` events;
+- ``Esc`` ends the episode;
+- ``q`` ends the episode and raises ``operator_quit``: the recorder and the actor loops stop
+  after finishing that episode, as after Ctrl-C.
+"""
 from __future__ import annotations
 
 import threading
@@ -14,25 +23,64 @@ from real_world_rl.action_contract import (
 from real_world_rl.teleop.base import TeleopReading, TeleopSource
 from real_world_rl.teleop.registry import register_teleop_source
 
-TOGGLE_KEY = "space"
+TAKE_OVER_KEY = "t"
+HAND_BACK_KEY = "h"
 EPISODE_END_KEY = "esc"
+QUIT_KEY = "q"
 EVENT_KEYS: Dict[str, str] = {"s": "success", "f": "failure", "r": "rerecord"}
+OPERATOR_QUIT_EVENT = "operator_quit"
 
 
-@register_teleop_source("keyboard")
-class KeyboardTeleopSource(TeleopSource):
-    """Space toggles ``intervened``, Esc raises ``episode_end``, ``s``/``f``/``r`` raise the
-    ``success``/``failure``/``rerecord`` events. Keys act on press; a held key (auto-repeat) acts
-    once until it is released. Presses latch until the next ``poll()``.
+def operator_quit_requested(info: Any) -> bool:
+    """Whether a step's ``info`` carries the operator's quit key (``info["teleop_events"]``)."""
+    events = (info or {}).get("teleop_events") or {}
+    return bool(events.get(OPERATOR_QUIT_EVENT, False))
 
-    The action is always zeros of the declared width, so on its own the keyboard only suits
-    event-only tests; it is meant as the event half of ``CompositeTeleopSource``. ``from_env``
-    declares the env's action space so the source validates against any env.
 
-    ``pynput`` (extra ``reward-collection``) is imported when ``start()`` starts the listener, so
-    building the source works without it; on Linux it needs an X session. ``reset()`` clears the
-    latched presses and the toggle; ``close()`` stops the listener.
-    """
+class OperatorKeyLatch:
+    """Thread-safe state of the operator keys: the take-over flag, and the episode-end and event
+    presses latched until the next ``take()``."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._intervened = False
+        self._episode_end = False
+        self._events: Dict[str, bool] = {}
+
+    def press(self, name: str) -> None:
+        """Applies one key press (the module's key names; other names are ignored)."""
+        with self._lock:
+            if name == TAKE_OVER_KEY:
+                self._intervened = True
+            elif name == HAND_BACK_KEY:
+                self._intervened = False
+            elif name == EPISODE_END_KEY:
+                self._episode_end = True
+            elif name == QUIT_KEY:
+                self._episode_end = True
+                self._events[OPERATOR_QUIT_EVENT] = True
+            elif name in EVENT_KEYS:
+                self._events[EVENT_KEYS[name]] = True
+
+    def take(self) -> tuple[bool, bool, Dict[str, bool]]:
+        """``(intervened, episode_end, events)``; drops the latched presses."""
+        with self._lock:
+            reading = (self._intervened, self._episode_end, self._events)
+            self._episode_end, self._events = False, {}
+        return reading
+
+    def reset(self) -> None:
+        with self._lock:
+            self._intervened = False
+            self._episode_end = False
+            self._events = {}
+
+
+class OperatorKeySource(TeleopSource):
+    """An event device emitting zeros of the declared width, with ``intervened`` and the events
+    from the operator keys. ``from_env`` declares the env's action space so the source validates
+    against any env; on its own it only suits event-only tests, it is meant as the event half of
+    ``CompositeTeleopSource``. ``reset()`` hands back and drops the latched presses."""
 
     def __init__(
         self,
@@ -44,16 +92,10 @@ class KeyboardTeleopSource(TeleopSource):
         self._action_mode = action_mode
         self._arm_action_dim = int(arm_action_dim)
         self._has_gripper = bool(has_gripper)
-        self._lock = threading.Lock()
-        self._toggled = False
-        self._episode_end = False
-        self._events: Dict[str, bool] = {}
-        self._held: Set[str] = set()
-        self._keyboard: Any = None
-        self._listener: Any = None
+        self._keys = OperatorKeyLatch()
 
     @classmethod
-    def from_env(cls, env: Any, **kwargs: Any) -> "KeyboardTeleopSource":
+    def from_env(cls, env: Any, **kwargs: Any) -> "OperatorKeySource":
         contract = get_env_action_contract(env) or LEGACY_ACTION_CONTRACT
         kwargs.setdefault("action_mode", contract["action_mode"])
         kwargs.setdefault("arm_action_dim", int(contract["arm_action_dim"]))
@@ -72,6 +114,42 @@ class KeyboardTeleopSource(TeleopSource):
     def has_gripper(self) -> bool:
         return self._has_gripper
 
+    def poll(self) -> TeleopReading:
+        """The take-over state and the presses latched since the previous poll."""
+        self._check_alive()
+        intervened, episode_end, events = self._keys.take()
+        return TeleopReading(
+            action=np.zeros(self._arm_action_dim + int(self._has_gripper), dtype=np.float32),
+            intervened=intervened,
+            episode_end=episode_end,
+            events=events,
+            timestamp=time.monotonic(),
+        )
+
+    def reset(self) -> None:
+        self._keys.reset()
+
+    def _check_alive(self) -> None:
+        """Raises when the key reader died, so a dead device never reads as an idle operator."""
+
+
+@register_teleop_source("keyboard")
+class KeyboardTeleopSource(OperatorKeySource):
+    """The operator keys (module docstring) from ``pynput``. Keys act on press; a held key
+    (auto-repeat) acts once until it is released.
+
+    ``pynput`` (extra ``reward-collection``) is imported when ``start()`` starts the listener, so
+    building the source works without it; on Linux it needs an X session (``device="stdin"``
+    does not). ``close()`` stops the listener.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._held: Set[str] = set()
+        self._held_lock = threading.Lock()
+        self._keyboard: Any = None
+        self._listener: Any = None
+
     def start(self) -> None:
         if self._listener is not None:
             return
@@ -82,7 +160,8 @@ class KeyboardTeleopSource(TeleopSource):
 
             raise SdkMissing(
                 "the keyboard teleop source needs pynput",
-                hint="pip install pynput (extra reward-collection); on Linux it needs an X session",
+                hint="pip install pynput (extra reward-collection); on Linux it needs an X session, "
+                "or use --teleop-event-device stdin from a terminal",
                 device="keyboard",
             ) from None
         self._keyboard = keyboard
@@ -90,9 +169,12 @@ class KeyboardTeleopSource(TeleopSource):
         listener.start()
         self._listener = listener
 
-    def poll(self) -> TeleopReading:
-        """The toggle state and the presses latched since the previous poll. A listener that
-        died raises ``DeviceFault`` instead of reading as an idle operator."""
+    def close(self) -> None:
+        listener, self._listener = self._listener, None
+        if listener is not None:
+            listener.stop()
+
+    def _check_alive(self) -> None:
         if self._listener is not None and not self._listener.is_alive():
             from robot_infra.devices.errors import DeviceFault
 
@@ -101,33 +183,10 @@ class KeyboardTeleopSource(TeleopSource):
                 hint="check the X session (DISPLAY) and restart the run",
                 device="keyboard",
             )
-        with self._lock:
-            intervened, episode_end, events = self._toggled, self._episode_end, self._events
-            self._episode_end, self._events = False, {}
-        return TeleopReading(
-            action=np.zeros(self._arm_action_dim + int(self._has_gripper), dtype=np.float32),
-            intervened=intervened,
-            episode_end=episode_end,
-            events=events,
-            timestamp=time.monotonic(),
-        )
-
-    def reset(self) -> None:
-        with self._lock:
-            self._toggled = False
-            self._episode_end = False
-            self._events = {}
-
-    def close(self) -> None:
-        listener, self._listener = self._listener, None
-        if listener is not None:
-            listener.stop()
 
     # -- listener callbacks (pynput's thread) --------------------------------------
 
     def _key_name(self, key: Any) -> Optional[str]:
-        if key == self._keyboard.Key.space:
-            return TOGGLE_KEY
         if key == self._keyboard.Key.esc:
             return EPISODE_END_KEY
         char = getattr(key, "char", None)
@@ -137,19 +196,14 @@ class KeyboardTeleopSource(TeleopSource):
         name = self._key_name(key)
         if name is None:
             return
-        with self._lock:
+        with self._held_lock:
             if name in self._held:
                 return  # auto-repeat of a held key
             self._held.add(name)
-            if name == TOGGLE_KEY:
-                self._toggled = not self._toggled
-            elif name == EPISODE_END_KEY:
-                self._episode_end = True
-            elif name in EVENT_KEYS:
-                self._events[EVENT_KEYS[name]] = True
+        self._keys.press(name)
 
     def _on_release(self, key: Any) -> None:
         name = self._key_name(key)
         if name is not None:
-            with self._lock:
+            with self._held_lock:
                 self._held.discard(name)

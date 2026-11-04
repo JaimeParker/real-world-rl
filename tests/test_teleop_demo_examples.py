@@ -11,7 +11,7 @@ from _teleop_fakes import FakeEnv, make_pyspacemouse
 
 from real_world_rl.teleop import make_teleop_source
 from real_world_rl.teleop.fake import ScriptedTeleopSource
-from real_world_rl.teleop.spacemouse import SpaceMouseTeleopSource
+from real_world_rl.teleop.spacemouse import SpaceMouseTwistTeleopSource
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 
@@ -55,9 +55,9 @@ def test_fake_device_builds_an_idle_source(example):
 def test_spacemouse_kwargs_reach_the_device(example, monkeypatch):
     fake_sdk = make_pyspacemouse()
     monkeypatch.setitem(sys.modules, "pyspacemouse", fake_sdk)
-    args = _args(example, device="spacemouse", spacemouse_index=2, spacemouse_invert_axes=[1])
+    args = _args(example, device="spacemouse_twist", spacemouse_index=2, spacemouse_invert_axes=[1])
     source = make_teleop_source(args.device, FakeEnv(), **example.build_teleop_kwargs(args))
-    assert isinstance(source, SpaceMouseTeleopSource)
+    assert isinstance(source, SpaceMouseTwistTeleopSource)
     source.start()
     try:
         assert fake_sdk.devices[0].kwargs == {"device_index": 2}

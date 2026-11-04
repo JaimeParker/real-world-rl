@@ -185,7 +185,8 @@ def test_importing_the_package_and_building_sources_keeps_sdks_lazy():
         "import real_world_rl.teleop as teleop\n"
         "teleop.teleop_source_names()\n"
         "import real_world_rl.teleop.pico\n"
-        "source = teleop.make_teleop_source('spacemouse', None)\n"
+        "source = teleop.make_teleop_source('spacemouse', None, follower_pose_getter=lambda: None,\n"
+        "                                   last_gripper_action_getter=lambda: 1.0)\n"
         "assert 'pyspacemouse' not in sys.modules, 'pyspacemouse imported'\n"
         "assert 'zmq' not in sys.modules, 'zmq imported'\n"
     )

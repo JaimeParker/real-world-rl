@@ -1,5 +1,11 @@
-"""3Dconnexion SpaceMouse through pyspacemouse 2.x: the puck drives a cartesian twist, button 0
-toggles the (sticky) gripper target and button 1 raises ``episode_end``."""
+"""3Dconnexion SpaceMouse through pyspacemouse 2.x: the puck drives a cartesian twist; every
+button press is latched as an event named after the button (``button_0``, ``button_1``), so a
+press shorter than the consumer's read period is not lost. Neither button ends the episode.
+
+Button 0 also toggles a sticky gripper target here (``gripper``), and ``active`` is the puck or a
+held button; both are kept for the robot-yaml route (a ``Teleop`` part read by the robot).
+``real_world_rl``'s ``SpaceMouseTeleopSource`` reads neither: it gives the buttons their own
+meaning (button 0 take-over / hand-back, button 1 gripper)."""
 from __future__ import annotations
 
 import glob
@@ -18,9 +24,10 @@ HIDRAW_GLOB = "/dev/hidraw*"
 # Unverified on hardware: 3Dconnexion is 0x256f, older units enumerate under Logitech 0x046d.
 SPACEMOUSE_VENDOR_IDS = (0x256F, 0x046D)
 GRIPPER_BUTTON = 0
-EPISODE_END_BUTTON = 1
 _OPEN_GRIPPER, _CLOSED_GRIPPER = 1.0, 0.0
 _NUM_BUTTONS = 2
+# Each button's ``buttons`` level key and latched press event, by index.
+BUTTON_NAMES = tuple(f"button_{index}" for index in range(_NUM_BUTTONS))
 _OPTION_KEYS = {"device_index", "deadzone", "invert_axes", "poll_interval_s"}
 _sleep = time.sleep  # module-level so tests can observe the poll cadence
 _SDK_HINT = f"pip install '{PYSPACEMOUSE_REQUIREMENT}' (or: pip install 'rlgarden-robot-infra[spacemouse]')"
@@ -148,7 +155,7 @@ class SpaceMouseTeleop(Teleop):
         return RawReading(
             action=twist,
             gripper=gripper,
-            buttons={f"button_{index}": value for index, value in enumerate(pressed)},
-            events_now={"episode_end": rising[EPISODE_END_BUTTON]},
+            buttons=dict(zip(BUTTON_NAMES, pressed)),
+            events_now=dict(zip(BUTTON_NAMES, rising)),
             active=bool(np.linalg.norm(twist) > self._deadzone or any(pressed)),
         )

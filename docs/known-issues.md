@@ -25,19 +25,34 @@ remains open. Truncation/bootstrap boundaries now have regression coverage in
 
 Status: open for the startup hold/warm-up behavior (S8).
 
-### S3. Taking over can open the gripper
+### S3 (joint-space leaders). Taking over can open the gripper
 
-- **Symptom**: the policy holds the object, you press Space with the trigger released, and the
-  gripper opens at once.
+- **Symptom**: with `--teleop-device leader_arm`, `gello` or `robot`, the policy holds the object,
+  you take over (`t`) with the trigger released, and the gripper opens at once.
 - **Impact**: safety (a dropped object) and a bad intervened row.
-- **Where**: the trigger maps straight to `2w - 1` (`real_world_rl/teleop/part.py:273`); the
-  onset policies act on the joints only (`real_world_rl/teleop/leader_arm.py:161`, gripper added
-  at `:164`).
-- **Workaround today**: before Space, set the trigger to the gripper's current state (squeezed if it
-  holds the object).
-- **Planned fix**: hold the last commanded gripper action until the trigger agrees with it. Test: a
-  takeover with a disagreeing trigger keeps the gripper until the trigger crosses it.
-- **Status**: open (S3).
+- **Where**: the trigger maps straight to `2w - 1` (`TeleopPartSource._gripper_action` in
+  `real_world_rl/teleop/part.py`); the onset policies act on the joints only
+  (`LeaderArmPartSource._poll` in `real_world_rl/teleop/leader_arm.py`).
+- **Workaround today**: before taking over, set the trigger to the gripper's current state
+  (squeezed if it holds the object).
+- **Planned fix**: the take-over latch `leader_cartesian` has (see [Closed](#s3-leader_cartesian-taking-over-can-open-the-gripper)).
+- **Status**: open for the joint-space leader sources.
+
+
+### Zero-twist holds left on `cartesian_delta`
+
+- **Symptom**: the arm drifts (an impedance backend re-anchors its equilibrium at the measured
+  pose) where a hold still sends a zero twist instead of the fixed hold pose.
+- **Where**: the intervention wrapper's fill-in for the dims the operator does not drive
+  (`--teleop-selected-parts` with `--teleop-idle-behavior hold`, or a teleop part without a
+  gripper; `InterventionWrapper` calls the hold without its `reset()`/`observe_step()` hooks), the
+  classifier-frame collector (`real_world_rl/reward/collect_real_robot.py`), and two-arm
+  `cartesian_delta` envs (`hold_action_fn_for` keeps the zero arm action for `num_arms > 1`).
+- **Workaround today**: record demos with the recorder (its hold is fixed); keep the arm under
+  the operator while collecting classifier frames on a cartesian arm.
+- **Planned fix**: the wrapper and the collector drive the hold's hooks; one tracker per arm for
+  two-arm envs.
+- **Status**: open.
 
 
 ### Docs: stale items in `hil-serl-roadmap.md`
@@ -56,8 +71,8 @@ Status: open (docs).
   ([gello.md](gello.md#9-future-work-leader-tracking-wp8)). Re-evaluate after the GELLO latency has
   been measured on hardware.
 - **Handing back by letting go of the leader**: there is no grip sensor, and a pause would hand back
-  by mistake. Use Space, or a foot pedal through the GELLO's `event_device` option
-  ([teleop.md](teleop.md#leader-arms-gello)).
+  by mistake. Use `h` (`--teleop-event-device keyboard` or `stdin`), or a foot pedal through the
+  GELLO's `event_device` option ([teleop.md](teleop.md#leader-arms-gello)).
 - **The actor stops on a teleop read fault**: by design. A failed read propagates
   (`real_world_rl/teleop/base.py:86`, polled before every step at
   `real_world_rl/envs/wrappers/intervention.py:147`), so a dropped reading is never mistaken
@@ -71,6 +86,53 @@ been compared with a robot, ACT has not been trained on real pkls, and the rewar
 seen real frames. Details: [Overview, Known limits](tutorial/00-overview.md#known-limits).
 
 ## Closed
+
+### Cartesian hold drift (`cartesian_delta`, control v2)
+
+`RealRobotEnv` in `cartesian_delta` sends `measured + action * scale`; with an impedance backend a
+zero hold action re-anchored the equilibrium wherever the arm drifted (137 mm in 24 s on the first
+hardware session). The recorder's hold now keeps a fixed hold pose (sampled at the env reset and at
+every hand-back), and `leader_cartesian` drives a persistent command target that advances at most
+0.05 m/s / 0.3 rad/s (`--teleop-target-speed-m-s`/`--teleop-target-speed-rad-s`) and leads the
+measured TCP by at most 0.05 m / 0.3 rad (`--teleop-lead-cap-m`/`--teleop-lead-cap-rad`; the excess
+is dropped). The env scales must be at least the caps. The experiment contract records it as
+`teleop_control` (`cartesian_tracker_v1`). See
+[teleop.md](teleop.md#leader-arm-on-a-cartesian-robot-leader_cartesian).
+
+The paths that still send a zero twist are listed above (Zero-twist holds left on
+`cartesian_delta`).
+
+Status: fixed for the recorder and `leader_cartesian` (offline only, not yet re-run on the arm).
+Regression coverage: `tests/test_cartesian_tracker.py`, `tests/test_leader_cartesian_source.py`,
+`tests/test_real_demo_recorder.py`.
+
+
+### S3 (`leader_cartesian`). Taking over can open the gripper
+
+At the take-over, a trigger that disagrees with the gripper's last commanded state is ignored: the
+source keeps the last commanded gripper action (the intervention wrapper's
+`last_gripper_action_getter`) until the trigger crosses to that state.
+
+Status: fixed for `leader_cartesian` (and for `spacemouse`, below); the joint-space leaders are
+still open (above). Regression coverage: `tests/test_leader_cartesian_source.py` (take-over gripper
+latch).
+
+
+### S3 (`spacemouse`). Taking over can open the gripper
+
+The old SpaceMouse source reset its sticky gripper to open at every env reset, so taking over
+while the policy held an object sent `+1` and dropped it. `--teleop-device spacemouse` now starts
+every take-over (button 0) from the gripper's last command (the intervention wrapper's
+`last_gripper_action_getter`, kept as is, a continuous value included) and only button 1 changes
+it, toggling between `+1` and `-1`; button 1 does nothing while handed back.
+
+Status: fixed for `spacemouse` (offline only, not yet run on the arm). Regression coverage:
+`tests/test_spacemouse_teleop_source.py` (take-over gripper, continuous last action, button 1
+without a take-over). Not fixed on the robot-yaml route: `--teleop-device robot` with a
+`backend: spacemouse` teleop section keeps the old semantics (raw twist, moving the puck
+intervenes, button 0 toggles a sticky gripper that opens at every reset), as does the sim-only
+`spacemouse_twist`.
+
 
 ### S1. FWBW intervention tracing
 

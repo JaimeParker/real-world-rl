@@ -210,7 +210,14 @@ python -m robot_infra.server --config robot.gello_station.yaml --bind 0.0.0.0:50
 
 The actor turns the leader joints into a cartesian twist with Panda forward kinematics
 (`--teleop-device leader_cartesian --teleop-options-yaml station.yaml`, with
-`remote_address: robot-host:50052` in `station.yaml`). Mapping, gripper and the DH check are in
+`remote_address: robot-host:50052` in `station.yaml`). The follower tracks a persistent command
+target: a fixed hold pose while nobody drives, a command that leads the measured TCP by at most
+`--teleop-lead-cap-m 0.05` / `--teleop-lead-cap-rad 0.3` and advances at most
+`--teleop-target-speed-m-s 0.05` / `--teleop-target-speed-rad-s 0.3`. The env's scales must be at
+least the lead caps (`--real-robot.xyz-scale-m 0.05 --real-robot.rot-scale-rad 0.3`, or the
+`franka_real` action scales). The same source drives a `real_robot` arm in `cartesian_delta`;
+`examples/presets/gello_cartesian.yaml` is a single-arm 50 Hz state-only preset for it. Mapping,
+tracker, gripper and the DH check are in
 [teleop.md](teleop.md#leader-arm-on-a-cartesian-robot-leader_cartesian).
 
 ## 5. Recording demos
@@ -244,11 +251,12 @@ keys and the onset choice are in [tutorial 06](tutorial/06-intervening.md).
 
 Where the intervention toggle comes from:
 
-- `--teleop-event-device keyboard` (the tutorial's route): the actor machine's keyboard through `pynput` (Space
-  toggles the intervention, Esc ends the episode, `s`/`f`/`r` raise success/failure/rerecord;
-  `pynput` needs the desktop session of that machine). `spacemouse` works too; the intervention
-  then follows SpaceMouse activity. Leave the yaml at `intervention: always`; the event device's
-  toggle replaces it.
+- `--teleop-event-device keyboard` (the tutorial's route): the actor machine's keyboard through `pynput` (`t`
+  takes over, `h` hands back, Esc ends the episode, `s`/`f`/`r` raise success/failure/rerecord,
+  `q` ends the episode and stops the run after it; `pynput` needs the desktop session of that
+  machine). `--teleop-event-device stdin` reads the same keys from the terminal running the
+  command (no desktop session needed, works over SSH). Leave the yaml at `intervention: always`;
+  the event device's state replaces it.
 - An evdev pedal or keyboard on the robot PC: set `intervention: toggle` and `event_device:
   /dev/input/by-id/...` in the yaml's `teleop:` options (extra `gello-events`, user in the `input`
   group) and drop `--teleop-event-device`. The keys are `event_keys` (defaults above).
@@ -264,7 +272,8 @@ its `teleop:` section and daemon port (the robot_infra README's
 with `--teleop-device bimanual`: `--teleop-arm-device leader_arm` reads each GELLO through its
 arm's daemon; `--teleop-arm-device gello --teleop-options-yaml <station.yaml>` opens both GELLOs on
 the actor's machine with the options from the same file. One `--teleop-event-device keyboard`
-toggles both arms; [teleop.md](teleop.md#two-arms-bimanual) has the intervention rule.
+(or `stdin`) takes over and hands back both arms; [teleop.md](teleop.md#two-arms-bimanual) has
+the intervention rule.
 
 ## 7. What the HIL rows record
 

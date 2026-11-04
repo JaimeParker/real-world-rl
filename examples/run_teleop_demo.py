@@ -8,7 +8,8 @@ import tyro
 
 @dataclass
 class Args:
-    device: Literal["pico", "spacemouse", "fake"] = "pico"
+    device: Literal["pico", "spacemouse_twist", "fake"] = "pico"
+    """spacemouse_twist: the SpaceMouse as a raw twist (sim only; button 0 gripper, button 1 episode end)."""
     zmq_url: str = "tcp://192.168.6.2:7777"
     """Pico only."""
     hand: Literal["left", "right"] = "right"
@@ -48,7 +49,7 @@ def build_teleop_kwargs(args: Args) -> dict:
             if getattr(args, name) is not None:
                 kwargs[name] = getattr(args, name)
         return kwargs
-    if args.device == "spacemouse":
+    if args.device == "spacemouse_twist":
         return dict(
             device_index=args.spacemouse_index,
             deadzone=args.spacemouse_deadzone,

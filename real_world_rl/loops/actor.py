@@ -12,7 +12,9 @@ wrapper stack (``rl_garden/envs/wrappers/`` and
 through ``env.step()`` -- ``ActorLoop`` itself doesn't need to know about any
 of them, it only reads ``info["intervene_action"]`` when present so the
 replay data records the action that was actually executed, matching SERL's
-convention for off-policy consistency under human intervention.
+convention for off-policy consistency under human intervention. An
+``operator_quit`` teleop event (the operator's ``q`` key) ends the episode and
+stops the loop, which then cleans up as after Ctrl-C.
 
 The per-step body of :meth:`ActorLoop.run` is split into overridable hooks
 (``_act``, ``_build_transition`` (which calls ``_extra_transition_fields``), ``_push``,
@@ -32,9 +34,12 @@ from typing import Any, Optional
 
 import torch
 
+from robot_infra.supervise import Heartbeat
+
 from rl_garden.policies.base import BasePolicy
 from real_world_rl.loops.sync import ActorSyncClient
 from real_world_rl.checkpoint_contract import load_policy_state_with_action_contract
+from real_world_rl.teleop.keyboard import operator_quit_requested
 
 
 logger = logging.getLogger(__name__)
@@ -262,6 +267,7 @@ class ActorLoop:
         return {}
 
     def run(self, total_steps: Optional[int] = None) -> None:
+        heartbeat = Heartbeat.from_env()
         try:
             self._bind_experiment()
             self.sync_client.start()
@@ -270,7 +276,9 @@ class ActorLoop:
             if wait is not None:
                 wait()
             self._maybe_refresh_policy()
+            heartbeat.begin_long_operation()
             obs, _ = self.env.reset(seed=self.seed)
+            heartbeat.beat()
             self._begin_trajectory()
             step = 0
             while total_steps is None or step < total_steps:
@@ -280,6 +288,7 @@ class ActorLoop:
                 policy_action, ctx = self._act(obs)
                 env_action = policy_action.to(self.env_device(obs))
                 next_obs, reward, terminated, truncated, info = self.env.step(env_action)
+                heartbeat.beat()
 
                 self._push(
                     self._archive_transition(self._build_transition(
@@ -287,11 +296,16 @@ class ActorLoop:
                     ), terminated, truncated, info, policy_action)
                 )
 
-                if bool(terminated) or bool(truncated):
+                if bool(terminated) or bool(truncated) or operator_quit_requested(info):
                     self._on_episode_end(info)
                     self._end_trajectory(terminated=bool(terminated), truncated=bool(truncated))
+                    if operator_quit_requested(info):
+                        logger.info("operator quit: stopping the actor after this episode")
+                        break
                     if total_steps is None or step + 1 < total_steps:
+                        heartbeat.begin_long_operation()
                         obs, _ = self.env.reset(seed=None)
+                        heartbeat.beat()
                         self._begin_trajectory()
                 else:
                     obs = next_obs
@@ -302,6 +316,7 @@ class ActorLoop:
                 if sleep_for > 0:
                     time.sleep(sleep_for)
         finally:
+            heartbeat.begin_long_operation()  # draining uploads and closing the env may take a while
             _cleanup([
                 lambda: _close(self.env),
                 lambda: _close(getattr(self, "base_provider", None)),
@@ -367,6 +382,7 @@ class FWBWActorLoop:
 
     def run(self, total_steps: Optional[int] = None) -> None:
         snapshots = {}
+        heartbeat = Heartbeat.from_env()
         archives = {direction: ActorLoop(self.env, self.policies[direction], client,
                                          device=self.device, deterministic=self.deterministic, seed=self.seed)
                     for direction, client in self.sync_clients.items()}
@@ -384,7 +400,9 @@ class FWBWActorLoop:
                     snapshots[direction] = (snapshot.session_id, snapshot.version)
             for policy in self.policies.values():
                 policy.eval()
+            heartbeat.begin_long_operation()
             obs, info = self.env.reset(seed=self.seed)
+            heartbeat.beat()
             direction = info.get("fwbw_direction", "forward")
             archives[direction]._begin_trajectory()
             step = 0
@@ -414,6 +432,7 @@ class FWBWActorLoop:
                     )
                 env_action = policy_action.to(ActorLoop.env_device(obs))
                 next_obs, reward, terminated, truncated, info = self.env.step(env_action)
+                heartbeat.beat()
 
                 next_direction = info.get("fwbw_direction", direction)
                 direction_changed = next_direction != direction
@@ -429,14 +448,19 @@ class FWBWActorLoop:
                     }, terminated, truncated, info, policy_action, segment_end=direction_changed)
                 )
 
-                ended = bool(terminated) or bool(truncated)
+                ended = bool(terminated) or bool(truncated) or operator_quit_requested(info)
                 if ended or direction_changed:
                     archives[direction]._end_trajectory(terminated=bool(terminated), truncated=bool(truncated),
                         end_reason="direction_switch" if direction_changed and not ended else None)
+                    if operator_quit_requested(info):
+                        logger.info("operator quit: stopping the actor after this episode")
+                        break
                     direction = next_direction
                     if total_steps is None or step + 1 < total_steps:
                         if ended:
+                            heartbeat.begin_long_operation()
                             obs, info = self.env.reset(seed=None)
+                            heartbeat.beat()
                             direction = info.get("fwbw_direction", direction)
                         else:
                             obs = next_obs
@@ -450,6 +474,7 @@ class FWBWActorLoop:
                 if sleep_for > 0:
                     time.sleep(sleep_for)
         finally:
+            heartbeat.begin_long_operation()
             _cleanup([lambda: _close(self.env),
                       *[lambda archive=archive: archive._end_trajectory(interrupted=True) for archive in archives.values()],
                       *[client.stop for client in self.sync_clients.values()]])

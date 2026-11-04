@@ -47,16 +47,35 @@ def test_building_does_not_import_pynput(monkeypatch):
     assert "pynput" not in sys.modules
 
 
-def test_space_toggles_the_intervention_once_per_press(started):
+def test_t_takes_over_and_h_hands_back(started):
     source, listener, keyboard = started
-    listener.press(keyboard.Key.space)
+    listener.press(keyboard.KeyCode("t"))
     assert source.poll().intervened
-    listener.press(keyboard.Key.space)  # auto-repeat while held
-    assert source.poll().intervened
-    listener.release(keyboard.Key.space)
-    assert source.poll().intervened  # a toggle, not a deadman
-    listener.tap(keyboard.Key.space)
+    listener.press(keyboard.KeyCode("t"))  # auto-repeat while held
+    listener.release(keyboard.KeyCode("t"))
+    assert source.poll().intervened  # a state, not a deadman
+    listener.tap(keyboard.KeyCode("t"))
+    assert source.poll().intervened  # pressing t again keeps it: no toggle
+    listener.tap(keyboard.KeyCode("H"))
     assert not source.poll().intervened
+    listener.tap(keyboard.KeyCode("h"))
+    assert not source.poll().intervened
+
+
+def test_space_no_longer_toggles(started):
+    source, listener, keyboard = started
+    listener.tap(keyboard.Key.space)
+    reading = source.poll()
+    assert not reading.intervened and not reading.episode_end and dict(reading.events) == {}
+
+
+def test_q_ends_the_episode_and_asks_to_quit(started):
+    source, listener, keyboard = started
+    listener.tap(keyboard.KeyCode("q"))
+    reading = source.poll()
+    assert reading.episode_end and dict(reading.events) == {"operator_quit": True}
+    reading = source.poll()
+    assert not reading.episode_end and dict(reading.events) == {}
 
 
 def test_esc_ends_the_episode_once(started):
@@ -80,7 +99,7 @@ def test_s_f_r_raise_events_and_other_keys_are_ignored(started):
 
 def test_reset_clears_the_toggle_and_latched_presses(started):
     source, listener, keyboard = started
-    for key in (keyboard.Key.space, keyboard.Key.esc, keyboard.KeyCode("s")):
+    for key in (keyboard.KeyCode("t"), keyboard.Key.esc, keyboard.KeyCode("s")):
         listener.tap(key)
     source.reset()
     reading = source.poll()
@@ -119,7 +138,7 @@ def test_wrapper_starts_the_listener_and_ends_the_episode_on_esc(pynput):
     wrapped = TeleopInterventionWrapper(env, device="keyboard")
     listener = pynput.keyboard.listeners[0]
     assert listener.is_alive()
-    listener.tap(pynput.keyboard.Key.space)
+    listener.tap(pynput.keyboard.KeyCode("t"))
     listener.tap(pynput.keyboard.Key.esc)
     _, _, _, truncated, info = wrapped.step(torch.full((1, 7), 0.3))
     assert info["intervened"] and info["human_episode_end"] and bool(truncated)

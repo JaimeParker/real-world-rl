@@ -1,8 +1,10 @@
 """One motion device plus one event device acting as a single teleop source (``device="composite"``).
 
 The motion half drives the arm (a leader arm, a SpaceMouse, ...); the event half carries the
-operator's buttons (a keyboard, the SpaceMouse buttons): the intervention toggle, episode end and
-``success``/``failure``/``rerecord``.
+operator's keys (``keyboard`` or the terminal, ``stdin``): the intervention state (``t`` takes
+over and ``h`` hands back), episode end, ``success``/``failure``/``rerecord`` and
+``operator_quit``. A motion half may keep its own take-over and ignore that state (the
+SpaceMouse's button 0).
 """
 from __future__ import annotations
 
@@ -21,12 +23,14 @@ INTERVENTION_FROM = ("motion", "events")
 
 
 class ToggleableTeleopSource(TeleopSource):
-    """A motion source whose takeover depends on the operator's intervention toggle (an onset
-    policy that rate-limits or gates the first intervened steps).
+    """A motion source whose takeover depends on the operator's intervention state (an onset
+    policy that rate-limits or gates the first intervened steps, or a command tracker that
+    anchors at the take-over and holds at the hand-back).
 
-    ``CompositeTeleopSource(intervention_from="events")`` hands the event device's toggle to
-    ``poll_with_toggle`` instead of overriding ``intervened`` with it, so the onset policy also
-    applies when the toggle lives on another device.
+    ``CompositeTeleopSource(intervention_from="events")`` hands the event device's state (its
+    ``intervened``: the keyboard's latched take-over/hand-back keys) to ``poll_with_toggle``
+    instead of overriding ``intervened`` with it, so the onset policy also applies when the
+    toggle lives on another device.
     """
 
     @abstractmethod

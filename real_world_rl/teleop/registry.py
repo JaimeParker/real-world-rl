@@ -1,7 +1,8 @@
 """Name -> ``TeleopSource`` registry behind ``device="<name>"``.
 
 Built-in sources are imported on first use of their name, so importing this package pulls in
-neither the Pico ZMQ client nor the SpaceMouse, Dynamixel or pynput SDKs (nor the device layer).
+neither the Pico ZMQ client nor the SpaceMouse, Dynamixel or pynput SDKs (nor the device layer,
+nor termios).
 """
 from __future__ import annotations
 
@@ -15,10 +16,12 @@ _BUILTIN_MODULES: Dict[str, str] = {
     "pico": "real_world_rl.teleop.pico",
     "robot": "real_world_rl.teleop.part",
     "spacemouse": "real_world_rl.teleop.spacemouse",
+    "spacemouse_twist": "real_world_rl.teleop.spacemouse",
     "fake": "real_world_rl.teleop.fake",
     "gello": "real_world_rl.teleop.gello",
     "leader_arm": "real_world_rl.teleop.leader_arm",
     "keyboard": "real_world_rl.teleop.keyboard",
+    "stdin": "real_world_rl.teleop.stdin",
     "composite": "real_world_rl.teleop.composite",
     "leader_cartesian": "real_world_rl.teleop.leader_cartesian",
     "bimanual": "real_world_rl.teleop.bimanual",

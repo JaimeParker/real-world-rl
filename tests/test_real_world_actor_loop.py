@@ -108,6 +108,24 @@ def test_actor_loop_resets_env_after_termination():
     assert env.reset_calls == 1
 
 
+def test_actor_loop_stops_after_the_episode_the_operator_quit():
+    class _QuittingEnv(_FakeEnv):
+        """The operator presses q on the second step (episode end plus ``operator_quit``)."""
+
+        def step(self, action):
+            next_obs, reward, terminated, truncated, info = super().step(action)
+            if self.step_calls == 2:
+                return next_obs, reward, terminated, torch.tensor([True]), {"teleop_events": {"operator_quit": True}}
+            return next_obs, reward, terminated, truncated, info
+
+    env = _QuittingEnv()
+    sync_client = _FakeSyncClient()
+    ActorLoop(env, _FakePolicy(), sync_client, control_hz=1_000_000.0).run(total_steps=10)
+
+    assert env.step_calls == 2 and env.reset_calls == 1
+    assert len(sync_client.pushed) == 2 and sync_client.stopped
+
+
 def test_actor_loop_loads_unchanged_policy_params_once():
     env = _FakeEnv()
     policy = _FakePolicy()
@@ -143,3 +161,18 @@ def test_actor_loop_rejects_multi_env():
 
     with pytest.raises(ValueError, match="num_envs"):
         ActorLoop(_MultiEnv(), _FakePolicy(), _FakeSyncClient())
+
+
+def test_actor_loop_beats_the_supervisor_heartbeat_per_step_and_announces_resets():
+    from robot_infra.supervise import BEAT_BYTE, LONG_OPERATION_BYTE, capture_heartbeats
+
+    env = _FakeEnv(terminate_every=2)
+    loop = ActorLoop(env, _FakePolicy(), _FakeSyncClient(), control_hz=1_000_000.0)
+    with capture_heartbeats() as received:
+        loop.run(total_steps=4)
+        messages = received()
+
+    # One long-operation announcement per reset and one at cleanup, one beat per step and per reset.
+    assert messages.count(LONG_OPERATION_BYTE) == env.reset_calls + 1
+    assert messages.count(BEAT_BYTE) == 4 + env.reset_calls
+    assert messages[0] == LONG_OPERATION_BYTE[0]  # the first reset is announced before it runs

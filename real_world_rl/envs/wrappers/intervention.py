@@ -48,9 +48,10 @@ from real_world_rl.teleop.registry import make_teleop_source
 
 # RealRobotEnv opens the gripper on reset.
 _GRIPPER_ACTION_AFTER_RESET = 1.0
-# Sources mapping a robot_infra teleop part, which hold the last sent gripper action when the part
-# has no gripper channel (they take ``last_gripper_action_getter``); ``bimanual`` holds one per arm.
-GRIPPER_HOLDING_DEVICES = ("robot", "leader_arm", "gello", "leader_cartesian", "bimanual")
+# Sources that read the last sent gripper action (they take ``last_gripper_action_getter``): the
+# ones mapping a robot_infra teleop part hold it when the part has no gripper channel, and
+# ``spacemouse`` starts every take-over from it; ``bimanual`` holds one per arm.
+GRIPPER_HOLDING_DEVICES = ("robot", "leader_arm", "gello", "leader_cartesian", "spacemouse", "bimanual")
 
 
 class InterventionWrapper(gym.Wrapper):

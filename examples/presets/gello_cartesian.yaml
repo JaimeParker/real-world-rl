@@ -1,0 +1,51 @@
+# Env preset for one Franka arm driven in cartesian_delta by a GELLO leader arm
+# (--teleop-device leader_cartesian, docs/gello.md), state-only observations, 50 Hz. The
+# follower tracks a persistent command target (docs/teleop.md, "Leader arm on a cartesian
+# robot"): a fixed hold pose while nobody drives, a command that leads the measured TCP by at
+# most 0.05 m / 0.3 rad and advances at most 0.05 m/s / 0.3 rad/s while the operator does.
+# The env scales must be at least the lead caps (0.05 m / 0.3 rad here).
+# Copy it (cp examples/presets/gello_cartesian.yaml gello.yaml) and edit the copy:
+# - real_robot.robot: this arm's FCI address; the actor runs on the machine wired to the arm;
+# - real_robot.safety_box: example values from the first session, re-check them on site;
+# - gello_leader.yaml (teleop_options_yaml): the leader, one of
+#     robot_yaml: gello_station.yaml   # a local robot yaml with the GELLO teleop: section
+#     remote_address: HOST:PORT        # a robot daemon serving the GELLO as its teleop part
+# Keys in the terminal running the command (teleop_event_device stdin): t take over, h hand
+# back, s success, f failure, r rerecord, Esc end the episode, q quit.
+# Check it without touching the robot:
+#   python examples/train_real_world.py hil_serl --config gello.yaml --print-config
+# Record demos with it:
+#   python -m real_world_rl.demos --config gello.yaml --output-path demos/task.pkl
+env_backend: real_robot
+env_id: gello_cartesian
+obs:
+  state: true
+  rgb: []                      # state-only
+  depth: []
+teleop_device: leader_cartesian
+teleop_event_device: stdin
+teleop_options_yaml: gello_leader.yaml
+teleop_lead_cap_m: 0.05
+teleop_lead_cap_rad: 0.3
+teleop_target_speed_m_s: 0.05
+teleop_target_speed_rad_s: 0.3
+real_robot:
+  robot:
+    type: franka
+    name: arm
+    arm_backend: franky
+    robot_ip: 172.16.0.2       # this arm's FCI address
+    realtime: ignore           # enforce needs a PREEMPT_RT kernel
+    relative_dynamics_factor: 0.1
+    cameras: []
+    # gripper: omitted = the Franka Hand (franky, binary)
+  num_joints: 7
+  action_mode: cartesian_delta # the same for demos, the base policy, every HIL run and deploy
+  xyz_scale_m: 0.05            # >= teleop_lead_cap_m
+  rot_scale_rad: 0.3           # >= teleop_lead_cap_rad
+  gripper_in_action: true
+  state_fields: [tcp_pose, tcp_vel, joint_pos, joint_vel]
+  control_hz: 50
+  max_episode_steps: 3000
+  # Example from the first session, re-check on site: x [0.25, 0.80], y [-0.40, 0.20], z [0.10, 0.65].
+  safety_box: [0.25, -0.40, 0.10, 0.80, 0.20, 0.65]

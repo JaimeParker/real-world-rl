@@ -14,7 +14,13 @@ Episode outcome, read from the intervention wrapper's info keys so any event pat
 - it counts as a success when an explicit success outcome or ``success`` event is reported (a reward
   classifier), and no ``failure`` event fired;
 - a ``rerecord`` event discards the episode at once; a new attempt starts if its budget remains;
-- only successful episodes with at least one recorded transition are kept.
+- only successful episodes with at least one recorded transition are kept;
+- an ``operator_quit`` event (the ``q`` key) ends the episode and stops recording after it; the
+  kept episodes are saved as after Ctrl-C.
+
+The hold policy (``hold_action_fn_for``, injectable through ``run_recorder``'s
+``hold_action_fn_factory``) is reset after every env reset and observes every step; on a
+``cartesian_delta`` arm it holds a fixed pose (``real_world_rl.teleop.hold.CartesianHold``).
 
 The stored ``reward``/``done`` are the env's. Without a reward classifier, pass
 ``--reward-from-teleop-events`` (``TeleopEventRewardWrapper`` in the ``build_hil_env`` chain): a
@@ -33,6 +39,8 @@ from typing import Any, Callable, Mapping, Optional, Sequence
 
 import numpy as np
 import torch
+
+from robot_infra.supervise import Heartbeat
 from rl_garden.common.cli_args import ObservationArgs
 from rl_garden.common.env_args import EnvBackendArgs, EnvRunArgs
 
@@ -49,8 +57,15 @@ from real_world_rl.action_contract import (
 )
 from real_world_rl.envs.wrappers.intervention import InterventionWrapper
 from real_world_rl.loops.actor import ActorLoop
-from real_world_rl.teleop.hold import hold_action_fn_for, follower_joint_pos, _arm_envs_of
+from real_world_rl.teleop.hold import (
+    HoldPolicy,
+    _arm_envs_of,
+    as_hold_policy,
+    follower_joint_pos,
+    hold_action_fn_for,
+)
 from real_world_rl.teleop.base import TeleopReading, TeleopSource
+from real_world_rl.teleop.keyboard import operator_quit_requested
 from real_world_rl.teleop.composite import (
     CompositeTeleopSource,
     ToggleableTeleopSource,
@@ -64,6 +79,7 @@ from real_world_rl.training.args import (
 
 __all__ = [
     "HoldActionFn",
+    "HoldPolicy",
     "LeaderFollowerGapError",
     "RecordDemosArgs",
     "RecordedEpisode",
@@ -84,8 +100,10 @@ _GRIPPER_ACTION_AFTER_RESET = 1.0
 _DEMO_SUFFIX = ".pkl"
 
 # Gripper action(s) to hold, one per arm (a number for one arm) -> the (A,) action that keeps the
-# arms where they are.
+# arms where they are. A ``HoldPolicy`` also receives the recorder's reset/step hooks.
 HoldActionFn = Callable[[Any], torch.Tensor]
+# The built env -> its hold policy (``run_recorder``'s injection point).
+HoldPolicyFactory = Callable[[Any], HoldActionFn]
 
 
 @dataclass
@@ -128,13 +146,15 @@ class RecordDemosArgs(HilEnvArgs, RealWorldFrankaArgs, EnvRunArgs, ObservationAr
 @dataclass(frozen=True)
 class RecordedEpisode:
     """One finished episode. ``transitions`` holds its recorded transitions when it was kept and
-    is empty otherwise; ``discarded_reason`` says why it was not kept (``None`` when kept)."""
+    is empty otherwise; ``discarded_reason`` says why it was not kept (``None`` when kept);
+    ``operator_quit`` whether the operator asked to stop recording during it."""
 
     index: int
     steps: int
     success: bool
     transitions: list = field(default_factory=list)
     discarded_reason: Optional[str] = None
+    operator_quit: bool = False
 
     @property
     def kept(self) -> bool:
@@ -246,13 +266,17 @@ def record_demos(
     returns their kept transitions, in order. Failed/rerecorded/truncated attempts count too.
 
     Every step sends ``hold_action_fn(last executed gripper action)``; the intervention wrapper
-    replaces it with the operator's action while the operator intervenes. A step is recorded
-    when ``info["intervened"]``, with the executed action (``info["intervene_action"]``);
-    ramp-onset steps (``teleop_syncing``) only with ``args.keep_syncing_steps``. In
-    ``joint_abs``, each episode starts with ``check_leader_near_follower``
-    (``args.start_tolerance_rad``). ``on_episode`` is called with every finished episode.
+    replaces it with the operator's action while the operator intervenes. A ``HoldPolicy``
+    (``hold_action_fn_for``; a plain callable gets no-op hooks) is reset after every env reset
+    and observes whether every step was intervened. A step is recorded when
+    ``info["intervened"]``, with the executed action (``info["intervene_action"]``); ramp-onset
+    steps (``teleop_syncing``) only with ``args.keep_syncing_steps``. In ``joint_abs``, each
+    episode starts with ``check_leader_near_follower`` (``args.start_tolerance_rad``).
+    ``on_episode`` is called with every finished episode; an episode with the operator's quit
+    key is the last one.
     """
     _validate_episode_limit(args)
+    hold = as_hold_policy(hold_action_fn)
     wrapper = intervention_wrapper_of(env)
     contract = get_env_action_contract(env) or LEGACY_ACTION_CONTRACT
     num_grippers = num_grippers_of(contract)
@@ -266,15 +290,19 @@ def record_demos(
     kept: list[dict] = []
     num_kept = 0
     index = 0
+    heartbeat = Heartbeat.from_env()
     while num_kept < args.num_successes and (args.max_episodes is None or index < args.max_episodes):
+        heartbeat.begin_long_operation()  # the reset homes the arm, far longer than a step
         obs, _ = env.reset(seed=args.seed if index == 0 else None)
+        heartbeat.beat()
+        hold.reset()
         if contract["action_mode"] == "joint_abs":
             check_leader_near_follower(env, wrapper.source, contract, args.start_tolerance_rad)
         episode = _record_episode(
             env,
             obs,
             args,
-            hold_action_fn,
+            hold,
             index=index,
             num_grippers=num_grippers,
             control_period_s=control_period_s,
@@ -285,6 +313,8 @@ def record_demos(
         if on_episode is not None:
             on_episode(episode)
         index += 1
+        if episode.operator_quit:
+            break
     return kept
 
 
@@ -292,7 +322,7 @@ def _record_episode(
     env: Any,
     obs: Any,
     args: RecordDemosArgs,
-    hold_action_fn: HoldActionFn,
+    hold: HoldPolicy,
     *,
     index: int,
     num_grippers: int,
@@ -312,11 +342,16 @@ def _record_episode(
 
     outcome_accumulator = EpisodeOutcomeAccumulator()
     failure = False
+    operator_quit = False
     steps = 0
+    heartbeat = Heartbeat.from_env()
     while True:
         step_start = time.perf_counter()
-        action = hold_action_fn(gripper_action).reshape(1, -1).to(ActorLoop.env_device(obs))
+        action = hold(gripper_action).reshape(1, -1).to(ActorLoop.env_device(obs))
         next_obs, reward, terminated, truncated, info = env.step(action)
+        heartbeat.beat()
+        hold.observe_step(bool(info.get("intervened", False)))
+        operator_quit = operator_quit or operator_quit_requested(info)
         steps += 1
         executed = info.get("intervene_action", action)
         if num_grippers:
@@ -328,13 +363,14 @@ def _record_episode(
         outcome_accumulator.observe(info)
         if events.get("rerecord", False):
             archive.append(end_episode(episode_id, step_count=steps, outcome=outcome_accumulator.finish(discarded=True)))
-            return RecordedEpisode(index, steps, success=False, discarded_reason="rerecord")
+            return RecordedEpisode(index, steps, success=False, discarded_reason="rerecord",
+                                   operator_quit=operator_quit)
         failure = failure or bool(events.get("failure", False))
         syncing = bool(events.get(TELEOP_SYNCING_EVENT, False))
         if info["intervened"] and (args.keep_syncing_steps or not syncing):
             # A kept syncing step is wanted as supervision; only the archive keeps the flag.
             transitions.append(dict(record, syncing=False))
-        if bool(terminated) or bool(truncated):
+        if bool(terminated) or bool(truncated) or operator_quit:
             break
         obs = next_obs
         remaining = control_period_s - (time.perf_counter() - step_start)
@@ -362,6 +398,7 @@ def _record_episode(
         success=success and not failure,
         transitions=transitions if reason is None else [],
         discarded_reason=reason,
+        operator_quit=operator_quit,
     )
 
 
@@ -484,12 +521,18 @@ def _with_episode_step_cap(args: RecordDemosArgs) -> RecordDemosArgs:
     return dataclasses.replace(args, franka_real=franka_real)
 
 
-def run_recorder(args: RecordDemosArgs) -> Optional[Path]:
+def run_recorder(
+    args: RecordDemosArgs, *, hold_action_fn_factory: Optional[HoldPolicyFactory] = None
+) -> Optional[Path]:
     """Builds the actor's HIL env, records demos until ``args.num_successes`` and saves the kept
-    episodes to ``args.output_path`` (also when stopped early, e.g. by Ctrl-C or max_episodes). Returns the pkl
-    path, or ``None`` when no episode was kept."""
+    episodes to ``args.output_path`` (also when stopped early, e.g. by Ctrl-C, the operator's
+    quit key or max_episodes). Returns the pkl path, or ``None`` when no episode was kept.
+
+    ``hold_action_fn_factory`` builds the hold policy from the built env (default
+    ``hold_action_fn_for``)."""
     from real_world_rl.training import env_building
 
+    make_hold = hold_action_fn_for if hold_action_fn_factory is None else hold_action_fn_factory
     _validate_episode_limit(args)
     output_path = _demo_output_path(args.output_path)
     if args.fwbw:
@@ -525,10 +568,13 @@ def run_recorder(args: RecordDemosArgs) -> Optional[Path]:
             f"successes={num_kept}/{args.num_successes}",
             flush=True,
         )
+        if episode.operator_quit:
+            print("[record] operator quit: stopping after this episode", flush=True)
 
     try:
-        record_demos(env, args, hold_action_fn=hold_action_fn_for(env), on_episode=report)
+        record_demos(env, args, hold_action_fn=make_hold(env), on_episode=report)
     finally:
+        Heartbeat.from_env().begin_long_operation()  # exports and disconnect may take a while
         # Release device control before archive scans or potentially slow pkl/PT exports.
         # The finalization still runs if release fails, preserving committed evidence.
         try:

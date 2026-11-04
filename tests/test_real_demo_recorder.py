@@ -48,6 +48,7 @@ from real_world_rl.teleop.leader_arm import (
     TELEOP_SYNCING_EVENT,
     LeaderArmPartSource,
 )
+from real_world_rl.teleop.hold import CartesianHold, HoldPolicy
 from real_world_rl.training import env_building
 from real_world_rl.training.demo_loading import load_demo_pkls
 
@@ -216,9 +217,159 @@ def test_joint_delta_holds_with_a_zero_arm_action_and_skips_the_start_check():
     np.testing.assert_allclose(transitions[0]["action"].reshape(-1).numpy(), readings[1].action)
 
 
-def test_cartesian_hold_is_a_zero_twist_with_the_held_gripper():
+def test_a_cartesian_hold_nobody_resets_is_a_zero_twist_with_the_held_gripper():
+    """The intervention wrapper's fill-in for dims the operator does not drive drives no hooks."""
     hold = hold_action_fn_for(ContractEnv("cartesian_delta", 6))
+    assert isinstance(hold, CartesianHold)
     np.testing.assert_allclose(hold(CLOSED).numpy(), [0.0] * 6 + [CLOSED])
+
+
+HOME_TCP = np.array([0.5, 0.0, 0.4, 1.0, 0.0, 0.0, 0.0])  # xyz + quat xyzw (TCP facing down)
+
+
+class DriftingCartesianEnv(ContractEnv):
+    """A one-arm ``cartesian_delta`` env (``RealRobotEnv``-shaped ``last_observation``) whose TCP
+    lands on every commanded position (``measured + action * xyz_scale_m``) and is then pushed by
+    ``drift_m`` along x, as an impedance-controlled arm drifts."""
+
+    def __init__(self, drift_m=0.0, xyz_scale_m=0.05):
+        super().__init__("cartesian_delta", 6)
+        self.action_contract.update(xyz_scale_m=xyz_scale_m, rot_scale_rad=0.3)
+        self.drift_m = drift_m
+        self.xyz_scale_m = xyz_scale_m
+        self.tcp = None
+
+    @property
+    def last_observation(self):
+        return None if self.tcp is None else {"state": {"tcp_pose": self.tcp.copy()}}
+
+    def reset(self, **kwargs):
+        self.tcp = HOME_TCP.copy()
+        return super().reset(**kwargs)
+
+    def step(self, action):
+        arm = torch.as_tensor(action).reshape(-1)[:3].numpy().astype(np.float64)
+        self.tcp = self.tcp.copy()
+        self.tcp[:3] = self.tcp[:3] + arm * self.xyz_scale_m + [self.drift_m, 0.0, 0.0]
+        return super().step(action)
+
+
+def test_cartesian_hold_with_a_small_env_scale_saturates_instead_of_raising():
+    """xyz_scale_m 0.02 (below the default 0.05 lead cap) and the arm pushed 0.05 m off the hold:
+    the own tracker caps at one env step, so the hold action saturates and the arm returns."""
+    env = DriftingCartesianEnv(xyz_scale_m=0.02)
+    env.reset()
+    hold = hold_action_fn_for(env)
+    hold.reset()
+    assert hold.tracker.config.lead_cap_m == 0.02 and hold.tracker.config.lead_cap_rad == 0.3
+    env.tcp = HOME_TCP + [0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    first = hold(OPEN).numpy()
+    np.testing.assert_allclose(first, [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, OPEN], atol=1e-6)
+    for _ in range(4):
+        env.step(hold(OPEN).reshape(1, -1))
+    np.testing.assert_allclose(env.tcp[:3], HOME_TCP[:3], atol=1e-6)
+    np.testing.assert_allclose(hold.tracker.command, HOME_TCP, atol=1e-6)
+    np.testing.assert_allclose(hold(OPEN).numpy()[:6], 0.0, atol=1e-5)
+
+
+def _cartesian(arm=(0.0,) * 6, *, intervened=False, gripper=OPEN, **kwargs) -> TeleopReading:
+    return TeleopReading(action=np.array([*arm, gripper], dtype=np.float32), intervened=intervened, **kwargs)
+
+
+def _wrap_cartesian(env, readings):
+    return InterventionWrapper(env, ScriptedTeleopSource(readings, action_mode="cartesian_delta", arm_action_dim=6))
+
+
+def test_cartesian_hold_keeps_the_reset_pose_against_drift():
+    env = DriftingCartesianEnv(drift_m=0.002)
+    readings = [_cartesian()] * 20 + [_cartesian(episode_end=True)]
+    _record(_wrap_cartesian(env, readings), max_episodes=1)
+
+    assert len(env.step_actions) == 21
+    np.testing.assert_allclose(_sent(env, 0), [0.0] * 6 + [OPEN], atol=1e-6)
+    np.testing.assert_allclose(_sent(env, 1)[:6], [-0.04, 0.0, 0.0, 0.0, 0.0, 0.0], atol=1e-6)  # 2 mm back
+    # A zero twist would have let the arm drift 42 mm; the fixed hold keeps it one push away.
+    np.testing.assert_allclose(env.tcp[:3], HOME_TCP[:3] + [0.002, 0.0, 0.0], atol=1e-6)
+
+
+def test_cartesian_hold_is_resampled_where_the_operator_handed_back():
+    env = DriftingCartesianEnv()
+    readings = [_cartesian(), _cartesian((0.5, 0.0, 0.0, 0.0, 0.0, 0.0), intervened=True)]
+    readings += [_cartesian()] * 5 + [_cartesian(episode_end=True)]
+    _record(_wrap_cartesian(env, readings), max_episodes=1)
+
+    moved = HOME_TCP[:3] + [0.025, 0.0, 0.0]
+    for index in range(2, len(env.step_actions)):
+        np.testing.assert_allclose(_sent(env, index)[:6], 0.0, atol=1e-6)  # not dragged back home
+    np.testing.assert_allclose(env.tcp[:3], moved, atol=1e-6)
+
+
+class CountingHold(HoldPolicy):
+    """A fixed 8-D hold action that counts the recorder's hook calls."""
+
+    def __init__(self):
+        self.resets = 0
+        self.observed = []
+
+    def __call__(self, gripper_actions):
+        return torch.full((8,), 0.25)
+
+    def reset(self):
+        self.resets += 1
+
+    def observe_step(self, intervened):
+        self.observed.append(intervened)
+
+
+def test_run_recorder_takes_an_injected_hold_policy(tmp_path, monkeypatch):
+    env = RecordingEnv("joint_delta")
+    wrapped = _wrap(env, [IDLE, _reading(delta=[0.0] * 7, events=("success",), episode_end=True)])
+    monkeypatch.setattr(env_building, "build_hil_env", lambda args, **kwargs: wrapped)
+    hold, built = CountingHold(), []
+
+    def hold_factory(env):
+        built.append(env)
+        return hold
+
+    output = tmp_path / "demos.pkl"
+    assert run_recorder(_args(output_path=str(output)), hold_action_fn_factory=hold_factory) == output
+    assert built == [wrapped]
+    assert hold.resets == 1 and hold.observed == [False, True]
+    np.testing.assert_allclose(_sent(env, 0), [0.25] * 8)
+
+
+def test_a_plain_hold_callable_still_works_without_hooks():
+    env = RecordingEnv("joint_delta")
+    wrapped = _wrap(env, [IDLE, _reading(intervened=False, episode_end=True)])
+    record_demos(wrapped, _args(max_episodes=1), hold_action_fn=lambda gripper: torch.full((8,), 0.5))
+    np.testing.assert_allclose(_sent(env, 0), [0.5] * 8)
+
+
+def test_operator_quit_stops_recording_after_that_episode():
+    env = RecordingEnv("joint_delta")
+    readings = [
+        _reading(delta=[0.0] * 7, events=("success",)),
+        _reading(delta=[0.0] * 7, events=("operator_quit",), episode_end=True),
+    ]
+    transitions, episodes = _record(_wrap(env, readings), num_successes=5)
+    assert len(episodes) == 1 and episodes[0].operator_quit and episodes[0].kept
+    assert len(transitions) == 2 and len(env.step_actions) == 2
+
+
+def test_run_recorder_saves_the_kept_episodes_after_the_operator_quit(tmp_path, monkeypatch, capsys):
+    env = RecordingEnv("joint_delta")
+    readings = [
+        _reading(delta=[0.0] * 7, events=("success",)),
+        _reading(delta=[0.0] * 7, events=("operator_quit",), episode_end=True),
+    ]
+    wrapped = _wrap(env, readings)
+    monkeypatch.setattr(env_building, "build_hil_env", lambda args, **kwargs: wrapped)
+    output = tmp_path / "demos.pkl"
+    assert run_recorder(_args(output_path=str(output), num_successes=5)) == output
+    with open(output, "rb") as stream:
+        assert len(pickle.load(stream)) == 2
+    assert "operator quit" in capsys.readouterr().out
+    assert env.close_calls == 1
 
 
 def test_two_arm_hold_is_both_arm_blocks_then_one_held_gripper_per_arm():

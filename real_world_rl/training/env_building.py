@@ -39,7 +39,19 @@ _BIMANUAL_BACKEND = "real_robot_bimanual"
 _ROBOT_INFRA_BACKENDS = ("real_robot", _BIMANUAL_BACKEND)
 # Teleop devices that drive one arm (the robot's teleop part, a single leader arm or a single
 # cartesian device); --teleop-device bimanual drives the arms of a real_robot_bimanual env.
-_SINGLE_ARM_TELEOP_DEVICES = ("robot", "leader_arm", "gello", "leader_cartesian", "spacemouse", "pico")
+_SINGLE_ARM_TELEOP_DEVICES = (
+    "robot", "leader_arm", "gello", "leader_cartesian", "spacemouse", "spacemouse_twist", "pico",
+)
+# The teleop devices that drive the follower through a CartesianTargetTracker.
+_CARTESIAN_TRACKER_TELEOP_DEVICES = ("leader_cartesian", "spacemouse")
+# --teleop-event-device values that were removed -> why, for old command lines and presets.
+_REMOVED_TELEOP_EVENT_DEVICES = {
+    "spacemouse": (
+        "the SpaceMouse no longer provides the operator's labels (its button 0 takes over and "
+        "hands back, button 1 toggles the gripper); use --teleop-device spacemouse "
+        "--teleop-event-device stdin (or keyboard) for the s/f/r/Esc/q keys"
+    ),
+}
 _BIMANUAL_TELEOP_DEVICE = "bimanual"
 # The forms --teleop-options-yaml may take (see teleop_options_from_yaml).
 _FLAT_OPTIONS = "flat"
@@ -291,15 +303,67 @@ def motion_teleop_kwargs(args) -> dict:
         derived = {**robot_teleop_kwargs(args), **teleop_onset_kwargs(args)}
     elif args.teleop_device == "gello":
         derived = teleop_onset_kwargs(args)
+    elif args.teleop_device in _CARTESIAN_TRACKER_TELEOP_DEVICES:
+        derived = cartesian_tracker_kwargs(args)
     else:
         derived = {}
-    return {**derived, **_single_arm_yaml_options(args)}
+    options = _single_arm_yaml_options(args)
+    overridden = sorted(set(options) & set(_TRACKER_FLAGS)) if args.teleop_device in _CARTESIAN_TRACKER_TELEOP_DEVICES else []
+    if overridden:
+        flags = ", ".join(f"{key} -> {_TRACKER_FLAGS[key]}" for key in overridden)
+        raise ValueError(
+            f"--teleop-options-yaml {args.teleop_options_yaml} sets the command tracker ({overridden}), "
+            f"which the experiment contract records from the flags; use the flags instead ({flags})"
+        )
+    return {**derived, **options}
+
+
+# leader_cartesian/spacemouse source kwarg -> the flag that sets it (the experiment's
+# teleop_control block).
+_TRACKER_FLAGS = {
+    "lead_cap_m": "--teleop-lead-cap-m",
+    "lead_cap_rad": "--teleop-lead-cap-rad",
+    "target_speed_m_s": "--teleop-target-speed-m-s",
+    "target_speed_rad_s": "--teleop-target-speed-rad-s",
+}
+
+
+def cartesian_tracker_kwargs(args) -> dict:
+    """``leader_cartesian``/``spacemouse`` source arguments of the command tracker
+    (``--teleop-lead-cap-*``, ``--teleop-target-speed-*``)."""
+    return {
+        "lead_cap_m": args.teleop_lead_cap_m,
+        "lead_cap_rad": args.teleop_lead_cap_rad,
+        "target_speed_m_s": args.teleop_target_speed_m_s,
+        "target_speed_rad_s": args.teleop_target_speed_rad_s,
+    }
+
+
+def teleop_control_spec(args) -> Optional[dict]:
+    """The ``teleop_control`` experiment block of a run whose teleop source drives the follower
+    through a ``CartesianTargetTracker`` (``--teleop-device leader_cartesian`` or
+    ``spacemouse``), else None. Derived from the flags alone (``--teleop-options-yaml`` may not
+    override them), so the learner (no teleop device) records the same block as the actor and the
+    demo recorder."""
+    if args.teleop_device not in _CARTESIAN_TRACKER_TELEOP_DEVICES:
+        return None
+    from real_world_rl.teleop.cartesian_tracker import CartesianTrackerConfig
+
+    return CartesianTrackerConfig(
+        lead_cap_m=args.teleop_lead_cap_m,
+        lead_cap_rad=args.teleop_lead_cap_rad,
+        speed_m_s=args.teleop_target_speed_m_s,
+        speed_rad_s=args.teleop_target_speed_rad_s,
+    ).describe()
 
 
 def teleop_wrapper_kwargs(args) -> dict:
     """``TeleopInterventionWrapper`` arguments: ``--teleop-device`` alone, or, with
     ``--teleop-event-device``, a composite taking motion from the former and intervention plus
     events from the latter."""
+    removed = _REMOVED_TELEOP_EVENT_DEVICES.get(args.teleop_event_device)
+    if removed is not None:
+        raise ValueError(f"--teleop-event-device {args.teleop_event_device} was removed: {removed}")
     part_options = {}
     if args.teleop_selected_parts: part_options["selected_parts"] = args.teleop_selected_parts
     if args.teleop_idle_behavior != "hold": part_options["idle_behavior"] = args.teleop_idle_behavior
@@ -481,7 +545,7 @@ def reward_sources_spec(args, task=None):
         if path is None: return None
         file = Path(path)
         return {"path": str(path), "content_sha256": hashlib.sha256(file.read_bytes()).hexdigest() if file.is_file() else None}
-    return {"classifier": model(args.classifier_checkpoint), "classifier_threshold": args.classifier_threshold,
+    spec = {"classifier": model(args.classifier_checkpoint), "classifier_threshold": args.classifier_threshold,
             "arm_classifiers": {name: model(path) for name, path in (task.classifier_checkpoints.items() if task else ())},
             "classifier_image_keys": list(args.classifier_image_keys),
             "reward_from_teleop_events": args.reward_from_teleop_events,
@@ -489,6 +553,11 @@ def reward_sources_spec(args, task=None):
             "use_grasp_penalty": args.use_grasp_penalty, "grasp_penalty_value": args.grasp_penalty_value,
             "grasp_penalty_semantics": "critic_target_side_channel",
             "teleop_selected_parts": args.teleop_selected_parts, "teleop_idle_behavior": args.teleop_idle_behavior}
+    # Compared, not provenance: action_contract.compared_experiment lifts it out of the sources.
+    teleop_control = teleop_control_spec(args)
+    if teleop_control is not None:
+        spec["teleop_control"] = teleop_control
+    return spec
 
 
 def build_offline_experiment_env(env, config, observation, saved_contract=None):
@@ -513,9 +582,13 @@ def build_offline_experiment_env(env, config, observation, saved_contract=None):
         import warnings
         if _requires_experiment_metadata(expected["experiment"]):
             raise ValueError("legacy metadata cannot verify task/control/crop/depth observation processing")
+        from real_world_rl.action_contract import TELEOP_CONTROL_KEY
         warnings.warn("legacy raw contract has no final observation/source metadata; using configured default observation view", stacklevel=2)
+        # Legacy metadata predates teleop_control: borrowing it would hide that mismatch.
+        borrowed_sources = {key: value for key, value in (expected["experiment"].get("sources") or {}).items()
+                            if key != TELEOP_CONTROL_KEY}
         saved_contract = {**saved_contract, "experiment": {**saved_contract["experiment"],
-                           "sources": expected["experiment"].get("sources", {}),
+                           "sources": borrowed_sources,
                            "observation": expected["experiment"]["observation"]}}
     validate_transitions_against_contract([], expected, source="offline demos", saved=saved_contract)
     class OfflineSpaceOnly(gym.Wrapper):

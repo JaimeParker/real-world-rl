@@ -1,6 +1,6 @@
 # real-world-rl 中文文档入口
 
-这里提供 `docs/` 全部 20 篇文档的完整中文译文，并补充项目 README、设备层 README、ACT 说明和机械臂控制配置，共 24 篇。下方教程、专题与参考文档均链接到中文版，涵盖从配置 Franka 与 GELLO，到示范采集、基础策略、人工介入强化学习和部署的完整流程。各译文顶部的 English 链接可对照原文；命令、参数、配置键和程序输出保留原样。
+这里提供 `docs/` 全部 21 篇文档的完整中文译文，并补充项目 README、设备层 README、ACT 说明和机械臂控制配置，共 25 篇。下方教程、专题与参考文档均链接到中文版，涵盖从配置 Franka 与 GELLO，到示范采集、基础策略、人工介入强化学习和部署的完整流程。各译文顶部的 English 链接可对照原文；命令、参数、配置键和程序输出保留原样。
 
 另见[真机测试页索引（英文主版本）](testing/README.md)，说明单项命令、通过标准、记录 CSV 与证据归档约定。`docs/zh-CN/testing/` 为对应中文翻译，真机结果留待现场填写。
 
@@ -106,9 +106,10 @@
 | [旧版上机入口](zh-CN/getting-started-hardware.md) | 保留旧链接，把原有上机章节映射到新教程；从旧书签进入时可用它找到对应步骤。 |
 | [完整中文文档索引](zh-CN/README.md) | 完整翻译原文索引，按教程、概念与参考组织，与本页互相导航。 |
 
-`docs/` 之外的相关参考：
+其他相关参考：
 
 - [项目 README](zh-CN/project-readme.md)：安装、各方法入口、动作约定、设备限制、部署、示范约定，以及 fake 机器人的端到端演练。
+- [rwrl：工作站命令行](zh-CN/cli.md)：查询状态、保存与返回 home、夹爪操作、停止与恢复，以及非交互调用约定。
 - [robot_infra README](zh-CN/robot-infra.md)：设备层、工作站向导、discovery、doctor、守护进程和故障排查。
 - [单臂训练预设](../examples/presets/hil_single_arm.yaml)：复制为 `hil.yaml` 后修改连接地址和相机等配置。
 - [双臂工作站示例](../robot_infra/docs/station.bimanual.example.yaml)：了解逐臂设备与守护进程配置。

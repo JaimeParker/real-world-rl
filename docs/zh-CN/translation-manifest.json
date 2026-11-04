@@ -4,12 +4,17 @@
     {
       "source": "docs/README.md",
       "translation": "docs/zh-CN/README.md",
-      "source_sha256": "664ad289e9759089cadf3eebfc1933201621051a6bfd669abaf7cf5ef0d5e750"
+      "source_sha256": "137a5dcc0ce860fa4a4b4d0b0a2a3f33f237fe62e02e2a6f945bffcfea585322"
     },
     {
       "source": "docs/bimanual.md",
       "translation": "docs/zh-CN/bimanual.md",
       "source_sha256": "4044b89da1a1f72c085f6095a9c53f1f43db9fbeb7297535ee9a4a90ca008319"
+    },
+    {
+      "source": "docs/cli.md",
+      "translation": "docs/zh-CN/cli.md",
+      "source_sha256": "834257bff4eb6e6f23673892e58baae9b21e4b03e808a5f634be8e1883b410dd"
     },
     {
       "source": "docs/gello.md",
@@ -74,12 +79,12 @@
     {
       "source": "docs/tutorial/03-daemon.md",
       "translation": "docs/zh-CN/tutorial/03-daemon.md",
-      "source_sha256": "ef49fdee1b5fafd065fa57ff952aaec1425b08fd7a1b49a382a29d87f8c05f2b"
+      "source_sha256": "5865a3437c3b6b209138f45fcc83c30d9b16286743ba199d45208a8f1bd6397e"
     },
     {
       "source": "docs/tutorial/04-record-demos.md",
       "translation": "docs/zh-CN/tutorial/04-record-demos.md",
-      "source_sha256": "4ed6ee5442a231e5bfc56dfcfa3d5c4d5499011d532022b78f5a31526d64dd8f"
+      "source_sha256": "23cefa0d1204bcaac68f97fa9b72644e70d4aee9a287e5565d8f7df627e8884f"
     },
     {
       "source": "docs/tutorial/05-base-policy.md",
@@ -89,7 +94,7 @@
     {
       "source": "docs/tutorial/06-intervening.md",
       "translation": "docs/zh-CN/tutorial/06-intervening.md",
-      "source_sha256": "0fefecb5efab26e1715bba601a0c2fe6a58e91f66c1b9c9c5705944137d44869"
+      "source_sha256": "37ebf8ecf656d103db6472564b74d009f72017aef9862575e21292c1627488b0"
     },
     {
       "source": "docs/tutorial/07-hil-training.md",
@@ -109,7 +114,7 @@
     {
       "source": "robot_infra/README.md",
       "translation": "docs/zh-CN/robot-infra.md",
-      "source_sha256": "36fcb30fbb5dad29278eed3a260667e354ed3888b74e32ac603ca62c1cb23372"
+      "source_sha256": "2246829d6c372ac20c0938f247565da91b5dbbb512e40fa753d3cf49ce24a1fd"
     },
     {
       "source": "rl-garden/rl_garden/models/act/README.md",
@@ -124,7 +129,7 @@
     {
       "source": "docs/testing/single-arm-gripper-session2.md",
       "translation": "docs/zh-CN/testing/single-arm-gripper-session2.md",
-      "source_sha256": "31e4d026569f26ef324f9ed065f7165ed95c8afa6fb028cf62e40c3033ee7575"
+      "source_sha256": "5e638b3928eeab0288aa002f0aeac366792bdda37673cc8030e84e503dbc70b1"
     },
     {
       "source": "docs/testing/single-arm-gripper-session2-record.csv",

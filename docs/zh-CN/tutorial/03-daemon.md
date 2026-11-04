@@ -36,6 +36,15 @@ python -m robot_infra.server --config local/station.yaml --watchdog-s 5
 
 *否则：* 按 [01](01-install.md) 的 preflight 提示处理。recorder、actor 或守护进程占设备时不要对同设备跑 doctor，否则 claim 和握手冲突。
 
+daemon 启动后，在同一 **NUC** 打开另一终端，进入**仓库根目录**并激活**工作站 `.venv`**，检查连接：
+
+<!-- tutorial-test: skip -->
+```bash
+rwrl status
+```
+
+`local/station.yaml` 声明 `daemon:` 时应显示 `connection: daemon HOST:PORT`。主线无 daemon 声明、也无 recorder/actor 占臂时，同一命令显示 `connection: direct franky`。声明了 daemon 但不可达会报错，见 [rwrl 连接归属](../cli.md#connection-ownership)。
+
 <a id="point-the-remote-actor-at-the-nuc"></a>
 
 ## 将远程 actor 指向 NUC

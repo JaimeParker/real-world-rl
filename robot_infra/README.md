@@ -471,6 +471,10 @@ automatically (one Python environment holds one franky wheel); the doctor prints
 robot instead. `--no-deps` assumes franky's dependencies (`numpy`, `websockets`) are already
 installed, which installing the `franky` extra first takes care of.
 
+With `real-world-rl` installed in the station venv, `rwrl doctor` forwards to
+this same doctor; run it on the NUC, from the repository root, with that venv
+active (see [rwrl](../docs/cli.md#commands)).
+
 ### 4. Serve the robot
 
 ```bash

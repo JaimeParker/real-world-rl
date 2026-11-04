@@ -26,6 +26,15 @@ SpaceMouse uses `--teleop-device spacemouse --teleop-event-device stdin`.
 With SpaceMouse, terminal `t`/`h` are ignored; `s`/`f`/`r`/Esc/`q` still work.
 Keys pressed during reset/home are dropped. Keep the physical stop accessible.
 
+After a reflex stop, inspect the cell and release the activation device or
+clear the fault in Desk as needed. On the **NUC**, **repository root**, with
+the **station `.venv` active**, use `rwrl recover` to request error recovery;
+`rwrl stop` requests an arm stop without confirmation. Both follow the station's
+connection selection. On this direct workflow, finish the recorder/actor and
+release its connection first; a second FCI connection cannot stop a directly
+owned arm. With a declared live daemon, the commands use that daemon. Keep the
+physical stop accessible during a run. See [rwrl](../cli.md#connection-ownership).
+
 ## The sequence
 
 ### GELLO

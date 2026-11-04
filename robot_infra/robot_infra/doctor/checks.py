@@ -109,6 +109,9 @@ def _mocked(config: RobotConfig) -> RobotConfig:
     )
 
 
+mocked_config = _mocked
+
+
 def _mocked_teleop(teleop):
     if teleop is None or teleop.backend == "fake":
         return teleop

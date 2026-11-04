@@ -398,6 +398,8 @@ doctor 从 libfranka 握手错误获取权威 robot server 版本。Desk 不直�
 
 随后询问 `Install now? [y/N]`，只 y/yes 才装到当前解释器；之后用新解释器重跑相关机器人 doctor，避免旧 libfranka 已加载，并返回该退出码。除非 --yes，否则不自动确认。--json 永不询问或安装，仅输出 `{"results": <the --json report>, "install_sdk": [{robot, server_version, library_version, command}]}`。多个不同 server 不能自动安装，因为同一 Python 环境只有一个 wheel；改为逐臂打印命令。--no-deps 假设 numpy、websockets 已具备，先安装 franky extra 即可满足。
 
+工作站 venv 已安装 `real-world-rl` 时，`rwrl doctor` 转发到同一个 doctor；在 NUC、仓库根目录、该 venv 激活时运行，见 [rwrl](cli.md#commands)。
+
 <a id="4-serve-the-robot"></a>
 
 ### 4. 提供机器人服务

@@ -56,6 +56,7 @@ record() {
 | S01 安装与检测 | `check S01 bash scripts/install.sh --extras franka-gello,spacemouse --station local/station.yaml` | doctor 各层无 FAIL，实际设备必检项均通过；成功后激活 `.venv` | `S01/console.log` |
 | S02 Desk / FCI | `check S02 python -m robot_infra.doctor --config local/station.yaml` | 逐项确认页面可达、绿灯、已登录、本机控制权、已安装 FCI、会话已激活；刷新正确 Desk，handshake OK；保存六项证据 | `S02/console.log` |
 | S03 Hand 反馈 | `check S03-open python -m robot_infra.doctor --config local/station.yaml`，再运行 `check S03-closed python -m robot_infra.doctor --config local/station.yaml` | doctor 两次运行：Hand 张开时一次、在 Desk 上闭合后再一次；两次打印的宽度与肉眼观察的开口一致（Franka Hand 张开约 0.08 m，闭合接近 0），无 WARN | `S03-open/console.log`、`S03-closed/console.log` |
+| S03 后可选 | `rwrl gripper show` | 同一 NUC、仓库根、工作站 `.venv` 激活，启动 recorder 前执行：应打印与 doctor 相同的夹爪宽度行（米、归一化宽度、抓取状态和后端来源）；保留上方 S02/S03 doctor 检查 | 可选对照，无 CSV 项目 |
 | S04 复位与保持 | `record S04 leader_cartesian --max-episode-steps 750` | 复位后不接管至少 10 s；inspector 写入的 `measurements.csv` 中 `hold_window` 行（亦即 `summary.json` 中该保持段的 `max_drift_window_mm`）覆盖至少 10 s，且其 `max_drift_mm` ≤5 mm | `S04/measurements.csv` |
 | S05 GELLO t/h/t | `record S05 leader_cartesian` | `t` 驱动、`h` 保持 10 s、`t` 再接管后 `q`；`h` 保持段的 `hold_window` 行 `max_drift_mm` ≤5 mm，再接管无跳动（`summary.json` 中其后接管段的 `jump_mm`，并以视频确认），`summary.json` 的分段与接管/交还一致 | `S05/measurements.csv` |
 | S06 GELLO 领先上限 | `record S06 leader_cartesian` | 在已核定范围内快速移动 leader 再静止，并在第二终端标记 leader 停止时刻（见下）；最后 `q`，再用该时刻重跑 inspector：`settle` 行 `settle_s` ≤1.5 s、`residual_mm` ≤50 mm | `S06/measurements-stop.csv` |

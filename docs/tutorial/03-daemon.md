@@ -48,6 +48,20 @@ can start both from the station file.
 against the same devices while a recorder, actor or daemon owns them: the device
 claim and handshake will conflict.
 
+To check the connection after starting the daemon, open another terminal on
+this **NUC**, at the **repository root**, with the **station `.venv` active**:
+
+<!-- tutorial-test: skip -->
+```bash
+rwrl status
+```
+
+With `daemon:` declared in `local/station.yaml`, expect
+`connection: daemon HOST:PORT`. On the main route, with no daemon declaration
+and no recorder/actor holding the arm, the same command reports
+`connection: direct franky`. A declared but unreachable daemon is an error;
+see [rwrl connection ownership](../cli.md#connection-ownership).
+
 ## Point the remote actor at the NUC
 
 On the **actor machine**, use its installed project venv, from its repository root.

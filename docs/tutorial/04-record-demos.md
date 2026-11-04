@@ -29,6 +29,23 @@ source at a physical-follower station: it connects the whole leader robot YAML,
 which would open a second connection to the follower. Calibration and alternative local
 leader configurations are in [gello.md](../gello.md).
 
+Before recording, on this NUC, repository root, station `.venv` active, finish
+any process directly holding the arm. Run `rwrl status`, manually guide the arm
+to the desired home, then leave guiding mode. Save and verify home in the same
+preset used by the recorder below:
+
+<!-- tutorial-test: skip -->
+```bash
+rwrl --preset examples/presets/gello_cartesian.yaml home set
+rwrl --preset examples/presets/gello_cartesian.yaml --yes home go
+```
+
+This is the same home that `env.reset()` resolves. The verification moves the
+arm and applies `task.reset.gripper`, while skipping other reset phases.
+`home set` rewrites this preset with PyYAML: comments are lost and the previous
+file is saved as `examples/presets/gello_cartesian.yaml.bak`. See
+[rwrl home](../cli.md#home-resolve-save-and-move).
+
 ## Record with GELLO
 
 On the NUC, repository root, `.venv` active:

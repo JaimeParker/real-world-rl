@@ -46,6 +46,7 @@ spacemouse = ["rlgarden-robot-infra[spacemouse]==0.0.1"]
 test = ["pytest", "opencv-python-headless", "ipython", "torchvision", "grpcio>=1.60"]
 
 [project.scripts]
+rwrl = "real_world_rl.cli:main"
 real-world-rl-train = "real_world_rl.training.__main__:main"
 real-world-rl-record = "real_world_rl.demos.__main__:main"
 real-world-rl-deploy = "real_world_rl.deploy:run_cli"

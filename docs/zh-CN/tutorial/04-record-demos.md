@@ -18,6 +18,16 @@
 
 `teleop_options_yaml` 指向仓库根的 `gello_leader.yaml`。在该本地选项文件写 `robot_yaml: gello_station.yaml`。后者须是只描述 leader 的本地机器人 YAML：`type: franka`、独立 `name`、`arm_backend: fake`、`gripper: null`、`cameras: []`，加上已配置的 GELLO `teleop:`（串口与标定）。不要指向实臂 follower station，因为该输入源会连接整份 leader YAML，导致重复连接实臂。标定和其他本地 leader 配置见 [gello.md](../gello.md)。
 
+录制前，在同一 NUC、仓库根、工作站 `.venv` 激活时，先结束直接占用机械臂的进程。运行 `rwrl status`，手动拖到期望 home 后退出 guiding 模式；在下方 recorder 使用的同一预设中保存并验证 home：
+
+<!-- tutorial-test: skip -->
+```bash
+rwrl --preset examples/presets/gello_cartesian.yaml home set
+rwrl --preset examples/presets/gello_cartesian.yaml --yes home go
+```
+
+这是 `env.reset()` 会解析到的同一个 home。验证会移动机械臂并执行 `task.reset.gripper`，跳过其他 reset 阶段。`home set` 用 PyYAML 重写此预设，注释会丢失，原文件保存为 `examples/presets/gello_cartesian.yaml.bak`。见 [rwrl home](../cli.md#home-resolve-save-and-move)。
+
 <a id="record-with-gello"></a>
 
 ## 用 GELLO 录制

@@ -81,6 +81,21 @@ class Gripper(ControllablePart, BackendRegistry, ABC):
         else:
             self.move(float(np.clip(target, 0.0, 1.0)))
 
+    def command_binary(self, open: bool, *, force: bool = False) -> None:
+        """Send an explicit binary command, optionally bypassing the direction cache.
+
+        Forced commands use open/close directly, including on RemoteGripper,
+        whose RPCs bypass the server's send_action cache as well.
+        """
+        self._require_connected()
+        if not force and open == self._last_binary_open:
+            return
+        if open:
+            self.open()
+        else:
+            self.close()
+        self._last_binary_open = open
+
     def _forget_binary_command(self) -> None:
         """Call at the start of every session (own ``_open`` or borrowed ``_opened``)."""
         self._last_binary_open = None

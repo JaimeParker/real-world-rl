@@ -78,6 +78,89 @@ def _real_env(**overrides) -> RealRobotVectorEnv:
     return RealRobotVectorEnv(RealRobotEnv(config, robot=object()))
 
 
+def _cartesian_contract_env(backend, semantics):
+    limits = dict(safety_box_rpy_low=[0, -1, -1], safety_box_rpy_high=[3, 1, 1])
+    if backend == "real_robot":
+        return _real_env(cartesian_semantics=semantics, safety_box=[-1] * 3 + [1] * 3, **limits)
+    from real_world_rl.envs.franka_real.config import FrankaRealEnvConfig
+    from real_world_rl.envs.franka_real.env import FrankaRealEnv
+
+    return FrankaRealEnv(FrankaRealEnvConfig(
+        bridge_url="http://unused", cartesian_semantics=semantics,
+        safety_box_low=(-1,) * 3, safety_box_high=(1,) * 3, **limits,
+    ), bridge_client=object())
+
+
+@pytest.mark.parametrize("backend", ["real_robot", "franka_real"])
+def test_serl_env_contract_rejects_current_data(backend):
+    from real_world_rl.action_contract import (
+        experiment_contract_of, validate_experiment, validate_transitions_against_contract,
+    )
+
+    current = _cartesian_contract_env(backend, "current")
+    serl = _cartesian_contract_env(backend, "serl")
+    contract = demo_contract_of(serl)
+    assert contract["experiment"]["cartesian_semantics"] == "serl"
+    assert contract["experiment"]["serl"]["safety_box_rpy_low"] == [0, -1, -1]
+    transitions = [{"action": np.zeros(7)}]
+    with pytest.raises(ValueError, match="metadata|contract"):
+        validate_transitions_against_contract(
+            transitions, contract, source="current.pkl", saved=demo_contract_of(current),
+        )
+    with pytest.raises(ValueError, match="differs"):
+        validate_experiment(current, experiment_contract_of(serl))
+    with pytest.raises(ValueError, match="contract"):
+        validate_transitions_against_contract(
+            transitions, demo_contract_of(current), source="serl.pkl", saved=contract,
+        )
+
+
+@pytest.mark.parametrize("backend", ["real_robot", "franka_real"])
+def test_serl_contract_rejects_missing_or_legacy_semantics(backend):
+    from real_world_rl.action_contract import validate_experiment, validate_transitions_against_contract
+
+    env = _cartesian_contract_env(backend, "serl")
+    expected = demo_contract_of(env)
+    for saved in (None, {key: value for key, value in expected.items() if key != "experiment"}):
+        with pytest.raises(ValueError, match="metadata"):
+            validate_transitions_against_contract([], expected, source="legacy.pkl", saved=saved)
+    with pytest.raises(ValueError, match="metadata"):
+        validate_experiment(env, None)
+
+
+@pytest.mark.parametrize("backend", ["real_robot", "franka_real"])
+@pytest.mark.parametrize("key,value", [
+    ("safety_box_low", [-0.5, -1, -1]),
+    ("safety_box_rpy_low", [0.1, -1, -1]),
+    ("safety_box_rpy_high", [2.9, 1, 1]),
+    ("gripper_action_scale", 0.5), ("gripper_sleep_s", 0.7),
+])
+def test_serl_contract_compares_pose_limits_and_gripper_semantics(backend, key, value):
+    import copy
+    from real_world_rl.action_contract import validate_transitions_against_contract
+
+    expected = demo_contract_of(_cartesian_contract_env(backend, "serl"))
+    saved = copy.deepcopy(expected)
+    saved["experiment"]["serl"][key] = value
+    with pytest.raises(ValueError, match="experiment"):
+        validate_transitions_against_contract([], expected, source="different.pkl", saved=saved)
+
+
+@pytest.mark.parametrize("backend", ["real_robot", "franka_real"])
+def test_serl_contract_sidecar_round_trips(backend, tmp_path):
+    from real_world_rl.action_contract import validate_transitions_against_contract, write_contract_sidecar
+
+    expected = demo_contract_of(_cartesian_contract_env(backend, "serl"))
+    path = tmp_path / "serl.pkl"
+    write_contract_sidecar(path, expected)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        validate_transitions_against_contract(
+            [{"action": np.zeros(7)}], expected, source=str(path), saved=read_contract_sidecar(path),
+        )
+    assert not caught
+
+
 @pytest.mark.parametrize(
     "overrides, arm_dim, total",
     [

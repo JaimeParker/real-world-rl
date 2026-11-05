@@ -103,6 +103,205 @@ def _is_subsequence(expected: list[str], log: list[str]) -> bool:
     return all(item in it for item in expected)
 
 
+class _SerlClock:
+    def __init__(self):
+        self.now = 0.0
+        self.events = []
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.events.append(("sleep", seconds))
+        self.now += seconds
+
+
+@pytest.fixture
+def serl_clock(monkeypatch):
+    import real_world_rl.envs.real_robot.env as env_module
+
+    clock = _SerlClock()
+    monkeypatch.setattr(env_module, "time", clock)
+    return clock
+
+
+def _serl_env(rig, **overrides):
+    values = dict(cartesian_semantics="serl", safety_box=[-1] * 3 + [1] * 3,
+                  safety_box_rpy_low=[0, -np.pi, -np.pi], safety_box_rpy_high=[np.pi] * 3)
+    values.update(overrides)
+    return rig.env(**values)
+
+
+def test_serl_target_uses_latest_measured_pose(rig, serl_clock, monkeypatch):
+    env = _serl_env(rig)
+    env.reset()
+    measured = np.array([0.3, 0, 0.2, 0, 0, 0, 1.0])
+    env._last_raw["arm"]["tcp_pose"] = measured.copy()
+    sent = []
+    send = rig.robot.send_action
+
+    def record(command):
+        sent.append(command["arm"]["tcp_pose"].copy())
+        send(command)
+
+    monkeypatch.setattr(rig.robot, "send_action", record)
+    action = np.array([2, 0, 0, 0, 0, 0, 0])
+    env.step(action)
+    assert sent[0][0] == pytest.approx(0.32)  # action clipped to one
+    feedback = float(env._last_raw["arm"]["tcp_pose"][0])
+    assert feedback != pytest.approx(sent[0][0])
+    env.step(action)
+    assert sent[1][0] == pytest.approx(feedback + 0.02)
+
+
+def test_serl_rotation_left_multiplies_and_clips_roll_magnitude(rig, serl_clock, monkeypatch):
+    from scipy.spatial.transform import Rotation
+
+    env = _serl_env(rig, safety_box_rpy_low=[2.5, -0.1, -0.15],
+                    safety_box_rpy_high=[2.7, 0.1, 0.15])
+    env.reset()
+    env._last_raw["arm"]["tcp_pose"] = np.r_[
+        [0, 0, 0], Rotation.from_euler("xyz", [-2.9, 0.2, 0.3]).as_quat()
+    ]
+    sent = []
+    monkeypatch.setattr(rig.robot, "send_action", lambda command: sent.append(command))
+    env.step([0, 0, 0, 0.2, -0.4, 0.6, 0])
+    euler = Rotation.from_quat(sent[0]["arm"]["tcp_pose"][3:]).as_euler("xyz")
+    np.testing.assert_allclose(euler, [-2.7, 0.1, 0.15])
+
+
+def test_serl_gripper_zero_sends_no_command(rig, serl_clock):
+    env = _serl_env(rig)
+    env.reset()
+    rig.device_robot.gripper.call_log.clear()
+    serl_clock.now = 1.0
+    env.step(np.zeros(7))
+    assert rig.device_robot.gripper.call_log == []
+
+
+def test_serl_gripper_sleep_precedes_pose_send(rig, serl_clock, monkeypatch):
+    env = _serl_env(rig)
+    env.reset()
+    send = rig.robot.send_action
+    grip = rig.robot.gripper.command_binary
+    observe = rig.robot.get_observation
+
+    def send_pose(command):
+        serl_clock.events.append(("pose", command))
+        send(command)
+
+    def send_gripper(open, *, force):
+        serl_clock.events.append(("gripper", open, force))
+        grip(open, force=force)
+
+    def read():
+        serl_clock.events.append(("read",))
+        return observe()
+
+    monkeypatch.setattr(rig.robot, "send_action", send_pose)
+    monkeypatch.setattr(rig.robot.gripper, "command_binary", send_gripper)
+    monkeypatch.setattr(rig.robot, "get_observation", read)
+    serl_clock.now = 1.0
+    serl_clock.events.clear()
+    env.step([0, 0, 0, 0, 0, 0, -0.5])
+    events = serl_clock.events
+    assert events[0] == ("gripper", False, True)
+    assert events[1] == ("sleep", 0.6)
+    assert events[2][0] == "pose"
+    assert "gripper" not in events[2][1]
+    assert events[3:] == [("sleep", 0.0), ("read",)]
+    assert env._last_gripper_act == 1.0
+
+
+def test_serl_gripper_retries_when_measured_width_still_requires_it(rig, serl_clock, monkeypatch):
+    env = _serl_env(rig)
+    env.reset()
+    # A stuck physical gripper keeps reporting open despite repeated close commands.
+    gripper = rig.device_robot.gripper
+    monkeypatch.setattr(gripper, "close", lambda: gripper.call_log.append("close"))
+    gripper.call_log.clear()
+    serl_clock.now = 1.0
+    env.step([0, 0, 0, 0, 0, 0, -1])
+    serl_clock.now += 1.0
+    env.step([0, 0, 0, 0, 0, 0, -1])
+    assert gripper.call_log == ["close", "close"]
+
+
+def test_serl_gripper_initial_cooldown(rig, serl_clock):
+    env = _serl_env(rig)
+    env.reset()
+    gripper = rig.device_robot.gripper
+    gripper.call_log.clear()
+    serl_clock.now = 0.6
+    env.step([0, 0, 0, 0, 0, 0, -1])
+    assert gripper.call_log == []
+    serl_clock.now = 0.71
+    env.step([0, 0, 0, 0, 0, 0, -1])
+    assert gripper.call_log == ["close"]
+
+
+@pytest.mark.parametrize("hz", [5.0, 20.0])
+def test_serl_hz_does_not_rescale_delta(rig, serl_clock, monkeypatch, hz):
+    from scipy.spatial.transform import Rotation
+
+    env = _serl_env(rig, control_hz=hz)
+    env.reset()
+    before = env._last_raw["arm"]["tcp_pose"].copy()
+    sent = []
+    monkeypatch.setattr(rig.robot, "send_action", lambda command: sent.append(command))
+    serl_clock.events.clear()
+    env.step([1, 0, 0, 0, 0, 1, 0])
+    assert sent[0]["arm"]["tcp_pose"][0] - before[0] == pytest.approx(0.02)
+    np.testing.assert_allclose(
+        Rotation.from_quat(sent[0]["arm"]["tcp_pose"][3:]).as_rotvec(), [0, 0, 0.1], atol=1e-12,
+    )
+    assert serl_clock.events == [("sleep", 1.0 / hz)]
+
+
+@pytest.mark.parametrize("missing", ["safety_box", "safety_box_rpy_low", "safety_box_rpy_high"])
+def test_serl_requires_complete_pose_limits(missing):
+    values = dict(cartesian_semantics="serl", safety_box=[-1] * 3 + [1] * 3,
+                  safety_box_rpy_low=[0, -1, -1], safety_box_rpy_high=[3, 1, 1])
+    values[missing] = None
+    with pytest.raises(ValueError, match="safety_box"):
+        RealRobotEnvConfig(**values)
+
+
+@pytest.mark.parametrize("overrides", [
+    {"safety_box": [-1] * 3 + [1] * 2},
+    {"safety_box_rpy_low": [0, 0]},
+    {"safety_box_rpy_high": [3, float("nan"), 1]},
+    {"safety_box_rpy_low": [4, -1, -1]},
+    {"gripper_sleep_s": -1}, {"gripper_action_scale": float("inf")},
+    {"action_mode": "joint_delta"},
+])
+def test_serl_rejects_invalid_config(overrides):
+    values = dict(cartesian_semantics="serl", safety_box=[-1] * 3 + [1] * 3,
+                  safety_box_rpy_low=[0, -1, -1], safety_box_rpy_high=[3, 1, 1])
+    values.update(overrides)
+    with pytest.raises(ValueError):
+        RealRobotEnvConfig(**values)
+
+
+def test_serl_without_gripper_needs_no_feedback(rig, serl_clock):
+    env = _serl_env(rig, gripper_in_action=False, state_fields=("tcp_pose",))
+    env.reset()
+    env._last_raw.pop("gripper")
+    env.step(np.zeros(6))
+
+
+def test_current_env_defaults_unchanged(rig):
+    env = rig.env()
+    assert env.config.cartesian_semantics == "current"
+    assert env.config.gripper_action_scale == 1.0
+    assert env.config.gripper_sleep_s == 0.6
+    assert env.config.safety_box_rpy_low is env.config.safety_box_rpy_high is None
+    assert env.action_space.shape == (7,)
+    assert "cartesian_semantics" not in env.requested_experiment
+    assert "serl" not in env.requested_experiment
+    assert "safety_box_rpy_low" not in env.requested_experiment
+
+
 # -- config -------------------------------------------------------------------------
 
 

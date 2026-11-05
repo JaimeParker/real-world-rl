@@ -240,6 +240,11 @@ def validate_transitions_against_contract(
     with a warning; a contract without ``num_arms`` / ``arm_names`` is read as one arm.
     """
     if expected is None:
+        # The current HTTP env has no contract. New SERL data must not silently
+        # pass through that legacy escape hatch when replayed into it.
+        saved_spec = saved.get("experiment") if saved is not None else None
+        if isinstance(saved_spec, Mapping) and saved_spec.get("cartesian_semantics") == "serl":
+            raise ValueError(f"{source}: recorded SERL action contract requires a matching env contract")
         return
     expected = with_arm_layout(expected)
     if saved is not None:
@@ -321,6 +326,8 @@ def _requires_experiment_metadata(spec):
     """Whether ``spec`` changes the observation or action semantics, so that data without
     experiment metadata cannot be checked against it. Reward sources (a classifier) do not."""
     if not isinstance(spec, Mapping): return False
+    if spec.get("cartesian_semantics") == "serl":
+        return True
     task = spec.get("task", {})
     if task.get("name", "none") != "none" or spec.get("control") or spec.get("depth_cameras"):
         return True

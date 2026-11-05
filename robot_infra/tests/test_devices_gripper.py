@@ -109,3 +109,28 @@ def test_continuous_mode_resends_every_command():
     gripper.send_action({"gripper": np.array([0.3])})
     gripper.send_action({"gripper": np.array([0.3])})
     assert gripper.call_log.count("move") == 2
+
+
+def test_command_binary_force_bypasses_cache_and_updates_it():
+    gripper = connected()
+    gripper.send_action({"gripper": np.array([1.0])})
+    gripper.command_binary(True)
+    assert gripper.call_log == ["open"]
+    gripper.command_binary(True, force=True)
+    gripper.command_binary(False, force=True)
+    gripper.command_binary(False, force=True)
+    assert gripper.call_log == ["open", "open", "close", "close"]
+    gripper.send_action({"gripper": np.array([0.0])})
+    assert gripper.call_log == ["open", "open", "close", "close"]
+
+
+def test_command_binary_requires_connection():
+    with pytest.raises(DeviceNotConnected):
+        FakeGripper().command_binary(True, force=True)
+
+
+def test_command_binary_is_explicit_even_in_continuous_mode():
+    gripper = connected(mode=GripperMode.CONTINUOUS)
+    gripper.command_binary(False, force=True)
+    gripper.command_binary(True, force=True)
+    assert gripper.call_log == ["close", "open"]

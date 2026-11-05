@@ -24,9 +24,13 @@ Control-loop pacing (holding a fixed Hz) is *not* this env's job --
 ``ActorLoop`` (``real_world_rl/loops/actor.py``) owns pacing so there
 is a single source of truth for the real-time budget. ``step()`` here simply
 executes as fast as the bridge responds.
+
+The opt-in ``cartesian_semantics="serl"`` branch instead owns its post-send
+control-period sleep and the native gripper debounce sleep inside the env.
 """
 from __future__ import annotations
 
+import time
 from typing import Any, Callable, Optional
 
 import gymnasium as gym
@@ -102,8 +106,16 @@ class FrankaRealEnv(gym.Env):
         )
         self._t = 0
         self._last_pose: Optional[np.ndarray] = None  # xyz(3) + quat_xyzw(4)
+        if cfg.cartesian_semantics == "serl":
+            self._last_gripper_act = time.monotonic()
+            self._last_gripper_width: Optional[float] = None
+            if not cfg.gripper_in_action:
+                self.single_action_space = spaces.Box(-1.0, 1.0, shape=(6,), dtype=np.float32)
+                self.action_space = batch_space(self.single_action_space, 1)
 
     def _obs_from_state(self, state: dict[str, Any]) -> dict[str, torch.Tensor]:
+        if self.cfg.cartesian_semantics == "serl" and not self.cfg.gripper_in_action:
+            state = {"gripper_pos": 0.0, **state}
         flat = np.concatenate(
             [
                 np.asarray(state["pose"], dtype=np.float32),
@@ -134,6 +146,8 @@ class FrankaRealEnv(gym.Env):
         state = self.bridge.get_state()
         self._t = 0
         self._last_pose = np.asarray(state["pose"], dtype=np.float64)
+        if self.cfg.cartesian_semantics == "serl" and self.cfg.gripper_in_action:
+            self._last_gripper_width = float(state["gripper_pos"])
         return self._obs_from_state(state), {}
 
     @property
@@ -161,6 +175,8 @@ class FrankaRealEnv(gym.Env):
         return Rotation.from_euler("xyz", euler)
 
     def step(self, action: torch.Tensor):
+        if self.cfg.cartesian_semantics == "serl":
+            return self._step_serl(action)
         if self._last_pose is None:
             raise RuntimeError("FrankaRealEnv.step() called before reset().")
 
@@ -203,6 +219,70 @@ class FrankaRealEnv(gym.Env):
             [self._t >= self.cfg.max_episode_steps], dtype=torch.bool, device=self.device
         )
         return obs, reward, terminated, truncated, {}
+
+    def _step_serl(self, action):
+        from real_world_rl.envs.serl_cartesian import clip_safety_box, gripper_command, target_pose
+
+        start = time.monotonic()
+        if self._last_pose is None:
+            raise RuntimeError("FrankaRealEnv.step() called before reset().")
+        action = (
+            action.detach().cpu().numpy() if isinstance(action, torch.Tensor) else np.asarray(action)
+        ).astype(np.float64).reshape(-1)
+        if action.shape != self.single_action_space.shape:
+            raise ValueError(f"expected action shape {self.single_action_space.shape}, got {action.shape}")
+        if not np.isfinite(action).all():
+            raise ValueError("action must contain finite numbers")
+        action = np.clip(action, self.single_action_space.low, self.single_action_space.high)
+        cfg = self.cfg
+        pose = target_pose(self._last_pose, action, *cfg.action_scale)
+        if cfg.gripper_in_action:
+            command = gripper_command(
+                float(action[-1]), self._last_gripper_width, time.monotonic(), self._last_gripper_act,
+                gripper_action_scale=cfg.gripper_action_scale,
+                gripper_sleep_s=cfg.gripper_sleep_s,
+            )
+            if command is not None:
+                self.bridge.send_gripper(command)
+                self._last_gripper_act = time.monotonic()
+                time.sleep(cfg.gripper_sleep_s)
+        pose = clip_safety_box(pose, self._safety_low, self._safety_high,
+                               self._safety_rpy_low, self._safety_rpy_high)
+        self.bridge.send_pose(pose)
+        time.sleep(max(0.0, 1.0 / cfg.control_hz - (time.monotonic() - start)))
+        state = self.bridge.get_state()
+        self._last_pose = np.asarray(state["pose"], dtype=np.float64)
+        if cfg.gripper_in_action:
+            self._last_gripper_width = float(state["gripper_pos"])
+        self._t += 1
+        obs = self._obs_from_state(state)
+        reward = torch.zeros(1, device=self.device)
+        terminated = torch.zeros(1, dtype=torch.bool, device=self.device)
+        truncated = torch.tensor(
+            [self._t >= cfg.max_episode_steps], dtype=torch.bool, device=self.device
+        )
+        return obs, reward, terminated, truncated, {}
+
+    @property
+    def action_contract(self) -> Optional[dict]:
+        # The current HTTP env has no contract; retain that legacy behavior.
+        if self.cfg.cartesian_semantics != "serl":
+            return None
+        from real_world_rl.envs.serl_cartesian import semantics_contract
+
+        cfg = self.cfg
+        return {
+            "action_mode": "cartesian_delta", "arm_action_dim": 6,
+            "gripper_in_action": cfg.gripper_in_action,
+            "num_arms": 1, "arm_names": ["arm"],
+            "xyz_scale_m": cfg.action_scale[0], "rot_scale_rad": cfg.action_scale[1],
+            "experiment": {
+                "control_hz": cfg.control_hz,
+                **semantics_contract(cfg.safety_box_low, cfg.safety_box_high,
+                                     cfg.safety_box_rpy_low, cfg.safety_box_rpy_high,
+                                     cfg.gripper_action_scale, cfg.gripper_sleep_s),
+            },
+        }
 
     def close(self) -> None:
         """Stop this env's controller after a reset; construction alone owns none.

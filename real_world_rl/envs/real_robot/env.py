@@ -7,6 +7,7 @@ torch tensors. Action is ``[-1, 1]^D``: 6 (xyz + rotvec) for ``cartesian_delta``
 
 Unlike ``FrankaRealEnv``, this env paces itself to ``control_hz``: each ``step()`` sleeps the
 remainder of the control period since the previous step's command was sent.
+The opt-in SERL branch sleeps after each pose send and before observing instead.
 """
 from __future__ import annotations
 
@@ -114,6 +115,8 @@ class RealRobotEnv(gym.Env):
         self._last_send_time: Optional[float] = None
         self._elapsed_steps = 0
         self._step_watchdog = None  # robot_infra StepWatchdog, built on the first reset when watchdog_s is set
+        if config.cartesian_semantics == "serl":
+            self._last_gripper_act = time.monotonic()
 
     def _frame_size(self, cam: str) -> tuple[int, int]:
         if self.config.image_size is not None:
@@ -327,6 +330,8 @@ class RealRobotEnv(gym.Env):
         return obs, {}
 
     def step(self, action):
+        if self.config.cartesian_semantics == "serl":
+            return self._step_serl(action)
         if self._last_raw is None:
             raise RuntimeError("RealRobotEnv.step() called before reset()")
         self._check_in_step_watchdog()
@@ -366,6 +371,61 @@ class RealRobotEnv(gym.Env):
             "safety_clips": self._safety_clips,
             "elapsed_steps": self._elapsed_steps,
             "task_tcp_positions": {"arm": np.asarray(raw["arm"]["tcp_pose"][:3]).copy()} if "tcp_pose" in raw["arm"] else {},
+        }
+        return obs, 0.0, False, bool(truncated), info
+
+    def _step_serl(self, action):
+        from real_world_rl.envs.serl_cartesian import clip_safety_box, gripper_command, target_pose
+
+        start = time.monotonic()
+        if self._last_raw is None:
+            raise RuntimeError("RealRobotEnv.step() called before reset()")
+        self._check_in_step_watchdog()
+        action = np.asarray(action, dtype=np.float64).reshape(-1)
+        if action.shape != self.action_space.shape:
+            raise ValueError(f"expected action shape {self.action_space.shape}, got {action.shape}")
+        if not np.isfinite(action).all():
+            raise ValueError("action must contain finite numbers")
+        action = np.clip(action, self.action_space.low, self.action_space.high)
+        config = self.config
+        pose = target_pose(self._last_raw["arm"]["tcp_pose"], action,
+                           config.xyz_scale_m, config.rot_scale_rad)
+        if config.gripper_in_action:
+            now = time.monotonic()
+            command = gripper_command(
+                float(action[-1]), float(np.asarray(self._last_raw["gripper"]["gripper_pos"]).item()),
+                now, self._last_gripper_act,
+                gripper_action_scale=config.gripper_action_scale,
+                gripper_sleep_s=config.gripper_sleep_s,
+            )
+            if command is not None:
+                self.robot.gripper.command_binary(command, force=True)
+                self._last_gripper_act = time.monotonic()
+                time.sleep(config.gripper_sleep_s)
+        box = self._effective_safety_box
+        pose = clip_safety_box(pose, box[:3], box[3:],
+                               config.safety_box_rpy_low, config.safety_box_rpy_high)
+        # Keep the device's own pose box and per-step safety caps in the send path.
+        self.robot.send_action({"arm": {"tcp_pose": pose}})
+        time.sleep(max(0.0, self._period_s - (time.monotonic() - start)))
+        raw = self.robot.get_observation()
+        self._check_in_step_watchdog()
+
+        self._elapsed_steps += 1
+        obs = self._observe(raw)
+        truncated = (
+            config.max_episode_steps is not None
+            and self._elapsed_steps >= config.max_episode_steps
+        )
+        if self._elapsed_steps % _SAFETY_CLIPS_REFRESH_STEPS == 0:
+            self._refresh_safety_clips()
+        client = getattr(self.robot, "client", None)
+        info = {
+            "tcp_pose": np.asarray(raw["arm"]["tcp_pose"], dtype=np.float32).copy(),
+            "rtt_ms": getattr(client, "last_rtt_ms", None),
+            "safety_clips": self._safety_clips,
+            "elapsed_steps": self._elapsed_steps,
+            "task_tcp_positions": {"arm": np.asarray(raw["arm"]["tcp_pose"][:3]).copy()},
         }
         return obs, 0.0, False, bool(truncated), info
 
@@ -473,7 +533,20 @@ class RealRobotEnv(gym.Env):
                 "max_episode_steps": self.config.max_episode_steps, "reset_settle_s": self.config.reset_settle_s,
                 "cameras": self.config.cameras, "depth_cameras": self.config.depth_cameras,
                 "image_size": self.config.image_size,
-                "preprocess": {name: dataclasses.asdict(value) for name, value in self.config.preprocess.items()}}
+                "preprocess": {name: dataclasses.asdict(value) for name, value in self.config.preprocess.items()},
+                **self._serl_experiment()}
+
+    def _serl_experiment(self) -> dict:
+        if self.config.cartesian_semantics != "serl":
+            return {}
+        from real_world_rl.envs.serl_cartesian import semantics_contract
+
+        config = self.config
+        return semantics_contract(
+            config.safety_box[:3], config.safety_box[3:],
+            config.safety_box_rpy_low, config.safety_box_rpy_high,
+            config.gripper_action_scale, config.gripper_sleep_s,
+        )
 
     @property
     def runtime_control(self):

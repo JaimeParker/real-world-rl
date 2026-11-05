@@ -55,6 +55,204 @@ def _make_env(camera_capture=None, **cfg_kwargs) -> tuple[FrankaRealEnv, _FakeBr
     return env, bridge
 
 
+class _SerlClock:
+    def __init__(self):
+        self.now = 0.0
+        self.events = []
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.events.append(("sleep", seconds))
+        self.now += seconds
+
+
+@pytest.fixture
+def serl_clock(monkeypatch):
+    import real_world_rl.envs.franka_real.env as env_module
+
+    clock = _SerlClock()
+    monkeypatch.setattr(env_module, "time", clock)
+    return clock
+
+
+def _make_serl_env(**overrides):
+    values = dict(cartesian_semantics="serl", safety_box_low=(-1,) * 3, safety_box_high=(1,) * 3,
+                  safety_box_rpy_low=(0, -np.pi, -np.pi), safety_box_rpy_high=(np.pi,) * 3)
+    values.update(overrides)
+    return _make_env(**values)
+
+
+def test_serl_target_uses_latest_measured_pose(serl_clock, monkeypatch):
+    env, bridge = _make_serl_env()
+    env.reset()
+    read_state = bridge.get_state
+
+    def lagged_state():
+        state = read_state()
+        state["pose"] = [0.505, 0.0, 0.2, 0, 0, 0, 1]
+        return state
+
+    monkeypatch.setattr(bridge, "get_state", lagged_state)
+    env.step([3, 0, 0, 0, 0, 0, 0])
+    env.step([3, 0, 0, 0, 0, 0, 0])
+    assert bridge.sent_poses[0][0] == pytest.approx(0.52)
+    assert bridge.sent_poses[1][0] == pytest.approx(0.525)
+
+
+def test_serl_rotation_left_multiplies_and_clips_roll_magnitude(serl_clock):
+    env, bridge = _make_serl_env(safety_box_rpy_low=(2.5, -0.1, -0.15),
+                                safety_box_rpy_high=(2.7, 0.1, 0.15))
+    bridge._pose[3:] = Rotation.from_euler("xyz", [-2.9, 0.2, 0.3]).as_quat()
+    env.reset()
+    env.step([0, 0, 0, 0.2, -0.4, 0.6, 0])
+    euler = Rotation.from_quat(bridge.sent_poses[0][3:]).as_euler("xyz")
+    np.testing.assert_allclose(euler, [-2.7, 0.1, 0.15])
+
+
+def test_serl_gripper_zero_sends_no_command(serl_clock):
+    env, bridge = _make_serl_env()
+    env.reset()
+    serl_clock.now = 1.0
+    env.step(torch.zeros(1, 7))
+    assert bridge.gripper_calls == []
+
+
+@pytest.mark.parametrize("action,width,elapsed,expected", [
+    (-0.5, 1.0, 0.61, [False]), (0.5, 0.0, 0.61, [True]),
+    (-0.49, 1.0, 0.61, []), (0.49, 0.0, 0.61, []),
+    (-1.0, 0.85, 0.61, []), (1.0, 0.85, 0.61, []),
+    (-1.0, 0.0, 0.61, []), (1.0, 1.0, 0.61, []),
+    (-1.0, 1.0, 0.6, []), (1.0, 0.0, 0.6, []),
+    (-1.0, 1.0, 0.0, []), (1.0, 0.0, 0.0, []),
+])
+def test_serl_gripper_threshold_width_and_time_boundaries(
+    serl_clock, monkeypatch, action, width, elapsed, expected,
+):
+    env, bridge = _make_serl_env()
+    read_state = bridge.get_state
+    monkeypatch.setattr(bridge, "get_state", lambda: {**read_state(), "gripper_pos": width})
+    env.reset()
+    serl_clock.now = elapsed
+    env.step([0, 0, 0, 0, 0, 0, action])
+    assert bridge.gripper_calls == expected
+
+
+def test_serl_gripper_sleep_precedes_pose_send(serl_clock, monkeypatch):
+    env, bridge = _make_serl_env()
+    env.reset()
+    send_pose = bridge.send_pose
+    get_state = bridge.get_state
+
+    def record_pose(pose):
+        serl_clock.events.append(("pose",))
+        send_pose(pose)
+
+    def read():
+        serl_clock.events.append(("read",))
+        return get_state()
+
+    monkeypatch.setattr(bridge, "send_pose", record_pose)
+    monkeypatch.setattr(bridge, "send_gripper", lambda command: serl_clock.events.append(("gripper", command)))
+    monkeypatch.setattr(bridge, "get_state", read)
+    serl_clock.now = 1.0
+    env.step([0, 0, 0, 0, 0, 0, 0.5])
+    assert serl_clock.events == [
+        ("gripper", True), ("sleep", 0.6), ("pose",), ("sleep", 0.0), ("read",),
+    ]
+    assert env._last_gripper_act == 1.0
+
+
+def test_serl_gripper_retries_when_measured_width_still_requires_it(serl_clock):
+    env, bridge = _make_serl_env()
+    env.reset()  # fake reports closed even after send_gripper(True)
+    serl_clock.now = 1.0
+    env.step([0, 0, 0, 0, 0, 0, 1])
+    serl_clock.now += 1.0
+    env.step([0, 0, 0, 0, 0, 0, 1])
+    assert bridge.gripper_calls == [True, True]
+
+
+@pytest.mark.parametrize("hz", [5.0, 20.0])
+def test_serl_hz_does_not_rescale_delta(serl_clock, hz):
+    env, bridge = _make_serl_env(control_hz=hz)
+    env.reset()
+    env.step([1, 0, 0, 0, 0, 1, 0])
+    assert bridge.sent_poses[0][0] == pytest.approx(0.52)
+    np.testing.assert_allclose(
+        Rotation.from_quat(bridge.sent_poses[0][3:]).as_rotvec(), [0, 0, 0.1], atol=1e-12,
+    )
+    assert serl_clock.events == [("sleep", 1.0 / hz)]
+
+
+def test_serl_overrun_does_not_add_a_period(serl_clock, monkeypatch):
+    env, bridge = _make_serl_env()
+    env.reset()
+
+    def slow_pose(pose):
+        serl_clock.now += 0.2
+
+    monkeypatch.setattr(bridge, "send_pose", slow_pose)
+    env.step(np.zeros(7))
+    assert serl_clock.events == [("sleep", 0.0)]
+
+
+@pytest.mark.parametrize("missing", [
+    "safety_box_low", "safety_box_high", "safety_box_rpy_low", "safety_box_rpy_high",
+])
+def test_serl_requires_complete_pose_limits(missing):
+    with pytest.raises(ValueError, match="safety_box"):
+        _make_serl_env(**{missing: None})
+
+
+@pytest.mark.parametrize("overrides", [
+    {"safety_box_low": (0, 0)}, {"safety_box_rpy_high": (1, 1)},
+    {"safety_box_rpy_low": (4, -1, -1)}, {"safety_box_high": (float("inf"), 1, 1)},
+    {"control_hz": 0}, {"control_hz": float("nan")},
+    {"gripper_sleep_s": -1}, {"gripper_action_scale": -1},
+    {"action_scale": (-0.1, 0.1)},
+])
+def test_serl_rejects_invalid_config(overrides):
+    with pytest.raises(ValueError):
+        _make_serl_env(**overrides)
+
+
+def test_serl_without_gripper_needs_no_feedback(serl_clock, monkeypatch):
+    env, bridge = _make_serl_env(gripper_in_action=False)
+    read_state = bridge.get_state
+
+    def without_gripper():
+        state = read_state()
+        del state["gripper_pos"]
+        return state
+
+    monkeypatch.setattr(bridge, "get_state", without_gripper)
+    env.reset()
+    obs, *_ = env.step(np.zeros(6))
+    assert env.single_action_space.shape == (6,)
+    assert obs["state"].shape == (1, 20)
+    assert bridge.gripper_calls == []
+
+
+def test_current_env_defaults_unchanged(monkeypatch):
+    from real_world_rl.action_contract import get_env_action_contract
+    import real_world_rl.envs.franka_real.env as env_module
+
+    env, bridge = _make_env()
+    assert env.cfg.cartesian_semantics == "current"
+    assert env.cfg.gripper_action_scale == 1.0
+    assert env.cfg.gripper_sleep_s == 0.6
+    assert env.cfg.control_hz == 10.0
+    assert get_env_action_contract(env) is None
+    clock = _SerlClock()
+    monkeypatch.setattr(env_module, "time", clock)
+    env.reset()
+    env.step(np.zeros(7))
+    assert bridge.gripper_calls == [False]
+    assert clock.events == []
+
+
 def test_reset_calls_bridge_and_returns_batched_state_obs():
     env, bridge = _make_env()
     obs, info = env.reset()

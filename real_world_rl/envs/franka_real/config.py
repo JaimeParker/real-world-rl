@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
 
 @dataclass
@@ -31,3 +31,27 @@ class FrankaRealEnvConfig:
     camera_keys: tuple[str, ...] = field(default_factory=tuple)
     camera_height: int = 128
     camera_width: int = 128
+    cartesian_semantics: Literal["current", "serl"] = "current"
+    gripper_action_scale: float = 1.0
+    gripper_sleep_s: float = 0.6
+    control_hz: float = 10.0
+    # The optional six-dimensional action layout applies to SERL only.
+    gripper_in_action: bool = True
+
+    def __post_init__(self) -> None:
+        if self.cartesian_semantics not in ("current", "serl"):
+            raise ValueError("cartesian_semantics must be 'current' or 'serl'")
+        if self.cartesian_semantics == "serl":
+            from real_world_rl.envs.serl_cartesian import validate_serl_config
+
+            validate_serl_config(
+                self.safety_box_low, self.safety_box_high,
+                self.safety_box_rpy_low, self.safety_box_rpy_high,
+                gripper_action_scale=self.gripper_action_scale,
+                gripper_sleep_s=self.gripper_sleep_s, control_hz=self.control_hz,
+            )
+            from real_world_rl.tasks.config import finite
+
+            finite(self.action_scale, "action_scale")
+            if len(self.action_scale) != 2 or min(self.action_scale) < 0:
+                raise ValueError("action_scale must contain two nonnegative scales")

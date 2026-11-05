@@ -71,7 +71,7 @@ remote_address: <robot-host>:<port>
 | device | 输入源 | 读取内容 | 动作空间 | 说明 |
 |---|---|---|---|---|
 | `pico` | `PicoTeleopSource` | ZeroMQ SUB Pico VR | cartesian_delta，6＋夹爪 | zmq_url、hand、pos_scale、rot_scale、twist_limit、intervention_threshold，见下文格式 |
-| `spacemouse` | `SpaceMouseTeleopSource` | 本机 SpaceMouse 经设备层，速度输入到 tracker | cartesian_delta，6＋夹爪 | 0 接管/交还，1 夹爪；device_index=0、deadzone=0.05、invert_axes=()、poll_interval_s=0.005、read_timeout_s，及四个 lead-cap/target-speed 参数；pyspacemouse>=2,<3 在 start 导入 |
+| `spacemouse` | `SpaceMouseTeleopSource` | 本机 SpaceMouse 经设备层的 `SpaceMouseTeleop`，作为笛卡尔命令 tracker 的速度输入 | cartesian_delta，6＋夹爪 | 按钮 0 接管/交还，按钮 1 切换夹爪；见 [SpaceMouse](#spacemouse)。kwargs：`device_index=0`、`deadzone=0.05`、`invert_axes=()`、`poll_interval_s=0.005`、`read_timeout_s`，以及 tracker 的 `lead_cap_m`、`lead_cap_rad`、`target_speed_m_s`、`target_speed_rad_s`（`--teleop-lead-cap-*`/`--teleop-target-speed-*` 标志）。需要 `hidapi==0.14.0.post4`（导入 `hid`），在 `start()` 时导入。 |
 | `spacemouse_twist` | `SpaceMouseTwistTeleopSource` | 同设备原始 twist，仅模拟示例 | cartesian_delta，6＋夹爪 | 动作直接进环境，移动即介入，hold_s 延长；0 切换 reset 后为开的夹爪，1 结束；默认 device_index=0、deadzone=1e-3、invert_axes=()、poll_interval_s=0.005、hold_s=0.0、read_timeout_s |
 | `robot` | `TeleopPartSource` | 环境机器人 teleop 部件，本地或远程 | cartesian_delta / joint_abs / joint_delta | teleop_contract、joint_limits、joint_scale_rad、read_timeout_s；机器人拥有部件，close 不断开；CLI 声明 robot-teleop-action-mode 与夹爪 |
 | `fake` | `ScriptedTeleopSource` | 测试脚本 | 遵循环境、含臂数 | 无 readings 时永不介入，末行重复 |
@@ -87,7 +87,64 @@ remote_address: <robot-host>:<port>
 
 ### SpaceMouse
 
-cartesian_delta 环境（real_robot 或 franka_real）使用终端标签，因为 Compact 两个按钮均已占用：
+`--teleop-device spacemouse` 支持两种模式，通过 `--spacemouse-mode {tracker,serl}` 选择（顶层 YAML 键 `spacemouse_mode`，默认 `tracker`）。训练、示范录制和真机奖励数据采集共用此标志。部署的可选覆盖值默认为 `None`：继承训练模式，没有训练配置时使用 `tracker`。
+
+| 行为 | `tracker`（默认） | `serl` |
+| --- | --- | --- |
+| 接管 | 按钮 0 切换接管/交还；仅移动推杆不算介入。 | 原始六轴 L2 范数严格 `> 0.001` 时介入，包括旋转。没有逐轴死区。每一步重新判断；松开推杆和夹爪按钮后，下一空闲步交还控制权。 |
+| 夹爪 | 驱动时按钮 1 切换开/闭；接管保留最后命令。 | 按住按钮 0 闭合：每步重新从 `[-1, -0.9)` 均匀采样。否则按住按钮 1 张开：`uniform(0.9, 1)`。同时按住时按钮 0 优先。均未按下时为中性 `0.0`。仅当环境有夹爪动作时，按钮才触发接管。 |
+| 机械臂目标 | 持续保存命令，受目标速度和相对实测姿态的领先上限约束。 | 每步为最新实测姿态 + 原始动作 × 环境尺度；旋转左乘实测四元数。同时裁剪到 xyz 和 RPY 安全盒（roll 按幅值裁剪，保留符号）。没有时间步重缩放或 tracker 目标。 |
+| 夹爪执行 | 使用现有环境行为。 | 缩放后动作 `<= -0.5` 时，仅在实测归一化宽度 `> 0.85` 时闭合；动作 `>= 0.5` 时，仅在宽度 `< 0.85` 时张开。命令要求经过的时间严格大于 `gripper_sleep_s`（默认 `0.6 s`），随后休眠同样时长。零为中性。 |
+| 终端/键盘 | 忽略 `t`/`h`，状态变化时警告；标签/结束/退出仍有效。 | 同样使用 `s`/`f`/`r`/Esc/`q` 提供标签/结束/退出。`t`/`h` 不控制接管，状态变化时警告。 |
+
+使用 serl 模式前，先配置工位的 **xyz 和 RPY 安全盒**。缺少任一安全盒都会在构建时报错。`real_robot` 中对应 `safety_box`（`[xmin, ymin, zmin, xmax, ymax, zmax]`）、`safety_box_rpy_low` 和 `safety_box_rpy_high`；尺度仍为 `xyz_scale_m`/`rot_scale_rad`。`franka_real` 中将 `safety_box_low`、`safety_box_high` 和两个 RPY 限制放入 `franka_real.env_kwargs_json`；现有位置/旋转尺度仍适用。该模式在构建环境前选择 `cartesian_semantics: serl`，不打开遥操作设备的 learner 也如此。显式配置的 `current` 与此模式冲突；以程序方式使用 dataclass、未显式设置的默认值会提升为 `serl`。模式解析在训练/录制参数序列化前完成，因此保存的 SERL 配置同时包含 `spacemouse_mode: serl` 和 `cartesian_semantics: serl`。部署保留已保存的环境语义；`--spacemouse-mode serl` 覆盖值与已保存的 `cartesian_semantics: current` 冲突。
+
+录制、训练和部署使用相同模式。serl 模式记录以下用于比较的 `teleop_control` 契约（非默认 `invert_axes` 会额外记录该列表）：
+
+```json
+{"version": "spacemouse_serl_v1", "mode": "serl", "motion_threshold": 0.001, "gripper": "serl_buttons"}
+```
+
+serl 模式要求一条六轴 `cartesian_delta` 机械臂，并完整选择机械臂/夹爪。动作保持在基坐标系，HID 映射为 `[-y, x, z, -roll, -pitch, -yaw]`；不支持相对坐标系、相对观测和 `action_indices`。`teleop_options_yaml` 可设置 `device_index`（默认 `0`）、`invert_axes`（默认 `[]`）、`poll_interval_s`（默认 `0.005`）和 `read_timeout_s`（默认 `1.0`）。此模式拒绝 tracker 选项、`deadzone`、`hold_s`、获取夹爪保持命令的 getter 及嵌套的 `mode` 键。请使用顶层模式标志。设备层的 `max_delta_xyz_m` 和姿态盒限制仍然有效，可能比原生 HIL-SERL 更严格。硬件行为和安装仍**尚未在真机上验证**。`spacemouse_twist` 仍是独立的仅模拟输入源，按钮和锁存夹爪行为不同；它不是 serl 模式。
+
+<a id="spacemouse-installation-and-linux-permissions"></a>
+
+#### SpaceMouse 安装与 Linux 权限
+
+在 NUC（或连接 SpaceMouse 的机器）的仓库根目录，激活[教程第 4 步的项目环境](tutorial/01-install.md#4-install-the-project-environment)后，使用以下命令安装全部 SpaceMouse Python 依赖：
+
+```bash
+pip install -e '.[spacemouse]'
+```
+
+依赖链为根目录的 `spacemouse` extra → `rlgarden-robot-infra[spacemouse]==0.0.1` → `hidapi==0.14.0.post4`（trezor/cython-hidapi，导入 `hid`）。设备层包含自己的解码器；此路线不导入 `pyspacemouse` 或 `easyhid`。不要安装另一个名为 `hid` 的 PyPI 发行包；它占用相同导入名，但 API 不同。模块缺失时抛出 `SdkMissing` 并给出上述 pip 命令；安装了错误的 `hid` 发行包时会单独报告。
+
+新建环境时，在 NUC、仓库根目录、未激活任何环境的情况下运行：
+
+```bash
+bash scripts/install.sh --extras franka-gello,spacemouse
+source .venv/bin/activate
+```
+
+只安装一个 extra 的 pip 命令假定三个本地项目已经安装；它不会在空 venv 中引导安装内部发行包。wheel 的目标平台是 Ubuntu 22.04 / CPython 3.10 / x86_64。此传输方式避开了 easyhid 对系统 `libhidapi` 的查找；固定版本 wheel 的 ELF/系统库依赖仍需在干净的 Ubuntu 22.04 机器上验证。wheel 安装、USB 权限、设备方向、时序和断连行为均**尚未在真机上验证**。此 wheel 路线不要求安装系统 `libhidapi`；在没有合适 wheel 的平台上从源码构建不属于该目标范围。
+
+一次性安装随包提供的厂商 udev 规则。在 NUC、仓库根目录、任意 shell（无需项目环境），具有 sudo 权限时运行：
+
+```bash
+sudo cp robot_infra/robot_infra/setup/99-spacemouse.rules /etc/udev/rules.d/
+sudo usermod -aG plugdev "$USER"
+sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw
+```
+
+该文件涵盖厂商 `256f`（3Dconnexion）和 `046d`（旧 Logitech），设置为 `MODE="0664", GROUP="plugdev"`。注销并重新登录，然后拔插 SpaceMouse。若仓库不可用，以下替代复制命令可在 NUC 的任意目录运行，要求**项目环境已激活**并具有 sudo 权限；随后执行上面相同的加组/重载命令：
+
+```bash
+sudo cp "$(python -c 'import robot_infra.setup, os; print(os.path.dirname(robot_infra.setup.__file__))')/99-spacemouse.rules" /etc/udev/rules.d/
+```
+
+打开设备/权限失败会指向此规则文件及其安装命令。doctor 分别检查 `hid` SDK 与 `/dev/hidraw*` 访问权限；Docker 内还须将 HID 节点传入容器。旧 `SpaceMouseExpert` 和 `real` extra 保留各自的 `pyspacemouse` API。
+
+在 NUC、仓库根目录、项目环境激活且工位的 `hil.yaml` 已配置时，对于 `cartesian_delta` 环境（`cartesian_delta` 模式的 `real_robot` 或 `franka_real`），由终端提供操作员标签（SpaceMouse Compact 的两个按钮均已占用）：
 
 ```bash
 python examples/record_real_demos.py --config hil.yaml \
@@ -95,7 +152,7 @@ python examples/record_real_demos.py --config hil.yaml \
     --output-path demos/task_20.pkl --num-successes 20
 ```
 
-HIL actor 用相同两参数。源通过设备层 SpaceMouseTeleop 打开，TeleopConfig(backend=spacemouse)，轮询线程供 read，轴映射 `[-y, x, z, -roll, -pitch, -yaw]`，invert_axes 翻转 0–5 输出。与 leader_cartesian 共用 CartesianTargetTracker，见[映射](#mapping)。
+HIL actor 使用相同的两个标志。配置两个安全盒后，添加 `--spacemouse-mode serl` 可选择上表的原生行为。以下说明针对默认的 **tracker 模式**。`SpaceMouseTeleopSource`（`real_world_rl/teleop/spacemouse.py`）通过设备层的 `SpaceMouseTeleop`（`TeleopConfig(backend="spacemouse")`，轮询线程向 `read()` 供数据）打开设备；HID 读取器状态按 `[-y, x, z, -roll, -pitch, -yaw]` 映射为 `[-1, 1]` 范围的 twist，`invert_axes` 翻转所列 0–5 输出索引的符号。它与 `leader_cartesian` 共用 `CartesianTargetTracker`，见[映射](#mapping)：
 
 | 输入 | 作用 |
 |---|---|
@@ -110,7 +167,7 @@ HIL actor 用相同两参数。源通过设备层 SpaceMouseTeleop 打开，Tele
 - **夹爪：**每次接管从 wrapper 的 last_gripper_action_getter 原值开始，闭合夹爪不会因接管张开；按钮 1 才切换，交还时无效。
 - **按钮按下沿只生效一次：**设备层锁存直到读取，短于控制步也不漏，长按一次，跨 reset 长按不算新按。
 - **事件源 t/h 被忽略并警告：**否则会与按钮 0 状态冲突，只有按钮 0 控制接管。
-- start 打开设备才导入 SDK，构建无需 pyspacemouse，缺失报 SdkMissing 和安装提示。
+- 包装器调用 `start()` 打开设备时才导入 SDK，因此构建输入源无需 `hidapi`；SDK 缺失时抛出 `SdkMissing` 并给出安装提示。
 
 运行记录与 leader_cartesian 同一 teleop_control tracker 块。旧 `--teleop-event-device spacemouse` 已移除，旧命令/预设报错并指向 `--teleop-device spacemouse --teleop-event-device stdin`。
 
@@ -418,7 +475,7 @@ class JoystickTeleopSource(TeleopSource):
     def close(self) -> None: ...
 ```
 
-随后 `make_teleop_source("joystick", env, port=...)` 调用 `JoystickTeleopSource.from_env(env, port=...)`，默认执行 `cls(**kwargs)`。可重写 `from_env`，通过 `real_world_rl.action_contract.get_env_action_contract(env)` 读取环境动作约定。未知名称会抛 `ValueError` 并列出已注册项。使用名称前必须完成注册，因此下游软件包应在构建环境前导入其模块，或通过自身入口点暴露。内置输入源按名称首次使用时懒加载，导入 `real_world_rl.teleop` 不会引入 `zmq` 或 `pyspacemouse`。
+随后 `make_teleop_source("joystick", env, port=...)` 调用 `JoystickTeleopSource.from_env(env, port=...)`，默认执行 `cls(**kwargs)`。可重写 `from_env`，通过 `real_world_rl.action_contract.get_env_action_contract(env)` 读取环境动作约定。未知名称会抛 `ValueError` 并列出已注册项。使用名称前必须完成注册，因此下游软件包应在构建环境前导入其模块，或通过自身入口点暴露。内置输入源按名称首次使用时懒加载，导入 `real_world_rl.teleop` 不会引入 `zmq` 或 `hid`。
 
 动作必须处于环境归一化 `[-1, 1]` 空间，夹爪在最后。Pico 等以物理单位输出速度增量的笛卡尔设备，可参考示范脚本的归一化处理。
 

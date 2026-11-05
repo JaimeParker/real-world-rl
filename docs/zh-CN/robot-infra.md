@@ -33,12 +33,12 @@ pip install -e '.[franky,grpc]'     # e.g. a Franka robot PC running the daemon
 | `pyagxarm` | GitHub 上的 `pyAgxArm` | Piper 的默认 `arm_backend: pyagxarm`。 | 机器人 PC。 |
 | `piper-sdk` | `piper_sdk` | 厂商 SDK，`arm_backend: piper_sdk`。 | 机器人 PC。 |
 | `realsense` | `pyrealsense2` | RealSense 相机。 | 机器人 PC。 |
-| `spacemouse` | `pyspacemouse>=2.0,<3` | `teleop: {backend: spacemouse}`；可选 `hidapi` 改善设备发现。 | 机器人 PC。 |
+| `spacemouse` | `hidapi==0.14.0.post4`（trezor/cython-hidapi，导入 `hid`） | `teleop: {backend: spacemouse}`（自带的 HID 读取器与设备发现）。 | 机器人 PC。 |
 | `gello` | `dynamixel-sdk>=3.7.31,<3.9` | GELLO `teleop: {backend: gello}` 与标定命令。 | 机器人 PC。 |
 | `gello-events` | `evdev` | Linux 上 GELLO `event_device` 脚踏或键盘切换与事件。 | 机器人 PC。 |
 | `grpc` | `grpcio>=1.60` | `python -m robot_infra.server` 守护进程及 `RemoteRobot`。 | 机器人 PC **与** GPU 机器。 |
 | `jpeg` | `pillow`、`opencv-python-headless`（`cv2`） | `python -m robot_infra.server --jpeg-quality N`；`server/codec.py` 的 JPEG 路线导入 `cv2`。 | 机器人 PC **与** GPU 机器。 |
-| `real` | `flask`、`pyzmq`、`scipy`、`pyspacemouse` | 旧 Flask 桥接、夹爪服务与 `teleop/spacemouse/` 的旧 `read_all()` API，勿与 `spacemouse` 组的 2.x 固定版本混用。ROS1 另装。 | 机器人 PC。 |
+| `real` | `flask`、`pyzmq`、`scipy`、`pyspacemouse` | 旧 Flask 桥接、夹爪服务与 `teleop/spacemouse/`（旧 `read_all()` API，与自带的 HID 读取器分开；ROS1 另装）。 | 机器人 PC。 |
 | `sim` | `mani_skill` | `controller/simulator/` 中 ManiSkill 阻抗控制器。 | GPU 机器。 |
 | `dev` | `pytest` | 运行测试。 | 任意机器。 |
 
@@ -77,6 +77,41 @@ python -m robot_infra.setup --non-interactive --mock --arms 1 --arm-names arm --
 ```
 
 每个问题都有命令行参数，见 `python -m robot_infra.setup --help`；逐臂参数可每臂一个值，也可一个值用于全部。`--non-interactive` 在遇到既无参数也无 `--from` 值的首个问题时失败；`--non-interactive --from X` 原样重写 `X`。已有文件先备份成 `station.yaml.bak.<UTC %Y%m%dT%H%M%SZ>`，再原子替换。除非指定 `--allow-unprobed`，配置值必须来自已探测结果。
+
+<a id="spacemouse-python-dependencies-and-udev"></a>
+
+### SpaceMouse Python 依赖与 udev
+
+在已有项目环境中，版本依赖链为仓库根目录的 `spacemouse` extra → `rlgarden-robot-infra[spacemouse]==0.0.1` → `hidapi==0.14.0.post4`（trezor/cython-hidapi，导入 `hid`）。在 NUC/设备主机、仓库根目录、项目环境激活时运行：
+
+```bash
+pip install -e '.[spacemouse]'
+```
+
+自带的 HID 读取器移植了随仓库提供的 PySpaceMouse 1.0.3 表中的全部 10 款型号；Enterprise 不在该表中。它使用 `hid.device()`，不导入 `pyspacemouse`/`easyhid`。不要安装另一个名为 `hid` 的发行包。旧 `real` extra 和 `SpaceMouseExpert` 仍使用各自现有的 API。新建项目环境时，在 NUC、仓库根目录、未激活任何环境的情况下使用安装器：
+
+```bash
+bash scripts/install.sh --extras franka-gello,spacemouse
+source .venv/bin/activate
+```
+
+目标平台为 Ubuntu 22.04 / CPython 3.10 / x86_64。wheel 路线避开了通过 easyhid 查找系统 `libhidapi`；wheel 的 ELF/系统库要求仍需在干净机器上检查。安装和设备运行均**尚未在真机上验证**。
+
+udev 规则文件随包提供，路径为 `robot_infra.setup/99-spacemouse.rules`，以 `MODE="0664", GROUP="plugdev"` 允许访问厂商 `256f` 和 `046d` 的 hidraw 设备。在 NUC、仓库根目录、任意 shell（无需项目环境），具有 sudo 权限时一次性安装：
+
+```bash
+sudo cp robot_infra/robot_infra/setup/99-spacemouse.rules /etc/udev/rules.d/
+sudo usermod -aG plugdev "$USER"
+sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw
+```
+
+注销并重新登录，然后拔插设备。也可在 NUC 的任意目录、**项目环境激活**且具有 sudo 权限时，用以下命令复制随包提供的文件，再运行相同的加组/重载命令：
+
+```bash
+sudo cp "$(python -c 'import robot_infra.setup, os; print(os.path.dirname(robot_infra.setup.__file__))')/99-spacemouse.rules" /etc/udev/rules.d/
+```
+
+完整安装范围见 [SpaceMouse 安装](teleop.md#spacemouse-installation-and-linux-permissions)。设备层的按钮电平与锁存按下事件仍不同于应用的接管/夹爪语义（见[第 7 步](#7-add-a-teleop-device)）。
 
 <a id="how-to-start"></a>
 
@@ -199,7 +234,7 @@ franka (franka)
     wrist: RealSenseCamera [sdk=pyrealsense2, connected=False]
 ```
 
-有 `teleop:` 时增加一行，例如 `  teleop: SpaceMouseTeleop [sdk=pyspacemouse, connected=False]`。
+有 `teleop:` 时增加一行，例如 `  teleop: SpaceMouseTeleop [sdk=hid, connected=False]`。
 
 <a id="2-plug-in-and-discover"></a>
 
@@ -325,18 +360,18 @@ $ python -m robot_infra.doctor --config robot.yaml --mock
 [4/5] feedback:teleop:teleop ... OK  teleop poll thread alive
 ```
 
-不使用 `--mock`，且未安装 `pyspacemouse`、未连接 SpaceMouse 时，遥操作输出如下；`os:hid` 仅检查 SpaceMouse 后端：
+不使用 `--mock`，且未安装 `hidapi`、未连接 SpaceMouse 时，遥操作输出如下；`os:hid` 仅检查 SpaceMouse 后端：
 
 ```text
-[1/5] sdk:teleop:spacemouse ... FAIL  SpaceMouseTeleop needs the 'pyspacemouse' package
-    hint: pip install 'pyspacemouse>=2.0,<3' (or: pip install 'rlgarden-robot-infra[spacemouse]')
+[1/5] sdk:teleop:spacemouse ... FAIL  SpaceMouse needs the 'hidapi==0.14.0.post4' distribution (import hid)
+    hint: pip install -e '.[spacemouse]'
 [2/5] os:teleop:teleop ... FAIL  no 'spacemouse' teleop device found
     hint: plug in the teleop device and run `python -m robot_infra.discovery`
 [2/5] os:hid ... FAIL  no HID device found
     hint: no /dev/hidraw* node: check the USB cable and port; inside Docker pass it with `docker run --device=/dev/hidrawN`
 ```
 
-存在 `/dev/hidraw*` 但当前用户无法打开时，`os:hid` 以 `no read/write access to ['/dev/hidraw3']` 失败，并提示 `add a udev rule SUBSYSTEM=="hidraw", ATTRS{idVendor}=="256f", MODE="0666" to /etc/udev/rules.d/99-spacemouse.rules, then sudo udevadm control --reload && sudo udevadm trigger and replug; inside Docker pass the node with docker run --device=/dev/hidrawN`。规则厂商 ID 为 3Dconnexion，具体设备用 `lsusb` 核对。
+存在 `/dev/hidraw*` 但当前用户无法打开时，`os:hid` 以 `no read/write access to ['/dev/hidraw3']` 失败，并提示用 `sudo cp` 安装[随包提供的厂商 udev 规则](#spacemouse-python-dependencies-and-udev)、加入 `plugdev`、重载规则、重新登录并拔插。Python SDK 缺失时则给出上述 pip 命令（NUC、仓库根目录、项目环境激活）；原生模块导入失败会单独报告 wheel/平台加载问题。
 
 未连接 CAN 适配器时的 Piper 示例，输出有所删节：
 
@@ -612,7 +647,7 @@ robot.teleop.reset()                           # drops latched events and the ho
 
 `read(timeout_s)` 超时抛 `DeviceFault`，连续 5 次轮询失败后抛可恢复 `DeviceFault`，需重连机器人；等待期间断开则抛 `DeviceNotConnected`。它是单消费者接口，两个客户端读取同一遥操作设备会分走事件。
 
-`backend: spacemouse`（extra spacemouse，device_index=0、deadzone=1e-3、invert_axes、poll_interval_s=0.005）是带夹爪的 cartesian_delta 设备。推杆 twist 为 [-y,x,z,-roll,-pitch,-yaw]；每次按键锁存为 button_0/button_1 事件，避免两次读取间漏按。0 仍切换设备层 sticky gripper（连接时开），两按钮均不发 episode_end。real_world_rl 的 spacemouse 源另赋语义：0 接管、1 夹爪，忽略设备 gripper/intervening。需可读写 /dev/hidraw*，doctor os:hid 给 udev 提示，见[限制](#known-limitations-and-needs-hardware-verification)。
+`backend: spacemouse`（extra spacemouse，device_index=0、deadzone=1e-3、invert_axes、poll_interval_s=0.005）是带夹爪的 cartesian_delta 设备。推杆 twist 为 [-y,x,z,-roll,-pitch,-yaw]；每次按键锁存为 button_0/button_1 事件，避免两次读取间漏按。0 仍切换设备层 sticky gripper（连接时开），两按钮均不发 episode_end。real_world_rl 的 spacemouse 源另赋语义：0 接管、1 夹爪，忽略设备 gripper/intervening。需可读写 /dev/hidraw*，`python -m robot_infra.doctor` 通过 `os:hid` 检查并打印 udev 规则安装命令，见[限制](#known-limitations-and-needs-hardware-verification)。
 
 `backend: gello` 使用 `gello` 组，`event_device` 另需 `gello-events`。它读取经 U2D2 或 OpenRB-150 连接、Protocol 2.0 的被动 Dynamixel 主臂，输出 `joint_abs`，每个 `joint_ids` 一关节，设置 `gripper_id` 后有夹爪。每次轮询同步读一次，关节 `i` 为 `wrap((raw_rad - joint_offsets_rad[i]) * joint_signs[i])`，环绕区间 `[wrap_centers_rad[i] - pi, wrap_centers_rad[i] + pi)`，连接无需指定起始姿态；中心应取 `joint_limits` 中点，Panda 第 6 关节超过 pi，需正中心。夹爪为 `clip((raw - gripper_closed_rad) / (gripper_open_rad - gripper_closed_rad), 0, 1)`，1 表示打开，可用 `gripper_binarize_threshold` 二值化。默认 `intervention: always` 每次都报告 `intervening`；`toggle` 经 `evdev` 读取机器人 PC 的 `event_device` 脚踏或键盘，其他键由 `event_keys` 触发 `episode_end` / `success` / `failure` / `rerecord`。连接和断开都关闭力矩，缺舵机或同步读取失败会使轮询失败，避免复用旧样本。完整选项见 [`docs/robot.franka.example.yaml`](../../robot_infra/docs/robot.franka.example.yaml)。每台需标定一次，关闭力矩并手动移动；[配置向导](#setup-wizard)直接执行并写入工作站文件。独立标定命令会打印可粘贴配置：
 
@@ -670,7 +705,7 @@ GPU side:   RemoteRobot ── GrpcClient (msgpack over gRPC, token metadata, re
 | 夹爪 `pyagxarm` / `piper_sdk` | 与机械臂相同 | - | - | 要求 `shares_arm_session: true` 与匹配机械臂后端。 |
 | 相机 `realsense` | `pyrealsense2`（`realsense`） | - | - | RGB，`enable_depth` 可增加对齐深度，单位米。 |
 | `fake` 夹爪 / 相机 | 无 | - | - | 测试和 `--mock`。 |
-| 遥操作 `spacemouse` | `pyspacemouse>=2,<3`（`spacemouse`） | - | - | 笛卡尔速度增量与锁存夹爪；`Teleop.backends()` 为 `fake`、`gello`、`spacemouse`。 |
+| 遥操作 `spacemouse` | `hidapi==0.14.0.post4`，导入 `hid`（`spacemouse`） | - | - | 笛卡尔速度增量与锁存夹爪；`Teleop.backends()` 为 `fake`、`gello`、`spacemouse`。 |
 | 遥操作 `gello` | `dynamixel-sdk`（`gello`），`evdev` 来自 `gello-events` | - | - | GELLO `joint_abs` 主臂与可选夹爪，力矩关闭，evdev 切换与事件。 |
 | 遥操作 `fake` | 无 | - | - | 脚本样本、`push()` 注入、`fail_after`，用于测试和 `--mock`。 |
 
@@ -706,7 +741,7 @@ GPU side:   RemoteRobot ── GrpcClient (msgpack over gRPC, token metadata, re
 | `device_already_connected` | `DeviceAlreadyConnected` | 已定义，当前后端不抛出，因为 `connect()` 幂等。 |
 | `device_busy` | `DeviceBusy` | 其他进程持有锁。 |
 | `device_fault` | `DeviceFault`（`recoverable: bool`） | Reflex、急停、无反馈、模式错误或 watchdog。 |
-| `version_mismatch` | `VersionMismatch` | libfranka 与机器人服务器版本不同；`pyspacemouse` 缺少 2.x 的 `open(device_index=...)` API。 |
+| `version_mismatch` | `VersionMismatch` | libfranka 与机器人服务器版本不同；错误的 `hid` 发行包缺少 trezor 的 `hid.device()` API。 |
 | `safety_violation` | `SafetyViolation` | `move_to_*` 目标超出 `safety_box` / `joint_limits`，消息列越界轴，提示 `change the target, or the limits in the robot yaml on the robot host`。 |
 | `transport` | `TransportError`，继承 `DeviceFault` | 守护进程不可达、超时或令牌不符。 |
 
@@ -733,7 +768,7 @@ docker exec <container> bash -lc 'cd <checkout>/robot_infra && python -m pytest 
 
 - **SpaceMouse USB 厂商 ID。** `discover()` 筛选 3Dconnexion `0x256f` 与旧 Logitech `0x046d`，均待验证；没有 `hidapi` 时列出全部 `/dev/hidraw*`。
 - **udev 与 Docker。** `os:hid` 输出的规则和 `docker run --device=/dev/hidrawN` 提示未在机器人 PC 验证，容器需在守护进程启动前传入节点。
-- **`pyspacemouse` 的 `read()` 是否阻塞。** 后端按 `poll_interval_s` 默认 0.005 秒轮询，避免非阻塞 `read()` 空转核心；确认所用版本阻塞后才设 `0`。
+- **SpaceMouse wheel 与时序。** 自带的 HID 读取器使用 `set_nonblocking(1)`，每隔 `poll_interval_s`（默认 0.005 秒，200 Hz）轮询一份报告。队列延迟、分拆报告时序、设备方向和断连行为尚未在真机上验证。`hidapi==0.14.0.post4` wheel 的 ELF/系统库依赖仍未在干净的 Ubuntu 22.04 / CPython 3.10 / x86_64 机器上验证。
 - **Piper 主臂遥操作**尚未实现；主臂后端为 Dynamixel `gello`。`joint_delta` 仅由 fake 覆盖。
 - **GELLO 真机。** `gello` 后端和标定仅使用 fake `dynamixel_sdk`、`evdev`。待验证包括 `discover()` 匹配的 U2D2/OpenRB-150 by-id 名称、不同波特率同步读取时序、FTDI 默认 16 毫秒延迟及常用 1 毫秒优化，后端不会设置它，以及跨整圈边界的位置连续性。
 - **方向未限制。** `safety_box` 限位置，`max_delta_per_step` 仅限 `xyz_m` 与 `joint_rad`。直接伺服 `tcp_pose` 的客户端可在一步请求大旋转，gym 环境另外用 `rot_scale_rad` 约束。
@@ -752,4 +787,4 @@ docker exec <container> bash -lc 'cd <checkout>/robot_infra && python -m pytest 
 
 - **`controller/`**：纯 torch 笛卡尔阻抗与姿态控制器位于 `core/`、`adapters/`，经 `controller/simulator/maniskill/` 封装用于 GPU 批量模拟，需要 `sim`。详见 [`robot_infra/controller/README.md`](../../robot_infra/robot_infra/controller/README.md)。
 - **`controller/real/franka_bridge.py`** 与 **`gripper_server.py`**：转发到 ROS1 `serl_franka_controllers` 阻抗控制器和 Franka Hand 的 Flask/HTTP 服务，`serl_http` 是其客户端。ROS 机器运行 `python -m robot_infra.controller.real.franka_bridge --robot_ip <ip> --port 5000`，需要 `real`，ROS1 另装，细节见模块说明。
-- **`teleop/`**：旧设备层之前的遥操作，包括使用旧 `pyspacemouse` `read_all()` API 和 `real` 组的 `teleop/spacemouse/`、经 ZeroMQ 接收 Pico 速度的 `teleop/utils/` 与 `teleop/examples/`。[第 7 步](#7-add-a-teleop-device)的 `Teleop` 部件已替代旧 SpaceMouse。本文原有历史说明称 Pico 尚未迁移，`real-world-rl` 的 `--teleop-device pico|spacemouse` 仍导入旧模块，因此继续保留。
+- **`teleop/`**：旧设备层之前的遥操作，包括使用旧 `pyspacemouse` `read_all()` API 和 `real` 组的 `teleop/spacemouse/`、经 ZeroMQ 接收 Pico 速度的 `teleop/utils/` 与 `teleop/examples/`。[第 7 步](#7-add-a-teleop-device)的 `Teleop` 部件已替代旧 SpaceMouse。Pico 路线尚未迁移，`real-world-rl` 的 `--teleop-device pico` 仍导入这些模块，因此继续保留。

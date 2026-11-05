@@ -30,6 +30,8 @@ NUC 按 [04](04-record-demos.md#prepare-the-nuc) 配置 `gello_leader.yaml` 等�
 
 使用 SpaceMouse 示范时，两边 `ENV_FLAGS` 改为 `--teleop-device spacemouse`、`--teleop-options-yaml None`，使用对应数据路径，四值不变。按键 0 接管，stdin 提供结果与退出键。只推杆不会接管。
 
+要使用原生 SpaceMouse 介入，在 **NUC 和 learner 两个 shell** 的 `ENV_FLAGS` 中添加 `--spacemouse-mode serl`；两边均在**仓库根目录、各自机器的项目环境激活**时操作。使用包含 xyz 和 RPY 安全盒的工位预设，以及同一模式录制的示范。模式解析会在训练开始前保存 `real_robot.cartesian_semantics: serl`，不打开设备的 learner 也包括在内：原始六轴范数 `> 0.001` 时介入，松开推杆和按钮即交还，按住按钮 0 闭合、按钮 1 张开，均未按下时发送夹爪中性零值。tracker 上限/速度不适用；比较的契约为 `spacemouse_serl_v1`。见[两种模式](../teleop.md#spacemouse)；硬件行为尚未在真机上验证。
+
 以下硬件命令均包在 supervisor 中，心跳静默默认 **2.0 s**。显式 `--startup-s 60` 为首次 reset 心跳前的加载和初始快照等待留时间，须按本机实际确认；默认启动宽限 30 s。当前预设**环境 StepWatchdog 关闭**（未设 `real_robot.watchdog_s`），不同于 supervisor。[04](04-record-demos.md) 录制显式启用 0.3 秒 StepWatchdog；[实验指南](../real-world-experiments.md#step-watchdog-in-process)未指定 actor 值。
 
 - `--reward-from-teleop-events` 令 `s` 给奖励 1 并终止，`f` 结束失败回合。训练默认关闭；也无分类器时所有奖励为零并警告，见 [06](06-intervening.md#where-the-reward-comes-from)。

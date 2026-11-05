@@ -21,6 +21,8 @@
 每个方法对应 `python examples/train_real_world.py <method> --role {actor,learner,eval}` 的子命令，`real_world_bc` 没有角色。`residual_hil_serl` 和 `silri` 还通过 `rlgarden.algorithms` 注册到 rl-garden 在线注册表，使 `examples/deploy_real_robot.py` 可从 checkpoint 重建智能体。残差 checkpoint 需要基础提供器，因此不能用 `rl-garden-eval` 评估。
 `examples/` 的训练、录制与部署脚本是已安装包命令的薄包装：`real-world-rl-train` / `python -m real_world_rl.training`、`real-world-rl-record` / `python -m real_world_rl.demos`、`real-world-rl-deploy` / `python -m real_world_rl.deploy`；奖励分类器数据采集使用 `real-world-rl-collect-reward` / `python -m real_world_rl.reward.collect_data`。
 
+SpaceMouse 默认使用 `--spacemouse-mode tracker`；选择 `--spacemouse-mode serl` 后，原始运动触发接管，松开后将控制权交还策略，按住按钮控制夹爪，并使用配置的 xyz/RPY 安全盒（见[模式指南](teleop.md#spacemouse)）。
+
 | 方法 | 作用 | 指南 |
 |---|---|---|
 | `serl` | 双进程 SERL，actor 位于机器人 PC，learner 位于 GPU 机器，使用状态或图像 RLPD。 | [真机运行](#running-on-hardware) |
@@ -89,7 +91,7 @@ doctor 负责 layer-0 依赖与硬件诊断；libfranka 不匹配时按 `--insta
 
 `rl_garden==0.0.1`、`rlgarden-robot-infra==0.0.1` 由同次 pip 调用的本地 checkout 提供，不是提交锁。开发使用固定 `rl-garden/` 子模块。孤立 `pip install .` 未必能从公开索引解析内部包。已有 checkout 的子模块未初始化时，在 NUC/开发机仓库根、无需 venv，运行 `git submodule update --init` 后重试。
 
-机器人 PC 只需设备层，见 [robot_infra README](robot-infra.md)：`pip install -e robot_infra`，及硬件 extras 如 `'robot_infra[franky,grpc]'`。SpaceMouse 的 `pyspacemouse` 懒导入，仅设备所在机器安装。
+机器人 PC 只需设备层，见 [robot_infra README](robot-infra.md)：`pip install -e robot_infra`，及硬件 extras 如 `'robot_infra[franky,grpc]'`。使用 SpaceMouse 时，在 NUC/设备主机的仓库根目录、项目环境激活后，运行 `pip install -e '.[spacemouse]'`，为自带的 HID 读取器添加 `hidapi==0.14.0.post4`（导入 `hid`）；随后完成 [udev 步骤](teleop.md#spacemouse-installation-and-linux-permissions)。此路线尚未在真机上验证。
 
 <a id="tests"></a>
 
@@ -175,7 +177,7 @@ hil_serl 的 `--env-backend real_robot` 在构建 `TeleopInterventionWrapper` �
 
 ### 遥操作
 
-HIL 方法 `hil_serl`、`residual_hil_serl`、`silri` 通过 `--teleop-device` 的 `TeleopSource` 接收介入：`pico`、`spacemouse`、`robot`、`fake`、`gello`、`leader_arm`、`keyboard`、`leader_cartesian`，双臂用 `bimanual`；`spacemouse_twist` 是模拟示例的原始 twist，不用于真机。只有 actor/eval 打开设备，learner 禁用 teleop wrapper，不在 GPU 机打开 HID/ZMQ。SpaceMouse 在 actor 本机，经设备层 `SpaceMouseTeleop`（`pyspacemouse>=2,<3`）驱动。契约、`info` 键（`intervene_action`、`policy_action`、`intervened`、`intervention_onset`、`human_episode_end`、`teleop_events`）、录制脚本和新增设备见 [teleop.md](teleop.md)。
+HIL 方法 `hil_serl`、`residual_hil_serl`、`silri` 通过 `--teleop-device` 的 `TeleopSource` 接收介入：`pico`、`spacemouse`、`robot`、`fake`、`gello`、`leader_arm`、`keyboard`、`leader_cartesian`，双臂用 `bimanual`；`spacemouse_twist` 是模拟示例的原始 twist，不用于真机。只有 actor/eval 打开设备，learner 禁用 teleop wrapper，不在 GPU 机打开 HID/ZMQ。SpaceMouse 在 actor 本机，经设备层 `SpaceMouseTeleop`（需要 `hidapi==0.14.0.post4`，导入 `hid`）驱动。契约、`info` 键（`intervene_action`、`policy_action`、`intervened`、`intervention_onset`、`human_episode_end`、`teleop_events`）、录制脚本和新增设备见 [teleop.md](teleop.md)。
 
 <a id="teleop---teleop-device-robot"></a>
 

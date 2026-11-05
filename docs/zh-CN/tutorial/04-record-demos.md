@@ -94,13 +94,15 @@ python -m robot_infra.supervise --log runs/record-spacemouse/supervise.jsonl -- 
 
 按键 **0** 接管，再按交还；只推杆不算接管。接管时推杆输入速度，全幅最多 0.05 m/s、0.3 rad/s。松手停止新增速度请求，机械臂仍可向现有命令收敛，最多一个领先上限。按键 **1** 只在驱动时切换夹爪；接管保留最后夹爪命令。结果和退出用终端 `s`/`f`/`r`/Esc/`q`，终端 `t`/`h` 被忽略。工作空间 HOLD 后须重新按键 0 接管。
 
+要使用原生 HIL-SERL 的 SpaceMouse 行为，在 **NUC、仓库根目录、项目环境激活**时，为 SpaceMouse 录制命令添加 `--spacemouse-mode serl`。配置工位的 xyz **和 RPY** 安全盒；该模式会选择并保存 `real_robot.cartesian_semantics: serl`。推杆运动的六轴范数 `> 0.001` 时立即接管；松开推杆和按钮即交还。按住按钮 0 闭合、按钮 1 张开（左键优先）；均未按下时发送中性零值。`t`/`h` 被忽略。介入时按 `s`，成功终止步才会进入人工示范 pkl；录制器空闲步仍使用其保持策略。训练/部署须保持同一 serl 模式：其契约为 `spacemouse_serl_v1`，tracker 上限/速度不适用。见[两种模式](../teleop.md#spacemouse)。
+
 <a id="files-and-compatibility"></a>
 
 ## 文件与兼容性
 
 成功运行产生 `demos/pick-and-place.pkl`、`.contract.json` 和 `.trajectory.sqlite3`。归档保存全部请求/执行动作、mask、结果，包括失败、重录、中断尝试；pkl 只选成功人工步骤，没有保留回合则无 pkl。新数据集使用新 `.pkl` 路径；`--export-trajectory-pt` 另存可移植 `.trajectory.pt`。
 
-sidecar 必须与 pkl 同行，包含版本化实验契约及 `teleop_control`（`cartesian_tracker_v1`、领先上限、目标速度）。本教程录制、训练、部署使用**同一 teleop 设备与四个 tracker 值**。缺少或改变 tracker 设置会报 `experiment.teleop_control` 差异。
+sidecar 必须与 pkl 同行，包含版本化实验契约及 `teleop_control`（默认 tracker 路线为 `cartesian_tracker_v1`、领先上限和目标速度；serl 模式为 `spacemouse_serl_v1`）。本教程录制、训练、部署使用**同一 teleop 设备与四个 tracker 值**。缺少或改变 tracker 设置会报 `experiment.teleop_control` 差异。
 
 **当前 HEAD 差异：**契约标识 tracker，而非实体输入设备。实现允许相同 tracker 参数的 GELLO 与 SpaceMouse 共用数据；同设备是本教程的工作流要求，单纯设备不同不会被当前契约拒绝。
 

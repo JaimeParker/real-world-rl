@@ -8,6 +8,8 @@
 
 [录制](04-record-demos.md)和 [HIL 训练](07-hil-training.md)时在机器人旁保留本页。硬件进程在 NUC 上直接连接，使用 50 Hz 仅状态笛卡尔预设，由 `robot_infra.supervise` 监督。GELLO 用 `--teleop-device leader_cartesian --teleop-event-device stdin`；SpaceMouse 用 `--teleop-device spacemouse --teleop-event-device stdin`。
 
+下文的 SpaceMouse 操作说明针对默认的 `--spacemouse-mode tracker`。使用 `--spacemouse-mode serl` 时，先在工位预设中配置 xyz 和 RPY 安全盒：原始六轴范数 `> 0.001` 时接管，下一空闲步将控制权交还策略（或录制器的保持策略）。按住按钮 0 闭合、按钮 1 张开，按钮 0 优先；均未按下时夹爪为中性 `0`。此模式没有接管切换按钮。终端 `t`/`h` 仍被忽略；标签/结束/退出按键有效。在 NUC、仓库根目录、项目环境激活时选择该模式，并与录制、训练使用相同的模式和预设。见[模式细节](../teleop.md#spacemouse)。
+
 `stdin` 从监督命令所在终端读取，也支持 SSH。`keyboard` 通过 `pynput` 使用同样按键，但需要桌面会话。
 
 | 输入 | 作用 |

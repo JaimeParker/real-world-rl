@@ -146,6 +146,27 @@ python -m pip install -e 'robot_infra[realsense]'
 
 *否则：* 查看安装失败阶段及重试提示，核对 Python/venv 和子模块。`Unknown env backend 'real_robot'` 表示运行解释器中缺少本包。`franky-control` 提供 `franky` 导入及其 libfranka 构建，无需 ROS，包名也不是 `franka`。
 
+<a id="optional-spacemouse-dependencies"></a>
+
+### 可选 SpaceMouse 依赖
+
+在 NUC（或设备所在机器）的仓库根目录，激活第 4 步的项目环境后运行：
+
+<!-- tutorial-test: skip -->
+```bash
+pip install -e '.[spacemouse]'
+```
+
+这会为自带的 HID 读取器添加 `hidapi==0.14.0.post4`（trezor/cython-hidapi，导入 `hid`），此路线不使用 `pyspacemouse`/`easyhid`。不要安装另一个名为 `hid` 的发行包。若从空环境开始，在 NUC、仓库根目录、未激活任何环境时改用：
+
+<!-- tutorial-test: skip -->
+```bash
+bash scripts/install.sh --extras franka-gello,spacemouse
+source .venv/bin/activate
+```
+
+打开设备前，在 NUC 完成一次性的 [SpaceMouse udev 步骤](../teleop.md#spacemouse-installation-and-linux-permissions)。wheel 的目标平台是 Ubuntu 22.04 / CPython 3.10 / x86_64；干净机器上的 wheel/系统库检查仍待完成，此路线**尚未在真机上验证**。
+
 <a id="5-configure-once-then-run-doctor"></a>
 
 ## 5. 配置一次，再运行 doctor

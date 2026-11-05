@@ -12,7 +12,7 @@ flowchart TD
     A -->|No| B[Power on control box; release emergency stop; unlock joints]
     B --> C[Control-port cable or switch; persistent NUC IP; ping and route]
     C --> D[Desk: verify six conditions; record system and robot server versions]
-    D --> E[Install project venv]
+    D --> E[Install project environment]
     E --> F[Wizard: station.yaml; per-arm hardware and GELLO calibration]
     A -->|Yes| G[Reuse station.yaml; request Desk control; confirm active FCI]
     F --> H[Run real doctor; resolve failed layers]
@@ -28,7 +28,7 @@ flowchart TD
 | Stage | Instructions |
 |---|---|
 | New cell: power, network, Desk | [01 steps 1–3](tutorial/01-install.md#1-power-on-the-cell) |
-| Install and real handshake | [01 steps 4–5](tutorial/01-install.md#4-install-in-a-clean-venv) |
+| Install and real handshake | [01 steps 4–5](tutorial/01-install.md#4-install-the-project-environment) |
 | Serial, keyboard and USB fixes | [01 step 6](tutorial/01-install.md#6-fix-serial-and-keyboard-checks) |
 | Existing cell: three checks | [A robot someone else has already commissioned](tutorial/01-install.md#a-robot-someone-else-has-already-commissioned) |
 | Station, calibration and limits | [02 Station](tutorial/02-station.md) |
@@ -39,6 +39,6 @@ flowchart TD
 | Run a trained policy | [08 Deploy](tutorial/08-deploy.md) |
 
 Each command block in the commissioning pages states the machine, repository
-working directory and venv. A mock doctor pass checks software/configuration;
+working directory and project environment. A mock doctor pass checks software/configuration;
 only the real doctor handshake confirms FCI access. Check the overview's delivery
 dependencies before following the target installer and key workflow.

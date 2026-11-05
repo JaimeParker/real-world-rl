@@ -8,7 +8,7 @@
 
 本页配置一台 NUC 与一台或两台 Franka FR3。现场须保持工作区清空、急停可用。doctor 握手成功只检查连通性和反馈，不验证运动路径或任务。
 
-**命令环境：**所有 shell 块在 NUC 的仓库根目录 `real-world-rl/` 执行。步骤 1–3 使用 Ubuntu 系统工具，不需要 Python venv；步骤 4 创建 `.venv`，之后步骤 5–6 及工作站页的 Python 命令均先激活它。检查本机接口后替换示例网卡名，浏览器检查也在 NUC 上进行。
+**命令环境：**所有 shell 块在 NUC 的仓库根目录 `real-world-rl/` 执行。步骤 1–3 使用 Ubuntu 系统工具，不需要 Python venv；步骤 4 安装项目环境（project environment），之后步骤 5–6 及工作站页的 Python 命令均先激活它。检查本机接口后替换示例网卡名，浏览器检查也在 NUC 上进行。
 
 <a id="1-power-on-the-cell"></a>
 
@@ -91,11 +91,13 @@ ip route get 172.16.0.2
 
 *否则：* 先解决具体条件，不急于重装 Python 包。Hand 初始化异常先刷新正确臂的 Desk，核对电源和实体；常见开错页面问题见[多臂检查](02-station.md#multiple-arms)。
 
-<a id="4-install-in-a-clean-venv"></a>
+<a id="4-install-the-project-environment"></a>
 
-## 4. 在干净 venv 中安装
+## 4. 安装项目环境
 
-checkout 应含初始化后的 `rl-garden/` 子模块。新 NUC 从父目录、未激活 venv 时执行：
+**项目环境**是本步骤安装三个本地包（rl-garden、robot_infra 和 real-world-rl）的 Python 环境，venv 或 conda 均可。`scripts/install.sh` 默认创建 `.venv`；手动路线可使用任何已激活的 venv 或 conda 环境。
+
+checkout 应含初始化后的 `rl-garden/` 子模块。新 NUC 从父目录、未激活任何环境时执行：
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -105,7 +107,7 @@ cd real-world-rl
 
 **交付依赖：**以下安装器及 `franka-gello`/`test` extras 由 WO-2 提供，在该工作合入前当前 checkout 不具备它们。这是目标安装流程，不表示 WO-1 新增了它们。需要支持 venv 的 Python 3.10 和包下载网络。
 
-在 NUC、仓库根、无活动 venv：
+在 NUC、仓库根、无活动环境：
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -113,12 +115,12 @@ bash scripts/install.sh --extras franka-gello
 source .venv/bin/activate
 ```
 
-安装器创建或复用 `.venv`，默认解释器 `python3.10`，清除继承的 `PYTHONPATH`，以 editable 方式安装 rl-garden、robot_infra 和本包，然后运行 doctor。未提供 station 时最终为 **mock** 检查，成功不表示真实握手。RealSense 还需在同一 venv 安装 `robot_infra[realsense]`。
+安装器创建或复用 `.venv`，默认解释器 `python3.10`，清除继承的 `PYTHONPATH`，以 editable 方式安装 rl-garden、robot_infra 和本包，然后运行 doctor。未提供 station 时最终为 **mock** 检查，成功不表示真实握手。RealSense 还需在同一项目环境安装 `robot_infra[realsense]`。
 
 <details>
 <summary>默认安装的手动等价命令（WO-2 合入后）</summary>
 
-在 NUC、仓库根、起初未激活 venv：
+在 NUC、仓库根目录，在任何已激活的 venv 或 conda 环境中运行 pip 命令。创建并激活环境的示例：
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -133,7 +135,7 @@ python -m robot_infra.doctor --mock
 
 </details>
 
-RealSense 在 NUC、仓库根、`.venv` 激活时执行：
+RealSense 在 NUC、仓库根、项目环境激活时执行：
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -150,7 +152,7 @@ python -m pip install -e 'robot_infra[realsense]'
 
 新工位现在运行[向导](02-station.md)，创建 `local/station.yaml`。它探测硬件，询问机械臂、Hand、相机、GELLO，提供标定并运行 doctor。暂未连接的外设选 `none`，稍后再加；不可编造标定值凑检查通过。已配置工位复用原文件。
 
-确保 recorder、actor、守护进程均未占用设备。在 NUC、仓库根、`.venv` 激活：
+确保 recorder、actor、守护进程均未占用设备。在 NUC、仓库根、项目环境激活：
 
 ```bash
 python -m robot_infra.doctor --config local/station.yaml
@@ -158,7 +160,7 @@ python -m robot_infra.doctor --config local/station.yaml
 
 | 层 | 检查内容 | 失败时 |
 |---|---|---|
-| 1 SDK | 后端导入 | 在此 venv 安装缺少的 extra |
+| 1 SDK | 后端导入 | 在项目环境安装缺少的 extra |
 | 2 OS | 网络、设备存在及权限 | 回看步骤 1–3，或按步骤 6 修复 |
 | 3 Handshake | 连接各配置设备 | 查 FCI 激活、控制权及 SDK 兼容性 |
 | 4 Feedback | 实际状态/帧读取 | 查对应设备、线缆、相机带宽 |
@@ -168,7 +170,7 @@ python -m robot_infra.doctor --config local/station.yaml
 
 *否则：* 按失败项提示处理。不可达时回到步骤 1–3：上电、Control 网线、IP/路由、刷新后的 Desk 控制权和 FCI。UDP 超时查防火墙。设备 claim 被占用时先停持有它的进程。
 
-libfranka/server 不匹配时，目标修复流程如下。**交付依赖：**`--install-sdk` 尚待 doctor 实现，当前 CLI 不接受；在交付前该块不参加现有 CLI 解析。在 NUC、仓库根、`.venv` 激活：
+libfranka/server 不匹配时，目标修复流程如下。**交付依赖：**`--install-sdk` 尚待 doctor 实现，当前 CLI 不接受；在交付前该块不参加现有 CLI 解析。在 NUC、仓库根、项目环境激活：
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -182,7 +184,7 @@ python -m robot_infra.doctor --config local/station.yaml --install-sdk
 ## 6. 修复串口与键盘检查
 
 doctor 会报告 GELLO 串口缺失或不可访问。计划扩展的 OS 检查还会报告 CH340/brltty 冲突、输入权限与 USB 延迟；这些诊断尚待 doctor 依赖工作交付。当前 CLI 无提示时手动检查这些 OS 条件。
-以下命令均在 NUC、仓库根执行；系统命令无需 venv，最后 doctor 使用 `.venv`。
+以下命令均在 NUC、仓库根执行；系统命令无需 venv，最后 doctor 使用项目环境。
 
 `dialout` 权限失败时：
 
@@ -192,7 +194,7 @@ ls -l /dev/serial/by-id/
 sudo usermod -aG dialout "$(id -un)"
 ```
 
-注销并重新登录、激活 `.venv` 后复查。使用稳定的 `/dev/serial/by-id/` 路径，不要假定编号为 `ttyUSB0`。
+注销并重新登录、激活项目环境后复查。使用稳定的 `/dev/serial/by-id/` 路径，不要假定编号为 `ttyUSB0`。
 
 evdev 键盘或脚踏权限失败时：
 
@@ -230,7 +232,7 @@ fi
 
 单位为毫秒，写入仅临时有效。只有提供该属性的驱动支持；没有属性不是权限错误，不应自行创建文件。重插/重启后复查。
 
-*应该看到：* 串口持续存在且可读写，所选输入方式工作，支持该属性的设备读取为 `1`。激活 `.venv` 后重跑：
+*应该看到：* 串口持续存在且可读写，所选输入方式工作，支持该属性的设备读取为 `1`。激活项目环境后重跑：
 
 ```bash
 python -m robot_infra.doctor --config local/station.yaml
@@ -242,11 +244,11 @@ python -m robot_infra.doctor --config local/station.yaml
 
 ## 别人已经配置过的机器人
 
-复用 `local/station.yaml` 和 NUC 上已安装的 `.venv`。每次开始只做三件事：
+复用 `local/station.yaml` 和 NUC 上的项目环境。每次开始只做三件事：
 
 1. 在此 NUC 打开正确臂 Desk，必要时 **Request control**，刷新验证控制权。
 2. 确认该臂 **FCI 会话已激活**。
-3. 其他占用设备的进程停止后，在 NUC、仓库根、`.venv` 激活时运行：
+3. 其他占用设备的进程停止后，在 NUC、仓库根、项目环境激活时运行：
 
 ```bash
 python -m robot_infra.doctor --config local/station.yaml

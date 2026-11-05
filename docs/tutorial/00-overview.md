@@ -51,8 +51,10 @@ Already commissioned: take Desk control --> confirm FCI --------+
 | `LEARNER_IP` | GPU learner's reachable address; may be the NUC |
 | actor machine | NUC by default; another machine only for the optional remote route |
 
-Every command states its machine, working directory and venv. The default is the
-NUC, repository root (`real-world-rl/`), `.venv` active after installation.
+Every command states its machine, working directory and environment. The default is the
+NUC, repository root (`real-world-rl/`), **project environment** active: the venv or conda
+env where [01 step 4](01-install.md#4-install-the-project-environment) installed the
+three local packages (`scripts/install.sh` creates `.venv` by default).
 For services on the same machine use `127.0.0.1`; a remote client must use a
 reachable address instead.
 

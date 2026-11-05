@@ -6,7 +6,7 @@
 
 [中文入口](../../README.zh-CN.md) · [English](../../tutorial/05-base-policy.md)
 
-示范训练的基础策略既可单独部署作基线（[08](08-deploy.md)），也可在 [07](07-hil-training.md) 的 `residual_hil_serl` 上学习有界修正。用 [04](04-record-demos.md) pkl 在 GPU 机器训练一种或两种，都不连接机器人。全部命令从 GPU 机器仓库根、项目 `.venv` 激活时运行。动作/观测须与现场录制一致；离线训练不打开运动设备。
+示范训练的基础策略既可单独部署作基线（[08](08-deploy.md)），也可在 [07](07-hil-training.md) 的 `residual_hil_serl` 上学习有界修正。用 [04](04-record-demos.md) pkl 在 GPU 机器训练一种或两种，都不连接机器人。全部命令从 GPU 机器仓库根、项目环境（project environment）激活时运行。动作/观测须与现场录制一致；离线训练不打开运动设备。
 
 | | BC（`real_world_bc`） | ACT |
 |---|---|---|
@@ -43,7 +43,7 @@ python examples/train_real_world.py real_world_bc --config hil.yaml \
 
 ## ACT
 
-rl-garden 从同样 pkl 训练 ACT，无需模拟器。安装后按 [01](01-install.md#4-install-in-a-clean-venv)，在仓库根运行：
+rl-garden 从同样 pkl 训练 ACT，无需模拟器。安装后按 [01](01-install.md#4-安装项目环境)，在仓库根运行：
 
 ```bash
 python -m rl_garden.models.act.train_trajectories --demo-paths demos/pick-and-place.pkl \

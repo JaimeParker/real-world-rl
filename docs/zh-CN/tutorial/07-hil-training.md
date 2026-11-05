@@ -16,7 +16,7 @@
 
 actor 是 **NUC 上唯一硬件进程**，直接连接 franky。learner 在 GPU 机器或同一 NUC，先启动。首次硬件运行前读 [06](06-intervening.md)。
 
-全部命令在各机器的**仓库根、项目 `.venv` 激活**时运行。**learner 和 NUC 两个 shell**都设置下列变量；示例 `127.0.0.1` 是同机 learner，独立 GPU 时两边改为它的可达 IP。两份 checkout 的预设和实验输入一致。
+全部命令在各机器的**仓库根、项目环境（project environment）激活**时运行。**learner 和 NUC 两个 shell**都设置下列变量；示例 `127.0.0.1` 是同机 learner，独立 GPU 时两边改为它的可达 IP。两份 checkout 的预设和实验输入一致。
 
 ```bash
 LEARNER_IP=127.0.0.1
@@ -42,10 +42,10 @@ NUC 按 [04](04-record-demos.md#prepare-the-nuc) 配置 `gello_leader.yaml` 等�
 ## hil_serl
 
 ```bash
-# Learner machine: repository root, project .venv active.
+# Learner machine: repository root, 项目环境激活.
 python examples/train_real_world.py hil_serl --role learner $COMMON --exp-name hil-pick-and-place \
     --demo-dataset-paths demos/pick-and-place.pkl
-# NUC: repository root, .venv active.
+# NUC: repository root, 项目环境激活.
 python -m robot_infra.supervise --startup-s 60 --log runs/hil-pick-and-place/supervise.jsonl -- \
     python examples/train_real_world.py hil_serl --role actor $COMMON --exp-name hil-pick-and-place
 ```
@@ -56,7 +56,7 @@ actor 在 reset/step 前等待初始快照，`--sync-startup-timeout` 默认 30 
 
 ## residual_hil_serl：BC 基础
 
-在两边项目 venv shell 设置 `RESIDUAL`、`BASE_BC`；先在 learner 机器运行 learner，再从 NUC 仓库根运行监督 actor。
+在两边项目环境 shell 设置 `RESIDUAL`、`BASE_BC`；先在 learner 机器运行 learner，再从 NUC 仓库根运行监督 actor。
 
 ```bash
 RESIDUAL="--residual-variant hybrid --residual-action-scale 0.1 --residual-bc-weight 0.1 \
@@ -64,7 +64,7 @@ RESIDUAL="--residual-variant hybrid --residual-action-scale 0.1 --residual-bc-we
 BASE_BC='checkpoint:runs/bc-pick-and-place/checkpoints/final.pt?algo=real_world_bc'
 python examples/train_real_world.py residual_hil_serl --role learner $COMMON $RESIDUAL \
     --exp-name residual-bc-pick-and-place --base-provider "$BASE_BC"
-# NUC: repository root, .venv active.
+# NUC: repository root, 项目环境激活.
 python -m robot_infra.supervise --startup-s 60 --log runs/residual-bc-pick-and-place/supervise.jsonl -- \
     python examples/train_real_world.py residual_hil_serl --role actor $COMMON $RESIDUAL \
     --exp-name residual-bc-pick-and-place --base-provider "$BASE_BC"
@@ -74,7 +74,7 @@ python -m robot_infra.supervise --startup-s 60 --log runs/residual-bc-pick-and-p
 
 ## residual_hil_serl：ACT 基础
 
-同样两边设置 `RESIDUAL`、`BASE_ACT`，先 learner 后 NUC actor，均在各自仓库根和项目 venv。
+同样两边设置 `RESIDUAL`、`BASE_ACT`，先 learner 后 NUC actor，均在各自仓库根和项目环境。
 
 ```bash
 RESIDUAL="--residual-variant hybrid --residual-action-scale 0.1 --residual-bc-weight 0.1 \
@@ -82,7 +82,7 @@ RESIDUAL="--residual-variant hybrid --residual-action-scale 0.1 --residual-bc-we
 BASE_ACT='act:runs/act-pick-and-place/checkpoints/final.pt?temporal_agg=1'
 python examples/train_real_world.py residual_hil_serl --role learner $COMMON $RESIDUAL \
     --exp-name residual-act-pick-and-place --base-provider "$BASE_ACT"
-# NUC: repository root, .venv active.
+# NUC: repository root, 项目环境激活.
 python -m robot_infra.supervise --startup-s 60 --log runs/residual-act-pick-and-place/supervise.jsonl -- \
     python examples/train_real_world.py residual_hil_serl --role actor $COMMON $RESIDUAL \
     --exp-name residual-act-pick-and-place --base-provider "$BASE_ACT"
@@ -102,10 +102,10 @@ actor 执行 `clamp(base + scale * residual, -1, 1)`。人工默认覆盖总动�
 ## silri
 
 ```bash
-# Learner machine: repository root, project .venv active.
+# Learner machine: repository root, 项目环境激活.
 python examples/train_real_world.py silri --role learner $COMMON --exp-name silri-pick-and-place \
     --demo-dataset-paths demos/pick-and-place.pkl
-# NUC: repository root, .venv active.
+# NUC: repository root, 项目环境激活.
 python -m robot_infra.supervise --startup-s 60 --log runs/silri-pick-and-place/supervise.jsonl -- \
     python examples/train_real_world.py silri --role actor $COMMON --exp-name silri-pick-and-place
 ```
@@ -124,7 +124,7 @@ python -m robot_infra.supervise --startup-s 60 --log runs/silri-pick-and-place/s
 
 ## 评估
 
-机器人上确定性回合，无 learner 和数据采集。成功需要 `s`（启用按键奖励）或分类器的显式标签；整回合无接管才自主。先停 actor，勿介入，见 [06](06-intervening.md#the-sequence)。在 NUC、仓库根、`.venv` 激活，先定义上述 `ENV_FLAGS` 和对应 base 变量再执行各命令：
+机器人上确定性回合，无 learner 和数据采集。成功需要 `s`（启用按键奖励）或分类器的显式标签；整回合无接管才自主。先停 actor，勿介入，见 [06](06-intervening.md#the-sequence)。在 NUC、仓库根、项目环境激活，先定义上述 `ENV_FLAGS` 和对应 base 变量再执行各命令：
 
 ```bash
 python -m robot_infra.supervise --startup-s 60 --log runs/hil-pick-and-place/eval-supervise.jsonl -- \
@@ -149,7 +149,7 @@ python -m robot_infra.supervise --startup-s 60 --log runs/silri-pick-and-place/e
 
 ## 观察指标
 
-在 learner 机器、仓库根、项目 `.venv` 中查看 `--log-type`（默认 TensorBoard）写入 `runs/` 的日志：
+在 learner 机器、仓库根、项目环境中查看 `--log-type`（默认 TensorBoard）写入 `runs/` 的日志：
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -200,12 +200,12 @@ tensorboard --logdir runs
 checkpoint、journal（含 WAL/SHM）和 bundle 各代一起保存。以相同预设、实验名、示范路径、容量先重启 learner。以上 HIL 示例：
 
 ```bash
-# Learner machine: repository root, project .venv active.
+# Learner machine: repository root, 项目环境激活.
 python examples/train_real_world.py hil_serl --role learner $COMMON --exp-name hil-pick-and-place \
     --demo-dataset-paths demos/pick-and-place.pkl --load-checkpoint \
     runs/hil-pick-and-place/checkpoints/bundle_manifest.json --checkpoint-dir \
     runs/hil-pick-and-place/checkpoints
-# NUC: repository root, .venv active.
+# NUC: repository root, 项目环境激活.
 python -m robot_infra.supervise --startup-s 60 --log runs/hil-pick-and-place/supervise.jsonl -- \
     python examples/train_real_world.py hil_serl --role actor $COMMON --exp-name hil-pick-and-place
 ```

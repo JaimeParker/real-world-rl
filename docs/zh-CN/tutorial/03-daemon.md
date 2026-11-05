@@ -24,7 +24,7 @@
 
 ## 仅远程 actor 启动守护进程
 
-先完成[真实 doctor 握手](01-install.md#5-configure-once-then-run-doctor)。本节所有命令在 **NUC、仓库根、`.venv` 激活**时执行，确保没有其他进程占设备。NUC 和 actor 均需 `robot_infra[grpc]`。
+先完成[真实 doctor 握手](01-install.md#5-configure-once-then-run-doctor)。本节所有命令在 **NUC、仓库根、项目环境（project environment）激活**时执行，确保没有其他进程占设备。NUC 和 actor 均需 `robot_infra[grpc]`。
 
 ```bash
 python -m robot_infra.server --config local/station.yaml --watchdog-s 5
@@ -36,7 +36,7 @@ python -m robot_infra.server --config local/station.yaml --watchdog-s 5
 
 *否则：* 按 [01](01-install.md) 的 preflight 提示处理。recorder、actor 或守护进程占设备时不要对同设备跑 doctor，否则 claim 和握手冲突。
 
-daemon 启动后，在同一 **NUC** 打开另一终端，进入**仓库根目录**并激活**工作站 `.venv`**，检查连接：
+daemon 启动后，在同一 **NUC** 打开另一终端，进入**仓库根目录**并激活**项目环境**，检查连接：
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -49,16 +49,16 @@ rwrl status
 
 ## 将远程 actor 指向 NUC
 
-在 **actor 机器的仓库根、已安装的项目 venv** 中，将 `hil.yaml` 的 `real_robot.robot` 移除，`remote` 设为 NUC 可达地址及 station 端口（通常 50051）。仅配置了 `daemon.token` 才设 `real_robot.token`。相机需 `obs.image_size`，远程尺寸连接后才知道。动作模式、50 Hz 和观测契约均与录制一致。
+在 **actor 机器的仓库根、项目环境** 中，将 `hil.yaml` 的 `real_robot.robot` 移除，`remote` 设为 NUC 可达地址及 station 端口（通常 50051）。仅配置了 `daemon.token` 才设 `real_robot.token`。相机需 `obs.image_size`，远程尺寸连接后才知道。动作模式、50 Hz 和观测契约均与录制一致。
 
-在 actor 的项目 venv 安装 gRPC 客户端：
+在 actor 的项目环境安装 gRPC 客户端：
 
 <!-- tutorial-test: skip -->
 ```bash
 python -m pip install -e 'robot_infra[grpc]'
 ```
 
-在 actor 机器、仓库根、项目 venv 中，无连接检查：
+在 actor 机器、仓库根、项目环境中，无连接检查：
 
 ```bash
 python examples/train_real_world.py hil_serl --config hil.yaml --print-config

@@ -1,7 +1,7 @@
 # Second single-arm and gripper hardware session: GELLO / SpaceMouse
 
 Scope: one NUC, one arm and a physical Franka Hand, connected directly by a single recorder child; no training. This page does not claim hardware acceptance.
-Run every command on the **NUC, repository root, in Bash**. S01 needs no venv; after it succeeds, run `source .venv/bin/activate`; all later commands use that venv.
+Run every command on the **NUC, repository root, in Bash**. S01 needs no environment active; after it succeeds, activate the environment the installer created (`.venv` by default), for example `source .venv/bin/activate`; all later commands use the project environment.
 First follow [tutorial 01](../tutorial/01-install.md): power on, unlock, power the End Effector, and check the Control cable and Desk. Verify robot identity and the physical Hand; do not infer them from a default IP.
 Follow [tutorial 04](../tutorial/04-record-demos.md#prepare-the-nuc) to commission the actual IP, home, limits, workspace and GELLO calibration. `gello_leader.yaml` must point to a separate fake-arm leader YAML, never a second connection to the physical arm.
 The preset is state-only, 50 Hz, cartesian_delta, with scales 0.05 m / 0.3 rad, lead caps 0.05 m / 0.3 rad, and target speeds 0.05 m/s / 0.3 rad/s. Confirm the physical stop works first.
@@ -52,10 +52,10 @@ Run the table in order, one command per row. Record paths are relative to `$RUN`
 
 | ID / item | Command | Procedure and pass criterion | Main record file |
 |---|---|---|---|
-| S01 Installation and diagnosis | `check S01 bash scripts/install.sh --extras franka-gello,spacemouse --station local/station.yaml` | No doctor layer reports FAIL; every required check for the actual devices passes. Activate `.venv` afterward | `S01/console.log` |
+| S01 Installation and diagnosis | `check S01 bash scripts/install.sh --extras franka-gello,spacemouse --station local/station.yaml` | No doctor layer reports FAIL; every required check for the actual devices passes. Activate the environment the installer created (`.venv` by default) afterward | `S01/console.log` |
 | S02 Desk / FCI | `check S02 python -m robot_infra.doctor --config local/station.yaml` | Verify all six: page reachable, green light, logged in, local control, FCI installed, session activated. Refresh the correct Desk; handshake OK; retain evidence of all six | `S02/console.log` |
 | S03 Hand feedback | `check S03-open python -m robot_infra.doctor --config local/station.yaml`, then `check S03-closed python -m robot_infra.doctor --config local/station.yaml` | Run doctor twice: once with the Hand open, then again after closing it in Desk. Both reported widths must match the visible opening (Franka Hand open about 0.08 m, closed near 0), with no WARN | `S03-open/console.log`, `S03-closed/console.log` |
-| Optional after S03 | `rwrl gripper show` | On this NUC, repository root, station `.venv` active, before starting a recorder: expect the same gripper width line as doctor (metres, normalized width, grasp state and backend source); keep the S02/S03 doctor checks above | Optional comparison; no CSV item |
+| Optional after S03 | `rwrl gripper show` | On this NUC, repository root, project environment active, before starting a recorder: expect the same gripper width line as doctor (metres, normalized width, grasp state and backend source); keep the S02/S03 doctor checks above | Optional comparison; no CSV item |
 | S04 Reset and hold | `record S04 leader_cartesian --max-episode-steps 750` | After reset, do not take over for at least 10 s; the `hold_window` row of `measurements.csv` (written by the inspector; also `max_drift_window_mm` of the hold segment in `summary.json`) spans at least 10 s and its `max_drift_mm` is ≤5 mm | `S04/measurements.csv` |
 | S05 GELLO t/h/t | `record S05 leader_cartesian` | Drive with `t`, hold with `h` for 10 s, resume with `t`, then `q`; the `hold_window` row of the `h` hold has `max_drift_mm` ≤5 mm, no jump on takeover (`jump_mm` of the following intervene segment in `summary.json`, confirmed on video), and the `summary.json` segments match takeover/hand-back | `S05/measurements.csv` |
 | S06 GELLO lead cap | `record S06 leader_cartesian` | Move the leader quickly within the approved range, then stop it and mark the leader stop time in a second terminal (below). Finish with `q`, then rerun the inspector with that stop time: the `settle` row has `settle_s` ≤1.5 s and `residual_mm` ≤50 mm | `S06/measurements-stop.csv` |
@@ -70,7 +70,7 @@ Run the table in order, one command per row. Record paths are relative to `$RUN`
 | S11 Supervised stop | `record S11 leader_cartesian` | After reset, with unloaded low-speed following and stable step heartbeats, issue STOP below. Child must terminate within ≤8 s of STOP (defaults: 2 s heartbeat timeout + 3 s SIGINT + 2 s SIGTERM, then SIGKILL; a stopped process responds only to SIGKILL), robot stops and Desk can recover. Record elapsed time; missing timing evidence is BLOCKED, exceeding the threshold is FAIL | `S11/measurements.csv` |
 | S12 Home / disconnect / archive | `record S12 leader_cartesian --max-episode-steps 1 && tar -czf "$RUN.tar.gz" -C "$(dirname "$RUN")" "$(basename "$RUN")"` | Return to approved home. After process exit, confirm the robot is still and the connection released before physical disconnection. Archive the entire run directory; repack after updating the CSV | `$RUN.tar.gz` (beside RUN) |
 
-For S06, prepare a second terminal on the NUC, repository root, `.venv` active, while `record S06` runs. Type the command below and press Enter the moment the leader comes to rest; keep the terminal in the video so the stamp can be checked against it:
+For S06, prepare a second terminal on the NUC, repository root, project environment active, while `record S06` runs. Type the command below and press Enter the moment the leader comes to rest; keep the terminal in the video so the stamp can be checked against it:
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -87,7 +87,7 @@ python examples/inspect_teleop_archive.py "$RUN/S06/demo.trajectory.sqlite3" --s
 
 `summary-stop.json` lists the result under `settle`; `settled: false` or a `problem` (the stop time lies outside the episode, or the arm never came to rest before the episode ended) is a FAIL or BLOCKED, not a PASS.
 
-For S11, use a second terminal on the NUC, repository root, `.venv` active. Proceed only after reset, while following unloaded at low speed on an approved path with stable step heartbeats. Never STOP the control box or supervisor:
+For S11, use a second terminal on the NUC, repository root, project environment active. Proceed only after reset, while following unloaded at low speed on an approved path with stable step heartbeats. Never STOP the control box or supervisor:
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -110,5 +110,5 @@ No-jump/no-unintended-opening claims require reviewable video, not mask counts o
 S03 uses the `feedback:gripper` width in metres, fraction of `max_width_m` and backend source from both doctor runs; retain both logs and compare the values with the visible opening. For S08/S09, autonomous_success is derived from completed, task_success and had_intervention; inspect does not print that boolean directly.
 S10-int should finalize an interrupted outcome during normal cleanup. S11 may leave the final episode unfinished after forced termination; committed rows must remain readable with no false success. Do not reopen the same recorder to manufacture an ending.
 Every recording item must confirm release: child_exit, process exit and a still robot. A later doctor or single connection succeeding is supplementary evidence; never run doctor concurrently with recording.
-After completing the CSV, only repack (NUC, repository root, `.venv`): `tar -czf "$RUN.tar.gz" -C "$(dirname "$RUN")" "$(basename "$RUN")"`; do not repeat S12's recording.
+After completing the CSV, only repack (NUC, repository root, project environment active): `tar -czf "$RUN.tar.gz" -C "$(dirname "$RUN")" "$(basename "$RUN")"`; do not repeat S12's recording.
 Enter discovered issues in the CSV issue ID and notes. All template rows remain NOT_RUN; update only the run-directory copy. No hardware commands need to be executed while preparing this page.

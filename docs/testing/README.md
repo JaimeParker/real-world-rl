@@ -5,7 +5,7 @@ English pages in `docs/testing/` are the primary versions. Corresponding files i
 
 Each checklist item has one stable ID, one copyable command, one pass criterion
 and one main record file. Shared shell helpers may capture additional evidence.
-Every page states the machine, repository working directory and active venv;
+Every page states the machine, repository working directory and active project environment;
 run its preparation block before invoking table commands.
 
 Record CSV columns, in order:

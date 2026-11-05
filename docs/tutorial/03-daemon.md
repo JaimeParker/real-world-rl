@@ -27,7 +27,7 @@ physical emergency stop available in both layouts.
 
 First finish the [real doctor handshake](01-install.md#5-configure-once-then-run-doctor).
 Run every command in this section on the **NUC**, from the **repository root**,
-with **`.venv` active**. Ensure no other process owns these devices.
+with the **project environment active**. Ensure no other process owns these devices.
 The remote route needs `robot_infra[grpc]` installed on both NUC and actor.
 
 ```bash
@@ -49,7 +49,7 @@ against the same devices while a recorder, actor or daemon owns them: the device
 claim and handshake will conflict.
 
 To check the connection after starting the daemon, open another terminal on
-this **NUC**, at the **repository root**, with the **station `.venv` active**:
+this **NUC**, at the **repository root**, with the **project environment active**:
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -64,14 +64,14 @@ see [rwrl connection ownership](../cli.md#connection-ownership).
 
 ## Point the remote actor at the NUC
 
-On the **actor machine**, use its installed project venv, from its repository root.
+On the **actor machine**, use the project environment, from its repository root.
 In its `hil.yaml`, remove `real_robot.robot` and set `real_robot.remote` to the
 NUC's reachable address and the station's daemon port (normally 50051). Set
 `real_robot.token` only if `daemon.token` is configured. With cameras, provide
 `obs.image_size` because remote sizes are only known after connecting. Keep the
 same action mode, 50 Hz frequency and observation contract as recording.
 
-Install the gRPC client in the actor's project venv:
+Install the gRPC client in the actor's project environment:
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -79,7 +79,7 @@ python -m pip install -e 'robot_infra[grpc]'
 ```
 
 Check that configuration without connecting, on the actor machine, repository
-root, project venv active:
+root, project environment active:
 
 ```bash
 python examples/train_real_world.py hil_serl --config hil.yaml --print-config

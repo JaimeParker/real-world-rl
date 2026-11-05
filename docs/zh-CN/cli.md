@@ -12,7 +12,7 @@
 
 ## 在哪里运行
 
-安装 `real-world-rl` 包及工作站所需的 `robot_infra` 依赖后，该环境中即可使用 `rwrl`，等价于 `python -m real_world_rl.cli`。见[安装教程](tutorial/01-install.md)。以下全部命令在 **NUC、仓库根目录、工作站 venv（`.venv`）已激活**时运行。工作站和预设的相对路径均相对于该目录。每次原语调用都会连接设备，并在结束后断开，失败时也会断开。
+安装 `real-world-rl` 包及工作站所需的 `robot_infra` 依赖后，该环境中即可使用 `rwrl`，等价于 `python -m real_world_rl.cli`。见[安装教程](tutorial/01-install.md)。以下全部命令在 **NUC、仓库根目录、项目环境（project environment）已激活**时运行。工作站和预设的相对路径均相对于该目录。每次原语调用都会连接设备，并在结束后断开，失败时也会断开。
 
 全局选项必须放在**命令之前**，包括将 `--preset` 放在 `home` 之前。`rwrl --help` 查看包装层帮助；`rwrl doctor --help`、`rwrl setup --help`、`rwrl daemon --help`、`rwrl supervise --help` 显示被转发 CLI 的帮助。
 
@@ -90,7 +90,7 @@ Home 解析与 `env.reset()` 一致，顺序如下：
 
 值为 null 则继续查下一来源。全部没有 home 时报错并以 1 退出。`home show` 打印来源、home、当前关节、`home - q` 及最大绝对差值。
 
-要复现本页全部 mock 示例，在 NUC 另开一个终端，进入仓库根目录并激活工作站 `.venv`。如有需要先创建 `local/`，再自行编写 `local/mock-station.yaml`，内容如下：
+要复现本页全部 mock 示例，在 NUC 另开一个终端，进入仓库根目录并激活项目环境。如有需要先创建 `local/`，再自行编写 `local/mock-station.yaml`，内容如下：
 
 ```yaml
 type: franka
@@ -132,7 +132,7 @@ max delta: 1.500000 rad
 
 ## 典型流程
 
-在 NUC、仓库根、工作站 `.venv` 激活时，使用与工作站同一实臂和限位相符的已有本地 `hil.yaml` 预设。先结束所有直连的 recorder/actor。
+在 NUC、仓库根、项目环境激活时，使用与工作站同一实臂和限位相符的已有本地 `hil.yaml` 预设。先结束所有直连的 recorder/actor。
 
 ```bash
 rwrl status

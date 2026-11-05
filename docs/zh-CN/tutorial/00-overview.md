@@ -52,7 +52,7 @@ Already commissioned: take Desk control --> confirm FCI --------+
 | `LEARNER_IP` | GPU learner 的可达地址，也可以是 NUC |
 | actor 机器 | 默认 NUC；仅可选远程路线使用另一台机器 |
 
-每条命令注明机器、工作目录和 venv。默认是 NUC、仓库根目录 `real-world-rl/`，安装后激活 `.venv`。同机服务使用 `127.0.0.1`；远程客户端必须使用可达地址。
+每条命令注明机器、工作目录和环境。默认是 NUC、仓库根目录 `real-world-rl/`，**项目环境（project environment）**已激活：即[第 01 篇第 4 步](01-install.md#4-安装项目环境)安装了三个本地包的 Python 环境，venv 或 conda 均可（`scripts/install.sh` 默认创建 `.venv`）。同机服务使用 `127.0.0.1`；远程客户端必须使用可达地址。
 
 <a id="action-mode"></a>
 

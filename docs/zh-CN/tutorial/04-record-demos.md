@@ -12,13 +12,13 @@
 
 ## 准备 NUC
 
-本页全部命令在 **NUC、仓库根、`.venv` 激活**时运行。先完成 station 与真实 doctor，清空工作区、保持物理停止装置可用。reset 可能回 home 并开夹爪，之前核对实臂 FCI IP、Hand、home、关节和工作空间限制。
+本页全部命令在 **NUC、仓库根、项目环境（project environment）激活**时运行。先完成 station 与真实 doctor，清空工作区、保持物理停止装置可用。reset 可能回 home 并开夹爪，之前核对实臂 FCI IP、Hand、home、关节和工作空间限制。
 
 主预设为 [`examples/presets/gello_cartesian.yaml`](../../../examples/presets/gello_cartesian.yaml)：仅状态、`cartesian_delta`、50 Hz、`xyz_scale_m: 0.05`、`rot_scale_rad: 0.3`，其 robot 映射在 NUC 直接连接 franky。先填入现场值，示例工作空间不等于工位批准。无实体 Hand 时在 robot 映射设 `gripper: null`，环境设 `gripper_in_action: false`。
 
 `teleop_options_yaml` 指向仓库根的 `gello_leader.yaml`。在该本地选项文件写 `robot_yaml: gello_station.yaml`。后者须是只描述 leader 的本地机器人 YAML：`type: franka`、独立 `name`、`arm_backend: fake`、`gripper: null`、`cameras: []`，加上已配置的 GELLO `teleop:`（串口与标定）。不要指向实臂 follower station，因为该输入源会连接整份 leader YAML，导致重复连接实臂。标定和其他本地 leader 配置见 [gello.md](../gello.md)。
 
-录制前，在同一 NUC、仓库根、工作站 `.venv` 激活时，先结束直接占用机械臂的进程。运行 `rwrl status`，手动拖到期望 home 后退出 guiding 模式；在下方 recorder 使用的同一预设中保存并验证 home：
+录制前，在同一 NUC、仓库根、项目环境激活时，先结束直接占用机械臂的进程。运行 `rwrl status`，手动拖到期望 home 后退出 guiding 模式；在下方 recorder 使用的同一预设中保存并验证 home：
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -32,7 +32,7 @@ rwrl --preset examples/presets/gello_cartesian.yaml --yes home go
 
 ## 用 GELLO 录制
 
-NUC、仓库根、`.venv` 激活：
+NUC、仓库根、项目环境激活：
 
 ```bash
 python -m robot_infra.supervise --log runs/record-pick-and-place/supervise.jsonl -- \
@@ -82,7 +82,7 @@ supervisor 将硬件进程作为子进程启动，终端键送给子进程，无
 
 ## 用 SpaceMouse 录制
 
-同样在 NUC、仓库根、`.venv` 激活。按 [teleop.md](../teleop.md#spacemouse) 安装 extra。覆盖 GELLO 选项文件，避免把 leader 选项传入 SpaceMouse：
+同样在 NUC、仓库根、项目环境激活。按 [teleop.md](../teleop.md#spacemouse) 安装 extra。覆盖 GELLO 选项文件，避免把 leader 选项传入 SpaceMouse：
 
 ```bash
 python -m robot_infra.supervise --log runs/record-spacemouse/supervise.jsonl -- \
@@ -116,7 +116,7 @@ sidecar 必须与 pkl 同行，包含版本化实验契约及 `teleop_control`�
 
 这些模式需要独立关节预设和示范。`leader_arm` 的 `--teleop-onset arm` 等 leader 到 follower 的每关节误差不超过 `--teleop-arm-tolerance-rad`（0.1 rad）才接管。默认 `ramp` 立即开始：`joint_abs` 初始目标按 `--teleop-ramp-step-rad`（0.05）每步限速，`joint_delta` 在进入一个 `joint_scale_rad` 步长前标记初始追赶。只有这些关节 leader 路线使用 `teleop_syncing`，笛卡尔主线没有。
 
-在 NUC、仓库根、`.venv` 激活，使用单独配置的 `hil_abs.yaml`（`joint_abs`、关节限位、本地 robot 与 GELLO teleop 部件）：
+在 NUC、仓库根、项目环境激活，使用单独配置的 `hil_abs.yaml`（`joint_abs`、关节限位、本地 robot 与 GELLO teleop 部件）：
 
 ```bash
 python -m robot_infra.supervise --log runs/record-joint-abs/supervise.jsonl -- \

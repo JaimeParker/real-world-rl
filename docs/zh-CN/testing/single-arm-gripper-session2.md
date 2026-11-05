@@ -3,7 +3,7 @@
 # 第二次单臂＋夹爪现场测试：GELLO / SpaceMouse
 
 范围：一台 NUC、单臂、真实 Franka Hand，硬件由一个录制子进程直接连接；不启动训练。本文未代表实机通过。
-所有命令在 **NUC、仓库根目录、Bash** 执行；S01 无需 venv，S01 成功后执行 `source .venv/bin/activate`，其余命令均使用该 venv。
+所有命令在 **NUC、仓库根目录、Bash** 执行；S01 无需激活环境；成功后激活安装器创建的环境（默认为 `.venv`），例如执行 `source .venv/bin/activate`；其余命令均使用项目环境（project environment）。
 先按 [教程 01](../../tutorial/01-install.md) 上电、解锁、End Effector 上电、核对 Control 网线与 Desk；确认机器人身份和物理 Hand，不能凭默认 IP 推断。
 按 [教程 04](../../tutorial/04-record-demos.md#prepare-the-nuc) 配好实际 IP、home、限位、工作空间及 GELLO 标定；`gello_leader.yaml` 指向独立 fake-arm leader YAML，不得重复连接实臂。
 预设为 state-only、50 Hz、cartesian_delta，尺度 0.05 m / 0.3 rad；领先上限 0.05 m / 0.3 rad，目标速度 0.05 m/s / 0.3 rad/s。先确认物理停止装置可用。
@@ -53,10 +53,10 @@ record() {
 
 | 编号 / 项目 | 命令 | 操作与通过标准 | 主要记录文件 |
 |---|---|---|---|
-| S01 安装与检测 | `check S01 bash scripts/install.sh --extras franka-gello,spacemouse --station local/station.yaml` | doctor 各层无 FAIL，实际设备必检项均通过；成功后激活 `.venv` | `S01/console.log` |
+| S01 安装与检测 | `check S01 bash scripts/install.sh --extras franka-gello,spacemouse --station local/station.yaml` | doctor 各层无 FAIL，实际设备必检项均通过；成功后激活安装器创建的环境（默认为 `.venv`） | `S01/console.log` |
 | S02 Desk / FCI | `check S02 python -m robot_infra.doctor --config local/station.yaml` | 逐项确认页面可达、绿灯、已登录、本机控制权、已安装 FCI、会话已激活；刷新正确 Desk，handshake OK；保存六项证据 | `S02/console.log` |
 | S03 Hand 反馈 | `check S03-open python -m robot_infra.doctor --config local/station.yaml`，再运行 `check S03-closed python -m robot_infra.doctor --config local/station.yaml` | doctor 两次运行：Hand 张开时一次、在 Desk 上闭合后再一次；两次打印的宽度与肉眼观察的开口一致（Franka Hand 张开约 0.08 m，闭合接近 0），无 WARN | `S03-open/console.log`、`S03-closed/console.log` |
-| S03 后可选 | `rwrl gripper show` | 同一 NUC、仓库根、工作站 `.venv` 激活，启动 recorder 前执行：应打印与 doctor 相同的夹爪宽度行（米、归一化宽度、抓取状态和后端来源）；保留上方 S02/S03 doctor 检查 | 可选对照，无 CSV 项目 |
+| S03 后可选 | `rwrl gripper show` | 同一 NUC、仓库根、项目环境激活，启动 recorder 前执行：应打印与 doctor 相同的夹爪宽度行（米、归一化宽度、抓取状态和后端来源）；保留上方 S02/S03 doctor 检查 | 可选对照，无 CSV 项目 |
 | S04 复位与保持 | `record S04 leader_cartesian --max-episode-steps 750` | 复位后不接管至少 10 s；inspector 写入的 `measurements.csv` 中 `hold_window` 行（亦即 `summary.json` 中该保持段的 `max_drift_window_mm`）覆盖至少 10 s，且其 `max_drift_mm` ≤5 mm | `S04/measurements.csv` |
 | S05 GELLO t/h/t | `record S05 leader_cartesian` | `t` 驱动、`h` 保持 10 s、`t` 再接管后 `q`；`h` 保持段的 `hold_window` 行 `max_drift_mm` ≤5 mm，再接管无跳动（`summary.json` 中其后接管段的 `jump_mm`，并以视频确认），`summary.json` 的分段与接管/交还一致 | `S05/measurements.csv` |
 | S06 GELLO 领先上限 | `record S06 leader_cartesian` | 在已核定范围内快速移动 leader 再静止，并在第二终端标记 leader 停止时刻（见下）；最后 `q`，再用该时刻重跑 inspector：`settle` 行 `settle_s` ≤1.5 s、`residual_mm` ≤50 mm | `S06/measurements-stop.csv` |
@@ -71,7 +71,7 @@ record() {
 | S11 监督停止 | `record S11 leader_cartesian` | reset完成，空载低速跟随且有稳定step心跳后执行下方 STOP；要求 STOP 后≤8 s子进程终止（默认参数：2 s 心跳超时 + 3 s SIGINT + 2 s SIGTERM 后 SIGKILL，被 STOP 的进程只对 SIGKILL 有反应）且机器人停止、Desk 可恢复；记录实际耗时；计时缺证据 BLOCKED，超标 FAIL | `S11/measurements.csv` |
 | S12 home / 断开 / 归档 | `record S12 leader_cartesian --max-episode-steps 1 && tar -czf "$RUN.tar.gz" -C "$(dirname "$RUN")" "$(basename "$RUN")"` | 返回已核定 home，进程退出后确认机器人静止/连接已释放，再物理断开；整个运行目录已打包，更新 CSV 后重新打包 | `$RUN.tar.gz`（RUN 同级） |
 
-S06 运行 `record S06` 时，另开第二终端（NUC、仓库根、`.venv` 激活），预先输入下列命令，在 leader 刚静止的瞬间按回车；该终端须在视频画面内，以便对照时间戳：
+S06 运行 `record S06` 时，另开第二终端（NUC、仓库根、项目环境激活），预先输入下列命令，在 leader 刚静止的瞬间按回车；该终端须在视频画面内，以便对照时间戳：
 
 ```bash
 RUN=$(cat local/session2-current-run)
@@ -86,7 +86,7 @@ python examples/inspect_teleop_archive.py "$RUN/S06/demo.trajectory.sqlite3" --s
 
 结果在 `summary-stop.json` 的 `settle` 下；`settled: false` 或出现 `problem`（停止时刻不在回合内，或回合结束前机械臂未静止）判 FAIL 或 BLOCKED，不能判 PASS。
 
-S11 第二终端同样在 NUC、仓库根、`.venv` 激活；只在复位结束、已核定路径内空载低速跟随且有稳定 step 心跳后执行，绝不 STOP 控制箱或 supervisor：
+S11 第二终端同样在 NUC、仓库根、项目环境激活；只在复位结束、已核定路径内空载低速跟随且有稳定 step 心跳后执行，绝不 STOP 控制箱或 supervisor：
 
 ```bash
 RUN=$(cat local/session2-current-run)
@@ -108,5 +108,5 @@ S06 的 `settle_s` 是从记录的 leader 停止时刻到停稳采样的时间�
 S03 使用两次 doctor 运行中 `feedback:gripper` 打印的米制宽度、占 `max_width_m` 的比例和后端来源；保留两份日志，并核对数值与肉眼观察的开口一致。S08/S09 的 autonomous_success 由 completed、task_success、had_intervention 推导，inspect 不直接输出该布尔字段。
 S10-int 正常清理应完成 interrupted 记录；S11 强杀允许最后回合未结束，只要求已提交行可读、无伪造成功；不要重开同一 recorder 补尾记录。
 所有录制项目都需确认释放：child_exit＋进程退出＋机器人静止；随后下一次 doctor/单一连接成功为补充证据，禁止 doctor 与录制并发。
-最终填完 CSV 后仅重新打包（NUC、仓库根、`.venv`）：`tar -czf "$RUN.tar.gz" -C "$(dirname "$RUN")" "$(basename "$RUN")"`，不要重跑 S12 的录制。
+最终填完 CSV 后仅重新打包（NUC、仓库根、项目环境激活）：`tar -czf "$RUN.tar.gz" -C "$(dirname "$RUN")" "$(basename "$RUN")"`，不要重跑 S12 的录制。
 现场发现的问题写入 CSV 问题编号与备注；所有初始行保留 NOT_RUN，完成后只改运行目录内副本。无需本次执行任何实机命令。

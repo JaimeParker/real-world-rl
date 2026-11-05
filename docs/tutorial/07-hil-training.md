@@ -13,8 +13,8 @@ The actor is the single hardware process on the **NUC**, connecting directly to
 franky. Run the learner on the GPU machine (or on the same NUC), and start it
 first. Read [06 Intervening](06-intervening.md) before starting hardware.
 
-All commands run from the **repository root**, with the machine's project
-**`.venv` active**. Set the following variables in **both the learner and NUC
+All commands run from the **repository root**, with the machine's
+**project environment active**. Set the following variables in **both the learner and NUC
 shells**. The example uses `127.0.0.1` for a learner on the same machine; for a
 separate GPU learner replace it with that machine's reachable IP in both shells.
 Ensure both checkouts have the same preset and experiment inputs.
@@ -68,10 +68,10 @@ specified in the current [experiment guide](../real-world-experiments.md#step-wa
 ## hil_serl
 
 ```bash
-# Learner machine: repository root, project .venv active.
+# Learner machine: repository root, project environment active.
 python examples/train_real_world.py hil_serl --role learner $COMMON --exp-name hil-pick-and-place \
     --demo-dataset-paths demos/pick-and-place.pkl
-# NUC: repository root, .venv active.
+# NUC: repository root, project environment active.
 python -m robot_infra.supervise --startup-s 60 --log runs/hil-pick-and-place/supervise.jsonl -- \
     python examples/train_real_world.py hil_serl --role actor $COMMON --exp-name hil-pick-and-place
 ```
@@ -87,7 +87,7 @@ updates across a learner restart. Be ready to intervene while the policy is lear
 
 ## residual_hil_serl, BC base
 
-Set `RESIDUAL` and `BASE_BC` in both project-venv shells; run the learner first on
+Set `RESIDUAL` and `BASE_BC` in both shells with the project environment active; run the learner first on
 the learner machine, then the supervised actor on the NUC, from each repository root.
 
 ```bash
@@ -96,7 +96,7 @@ RESIDUAL="--residual-variant hybrid --residual-action-scale 0.1 --residual-bc-we
 BASE_BC='checkpoint:runs/bc-pick-and-place/checkpoints/final.pt?algo=real_world_bc'
 python examples/train_real_world.py residual_hil_serl --role learner $COMMON $RESIDUAL \
     --exp-name residual-bc-pick-and-place --base-provider "$BASE_BC"
-# NUC: repository root, .venv active.
+# NUC: repository root, project environment active.
 python -m robot_infra.supervise --startup-s 60 --log runs/residual-bc-pick-and-place/supervise.jsonl -- \
     python examples/train_real_world.py residual_hil_serl --role actor $COMMON $RESIDUAL \
     --exp-name residual-bc-pick-and-place --base-provider "$BASE_BC"
@@ -104,7 +104,7 @@ python -m robot_infra.supervise --startup-s 60 --log runs/residual-bc-pick-and-p
 
 ## residual_hil_serl, ACT base
 
-Set `RESIDUAL` and `BASE_ACT` in both project-venv shells; run the learner first on
+Set `RESIDUAL` and `BASE_ACT` in both shells with the project environment active; run the learner first on
 the learner machine, then the supervised actor on the NUC, from each repository root.
 
 ```bash
@@ -113,7 +113,7 @@ RESIDUAL="--residual-variant hybrid --residual-action-scale 0.1 --residual-bc-we
 BASE_ACT='act:runs/act-pick-and-place/checkpoints/final.pt?temporal_agg=1'
 python examples/train_real_world.py residual_hil_serl --role learner $COMMON $RESIDUAL \
     --exp-name residual-act-pick-and-place --base-provider "$BASE_ACT"
-# NUC: repository root, .venv active.
+# NUC: repository root, project environment active.
 python -m robot_infra.supervise --startup-s 60 --log runs/residual-act-pick-and-place/supervise.jsonl -- \
     python examples/train_real_world.py residual_hil_serl --role actor $COMMON $RESIDUAL \
     --exp-name residual-act-pick-and-place --base-provider "$BASE_ACT"
@@ -139,10 +139,10 @@ residuals from a zero base, see [residual.md](../residual.md#human-intervention)
 ## silri
 
 ```bash
-# Learner machine: repository root, project .venv active.
+# Learner machine: repository root, project environment active.
 python examples/train_real_world.py silri --role learner $COMMON --exp-name silri-pick-and-place \
     --demo-dataset-paths demos/pick-and-place.pkl
-# NUC: repository root, .venv active.
+# NUC: repository root, project environment active.
 python -m robot_infra.supervise --startup-s 60 --log runs/silri-pick-and-place/supervise.jsonl -- \
     python examples/train_real_world.py silri --role actor $COMMON --exp-name silri-pick-and-place
 ```
@@ -175,7 +175,7 @@ Deterministic episodes on the robot, no learner, no data collection; a success i
 success label (your `s` with `--reward-from-teleop-events`, or the classifier), and it only counts as
 autonomous when you did not take over during the episode. Stop the actor first, and do not
 intervene ([06](06-intervening.md#the-sequence)). Run each eval command on the
-NUC, repository root, `.venv` active, after defining `ENV_FLAGS` and the matching
+NUC, repository root, project environment active, after defining `ENV_FLAGS` and the matching
 base variables above:
 
 ```bash
@@ -204,7 +204,7 @@ episodes), `task_success_rate`, the intervention rates and `mean_return`.
 
 ## What to watch
 
-On the learner machine, repository root, project `.venv` active, view the logs
+On the learner machine, repository root, project environment active, view the logs
 from `--log-type` (TensorBoard by default) under `runs/`:
 
 <!-- tutorial-test: skip -->
@@ -272,12 +272,12 @@ generations together. Restart the learner first with the same preset, experiment
 paths and capacities. For the `hil_serl` run above:
 
 ```bash
-# Learner machine: repository root, project .venv active.
+# Learner machine: repository root, project environment active.
 python examples/train_real_world.py hil_serl --role learner $COMMON --exp-name hil-pick-and-place \
     --demo-dataset-paths demos/pick-and-place.pkl --load-checkpoint \
     runs/hil-pick-and-place/checkpoints/bundle_manifest.json --checkpoint-dir \
     runs/hil-pick-and-place/checkpoints
-# NUC: repository root, .venv active.
+# NUC: repository root, project environment active.
 python -m robot_infra.supervise --startup-s 60 --log runs/hil-pick-and-place/supervise.jsonl -- \
     python examples/train_real_world.py hil_serl --role actor $COMMON --exp-name hil-pick-and-place
 ```

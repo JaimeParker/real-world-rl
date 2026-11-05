@@ -6,8 +6,8 @@ checks connectivity and feedback; it does not validate a motion path or a task.
 
 **Command environment.** Run all shell blocks on the NUC, from this repository's
 root (`real-world-rl/`). Steps 1–3 use Ubuntu system tools and need no Python venv.
-Step 4 creates `.venv`; activate it before every Python command in steps 5–6 and
-on the following station page. Replace the example Ethernet interface after
+Step 4 installs the project environment; activate it before every Python command
+in steps 5–6 and on the following station page. Replace the example Ethernet interface after
 inspecting your own machine. Browser checks also take place on the NUC.
 
 ## 1. Power on the cell
@@ -126,10 +126,15 @@ For Hand initialization trouble, refresh the correct arm's Desk page and verify
 power and physical presence first; [multi-arm checks](02-station.md#multiple-arms)
 explain the common wrong-page case.
 
-## 4. Install in a clean venv
+## 4. Install the project environment
+
+The **project environment** is the Python environment (venv or conda) where this
+step installs the three local packages: rl-garden, robot_infra and real-world-rl.
+`scripts/install.sh` creates `.venv` by default; the manual route can use any
+activated venv or conda environment.
 
 Start with a checkout containing the initialized `rl-garden/` submodule. On a
-fresh NUC, from a parent directory and with no venv active:
+fresh NUC, from a parent directory and with no environment active:
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -142,7 +147,7 @@ provided by WO-2; they are not available in the current checkout until that work
 lands. This is the target installation procedure, not a claim that WO-1 adds them.
 It requires Python 3.10 with venv support and package-download access.
 
-On the NUC, repository root, no venv active:
+On the NUC, repository root, no environment active:
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -154,12 +159,13 @@ The installer creates or reuses `.venv` (default interpreter `python3.10`), clea
 inherited `PYTHONPATH`, installs rl-garden, robot_infra and this package in editable
 mode, then runs doctor. With no station supplied its final check is **mock**;
 that success does not establish a hardware handshake. RealSense stations also
-need the `robot_infra[realsense]` extra in this same venv.
+need the `robot_infra[realsense]` extra in this same project environment.
 
 <details>
 <summary>Manual equivalent of the default installation (after WO-2 lands)</summary>
 
-On the NUC, repository root, initially no venv active:
+On the NUC, repository root, run the pip commands in any activated venv or conda
+environment. Create and activate an environment, for example:
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -174,7 +180,7 @@ python -m robot_infra.doctor --mock
 
 </details>
 
-For RealSense, on the NUC, repository root, `.venv` active:
+For RealSense, on the NUC, repository root, project environment active:
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -198,7 +204,7 @@ offers calibration, and runs doctor. If peripherals are not connected yet, selec
 to pass a check. For an existing station, reuse its file.
 
 With no recorder, actor or daemon holding the devices, on the NUC, repository
-root, `.venv` active:
+root, project environment active:
 
 ```bash
 python -m robot_infra.doctor --config local/station.yaml
@@ -206,7 +212,7 @@ python -m robot_infra.doctor --config local/station.yaml
 
 | Layer | What it verifies | If it fails |
 |---|---|---|
-| 1 SDK | backend imports | install the missing extra in this venv |
+| 1 SDK | backend imports | install the missing extra in the project environment |
 | 2 OS | network, device presence and permissions | revisit steps 1–3 or apply step 6's device fix |
 | 3 Handshake | connect to each configured device | check FCI activation, ownership and SDK compatibility |
 | 4 Feedback | actual state/frame reads | inspect the named device, cable and camera bandwidth |
@@ -226,7 +232,7 @@ means another process may still own the robot; stop that process first.
 For a libfranka/server mismatch, the target guided repair is below. **Delivery
 dependency:** `--install-sdk` is pending the doctor implementation; the current
 CLI does not accept it. This block is excluded from current CLI parsing until
-that feature lands. On the NUC, repository root, `.venv` active:
+that feature lands. On the NUC, repository root, project environment active:
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -248,7 +254,7 @@ OS diagnostics also report CH340/brltty conflicts, input permissions and USB
 latency; those specific diagnostics are a pending doctor dependency. On the
 current CLI, inspect these OS conditions manually if the hint is absent.
 All commands below run on the NUC, repository root; system commands do not need
-a venv, and the final doctor command uses `.venv`.
+a venv, and the final doctor command uses the project environment.
 
 For a `dialout` permission failure:
 
@@ -258,8 +264,8 @@ ls -l /dev/serial/by-id/
 sudo usermod -aG dialout "$(id -un)"
 ```
 
-Log out and back in, reactivate `.venv`, and check permissions again. Configure
-the stable `/dev/serial/by-id/` path, not an assumed `ttyUSB0` number.
+Log out and back in, reactivate the project environment, and check permissions again.
+Configure the stable `/dev/serial/by-id/` path, not an assumed `ttyUSB0` number.
 
 For an evdev keyboard or pedal permission failure:
 
@@ -308,7 +314,7 @@ and does not justify creating a file. Recheck after replug/reboot.
 
 *You should see:* the serial path stays present and is readable/writable, the
 selected input route works, and the latency value reads `1` where supported.
-With `.venv` active, rerun:
+With the project environment active, rerun:
 
 ```bash
 python -m robot_infra.doctor --config local/station.yaml
@@ -322,14 +328,14 @@ is separate: verify its configured serial, USB 3 connection and vendor udev rule
 
 ## A robot someone else has already commissioned
 
-Use the existing `local/station.yaml` and the installed NUC `.venv`. Do just these
-three things before starting a session:
+Use the existing `local/station.yaml` and the project environment on the NUC.
+Do just these three things before starting a session:
 
 1. Open the intended arm's Desk on this NUC, **Request control** if necessary,
    and refresh to verify control ownership.
 2. Confirm that this arm's **FCI session is activated**.
 3. With other device-owning processes stopped, run on the NUC, repository root,
-   `.venv` active:
+   project environment active:
 
 ```bash
 python -m robot_infra.doctor --config local/station.yaml

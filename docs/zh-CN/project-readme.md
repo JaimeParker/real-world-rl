@@ -65,21 +65,21 @@ real-world-rl/                   repository real-world-rl (top level)
 
 ## 安装
 
-在 NUC 或开发机器上，从父目录、未激活 venv 时克隆带固定子模块的仓库：
+在 NUC 或开发机器上，从父目录、未激活任何环境时克隆带固定子模块的仓库：
 
 ```bash
 git clone --recurse-submodules https://github.com/JaimeParker/real-world-rl.git
 cd real-world-rl
 ```
 
-同机仓库根目录、未激活 venv 时运行：
+同机仓库根目录、未激活任何环境时运行：
 
 ```bash
 bash scripts/install.sh
 source .venv/bin/activate
 ```
 
-默认用 `python3.10` 创建或复用 `.venv`，清除继承的 `PYTHONPATH`，以 editable 方式安装三个本地发行包及 `franka-gello`、`test` extras。未传 `--station` 时末尾 doctor 为 mock，不验证硬件。工作站设置见[硬件教程](tutorial/01-install.md)。已有 station 时在 NUC、仓库根、已安装 `.venv` 激活后执行：
+默认用 `python3.10` 创建或复用 `.venv`，清除继承的 `PYTHONPATH`，以 editable 方式安装三个本地发行包及 `franka-gello`、`test` extras。未传 `--station` 时末尾 doctor 为 mock，不验证硬件。工作站设置见[硬件教程](tutorial/01-install.md)；[第 4 步](tutorial/01-install.md#4-安装项目环境)的手动路线可使用任何 venv 或 conda 环境。已有 station 时在 NUC、仓库根、项目环境（project environment）激活后执行：
 
 ```bash
 bash scripts/install.sh --station local/station.yaml

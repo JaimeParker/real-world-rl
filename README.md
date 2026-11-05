@@ -76,7 +76,7 @@ Formerly `rlgarden-real-world` (package `rl_garden_real_world`, console scripts 
 
 ## Installation
 
-On the NUC or development machine, start in a parent directory with no venv active
+On the NUC or development machine, start in a parent directory with no environment active
 and clone with the pinned rl-garden submodule:
 
 ```bash
@@ -84,7 +84,7 @@ git clone --recurse-submodules https://github.com/JaimeParker/real-world-rl.git
 cd real-world-rl
 ```
 
-From the repository root on that same machine, with no venv active, run:
+From the repository root on that same machine, with no environment active, run:
 
 ```bash
 bash scripts/install.sh
@@ -95,8 +95,9 @@ The installer creates or reuses `.venv` using `python3.10` by default, clears in
 `PYTHONPATH`, and installs all three local distributions in editable mode with the
 `franka-gello` and `test` extras. Without `--station`, the final doctor uses mock
 backends: this does not verify hardware. See the [hardware tutorial](docs/tutorial/01-install.md)
-for station setup. To check an existing station, run on the NUC, repository root,
-with the installed `.venv` active:
+for station setup; any venv or conda env works for the manual route in
+[step 4](docs/tutorial/01-install.md#4-install-the-project-environment). To check an
+existing station, run on the NUC, repository root, with the project environment active:
 
 ```bash
 bash scripts/install.sh --station local/station.yaml

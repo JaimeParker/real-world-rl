@@ -11,7 +11,7 @@ After installing the `real-world-rl` package and the station's `robot_infra`
 dependencies, `rwrl` is available in that environment. It is equivalent to
 `python -m real_world_rl.cli`. See [installation](tutorial/01-install.md).
 Run all commands below on the **NUC**, from the **repository root**, with the
-**station venv (`.venv`) active**. Relative station and preset paths are relative
+**project environment active**. Relative station and preset paths are relative
 to that directory. Each primitive connects for its invocation and disconnects
 afterward, including on failure.
 
@@ -108,7 +108,7 @@ Null values fall through to the next source. No home is an error (exit 1).
 maximum absolute value.
 
 To reproduce every mock example on this page, use a separate terminal on the
-NUC, at the repository root, with the station `.venv` active. Create `local/`
+NUC, at the repository root, with the project environment active. Create `local/`
 if needed and write your own `local/mock-station.yaml` with this content:
 
 ```yaml
@@ -161,7 +161,7 @@ comments are not preserved, naming the backup.
 
 ## Typical workflow
 
-On the NUC, repository root, station `.venv` active, use your existing local
+On the NUC, repository root, project environment active, use your existing local
 `hil.yaml` preset for the same physical arm and limits as the station. Finish
 any directly connected recorder/actor first.
 

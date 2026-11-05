@@ -5,7 +5,7 @@ cameras and the GELLO plugged in and powered. It probes the hardware, asks a few
 calibrates the GELLO inline, writes one annotated `station.yaml`, runs the doctor on it and prints
 the next commands. The questions are in `robot_infra/setup/wizard.py`; every one has a flag
 (`python -m robot_infra.setup --help`). All commands on this page run on the NUC,
-from the repository root, with `.venv` active.
+from the repository root, with the project environment active.
 
 ```bash
 python -m robot_infra.setup
@@ -13,8 +13,8 @@ python -m robot_infra.setup
 
 ## Select the hardware
 
-All commands on this page run on the NUC, from the repository root, with
-`.venv` active (see [01](01-install.md#4-install-in-a-clean-venv)). Stop any
+All commands on this page run on the NUC, from the repository root, with the
+project environment active (see [01](01-install.md#4-install-the-project-environment)). Stop any
 recorder, actor or daemon using the devices before running the wizard.
 It is interactive unless `--non-interactive` is supplied. For example:
 
@@ -100,7 +100,7 @@ against the physical arm before assigning cameras, GELLO ports or a home pose.
 A shared switch is supported. Refresh each Desk page, request control on this NUC,
 and activate FCI separately on both arms.
 
-On the NUC, repository root, `.venv` active, an interactive two-arm example with
+On the NUC, repository root, project environment active, an interactive two-arm example with
 no cameras and calibration deferred is:
 
 ```bash
@@ -117,7 +117,7 @@ that physical robot; a recorded TCP is a reference measurement, not an additiona
 independent reset target.
 
 *You should see:* `robots.left` and `robots.right` with the intended IPs and
-per-arm devices. Check one arm at a time on the NUC, repository root, `.venv` active:
+per-arm devices. Check one arm at a time on the NUC, repository root, project environment active:
 
 ```bash
 python -m robot_infra.doctor --config local/station.yaml --robot left
@@ -162,7 +162,7 @@ do not start a daemon. `real_robot.remote` is for an actor on another machine
 
 The checked-in [single-arm preset](../../examples/presets/hil_single_arm.yaml)
 still describes the older remote, 10 Hz joint-delta workflow. Copy it on the NUC,
-repository root, `.venv` active, then edit the copy before running anything:
+repository root, project environment active, then edit the copy before running anything:
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -192,7 +192,7 @@ The target terminal key path is pending implementation (see
 [00](00-overview.md#operator-keys)); do not interpret a successful config parse
 as verification of that runtime path.
 
-Check without touching hardware, on the NUC, repository root, `.venv` active:
+Check without touching hardware, on the NUC, repository root, project environment active:
 
 ```bash
 python examples/train_real_world.py hil_serl --config hil.yaml --print-config

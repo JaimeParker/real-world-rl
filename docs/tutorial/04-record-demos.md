@@ -6,8 +6,8 @@ to a demo pkl for BC, ACT and HIL. Read [06 Intervening](06-intervening.md) firs
 
 ## Prepare the NUC
 
-Run every command on this page on the **NUC**, from the **repository root**, with
-**`.venv` active**. Finish the station and real doctor checks first. Keep a clear
+Run every command on this page on the **NUC**, from the **repository root**, with the
+**project environment active**. Finish the station and real doctor checks first. Keep a clear
 workspace and the physical stop accessible. Inspect the physical arm's FCI IP,
 Hand presence, home, joint limits and workspace before reset, which may move the
 arm and open the gripper.
@@ -29,7 +29,7 @@ source at a physical-follower station: it connects the whole leader robot YAML,
 which would open a second connection to the follower. Calibration and alternative local
 leader configurations are in [gello.md](../gello.md).
 
-Before recording, on this NUC, repository root, station `.venv` active, finish
+Before recording, on this NUC, repository root, project environment active, finish
 any process directly holding the arm. Run `rwrl status`, manually guide the arm
 to the desired home, then leave guiding mode. Save and verify home in the same
 preset used by the recorder below:
@@ -48,7 +48,7 @@ file is saved as `examples/presets/gello_cartesian.yaml.bak`. See
 
 ## Record with GELLO
 
-On the NUC, repository root, `.venv` active:
+On the NUC, repository root, project environment active:
 
 ```bash
 python -m robot_infra.supervise --log runs/record-pick-and-place/supervise.jsonl -- \
@@ -119,7 +119,7 @@ to re-anchor. It is not a successful step or permission to widen the box.
 
 ## Record with a SpaceMouse
 
-Use the same NUC, repository root and `.venv`. Install the SpaceMouse extra as
+Use the same NUC, repository root and project environment. Install the SpaceMouse extra as
 covered in [teleop.md](../teleop.md#spacemouse). Override the preset's GELLO
 options file so that no leader options are passed to the SpaceMouse source:
 
@@ -182,7 +182,7 @@ immediately: `joint_abs` rate-limits the initial target by
 until the leader is within one `joint_scale_rad` step. `teleop_syncing` applies
 only to these joint-space leader routes, not the cartesian main workflow.
 
-On the NUC, repository root, `.venv` active, with the separately commissioned
+On the NUC, repository root, project environment active, with the separately commissioned
 `hil_abs.yaml` (`joint_abs`, joint limits, local robot plus GELLO teleop part):
 
 ```bash

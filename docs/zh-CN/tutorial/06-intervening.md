@@ -26,7 +26,7 @@
 
 SpaceMouse 忽略终端 `t`/`h`，其他 `s`/`f`/`r`/Esc/`q` 有效。reset/home 中按键被丢弃。物理停止装置须可用。
 
-反射停机后先检查工位，按需释放激活装置或在 Desk 清除故障。在 **NUC、仓库根目录、工作站 `.venv` 激活**时，使用 `rwrl recover` 请求恢复错误；`rwrl stop` 无需确认即可请求停臂。两者均遵循工作站连接选择。本直连流程须先结束 recorder/actor 并释放连接，第二个 FCI 连接无法停止已被直接占用的臂；若声明了存活 daemon，命令通过该 daemon 执行。运行中保持物理停止装置可用。见 [rwrl](../cli.md#connection-ownership)。
+反射停机后先检查工位，按需释放激活装置或在 Desk 清除故障。在 **NUC、仓库根目录、项目环境（project environment）激活**时，使用 `rwrl recover` 请求恢复错误；`rwrl stop` 无需确认即可请求停臂。两者均遵循工作站连接选择。本直连流程须先结束 recorder/actor 并释放连接，第二个 FCI 连接无法停止已被直接占用的臂；若声明了存活 daemon，命令通过该 daemon 执行。运行中保持物理停止装置可用。见 [rwrl](../cli.md#connection-ownership)。
 
 <a id="the-sequence"></a>
 

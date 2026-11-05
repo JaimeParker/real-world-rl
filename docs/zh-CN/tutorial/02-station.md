@@ -6,7 +6,7 @@
 
 [中文入口](../../README.zh-CN.md) · [English](../../tutorial/02-station.md)
 
-`python -m robot_infra.setup` 是交互向导。机械臂、相机和 GELLO 插好并上电后，在机器人 PC 运行：探测硬件、提问、内联标定 GELLO、写出带注释的 `station.yaml`、运行 doctor 并打印后续命令。问题实现位于 `robot_infra/setup/wizard.py`，每项均有参数，见 `python -m robot_infra.setup --help`。本页全部命令在 NUC、仓库根、`.venv` 激活时执行。
+`python -m robot_infra.setup` 是交互向导。机械臂、相机和 GELLO 插好并上电后，在机器人 PC 运行：探测硬件、提问、内联标定 GELLO、写出带注释的 `station.yaml`、运行 doctor 并打印后续命令。问题实现位于 `robot_infra/setup/wizard.py`，每项均有参数，见 `python -m robot_infra.setup --help`。本页全部命令在 NUC、仓库根、项目环境（project environment）激活时执行。
 
 ```bash
 python -m robot_infra.setup
@@ -16,7 +16,7 @@ python -m robot_infra.setup
 
 ## 选择硬件
 
-命令环境同上，见 [01](01-install.md#4-install-in-a-clean-venv)。先停占用设备的 recorder、actor 或守护进程。未传 `--non-interactive` 时为交互模式，例如：
+命令环境同上，见 [01](01-install.md#4-安装项目环境)。先停占用设备的 recorder、actor 或守护进程。未传 `--non-interactive` 时为交互模式，例如：
 
 ```bash
 python -m robot_infra.setup --arms 1 --arm-names arm --robot-ip 172.16.0.2 --teleop gello --scope local
@@ -77,7 +77,7 @@ python -m robot_infra.setup --from local/station.yaml --only teleop --calibrate
 
 每臂独立 IP、Desk 和 FCI 会话。示例**左臂 `172.16.0.2`，右臂 `172.16.0.4`**；分配相机、GELLO 和 home 前核对实体。支持共用交换机。逐页刷新、在 NUC 申请控制权，并分别激活 FCI。
 
-NUC、仓库根、`.venv` 激活，无相机且延后标定的双臂交互示例：
+NUC、仓库根、项目环境激活，无相机且延后标定的双臂交互示例：
 
 ```bash
 python -m robot_infra.setup --arms 2 --arm-names left right \
@@ -87,7 +87,7 @@ python -m robot_infra.setup --arms 2 --arm-names left right \
 
 每个 GELLO 选不同串口，运动前完成两个标定。若与已配置示例一致，左臂选无夹爪、右臂选 Franka Hand；软件宽度读数不能证明 Hand 存在。不能复制另一臂 home。home 是绑定该物理臂的七关节目标；记录的 TCP 是参考测量，不是另一套独立复位约束。
 
-*应该看到：* `robots.left`、`robots.right` 含正确 IP 和各自设备。在 NUC、仓库根、`.venv` 激活，逐臂检查：
+*应该看到：* `robots.left`、`robots.right` 含正确 IP 和各自设备。在 NUC、仓库根、项目环境激活，逐臂检查：
 
 ```bash
 python -m robot_infra.doctor --config local/station.yaml --robot left
@@ -121,7 +121,7 @@ python -m robot_infra.setup --mock --output /tmp/station.mock.yaml       # rehea
 
 默认示范录制及 HIL actor **直接在 NUC 上运行**。使用内嵌机器人配置 `real_robot.robot`、`arm_backend: franky`，不启动守护进程。另一台机器上的 actor 才用 `real_robot.remote`，见 [03](03-daemon.md)。`robot`、`remote` 必须且只能设置其一。
 
-已提交的[单臂预设](../../../examples/presets/hil_single_arm.yaml)仍是旧的远程 10 Hz joint-delta 流程。在 NUC、仓库根、`.venv` 激活时复制，编辑完成后再运行：
+已提交的[单臂预设](../../../examples/presets/hil_single_arm.yaml)仍是旧的远程 10 Hz joint-delta 流程。在 NUC、仓库根、项目环境激活时复制，编辑完成后再运行：
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -139,7 +139,7 @@ cp examples/presets/hil_single_arm.yaml hil.yaml
 `robot` 是映射，不是 station 文件路径。工位变化后同步复制的设置。GELLO 笛卡尔映射用 `leader_cartesian`；原始关节位置不能直接作为笛卡尔 twist。
 目标终端按键路线尚待实现，见 [00](00-overview.md#operator-keys)；配置解析通过不等于运行路线验证。
 
-在 NUC、仓库根、`.venv` 激活时无硬件检查：
+在 NUC、仓库根、项目环境激活时无硬件检查：
 
 ```bash
 python examples/train_real_world.py hil_serl --config hil.yaml --print-config

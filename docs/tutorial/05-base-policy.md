@@ -4,7 +4,7 @@ A base policy trained on the demos is useful twice: deployed on its own ([08](08
 the baseline, and in [07](07-hil-training.md) `residual_hil_serl` trains a bounded correction on top
 of it. Train either or both, on the GPU machine, from the pkl of [04](04-record-demos.md). Neither
 connects to the robot. Run all commands from the repository root on the GPU
-machine, with its installed project `.venv` active. Use the same station-specific
+machine, with the project environment active. Use the same station-specific
 cartesian action/observation settings as recording. Offline training does not
 open a motion device.
 
@@ -61,7 +61,7 @@ or glob matched nothing.
 ## ACT
 
 rl-garden trains ACT from the same pkls, without a simulator. With rl-garden installed
-([01](01-install.md#4-install-in-a-clean-venv)) run it from the repository root:
+([01](01-install.md#4-install-the-project-environment)) run it from the repository root:
 
 ```bash
 python -m rl_garden.models.act.train_trajectories --demo-paths demos/pick-and-place.pkl \

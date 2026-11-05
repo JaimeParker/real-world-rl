@@ -85,8 +85,16 @@ def project_environment() -> bool:
     if sys.prefix != sys.base_prefix:
         return True
     # A conda base environment is not a project environment.
-    prefix = Path(sys.prefix)
-    return (prefix / "conda-meta").is_dir() and prefix.parent.name == "envs"
+    prefix = Path(sys.prefix).resolve()
+    metadata = prefix / "conda-meta"
+    if not metadata.is_dir() or os.environ.get("CONDA_DEFAULT_ENV") == "base":
+        return False
+    executable = os.environ.get("CONDA_EXE")
+    if executable and Path(executable).resolve().parent.parent == prefix:
+        return False
+    # Prefix environments need not live under an envs/ directory. A conda package
+    # record identifies a base/tooling environment even when it is not active.
+    return not any(metadata.glob("conda-[0-9]*.json"))
 
 
 def digest(path: Path) -> str | None:

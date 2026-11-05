@@ -328,3 +328,22 @@ def test_redaction_covers_authorization_headers_and_argument_values():
     assert "top-secret" not in redact("Authorization: Bearer top-secret")
     assert redact(["tool", "--api-key", "top-secret"])[-1] == "<redacted>"
     assert redact({"authorization": "top-secret"})["authorization"] == "<redacted>"
+
+
+@pytest.mark.parametrize(
+    "base_record,active_base,expected",
+    [(False, False, True), (True, False, False), (False, True, False)],
+)
+def test_conda_prefix_environments_do_not_require_envs_directory(
+    tmp_path, monkeypatch, base_record, active_base, expected
+):
+    prefix = tmp_path / "custom-project-environment"
+    metadata = prefix / "conda-meta"
+    metadata.mkdir(parents=True)
+    if base_record:
+        (metadata / "conda-26.0.0-0.json").touch()
+    monkeypatch.setattr(sys, "prefix", str(prefix))
+    monkeypatch.setattr(sys, "base_prefix", str(prefix))
+    monkeypatch.delenv("CONDA_EXE", raising=False)
+    monkeypatch.setenv("CONDA_DEFAULT_ENV", "base" if active_base else str(prefix))
+    assert doctor_repair.project_environment() is expected

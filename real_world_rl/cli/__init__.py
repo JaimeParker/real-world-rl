@@ -27,7 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--direct", action="store_true", help="connect directly if no daemon owns the arm")
     parser.add_argument("--mock", action="store_true", help="use doctor fake backends for direct connections")
     parser.add_argument("--json", action="store_true", help="one JSON result on stdout")
-    parser.add_argument("--yes", action="store_true", help="skip motion confirmation")
+    parser.add_argument("--yes", action="store_true", help="skip motion or doctor repair confirmation (preflight checks still apply)")
     commands = parser.add_subparsers(dest="command", required=True)
     for name in ("status", "q", "tcp", "stop", "recover"):
         commands.add_parser(name, allow_abbrev=False)

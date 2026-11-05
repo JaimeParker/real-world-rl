@@ -17,6 +17,7 @@ dependencies = [
     "gymnasium>=0.29",
     "tyro",
     "requests",
+    "packaging>=23",
     # Device layer for the generic real_robot env backend (envs/real_robot).
     # Lives in this repository under robot_infra/ (torch-free). For development:
     #   pip install -e rl-garden -e robot_infra -e .

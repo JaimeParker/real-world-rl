@@ -15,9 +15,9 @@ Run all commands below on the **NUC**, from the **repository root**, with the
 to that directory. Each primitive connects for its invocation and disconnects
 afterward, including on failure.
 
-Place global options **before the command**, including `--preset` before `home`.
+Place global options **before the command**, including `--preset` before `home` or `doctor`.
 Use `rwrl --help` for wrapper help; `rwrl doctor --help`, `rwrl setup --help`,
-`rwrl daemon --help` and `rwrl supervise --help` display the forwarded CLI's help.
+`rwrl daemon --help` and `rwrl supervise --help` display each CLI's help.
 
 ## Global options
 
@@ -25,11 +25,11 @@ Use `rwrl --help` for wrapper help; `rwrl doctor --help`, `rwrl setup --help`,
 |---|---|
 | `--station PATH` | Resolve explicit path → `$ROBOT_INFRA_CONFIG` → `local/station.yaml` → `~/.config/robot_infra/station.yaml`. The last location follows `$XDG_CONFIG_HOME` when set. Explicit and environment paths are used as given; the last two are searched for the first existing file. |
 | `--robot NAME` | Unset: select the single robot; a multi-robot station requires a name for primitives. |
-| `--preset PATH` | Unset: use station home. For `home`, load an existing env preset, either a bare mapping or settings under `real_robot`. Required by `home set`. |
+| `--preset PATH` | Unset: use station home. For `home`, load an existing env preset, either a bare mapping or settings under `real_robot`. Required by `home set`; `doctor` also uses it to identify expected devices. |
 | `--direct` | Off: follow the station's daemon declaration. Force direct access only when its daemon port is unreachable. |
 | `--mock` | Off: replace backends with doctor's fake backends for a **direct** connection. Still requires a station file; does not bypass daemon selection. |
 | `--json` | Off: built-in primitives emit one JSON result on stdout; diagnostics and motion target/prompt text go to stderr. |
-| `--yes` | Off: skip the built-in motion confirmation. The target and maximum delta are still printed. |
+| `--yes` | Off: skip the built-in motion confirmation or doctor repair-plan confirmation. Preconditions still apply. |
 
 The last two options have different scope for forwarded commands; see below.
 
@@ -73,7 +73,7 @@ refused confirmation; details follow the table.
 | `gripper move F` | Set normalized width to finite `F`, with `0 <= F <= 1` | Gripper motion | Yes, or `--yes` | 0 / 1 / 2 |
 | `stop` | Call arm `stop()`; success prints `stop: ok` | Stop arm | No | 0 / 1 / 2 |
 | `recover` | Call arm `recover()`; success prints `recover: ok` | Clear arm errors | No | 0 / 1 / 2 |
-| `doctor` | Forward to `robot_infra.doctor.cli` | Checks hardware; `--fix` may recover | Native doctor rules | Native status, unchanged |
+| `doctor` | Inspect NUC and configured devices; preview targeted repairs | Read; `--fix` repairs host/software, without recovery or motion | One repair-plan confirmation, or `--yes` | 0 / 1 / 2 |
 | `setup` | Forward to `robot_infra.setup.__main__` | Discovery, calibration and doctor | Native wizard questions | Native status, unchanged |
 | `daemon` | Forward to `robot_infra.server.daemon` | Preflight and serve hardware for client motion | No wrapper prompt | Native status, unchanged |
 | `supervise` | Forward to `robot_infra.supervise.supervisor` | Depends on child command | Depends on child | Native status, unchanged |
@@ -84,16 +84,101 @@ command belong to that CLI. The wrapper translates only these global options:
 
 | Forwarded command | Global options translated |
 |---|---|
-| `doctor` | `--station` → `--config`, `--robot`, `--mock`, `--json`, `--yes` |
+| `doctor` | `--station` → `--config`, `--robot`, `--preset`, `--mock`, `--json`, `--yes` |
 | `setup` | `--station` → `--from` (existing defaults, **not output path**), `--mock` |
 | `daemon` | `--station` → `--config`, `--robot` |
 | `supervise` | None; supply supervisor and child options after `supervise` |
 
-Other wrapper globals have no effect on those forwarded CLIs. In particular,
-doctor's `--yes` applies only with its `--install-sdk`; supplying it alone is a
-doctor usage error. Doctor JSON is its native report, not a `status` object.
+Other wrapper globals have no effect on those CLIs. Doctor's `--yes` requires
+`--fix` or `--install-sdk`. Its versioned JSON report differs from primitive
+JSON and from the lower-level `python -m robot_infra.doctor` report.
 See the [device-layer README](../robot_infra/README.md#3-check-with-the-doctor)
-for doctor, setup, daemon and supervision behavior.
+for the Python doctor, setup, daemon and supervision interfaces.
+
+## NUC diagnosis and repair
+
+Start in the repository on the NUC, with its project venv or non-base conda
+environment active. A fresh machine must first have Python, an environment
+and the project installed through [installation](tutorial/01-install.md);
+doctor repairs that environment, rather than bootstrapping Python itself.
+No station file is required for host and USB discovery:
+
+```bash
+rwrl doctor
+rwrl --station local/station.yaml --preset hil.yaml doctor
+rwrl --station local/station.yaml doctor --fix
+```
+
+The first two commands inspect and display a repair plan without applying it.
+`--fix` displays commands, dedicated configuration file contents and required
+follow-up actions, asks once, applies the approved plan, then inspects again.
+Independent repairs continue after a failure; dependent repairs are blocked.
+New problems discovered during rechecking require another reviewed plan.
+
+Automatic repair supports Ubuntu 22.04 x86_64 bare-metal NUCs. Checks cover:
+
+- Missing diagnostic tools and project/device Python dependencies, including
+  version constraints from package metadata. Satisfied packages are retained;
+  broken SDK imports are repaired at their installed version.
+- SpaceMouse USB/libusb access and supported product IDs, loadable system
+  libusb/libudev libraries with apt repairs when absent or broken, plus hidraw rules.
+  A readable hidraw node alone does not establish USB SDK access.
+- Commissioned GELLO serial/event access, effective user groups, targeted FTDI
+  latency settings and evidence of a brltty conflict. An uncommissioned serial
+  adapter is only a candidate; doctor does not choose its calibration.
+- RealSense USB permissions and a frame read, and configured Franka/Hand
+  connectivity, SDK handshake, feedback and realtime permissions.
+- Kernel realtime status, with a manual **MAJOR CHANGE / DOUBLE CHECK** warning
+  when kernel work may be needed. No kernel or boot changes are performed.
+
+Station and preset configuration determine expected devices; recognized
+SpaceMouse/RealSense USB devices can also be inspected independently. Missing
+configured devices are `BLOCKED`. Unconfigured, unidentified devices are
+`SKIPPED`, not accepted as working. Doctor never recovers, homes or commands
+robot motion. An active daemon, controller, or device owner blocks exclusive
+probes/repairs; doctor does not stop or take over another process.
+
+System repairs use sudo for individual commands; Python repairs use the running
+project interpreter, never sudo pip. Interactive execution can request sudo
+authorization. For unattended execution, first authorize sudo in a terminal:
+
+```bash
+sudo -v
+rwrl --station local/station.yaml --yes --json doctor --fix
+```
+
+`--yes` skips plan confirmation, while platform, ownership, environment and
+sudo checks still apply. Without a TTY or `--yes`, repairs are refused. Missing
+sudo authorization produces `BLOCKED`; passwords are never read from a pipe.
+`doctor --install-sdk` selects only a Franky replacement supported by a failed
+handshake's server version. Conflicting server versions require separate
+environments. It does not select an SDK based on a guessed firmware version.
+
+Repairs can install missing host tools, add user groups, write dedicated
+`/etc/udev/rules.d/99-rwrl-*.rules` and current-user realtime limits, and reload
+udev rules. Previous managed-file contents are backed up; concurrent changes
+are refused. Device replugging and a fresh login may still be required, which
+remain `PENDING_ACTION` until independently verified. NIC addresses/routes,
+firmware, kernels, boot configuration and reboot are manual operations.
+
+Each run saves a private, credential-redacted report under the gitignored
+`local/doctor/<UTC timestamp>-<id>/`: `before.json`, `plan.json`, `report.json`
+and `commands.log`, plus configuration backups/staged files when needed.
+Report directories are mode 0700 and files 0600. With `--json`, stdout contains
+one schema-version-1 object with `checks`, `repairs`, `remaining_plan`,
+`report_directory` and per-robot low-level `results`; diagnostics and prompts
+use stderr. Configuration errors save `error.json` and exit 2.
+
+| Doctor result | Exit code |
+|---|---|
+| Only `PASS`, `WARN` or `SKIPPED` | 0; inspect coverage before hardware acceptance |
+| Any `FAIL`, `BLOCKED` or `PENDING_ACTION` | 1 |
+| Invalid arguments or configuration | 2 |
+
+Advanced users can call `real_world_rl.cli.doctor.main(argv)` or retain the
+lower-level `robot_infra.doctor` API. The latter has its own repair semantics;
+`rwrl doctor` always runs its device probes with `fix=False`.
+
 
 ## Home: resolve, save and move
 

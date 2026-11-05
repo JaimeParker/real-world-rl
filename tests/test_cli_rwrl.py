@@ -322,12 +322,12 @@ def test_failed_connect_still_disconnects(station, capsys, monkeypatch, built_ro
 def test_doctor_forwarding(station, capsys):
     assert main(["--station", str(station), "doctor", "--mock", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert isinstance(payload, list)
-    assert any(item["name"] == "feedback:gripper" and item["ok"] for item in payload)
+    assert payload["schema_version"] == 1
+    assert any(item["name"] == "feedback:gripper" and item["ok"] for item in next(iter(payload["results"].values())))
 
 
 @pytest.mark.parametrize("command,module", [
-    ("doctor", "robot_infra.doctor.cli"), ("setup", "robot_infra.setup.__main__"),
+    ("doctor", "real_world_rl.cli.doctor"), ("setup", "robot_infra.setup.__main__"),
     ("daemon", "robot_infra.server.daemon"), ("supervise", "robot_infra.supervise.supervisor"),
 ])
 def test_forward_argv_and_exit_code(monkeypatch, command, module):

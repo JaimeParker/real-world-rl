@@ -6,7 +6,7 @@ from importlib import import_module
 
 def forward(args, remaining: list[str]) -> int:
     modules = {
-        "doctor": "robot_infra.doctor.cli",
+        "doctor": "real_world_rl.cli.doctor",
         "setup": "robot_infra.setup.__main__",
         "daemon": "robot_infra.server.daemon",
         "supervise": "robot_infra.supervise.supervisor",
@@ -22,6 +22,8 @@ def forward(args, remaining: list[str]) -> int:
     if args.command in ("doctor", "setup") and args.mock:
         prefix.append("--mock")
     if args.command == "doctor":
+        if args.preset is not None:
+            prefix += ["--preset", args.preset]
         if args.json:
             prefix.append("--json")
         if args.yes:

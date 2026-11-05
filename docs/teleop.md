@@ -102,6 +102,53 @@ them) are not the env's in the env's order.
 
 ### SpaceMouse
 
+`--teleop-device spacemouse` supports two modes, selected with
+`--spacemouse-mode {tracker,serl}` (top-level YAML `spacemouse_mode`, default
+`tracker`). Training, demo recording and real-robot reward collection share this
+flag. Deploy's optional override defaults to `None`: inherit the training mode,
+or use `tracker` when there is no training configuration.
+
+| Behavior | `tracker` (default) | `serl` |
+| --- | --- | --- |
+| Takeover | Button 0 toggles takeover/hand-back; moving the puck alone does not intervene. | Raw six-axis L2 norm strictly `> 0.001` intervenes, including rotation. No per-axis deadzone. Every step is judged anew; releasing the puck and gripper buttons returns control on the next idle step. |
+| Gripper | Button 1 toggles open/closed while driving; takeover preserves the last command. | Hold button 0 to close: a fresh uniform sample in `[-1, -0.9)` each step. Otherwise hold button 1 to open: `uniform(0.9, 1)`. Both held: button 0 wins. Neither held: neutral `0.0`. Buttons cause takeover only when the env has a gripper action. |
+| Arm target | Persistent command with target-speed and measured-pose lead limits. | Latest measured pose + raw action × env scale each step; rotation left-multiplies the measured quaternion. Clip to both xyz and RPY safety boxes (roll clipped by magnitude, preserving sign). No time-step rescaling or tracker target. |
+| Gripper execution | Existing env behavior. | Scaled action `<= -0.5` closes only when measured normalized width `> 0.85`; `>= 0.5` opens only when width `< 0.85`. Commands require elapsed time strictly greater than `gripper_sleep_s` (default `0.6 s`), then sleep for that interval. Zero is neutral. |
+| Terminal/keyboard | `t`/`h` ignored with a warning on state changes; labels/end/quit still work. | Same keys: `s`/`f`/`r`/Esc/`q` provide labels/end/quit. `t`/`h` do not control takeover and warn on state changes. |
+
+For SERL, configure the station's **xyz and RPY safety boxes** first. Missing
+either box is a construction error. On `real_robot`, these are `safety_box`
+(`[xmin, ymin, zmin, xmax, ymax, zmax]`), `safety_box_rpy_low` and
+`safety_box_rpy_high`; scales remain `xyz_scale_m`/`rot_scale_rad`. On
+`franka_real`, put `safety_box_low`, `safety_box_high` and the two RPY limits in
+`franka_real.env_kwargs_json`; the existing position/rotation scales still apply.
+The mode selects `cartesian_semantics: serl` before env construction even on a
+learner that opens no teleop device. An explicitly configured `current` conflicts
+with this mode; an unset programmatic dataclass default is promoted to `serl`.
+Mode resolution finishes before training/record args are serialized, so saved
+SERL configs contain both `spacemouse_mode: serl` and `cartesian_semantics: serl`.
+Deploy preserves the saved env semantics; a `--spacemouse-mode serl` override
+conflicts with a saved `cartesian_semantics: current`.
+
+Use the same mode for recording, training and deployment. SERL records this
+compared `teleop_control` contract (nondefault `invert_axes` adds that list):
+
+```json
+{"version": "spacemouse_serl_v1", "mode": "serl", "motion_threshold": 0.001, "gripper": "serl_buttons"}
+```
+
+SERL requires one six-axis `cartesian_delta` arm and full arm/gripper selection.
+Actions stay in the base frame with the HID map `[-y, x, z, -roll, -pitch, -yaw]`;
+relative frames, relative observations and `action_indices` are not supported.
+`teleop_options_yaml` may set `device_index` (default `0`), `invert_axes`
+(default `[]`), `poll_interval_s` (default `0.005`) and `read_timeout_s`
+(default `1.0`). Tracker options, `deadzone`, `hold_s`, gripper-holding getters
+and a nested `mode` key are rejected in this mode. Use the top-level mode flag.
+The device layer's `max_delta_xyz_m` and pose-box limits still apply and may be
+tighter than native HIL-SERL. Hardware behavior and installation remain
+**unverified**. `spacemouse_twist` remains the separate sim-only source, with
+different button and sticky-gripper behavior; it is not SERL mode.
+
 #### SpaceMouse installation and Linux permissions
 
 On the NUC (or the machine with the SpaceMouse), repository root, with the
@@ -160,7 +207,8 @@ Doctor checks the `hid` SDK separately from `/dev/hidraw*` access; inside Docker
 HID node must also be passed into the container. The legacy `SpaceMouseExpert` and
 `real` extra keep their separate `pyspacemouse` API.
 
-For a `cartesian_delta` env (`real_robot` in `cartesian_delta` mode, or `franka_real`), with the
+On the NUC, repository root, with the project environment active and the station's
+`hil.yaml` configured, for a `cartesian_delta` env (`real_robot` in `cartesian_delta` mode, or `franka_real`), with the
 operator's labels on the terminal (the SpaceMouse Compact has two buttons, both taken):
 
 ```bash
@@ -169,7 +217,9 @@ python examples/record_real_demos.py --config hil.yaml \
     --output-path demos/task_20.pkl --num-successes 20
 ```
 
-The HIL actor takes the same two flags. `SpaceMouseTeleopSource`
+The HIL actor takes the same two flags. Add `--spacemouse-mode serl` to select
+the native behavior in the table above, after configuring both safety boxes.
+The following description is the default **tracker** mode. `SpaceMouseTeleopSource`
 (`real_world_rl/teleop/spacemouse.py`) opens the device with the device layer's
 `SpaceMouseTeleop` (`TeleopConfig(backend="spacemouse")`, a poll thread feeding `read()`; the
 twist is in `[-1, 1]` with axis map `[-y, x, z, -roll, -pitch, -yaw]` of the HID reader state,

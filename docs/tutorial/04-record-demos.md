@@ -139,6 +139,17 @@ toggles the gripper only while driving. Takeover retains the last gripper comman
 Use terminal `s`/`f`/`r`/Esc/`q` for outcomes and quit; terminal `t`/`h` are ignored
 on this route. A workspace HOLD requires a new button-0 takeover.
 
+For native HIL-SERL SpaceMouse behavior, on the **NUC**, **repository root**,
+**project environment active**, add `--spacemouse-mode serl` to the SpaceMouse
+recorder command. Configure the station's xyz **and RPY** safety boxes; the mode
+selects and saves `real_robot.cartesian_semantics: serl`. Puck motion with six-axis
+norm `> 0.001` takes over immediately; release the puck and buttons to hand back.
+Hold button 0 to close, button 1 to open (left wins); neither sends neutral zero.
+`t`/`h` are ignored. Press `s` while intervening to include the successful terminal
+step in the human demo pkl; recorder idle steps still use its hold policy.
+Keep the same SERL mode in training/deploy: its contract is `spacemouse_serl_v1`
+and tracker caps/speeds do not apply. See [both modes](../teleop.md#spacemouse).
+
 ## Files and compatibility
 
 A successful run produces `demos/pick-and-place.pkl`,
@@ -149,7 +160,8 @@ steps; no kept episode means no pkl. Use a new `.pkl` output path for a new set.
 `--export-trajectory-pt` additionally writes portable `.trajectory.pt` data.
 
 Keep the sidecar with the pkl. It includes the versioned experiment contract,
-including `teleop_control` (`cartesian_tracker_v1`, lead caps and target speeds).
+including `teleop_control` (`cartesian_tracker_v1`, lead caps and target speeds
+for the default tracker route; `spacemouse_serl_v1` for SERL mode).
 For this tutorial, use the **same teleop device and all four tracker values** for
 recording, training and deployment. Missing or changed tracker settings are
 rejected with a difference naming `experiment.teleop_control`.

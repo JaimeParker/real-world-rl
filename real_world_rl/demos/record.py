@@ -109,7 +109,7 @@ HoldPolicyFactory = Callable[[Any], HoldActionFn]
 @dataclass
 class RecordDemosArgs(HilEnvArgs, RealWorldFrankaArgs, EnvRunArgs, ObservationArgs, EnvBackendArgs):
     """Env, teleop and observation flags are the HIL training entrypoints' (``--env-backend``,
-    ``--real-robot.*``/``--franka-real.*``, ``--teleop-device``, ``--teleop-event-device``,
+    ``--real-robot.*``/``--franka-real.*``, ``--teleop-device``, ``--spacemouse-mode``, ``--teleop-event-device``,
     ``--teleop-onset``, ``--obs.*``, ...): pass the ones of the run that will load the demos, so
     the recorded observations and actions match its env."""
 
@@ -468,11 +468,22 @@ def parse_args_with_preset(args_cls: type, argv: Optional[Sequence[str]] = None)
 
     preset_path, cli_args = _pop_config_flag(list(sys.argv[1:] if argv is None else argv))
     defaults = args_cls()
+    explicit_semantics = False
     if preset_path is not None:
         own_fields = {item.name for item in dataclasses.fields(args_cls)}
         values = load_preset(preset_path).values
+        explicit_semantics = "cartesian_semantics" in values.get("real_robot", {})
         apply_strict_mapping(defaults, {key: value for key, value in values.items() if key in own_fields})
-    return tyro.cli(args_cls, default=defaults, args=cli_args)
+    parsed = tyro.cli(args_cls, default=defaults, args=cli_args)
+    if getattr(parsed, "spacemouse_mode", "tracker") == "serl":
+        from real_world_rl.training.env_building import resolve_spacemouse_mode
+
+        explicit_semantics = explicit_semantics or any(
+            token.split("=", 1)[0].replace("-", "_") == "__real_robot.cartesian_semantics"
+            for token in cli_args
+        )
+        resolve_spacemouse_mode(parsed, explicit_cartesian_semantics=explicit_semantics)
+    return parsed
 
 
 def _pop_config_flag(cli_args: list[str]) -> tuple[Optional[str], list[str]]:

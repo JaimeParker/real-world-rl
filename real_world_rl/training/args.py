@@ -134,6 +134,9 @@ class HilEnvArgs:
         "leader_cartesian",
         "bimanual",
     ] = "pico"
+    # tracker: button toggles and a persistent velocity-limited target (default).
+    # serl: raw twist, per-step motion/button takeover and neutral idle gripper.
+    spacemouse_mode: Literal["tracker", "serl"] = "tracker"
     # --teleop-device bimanual: the device of each arm ("robot", "leader_arm" or "gello", as the
     # single-arm devices of the same name, built over that arm's own env).
     teleop_arm_device: Literal["robot", "leader_arm", "gello"] = "leader_arm"

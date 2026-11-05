@@ -54,7 +54,7 @@ __all__ = [
 @dataclass
 class RealRobotCollectArgs(HilEnvArgs, RealWorldFrankaArgs, EnvRunArgs, ObservationArgs, EnvBackendArgs):
     """Env, teleop and observation flags are the HIL training entrypoints' (``--real-robot.*``,
-    ``--teleop-device``, ``--teleop-event-device``, ``--obs.*``, ``--classifier-image-keys``,
+    ``--teleop-device``, ``--spacemouse-mode``, ``--teleop-event-device``, ``--obs.*``, ``--classifier-image-keys``,
     ...): pass the ones of the run that will use the classifier, so the frames match its
     observations. ``--config PATH`` loads a training preset first."""
 

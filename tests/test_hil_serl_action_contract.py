@@ -115,6 +115,28 @@ def test_serl_env_contract_rejects_current_data(backend):
         )
 
 
+@pytest.mark.parametrize("saved_mode", [None, "tracker"])
+def test_serl_source_contract_rejects_legacy_or_tracker_control(saved_mode):
+    import copy
+    from real_world_rl.action_contract import validate_transitions_against_contract
+    from real_world_rl.training.env_building import teleop_control_spec
+    from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
+
+    expected = demo_contract_of(_cartesian_contract_env("real_robot", "serl"))
+    expected["experiment"]["sources"] = {"teleop_control": teleop_control_spec(
+        HilSerlArgs(teleop_device="spacemouse", spacemouse_mode="serl"),
+    )}
+    saved = copy.deepcopy(expected)
+    if saved_mode is None:
+        saved["experiment"]["sources"] = {}
+    else:
+        saved["experiment"]["sources"]["teleop_control"] = teleop_control_spec(
+            HilSerlArgs(teleop_device="spacemouse"),
+        )
+    with pytest.raises(ValueError, match="teleop_control|experiment"):
+        validate_transitions_against_contract([], expected, source="different-mode.pkl", saved=saved)
+
+
 @pytest.mark.parametrize("backend", ["real_robot", "franka_real"])
 def test_serl_contract_rejects_missing_or_legacy_semantics(backend):
     from real_world_rl.action_contract import validate_experiment, validate_transitions_against_contract

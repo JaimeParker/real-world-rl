@@ -29,7 +29,7 @@ import os
 import pickle
 import sys
 from dataclasses import dataclass, field
-from typing import Optional, Sequence
+from typing import Literal, Optional, Sequence
 
 import torch
 import tyro
@@ -53,6 +53,7 @@ class Args:
     camera_width: int = 128
 
     teleop_device: str = "pico"
+    spacemouse_mode: Literal["tracker", "serl"] = "tracker"
 
 
 _ENV_BACKEND_FLAGS = ("--env-backend", "--env_backend")
@@ -79,6 +80,12 @@ def main(camera_capture=None, argv: Optional[Sequence[str]] = None) -> None:
         run_real_robot_collector(parse_collect_args(cli_args))
         return
     args = tyro.cli(Args, args=argv)
+    if args.spacemouse_mode == "serl":
+        raise ValueError(
+            "SpaceMouse serl mode requires the shared env configuration; use "
+            "python -m real_world_rl.reward.collect_real_robot --spacemouse-mode serl "
+            "--teleop-device spacemouse with a configured real_robot preset"
+        )
 
     from pynput import keyboard
 

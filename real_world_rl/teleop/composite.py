@@ -111,6 +111,9 @@ class CompositeTeleopSource(TeleopSource):
     def poll(self) -> TeleopReading:
         event_reading = self.events.poll()
         if self.intervention_from == "motion":
+            ignore_toggle = getattr(self.motion, "ignore_event_toggle", None)
+            if callable(ignore_toggle):
+                ignore_toggle(event_reading.intervened)
             motion_reading = self.motion.poll()
             intervened = motion_reading.intervened
         elif isinstance(self.motion, ToggleableTeleopSource):
@@ -125,6 +128,7 @@ class CompositeTeleopSource(TeleopSource):
             episode_end=bool(motion_reading.episode_end or event_reading.episode_end),
             events={**dict(event_reading.events), **dict(motion_reading.events)},
             timestamp=motion_reading.timestamp,
+            buttons=motion_reading.buttons,
             human_action_mask=None if motion_reading.human_action_mask is None else motion_reading.human_action_mask & bool(intervened),
             override_mask=None if motion_reading.override_mask is None else motion_reading.override_mask & bool(intervened),
         )

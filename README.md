@@ -34,6 +34,10 @@ The training, recording and deploy scripts in `examples/` are thin wrappers over
 `python -m real_world_rl.demos`, `real-world-rl-deploy` / `python -m real_world_rl.deploy`,
 plus `real-world-rl-collect-reward` / `python -m real_world_rl.reward.collect_data` for reward-classifier data.
 
+SpaceMouse defaults to `--spacemouse-mode tracker`; opt into `--spacemouse-mode serl`
+for raw motion takeover, release returning control to the policy, and held-button gripper control, with
+configured xyz/RPY safety boxes ([mode guide](docs/teleop.md#spacemouse)).
+
 | Method | What it is | Guide |
 |---|---|---|
 | `serl` | Two-process SERL: actor on the robot PC, learner on the GPU box, RLPD (state or image obs). | [Running on hardware](#running-on-hardware) |

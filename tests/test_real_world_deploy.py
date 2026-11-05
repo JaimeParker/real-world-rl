@@ -17,6 +17,7 @@ from real_world_rl.deploy import (
     EpisodeResult,
     build_deploy_env,
     main,
+    resolve_deploy_robot_config,
     restore_policy,
     restore_training_args,
     run_deploy,
@@ -155,6 +156,164 @@ def test_deploy_args_parse():
     assert args.real_robot.remote == "127.0.0.1:1" and args.real_robot.num_joints == 6
     assert args.episodes == 3 and not args.deterministic and args.max_steps_per_episode == 50
     assert args.device == "cpu"
+
+
+def test_deploy_spacemouse_mode_defaults_and_override_parse():
+    assert DeployArgs(checkpoint="unused").spacemouse_mode is None
+    args = tyro.cli(DeployArgs, args=[
+        "--checkpoint", "unused", "--teleop-device", "spacemouse", "--spacemouse-mode", "serl",
+    ])
+    assert args.spacemouse_mode == "serl"
+
+
+@pytest.mark.parametrize("override", [None, "serl"])
+def test_deploy_inherits_or_overrides_serl_mode_before_env_construction(override, monkeypatch):
+    import dataclasses
+    from real_world_rl.action_contract import demo_contract_of, effective_experiment_of
+    from real_world_rl.training.env_building import build_hil_env
+    from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
+
+    cli = _deploy_args("unused", enable_teleop=False, spacemouse_mode=override)
+    trained = HilSerlArgs(env_backend="real_robot", teleop_device="spacemouse",
+                         spacemouse_mode="serl")
+    trained.real_robot = dataclasses.replace(
+        cli.real_robot, safety_box=[-1] * 3 + [1] * 3,
+        safety_box_rpy_low=[0, -1, -1], safety_box_rpy_high=[3, 1, 1],
+    )
+    training_env = build_hil_env(trained, role="learner", enable_teleop=False)
+    try:
+        saved = effective_experiment_of(training_env)
+    finally:
+        training_env.close()
+    monkeypatch.setattr("real_world_rl.deploy._saved_experiment", lambda _: saved)
+    env = build_deploy_env(cli, trained)
+    try:
+        contract = demo_contract_of(env)
+        assert contract["experiment"]["cartesian_semantics"] == "serl"
+        assert contract["experiment"]["sources"]["teleop_control"]["version"] == "spacemouse_serl_v1"
+    finally:
+        env.close()
+
+
+def test_deploy_without_training_config_defaults_to_tracker():
+    from real_world_rl.action_contract import demo_contract_of
+
+    cli = _deploy_args("unused", enable_teleop=False)
+    env = build_deploy_env(cli, None)
+    try:
+        assert "cartesian_semantics" not in demo_contract_of(env)["experiment"]
+    finally:
+        env.close()
+
+
+@pytest.mark.parametrize("provided", ["unset", "matching"])
+def test_serl_deploy_restores_all_safety_boxes(provided):
+    import dataclasses
+    from types import SimpleNamespace
+
+    cli = _deploy_args("unused", enable_teleop=False)
+    boxes = {
+        "safety_box": [-1] * 3 + [1] * 3,
+        "safety_box_rpy_low": [0, -1, -1],
+        "safety_box_rpy_high": [3, 1, 1],
+    }
+    trained = dataclasses.replace(cli.real_robot, cartesian_semantics="serl", **boxes)
+    if provided == "matching":
+        cli.real_robot = dataclasses.replace(cli.real_robot, **boxes)
+    resolved = resolve_deploy_robot_config(cli, SimpleNamespace(real_robot=trained))
+    assert resolved.cartesian_semantics == "serl"
+    for name, value in boxes.items():
+        assert getattr(resolved, name) == value
+
+
+@pytest.mark.parametrize("field,value", [
+    ("safety_box", [-0.5, -1, -1, 1, 1, 1]),
+    ("safety_box_rpy_low", [0, -0.5, -1]),
+    ("safety_box_rpy_high", [3, 0.5, 1]),
+])
+def test_serl_deploy_rejects_different_cli_safety_box(field, value):
+    import dataclasses
+    from types import SimpleNamespace
+
+    cli = _deploy_args("unused", enable_teleop=False)
+    trained = dataclasses.replace(
+        cli.real_robot, cartesian_semantics="serl", safety_box=[-1] * 3 + [1] * 3,
+        safety_box_rpy_low=[0, -1, -1], safety_box_rpy_high=[3, 1, 1],
+    )
+    cli.real_robot = dataclasses.replace(cli.real_robot, **{field: value})
+    with pytest.raises(ValueError, match="contradicts the training run") as error:
+        resolve_deploy_robot_config(cli, SimpleNamespace(real_robot=trained))
+    assert f"{field}: training=" in str(error.value)
+    assert "cli=" in str(error.value)
+
+
+@pytest.mark.parametrize("cli_box", [None, [-0.5, -1, -1, 1, 1, 1]])
+def test_current_deploy_keeps_cli_xyz_safety_box(cli_box):
+    import dataclasses
+    from types import SimpleNamespace
+
+    cli = _deploy_args("unused", enable_teleop=False)
+    trained = dataclasses.replace(
+        cli.real_robot, safety_box=[-1] * 3 + [1] * 3,
+        safety_box_rpy_low=[0, -1, -1], safety_box_rpy_high=[3, 1, 1],
+    )
+    cli.real_robot = dataclasses.replace(cli.real_robot, safety_box=cli_box)
+    resolved = resolve_deploy_robot_config(cli, SimpleNamespace(real_robot=trained))
+    assert resolved.cartesian_semantics == "current"
+    assert resolved.safety_box == cli_box
+    assert resolved.safety_box_rpy_low == trained.safety_box_rpy_low
+    assert resolved.safety_box_rpy_high == trained.safety_box_rpy_high
+
+
+def test_saved_current_semantics_rejects_serl_override_before_construction(monkeypatch):
+    import dataclasses
+    from types import SimpleNamespace
+    from real_world_rl.deploy import _restore_real_world_fields
+
+    trained = SimpleNamespace()
+    cli = _deploy_args("unused", enable_teleop=False, spacemouse_mode="serl")
+    saved = {"env_backend": "real_robot", "teleop_device": "spacemouse", "spacemouse_mode": "tracker",
+             "real_robot": dataclasses.asdict(cli.real_robot)}
+    _restore_real_world_fields(trained, saved)
+    assert trained.spacemouse_mode == "tracker" and trained.teleop_device == "spacemouse"
+
+    def forbidden_build(*args, **kwargs):
+        raise AssertionError("an incompatible override must fail before env construction")
+
+    monkeypatch.setattr("rl_garden.envs.backend_registry.make_training_envs", forbidden_build)
+    with pytest.raises(ValueError, match="conflicts.*current"):
+        build_deploy_env(cli, trained)
+
+
+def test_deploy_preserves_saved_current_without_mode_override(monkeypatch):
+    import dataclasses
+    from real_world_rl.action_contract import demo_contract_of
+    from real_world_rl.deploy import _restore_real_world_fields
+    from real_world_rl.training.env_building import build_hil_env
+    from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
+    from real_world_rl.action_contract import effective_experiment_of
+
+    cli = _deploy_args("unused", enable_teleop=False)
+    # Restored semantics are authoritative even for an older inconsistent config.
+    saved = {"env_backend": "real_robot", "teleop_device": "spacemouse", "spacemouse_mode": "serl",
+             "real_robot": dataclasses.asdict(cli.real_robot)}
+    trained = HilSerlArgs(env_backend="real_robot")
+    _restore_real_world_fields(trained, saved)
+    baseline = HilSerlArgs(env_backend="real_robot", teleop_device="fake")
+    baseline.real_robot = cli.real_robot
+    env = build_hil_env(baseline, role="learner", enable_teleop=False)
+    try:
+        metadata = effective_experiment_of(env)
+        from real_world_rl.training.env_building import teleop_control_spec
+        metadata["experiment"]["sources"]["teleop_control"] = teleop_control_spec(trained)
+    finally:
+        env.close()
+    monkeypatch.setattr("real_world_rl.deploy._saved_experiment", lambda _: metadata)
+    env = build_deploy_env(cli, trained)
+    try:
+        assert "cartesian_semantics" not in demo_contract_of(env)["experiment"]
+    finally:
+        env.close()
 
 
 # -- checkpoint restore against a real (fake-hardware) real_robot env ------------------

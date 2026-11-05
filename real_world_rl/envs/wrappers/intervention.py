@@ -69,6 +69,11 @@ class InterventionWrapper(gym.Wrapper):
             self._num_grippers = num_grippers_of(get_env_action_contract(env) or LEGACY_ACTION_CONTRACT)
             from real_world_rl.teleop.action_parts import part_mask
             self._selected_mask = part_mask(get_env_action_contract(env) or LEGACY_ACTION_CONTRACT, selected_parts)
+            from real_world_rl.teleop.composite import CompositeTeleopSource
+            from real_world_rl.teleop.spacemouse_serl import SpaceMouseSerlTeleopSource
+            motion = self.source.motion if isinstance(self.source, CompositeTeleopSource) else self.source
+            if isinstance(motion, SpaceMouseSerlTeleopSource) and not self._selected_mask.all():
+                raise ValueError("spacemouse serl mode requires all arm and gripper action parts")
             if idle_behavior not in ("hold", "policy"):
                 raise ValueError("idle_behavior must be hold or policy")
             self.idle_behavior = idle_behavior
@@ -203,6 +208,10 @@ class InterventionWrapper(gym.Wrapper):
             "intervention_onset": onset,
             "human_episode_end": bool(reading.episode_end),
         }
+        if reading.buttons:
+            for key in ("left", "right"):
+                if key in reading.buttons:
+                    info[key] = bool(reading.buttons[key])
         if reading.events:
             info["teleop_events"] = dict(reading.events)
             names = list(with_arm_layout(get_env_action_contract(self.env) or LEGACY_ACTION_CONTRACT)["arm_names"])
@@ -254,10 +263,12 @@ class TeleopInterventionWrapper(InterventionWrapper):
         else:
             # Read lazily: the wrapper's bookkeeping attribute does not exist yet.
             hold_gripper = {"last_gripper_action_getter": lambda: self._last_gripper_action}
-            if device in GRIPPER_HOLDING_DEVICES:
+            serl = device == "spacemouse" and teleop_kwargs.get("mode") == "serl"
+            if device in GRIPPER_HOLDING_DEVICES and not serl:
                 teleop_kwargs = {**hold_gripper, **teleop_kwargs}
             elif device == "composite" and teleop_kwargs.get("motion") in GRIPPER_HOLDING_DEVICES:
                 motion_kwargs = dict(teleop_kwargs.get("motion_kwargs") or {})
-                teleop_kwargs["motion_kwargs"] = {**hold_gripper, **motion_kwargs}
+                if not (teleop_kwargs.get("motion") == "spacemouse" and motion_kwargs.get("mode") == "serl"):
+                    teleop_kwargs["motion_kwargs"] = {**hold_gripper, **motion_kwargs}
             source = make_teleop_source(device, env, **teleop_kwargs)
         super().__init__(env, source, selected_parts=selected_parts, idle_behavior=idle_behavior)

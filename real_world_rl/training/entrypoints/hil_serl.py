@@ -144,6 +144,8 @@ def _run_learner(args) -> None:
     SERL v1 design's "two full actor/learner pairs" for reset-free
     training. Non-FWBW: identical shape to ``serl.py``'s ``_run_learner``."""
     from real_world_rl.training.runtime_paths import resolve_control_frequency
+    from real_world_rl.training.env_building import resolve_spacemouse_mode
+    resolve_spacemouse_mode(args)
     resolve_control_frequency(args)
     import os
     import time

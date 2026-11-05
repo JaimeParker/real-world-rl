@@ -3,6 +3,7 @@ are recorded, episode outcomes, the episode-start leader check, the saved pkl + 
 and the example CLI."""
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
 import pickle
 import sys
@@ -824,6 +825,41 @@ def example():
         yield module
     finally:
         sys.modules.pop(module_name, None)
+
+
+def test_record_and_reward_collectors_parse_shared_spacemouse_mode(tmp_path):
+    from real_world_rl.demos.record import RecordDemosArgs, parse_args_with_preset
+    from real_world_rl.reward.collect_real_robot import RealRobotCollectArgs
+
+    preset = tmp_path / "serl.yaml"
+    preset.write_text(
+        "env_backend: real_robot\nteleop_device: spacemouse\nspacemouse_mode: serl\n"
+        "real_robot:\n  safety_box: [-1, -1, -1, 1, 1, 1]\n"
+        "  safety_box_rpy_low: [0, -1, -1]\n  safety_box_rpy_high: [3, 1, 1]\n"
+    )
+    for cls in (RecordDemosArgs, RealRobotCollectArgs):
+        args = parse_args_with_preset(cls, ["--config", str(preset)])
+        assert args.spacemouse_mode == "serl" and args.teleop_device == "spacemouse"
+        serialized = dataclasses.asdict(args)
+        assert serialized["spacemouse_mode"] == "serl"
+        assert serialized["real_robot"]["cartesian_semantics"] == "serl"
+        args = parse_args_with_preset(cls, ["--config", str(preset), "--spacemouse-mode", "tracker"])
+        assert args.spacemouse_mode == "tracker"
+
+
+@pytest.mark.parametrize("origin", ["CLI", "preset"])
+def test_recorder_rejects_explicit_current_semantics_with_serl(origin, tmp_path):
+    from real_world_rl.demos.record import RecordDemosArgs, parse_args_with_preset
+
+    cli = ["--env-backend", "real_robot", "--teleop-device", "spacemouse", "--spacemouse-mode", "serl"]
+    if origin == "CLI":
+        cli += ["--real-robot.cartesian-semantics", "current"]
+    else:
+        path = tmp_path / "current.yaml"
+        path.write_text("real_robot:\n  cartesian_semantics: current\n")
+        cli += ["--config", str(path)]
+    with pytest.raises(ValueError, match="conflicts.*current"):
+        parse_args_with_preset(RecordDemosArgs, cli)
 
 
 def test_example_parses_the_hil_env_flags_over_a_training_preset(example, monkeypatch, tmp_path):

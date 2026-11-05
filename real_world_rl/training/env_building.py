@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+from collections.abc import Mapping
 from typing import Any, Optional, Sequence
 
 _LOGGER = logging.getLogger(__name__)
@@ -78,6 +79,7 @@ def tcp_pose_quat_slice(args) -> tuple[int, int] | list[tuple[int, int]] | None:
 def hil_env_request(args, run_name: str):
     from rl_garden.common.env_args import make_env_request
 
+    resolve_spacemouse_mode(args)
     ensure_real_world_backend(args.env_backend)
     from real_world_rl.training.runtime_paths import resolve_control_frequency
     resolve_control_frequency(args)
@@ -87,6 +89,62 @@ def hil_env_request(args, run_name: str):
         # The backend cannot stack frames; apply_obs_chain stacks them (as deploy does).
         env_request.observation = dataclasses.replace(env_request.observation, frame_stack=1)
     return env_request
+
+
+def _serl_mode(args) -> bool:
+    mode = getattr(args, "spacemouse_mode", "tracker")
+    if mode not in ("tracker", "serl"):
+        raise ValueError("spacemouse_mode must be 'tracker' or 'serl'")
+    if mode == "serl" and args.teleop_device != "spacemouse":
+        raise ValueError("spacemouse_mode='serl' requires teleop_device='spacemouse'")
+    return mode == "serl"
+
+
+def resolve_spacemouse_mode(
+    args: Any, env_request: Any = None, *, sources: Optional[Mapping[str, Any]] = None,
+    explicit_cartesian_semantics: bool = False,
+) -> None:
+    """Select env semantics before construction, including device-free learners.
+
+    RealRobotEnvConfig's default ``current`` is treated as unset. CLI/preset
+    provenance and the standalone parsers distinguish an explicit conflict.
+    Finalize this before serializing training or recording args.
+    Franka's JSON mapping already preserves that distinction.
+    """
+    if not _serl_mode(args):
+        return
+    # Validate source options on learners too; no device is constructed here.
+    motion_teleop_kwargs(args)
+    backend = args.env_backend
+    if backend not in ("real_robot", "franka_real"):
+        raise ValueError("spacemouse serl mode requires real_robot or franka_real")
+    config = getattr(env_request, "backend_config", None) if env_request is not None else None
+    if config is None:
+        config = getattr(args, backend)
+    if backend == "franka_real":
+        import json
+
+        options = json.loads(config.env_kwargs_json or "{}")
+        if options.get("cartesian_semantics") == "current":
+            raise ValueError("spacemouse serl mode conflicts with explicit cartesian_semantics='current'")
+        options["cartesian_semantics"] = "serl"
+        resolved = dataclasses.replace(config, env_kwargs_json=json.dumps(options))
+    else:
+        explicit = explicit_cartesian_semantics
+        from rl_garden.training.inspection import current_preflight, has_config_session
+
+        if sources is None and has_config_session():
+            sources = current_preflight().sources
+        if sources is not None:
+            source = sources.get("real_robot.cartesian_semantics")
+            if source is not None:
+                explicit = explicit or (source.get("kind") != "default" if isinstance(source, Mapping) else source.kind != "default")
+        if explicit and config.cartesian_semantics == "current":
+            raise ValueError("spacemouse serl mode conflicts with explicit cartesian_semantics='current'")
+        resolved = dataclasses.replace(config, cartesian_semantics="serl")
+    setattr(args, backend, resolved)
+    if env_request is not None:
+        env_request.backend_config = resolved
 
 
 def _reject_single_arm_teleop_on_bimanual(args) -> None:
@@ -294,7 +352,18 @@ def motion_teleop_kwargs(args) -> dict:
     """Source arguments for ``--teleop-device``: the ones derived from the args (empty for devices
     configured by their defaults), then ``--teleop-options-yaml`` on top. ``bimanual`` takes
     ``bimanual_teleop_kwargs``."""
+    serl = _serl_mode(args)
     _reject_single_arm_teleop_on_bimanual(args)
+    if serl:
+        from real_world_rl.teleop.spacemouse_serl import TRACKER_OPTIONS
+
+        options = _single_arm_yaml_options(args)
+        forbidden = sorted(set(options) & (TRACKER_OPTIONS | {"mode"}))
+        if forbidden:
+            raise ValueError(f"spacemouse serl mode does not accept tracker or mode keys in teleop_options_yaml: {forbidden}")
+        if args.teleop_selected_parts:
+            raise ValueError("spacemouse serl mode requires all arm and gripper action parts; omit teleop_selected_parts")
+        return {"mode": "serl", **options}
     if args.teleop_device == _BIMANUAL_TELEOP_DEVICE:
         return bimanual_teleop_kwargs(args)
     if args.teleop_device == "robot":
@@ -344,7 +413,15 @@ def teleop_control_spec(args) -> Optional[dict]:
     through a ``CartesianTargetTracker`` (``--teleop-device leader_cartesian`` or
     ``spacemouse``), else None. Derived from the flags alone (``--teleop-options-yaml`` may not
     override them), so the learner (no teleop device) records the same block as the actor and the
-    demo recorder."""
+    demo recorder. Native SpaceMouse SERL has its own versioned block, including
+    nondefault axis inversions from the shared source options."""
+    if _serl_mode(args):
+        options = motion_teleop_kwargs(args)
+        spec = {"version": "spacemouse_serl_v1", "mode": "serl",
+                "motion_threshold": 0.001, "gripper": "serl_buttons"}
+        if options.get("invert_axes"):
+            spec["invert_axes"] = list(options["invert_axes"])
+        return spec
     if args.teleop_device not in _CARTESIAN_TRACKER_TELEOP_DEVICES:
         return None
     from real_world_rl.teleop.cartesian_tracker import CartesianTrackerConfig
@@ -373,7 +450,7 @@ def teleop_wrapper_kwargs(args) -> dict:
         "device": "composite",
         "motion": args.teleop_device,
         "events": args.teleop_event_device,
-        "intervention_from": "events",
+        "intervention_from": "motion" if _serl_mode(args) else "events",
         "motion_kwargs": motion_teleop_kwargs(args),
         **part_options,
     }
@@ -409,6 +486,7 @@ def warn_if_no_reward_source(args, method: str) -> None:
 
 def compose_hil_env(args, env_request, *, enable_teleop: bool = True):
     from rl_garden.envs.backend_registry import make_training_envs
+    resolve_spacemouse_mode(args, env_request)
     env, _ = make_training_envs(args.env_backend, env_request)
     config = getattr(env_request, "backend_config", None)
     if config is None:

@@ -32,6 +32,8 @@ class TeleopReading:
     gripper last when the source ``has_gripper``; it only matters while ``intervened``.
     ``events`` holds the latched button edges that fired since the previous poll
     (``success``/``failure``/``rerecord``); it is empty when none did.
+    ``buttons`` holds optional current levels (SERL's ``left``/``right``),
+    independently of latched events; older sources leave it empty.
     """
 
     action: np.ndarray
@@ -41,6 +43,7 @@ class TeleopReading:
     timestamp: float = 0.0
     human_action_mask: Any = None
     override_mask: Any = None
+    buttons: Mapping[str, bool] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         action = np.asarray(self.action, dtype=np.float32)
@@ -115,6 +118,7 @@ def reading_from_legacy_sample(sample: Any, *, action_dim: int) -> TeleopReading
         episode_end=bool(sample.episode_end),
         events={str(key): True for key, fired in events.items() if fired},
         timestamp=float(getattr(sample, "timestamp", 0.0)),
+        buttons=dict(getattr(sample, "buttons", None) or {}),
     )
 
 

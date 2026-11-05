@@ -61,6 +61,7 @@ HIL_SERL_OWN_DEFAULTS = {
     "record_video_dir": None,
     "memory_efficient_buffer": False,
     "teleop_device": "pico",
+    "spacemouse_mode": "tracker",
     "teleop_arm_device": "leader_arm",
     "robot_teleop_action_mode": None,
     "robot_teleop_has_gripper": True,
@@ -122,6 +123,7 @@ def test_hil_env_args_holds_exactly_the_env_teleop_classifier_and_demo_fields():
         "record_video_dir",
         "memory_efficient_buffer",
         "teleop_device",
+        "spacemouse_mode",
         "teleop_selected_parts",
         "teleop_idle_behavior",
         "teleop_arm_device",
@@ -150,6 +152,16 @@ def test_hil_env_args_holds_exactly_the_env_teleop_classifier_and_demo_fields():
 def test_hil_serl_role_still_accepts_eval_and_teleop_device_accepts_fake():
     args = HilSerlArgs(role="eval", teleop_device="fake")
     assert args.role == "eval" and args.teleop_device == "fake"
+
+
+def test_serl_wrapper_kwargs_use_mode_and_motion_intervention():
+    args = HilSerlArgs(teleop_device="spacemouse", spacemouse_mode="serl")
+    assert env_building.teleop_wrapper_kwargs(args) == {"device": "spacemouse", "mode": "serl"}
+    args.teleop_event_device = "keyboard"
+    assert env_building.teleop_wrapper_kwargs(args) == {
+        "device": "composite", "motion": "spacemouse", "events": "keyboard",
+        "intervention_from": "motion", "motion_kwargs": {"mode": "serl"},
+    }
 
 
 # -- build_hil_env -------------------------------------------------------------------------

@@ -6,6 +6,15 @@ under `robot_infra.supervise`, with the 50 Hz state-only cartesian preset.
 GELLO uses `--teleop-device leader_cartesian --teleop-event-device stdin`.
 SpaceMouse uses `--teleop-device spacemouse --teleop-event-device stdin`.
 
+The SpaceMouse instructions below describe default `--spacemouse-mode tracker`.
+For `--spacemouse-mode serl`, configure xyz and RPY safety boxes in the station
+preset first: raw six-axis norm `> 0.001` takes over, and the next idle step
+returns to the policy (or the recorder's hold). Hold button 0 to close or button 1
+to open, with button 0 priority and neutral gripper `0` when neither is held.
+There is no takeover toggle. Terminal `t`/`h` remain ignored; labels/end/quit work.
+Select this mode on the NUC, repository root, project environment active, using
+the same mode and preset as recording and training. See [mode details](../teleop.md#spacemouse).
+
 `stdin` reads the terminal running the supervised command, including over SSH;
 `keyboard` uses the same keys through `pynput` and needs a desktop session.
 

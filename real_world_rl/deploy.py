@@ -50,6 +50,7 @@ _LOGGER = logging.getLogger(__name__)
 # Fields that define what the policy's actions and observations mean: the training run decides.
 # Everything else on RealRobotEnvConfig (robot, remote, token, home_joints, cameras, safety_box,
 # reset_settle_s) describes this deployment's connection and stays under CLI control.
+# In SERL semantics, safety_box also belongs to the compared pose limits.
 _CONTRACT_FIELDS = (
     "task",
     "control",
@@ -66,6 +67,11 @@ _CONTRACT_FIELDS = (
     "image_size",
     "control_hz",
     "max_episode_steps",
+    "cartesian_semantics",
+    "safety_box_rpy_low",
+    "safety_box_rpy_high",
+    "gripper_action_scale",
+    "gripper_sleep_s",
 )
 # The two-arm config splits the same fields: max_episode_steps (and the arm names, which name
 # the observation keys) on the two-arm config, the rest on each arm.
@@ -99,6 +105,8 @@ class DeployArgs:
     episodes: int = 5
     enable_teleop: bool = True
     teleop_device: Optional[str] = None
+    # None restores the training mode; without training config, tracker.
+    spacemouse_mode: Optional[Literal["tracker", "serl"]] = None
     teleop_event_device: Optional[str] = None
     classifier_checkpoint: Optional[str] = None
     # Use the policy's deterministic (mean) action.
@@ -212,6 +220,7 @@ def restore_training_args(args: DeployArgs) -> Any:
 
     training_args = _training_args_cls(args.algo)()
 
+    saved = None
     config_path = _config_path(args)
     if config_path.exists():
         config = json.loads(config_path.read_text(encoding="utf-8"))
@@ -223,11 +232,14 @@ def restore_training_args(args: DeployArgs) -> Any:
                 f"--env-backend {saved_backend} (got {args.env_backend})"
             )
         _apply_mapping(training_args, saved)
-        _restore_real_world_fields(training_args, saved)
     checkpoint = load_checkpoint_file(_checkpoint_file(args), map_location="cpu")
     hyperparameters = checkpoint.get("metadata", {}).get("hyperparameters", {})
     if isinstance(hyperparameters, Mapping):
         _apply_mapping(training_args, hyperparameters)
+    if saved is not None:
+        # Saved real-world fields are finalized before serialization; they own
+        # the deployed env semantics, including over older checkpoint metadata.
+        _restore_real_world_fields(training_args, saved)
 
     _apply_mapping(
         training_args,
@@ -265,6 +277,11 @@ def _restore_real_world_fields(training_args: Any, saved: Mapping[str, Any]) -> 
     ``env_backend == "real_robot_bimanual"`` runs; ``convert_obs_rotation`` and
     ``classifier_image_keys`` (the frame-stacked camera keys) come from hil_serl.
     """
+    from real_world_rl.training.args import HilEnvArgs
+
+    for item in fields(HilEnvArgs):
+        if item.name in saved:
+            setattr(training_args, item.name, saved[item.name])
     saved_robot = saved.get("real_robot")
     if saved.get("env_backend") == _BACKEND and isinstance(saved_robot, Mapping):
         training_args.real_robot = _real_robot_config_from_saved(saved_robot)
@@ -308,6 +325,8 @@ def resolve_deploy_robot_config(args: DeployArgs, training_args: Any) -> RealRob
     A contract field counts as given on the CLI when it differs from the dataclass default; a
     given value that also differs from the training run's is a ``ValueError``. Runs without a
     ``real_robot`` config fall back to the CLI config entirely (with a warning).
+    SERL restores all three safety boxes from training, rejecting different CLI limits;
+    current semantics keep the existing CLI-controlled xyz safety box.
     """
     cli = args.real_robot
     trained = getattr(training_args, "real_robot", None)
@@ -317,14 +336,17 @@ def resolve_deploy_robot_config(args: DeployArgs, training_args: Any) -> RealRob
             "--real_robot.* CLI config as is, so action/observation contract is NOT verified"
         )
         return cli
-    conflicts = _contract_conflicts(cli, trained, RealRobotEnvConfig(), _CONTRACT_FIELDS)
+    contract_fields = _CONTRACT_FIELDS
+    if trained.cartesian_semantics == "serl":
+        contract_fields += ("safety_box",)
+    conflicts = _contract_conflicts(cli, trained, RealRobotEnvConfig(), contract_fields)
     if conflicts:
         raise ValueError(
             "--real_robot.* contradicts the training run's real_robot config; the training run "
             "is the source of truth for these fields (drop them from the CLI):\n  "
             + "\n  ".join(conflicts)
         )
-    values = {name: getattr(trained, name) for name in _CONTRACT_FIELDS}
+    values = {name: getattr(trained, name) for name in contract_fields}
     if cli.task.classifier_checkpoints:
         values["task"] = replace(trained.task, classifier_checkpoints=cli.task.classifier_checkpoints)
     return replace(cli, **values)
@@ -398,10 +420,11 @@ def build_deploy_env(args: DeployArgs, training_args: Any):
         create_eval_env=False,
         backend_config=robot_config,
     )
-    env, _ = make_training_envs(args.env_backend, request)
     from types import SimpleNamespace
     from real_world_rl.training.args import HilEnvArgs
-    from real_world_rl.training.env_building import compose_hil_wrappers
+    from real_world_rl.training.env_building import (
+        compose_hil_wrappers, motion_teleop_kwargs, resolve_spacemouse_mode,
+    )
     values = dataclasses.asdict(HilEnvArgs())
     if training_args is not None: values.update(vars(training_args))
     values.update(obs=observation, env_backend=args.env_backend,
@@ -420,10 +443,21 @@ def build_deploy_env(args: DeployArgs, training_args: Any):
         values["convert_obs_rotation"] = saved_spec.get("observation", {}).get("convert_obs_rotation", False)
     if args.classifier_checkpoint is not None: values["classifier_checkpoint"] = args.classifier_checkpoint
     if args.teleop_device is not None: values["teleop_device"] = args.teleop_device
+    if args.spacemouse_mode is not None: values["spacemouse_mode"] = args.spacemouse_mode
     if args.teleop_event_device is not None: values["teleop_event_device"] = args.teleop_event_device
+    wrapper_args = SimpleNamespace(**values)
+    if getattr(training_args, "real_robot", None) is None and args.env_backend == _BACKEND:
+        # No saved env config: finalize the CLI config as a new run would.
+        resolve_spacemouse_mode(wrapper_args, request)
+    elif values["spacemouse_mode"] == "serl":
+        motion_teleop_kwargs(wrapper_args)
+        if args.spacemouse_mode == "serl" and robot_config.cartesian_semantics == "current":
+            raise ValueError("spacemouse serl override conflicts with saved cartesian_semantics='current'")
+    robot_config = request.backend_config
+    env, _ = make_training_envs(args.env_backend, request)
     task_active = robot_config.task.name != "none"
     # A task deployment follows the same source and intervention composition as evaluation.
-    env = compose_hil_wrappers(SimpleNamespace(**values), env, robot_config,
+    env = compose_hil_wrappers(wrapper_args, env, robot_config,
                               enable_teleop=args.enable_teleop and (task_active or args.teleop_device is not None),
                               source_config={} if saved_spec.get("sources") == {} else None)
     from real_world_rl.action_contract import validate_experiment

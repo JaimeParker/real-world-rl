@@ -64,6 +64,22 @@ def test_no_intervention_passes_policy_action_through():
     assert info["human_episode_end"] is False
 
 
+def test_legacy_reading_does_not_add_button_info():
+    wrapped = TeleopInterventionWrapper(_FakeEnv(), teleop=_FakeTeleop([_sample(False)]))
+    info = wrapped.step(torch.zeros(1, 7))[4]
+    assert "left" not in info and "right" not in info
+
+
+def test_button_levels_are_bool_and_reported_on_an_idle_step():
+    from real_world_rl.teleop.base import TeleopReading
+
+    reading = TeleopReading(np.zeros(7), False, buttons={"left": np.bool_(True), "right": 0})
+    wrapped = TeleopInterventionWrapper(_FakeEnv(), teleop=_FakeTeleop([reading]))
+    info = wrapped.step(torch.zeros(1, 7))[4]
+    assert info["left"] is True and info["right"] is False
+    assert info["intervened"] is False
+
+
 def test_intervention_overrides_action_and_flags_info():
     env = _FakeEnv()
     teleop = _FakeTeleop([_sample(intervened=True, action_value=5.0, episode_end=True)])

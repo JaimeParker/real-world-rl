@@ -41,6 +41,17 @@ To use SpaceMouse recordings instead, set `--teleop-device spacemouse` and
 path, and keep the four values unchanged. Button 0 handles takeover; stdin supplies
 `s`/`f`/`r`/Esc/`q`. Moving the puck alone never takes over.
 
+For native SpaceMouse intervention, add `--spacemouse-mode serl` to `ENV_FLAGS`
+in **both the NUC and learner shells**, **repository root**, each machine's
+**project environment active**. Use a station preset with xyz and RPY safety
+boxes, and demos recorded in the same mode. Mode resolution saves
+`real_robot.cartesian_semantics: serl` before training starts, including for
+the learner with no device:
+raw six-axis norm `> 0.001` intervenes, releasing the puck and buttons hands back,
+button 0 held closes, button 1 held opens, and neither sends neutral gripper zero.
+Tracker caps/speeds do not apply; the compared contract is `spacemouse_serl_v1`.
+See [both modes](../teleop.md#spacemouse); hardware behavior is unverified.
+
 Each hardware command below is wrapped by `robot_infra.supervise`. Its heartbeat
 silence threshold defaults to **2.0 s**. `--startup-s 60` allows initial policy
 loading and the actor's snapshot wait before its first reset heartbeat. Check that

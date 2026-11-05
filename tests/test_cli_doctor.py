@@ -164,6 +164,7 @@ def test_current_interpreter_is_required_for_pip(report, monkeypatch):
 
 
 def test_sudo_missing_is_blocked_without_password_prompt(report, monkeypatch):
+    monkeypatch.setattr("real_world_rl.cli.doctor_repair.os.geteuid", lambda: 1000)
     monkeypatch.setattr(report, "run", lambda argv, **kw: (1, "sudo password required"))
     action = Action(
         "apt:tools",

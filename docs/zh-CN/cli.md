@@ -195,7 +195,7 @@ max delta: 1.500000 rad
 
 ## 典型流程
 
-在 NUC、仓库根、项目环境激活时，使用与工作站同一实臂和限位相符的已有本地 `hil.yaml` 预设。先结束所有直连的 recorder/actor。
+在机器人主机、仓库根、项目环境激活时，使用与工作站同一实臂和限位相符的已有本地 `hil.yaml` 预设。先结束所有直连的 recorder/actor。
 
 ```bash
 rwrl status

@@ -330,6 +330,33 @@ def test_redaction_covers_authorization_headers_and_argument_values():
     assert redact({"authorization": "top-secret"})["authorization"] == "<redacted>"
 
 
+def test_standalone_usb_ownership_is_blocked_rather_than_silently_omitted(
+    caps, report, monkeypatch
+):
+    host = Host(None, report)
+    host.capabilities = caps
+    monkeypatch.setattr(doctor, "load_targets", lambda args: ([], {"spacemouse"}))
+    for method in (
+        "inspect_system",
+        "inspect_gello",
+        "inspect_usb",
+        "inspect_network",
+        "inspect_realtime",
+        "inspect_dependencies",
+    ):
+        monkeypatch.setattr(host, method, lambda *args, **kwargs: None)
+    monkeypatch.setattr(host, "busy", lambda: ["pid 123: open target device"])
+    monkeypatch.setattr(
+        report,
+        "run",
+        lambda *args, **kwargs: pytest.fail("no SDK probe while occupied"),
+    )
+    doctor.inspect(SimpleNamespace(mock=False), host)
+    assert any(
+        row.id == "read.spacemouse" and row.status == "BLOCKED" for row in host.findings
+    )
+
+
 @pytest.mark.parametrize(
     "base_record,active_base,expected",
     [(False, False, True), (True, False, False), (False, True, False)],

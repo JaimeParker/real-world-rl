@@ -264,7 +264,6 @@ def inspect(args, host: Host):
             args.mock
             or not host.capabilities.device_probes
             or kind not in host.expected
-            or owners
             or any(
                 (config.teleop and config.teleop.backend == kind)
                 or (
@@ -274,6 +273,14 @@ def inspect(args, host: Host):
                 for _, config, *_ in targets
             )
         ):
+            continue
+        if owners:
+            host.add(
+                "read." + kind,
+                "BLOCKED",
+                "device read requires an idle station: " + ", ".join(owners),
+                "finish the device owner and rerun; doctor never takes over control",
+            )
             continue
         if any(
             row.status != "PASS" and row.id in ("sdk." + kind, "usb." + kind)

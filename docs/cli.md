@@ -10,10 +10,12 @@ stop or recover the arm. People and agents use the same commands; `--json`,
 After installing the `real-world-rl` package and the station's `robot_infra`
 dependencies, `rwrl` is available in that environment. It is equivalent to
 `python -m real_world_rl.cli`. See [installation](tutorial/01-install.md).
-Run all commands below on the **NUC**, from the **repository root**, with the
-**project environment active**. Relative station and preset paths are relative
-to that directory. Each primitive connects for its invocation and disconnects
-afterward, including on failure.
+Run hardware commands on the **robot host** connected to the devices, with the
+**project environment active**. A NUC is one option; no particular computer model
+is required. Both source and installed-package use are supported. Relative
+station and preset paths resolve from the current working directory; a source
+checkout is convenient for repository-relative examples. Each primitive connects
+for its invocation and disconnects afterward, including on failure.
 
 Place global options **before the command**, including `--preset` before `home` or `doctor`.
 Use `rwrl --help` for wrapper help; `rwrl doctor --help`, `rwrl setup --help`,
@@ -73,7 +75,7 @@ refused confirmation; details follow the table.
 | `gripper move F` | Set normalized width to finite `F`, with `0 <= F <= 1` | Gripper motion | Yes, or `--yes` | 0 / 1 / 2 |
 | `stop` | Call arm `stop()`; success prints `stop: ok` | Stop arm | No | 0 / 1 / 2 |
 | `recover` | Call arm `recover()`; success prints `recover: ok` | Clear arm errors | No | 0 / 1 / 2 |
-| `doctor` | Inspect NUC and configured devices; preview targeted repairs | Read; `--fix` repairs host/software, without recovery or motion | One repair-plan confirmation, or `--yes` | 0 / 1 / 2 |
+| `doctor` | Inspect host and configured devices; preview targeted repairs | Read; `--fix` repairs host/software, without recovery or motion | One repair-plan confirmation, or `--yes` | 0 / 1 / 2 |
 | `setup` | Forward to `robot_infra.setup.__main__` | Discovery, calibration and doctor | Native wizard questions | Native status, unchanged |
 | `daemon` | Forward to `robot_infra.server.daemon` | Preflight and serve hardware for client motion | No wrapper prompt | Native status, unchanged |
 | `supervise` | Forward to `robot_infra.supervise.supervisor` | Depends on child command | Depends on child | Native status, unchanged |
@@ -95,10 +97,11 @@ JSON and from the lower-level `python -m robot_infra.doctor` report.
 See the [device-layer README](../robot_infra/README.md#3-check-with-the-doctor)
 for the Python doctor, setup, daemon and supervision interfaces.
 
-## NUC diagnosis and repair
+## Robot-host diagnosis and repair
 
-Start in the repository on the NUC, with its project venv or non-base conda
-environment active. A fresh machine must first have Python, an environment
+Activate the project venv or non-base conda environment on the robot host.
+Commands work from a source checkout or an installed package; a repository
+root is not required. A fresh machine must first have Python, an environment
 and the project installed through [installation](tutorial/01-install.md);
 doctor repairs that environment, rather than bootstrapping Python itself.
 No station file is required for host and USB discovery:
@@ -115,7 +118,26 @@ follow-up actions, asks once, applies the approved plan, then inspects again.
 Independent repairs continue after a failure; dependent repairs are blocked.
 New problems discovered during rechecking require another reviewed plan.
 
-Automatic repair supports Ubuntu 22.04 x86_64 bare-metal NUCs. Checks cover:
+Support is selected per operation, without a machine-model, distribution-version
+or CPU-architecture allowlist. Hardware SDKs still need compatible wheels,
+drivers and supported devices; detecting an OS does not certify that hardware.
+
+| Host capability | Available behavior |
+|---|---|
+| Native Linux | Host/USB diagnostics and configured device probes through installed backends. |
+| Debian/Ubuntu family with `apt-get` | Missing diagnostic tools and libusb/libudev package repairs. |
+| Native Linux with udev, user-group tools, PAM limits or running systemd | Only the corresponding rule, group, limit or proven service-conflict repairs. Other distributions can use these repairs even without apt. |
+| Containers, WSL, macOS or Windows | Python metadata/import diagnostics and project-environment Python repairs; native hardware probes and host-system repairs are blocked. |
+
+Unavailable repair capabilities produce an explicit `BLOCKED` reason and manual
+next steps; independent supported operations can continue. Package installation
+on non-apt distributions remains manual. A missing sibling project distribution
+is repaired from a verified local source tree when available; installed-package
+users without that source receive a `BLOCKED` instruction to install the matching
+distribution from their trusted project package source. Doctor does not invent a
+source path or silently substitute a similarly named public package.
+
+Checks cover:
 
 - Missing diagnostic tools and project/device Python dependencies, including
   version constraints from package metadata. Satisfied packages are retained;
@@ -138,7 +160,7 @@ configured devices are `BLOCKED`. Unconfigured, unidentified devices are
 robot motion. An active daemon, controller, or device owner blocks exclusive
 probes/repairs; doctor does not stop or take over another process.
 
-System repairs use sudo for individual commands; Python repairs use the running
+System repairs use sudo for individual commands when not already root; Python repairs use the running
 project interpreter, never sudo pip. Interactive execution can request sudo
 authorization. For unattended execution, first authorize sudo in a terminal:
 
@@ -161,13 +183,27 @@ are refused. Device replugging and a fresh login may still be required, which
 remain `PENDING_ACTION` until independently verified. NIC addresses/routes,
 firmware, kernels, boot configuration and reboot are manual operations.
 
-Each run saves a private, credential-redacted report under the gitignored
-`local/doctor/<UTC timestamp>-<id>/`: `before.json`, `plan.json`, `report.json`
-and `commands.log`, plus configuration backups/staged files when needed.
-Report directories are mode 0700 and files 0600. With `--json`, stdout contains
-one schema-version-1 object with `checks`, `repairs`, `remaining_plan`,
-`report_directory` and per-robot low-level `results`; diagnostics and prompts
-use stderr. Configuration errors save `error.json` and exit 2.
+Each run saves credential-redacted diagnostics: `before.json`, `plan.json`,
+`report.json` and `commands.log`, plus exact configuration backups/staged files
+when needed. The report base directory is selected in this order:
+
+1. `doctor --report-dir PATH`.
+2. `$RWRL_DOCTOR_REPORT_DIR`.
+3. The source checkout's gitignored `local/doctor/`, when writable.
+4. The user state directory: `${XDG_STATE_HOME:-~/.local/state}/rwrl/doctor/`
+   on Linux, `~/Library/Application Support/rwrl/doctor/` on macOS, or
+   `%LOCALAPPDATA%/rwrl/doctor/` on Windows.
+
+Each run creates a `<UTC timestamp>-<id>/` subdirectory. An explicitly requested
+unwritable destination is an error; an unwritable checkout falls back to user
+state. Reports are never written into `site-packages`. POSIX report directories
+are mode 0700 and files 0600; on Windows, keep the report base private using its
+ACLs. Backups retain exact previous bytes, so treat the entire directory as
+private. With `--json`, stdout contains one schema-version-1 object with
+`checks`, `repairs`, `remaining_plan`, `report_directory` and per-robot low-level
+`results`; diagnostics and prompts use stderr. Argument, configuration and report
+creation errors return exit 2 and a JSON error object when requested.
+Configuration errors also save `error.json` when a report directory was created.
 
 | Doctor result | Exit code |
 |---|---|
@@ -193,7 +229,7 @@ Null values fall through to the next source. No home is an error (exit 1).
 maximum absolute value.
 
 To reproduce every mock example on this page, use a separate terminal on the
-NUC, at the repository root, with the project environment active. Create `local/`
+robot host, at the repository root for these relative-path examples, with the project environment active. Create `local/`
 if needed and write your own `local/mock-station.yaml` with this content:
 
 ```yaml
@@ -246,7 +282,7 @@ comments are not preserved, naming the backup.
 
 ## Typical workflow
 
-On the NUC, repository root, project environment active, use your existing local
+On the robot host, repository root, project environment active, use your existing local
 `hil.yaml` preset for the same physical arm and limits as the station. Finish
 any directly connected recorder/actor first.
 

@@ -1,17 +1,20 @@
-"""Explicit, dependency-aware NUC repair plans and private audit reports."""
+"""Explicit, capability-aware repair plans and private audit reports."""
+
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import shlex
 import subprocess
 import sys
 import uuid
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+
+from .doctor_platform import Capabilities
 
 
 @dataclass
@@ -39,18 +42,43 @@ class Action:
     detail: str = ""
     # SHA of the file inspected while planning. Never overwrite a later edit.
     before: str | None = None
+    capability: str = "system"
 
 
 def redact(value):
     if isinstance(value, dict):
-        return {key: "<redacted>" if re.search(r"token|password|secret|credential", str(key), re.I)
-                else redact(item) for key, item in value.items()}
+        return {
+            key: "<redacted>"
+            if re.search(
+                r"token|password|secret|credential|authorization|api[_-]?key",
+                str(key),
+                re.I,
+            )
+            else redact(item)
+            for key, item in value.items()
+        }
     if isinstance(value, (list, tuple)):
-        return [redact(item) for item in value]
+        result = []
+        for index, item in enumerate(value):
+            previous = value[index - 1] if index else ""
+            sensitive_flag = isinstance(previous, str) and re.fullmatch(
+                r"--(?:token|password|secret|api[_-]?key|authorization)", previous, re.I
+            )
+            result.append("<redacted>" if sensitive_flag else redact(item))
+        return result
     if not isinstance(value, str):
         return value
     value = re.sub(r"(https?://)[^/\s@]+@", r"\1<redacted>@", value)
-    return re.sub(r"(?i)((?:token|password|secret|authorization)[\w-]*\s*[:=]\s*)[^\s,;]+", r"\1<redacted>", value)
+    value = re.sub(
+        r"(?i)(authorization\s*[:=]\s*)(?:bearer|basic)\s+[^\s,;]+",
+        r"\1<redacted>",
+        value,
+    )
+    return re.sub(
+        r"(?i)((?:token|password|secret|authorization)[\w-]*\s*[:=]\s*)[^\s,;]+",
+        r"\1<redacted>",
+        value,
+    )
 
 
 def project_environment() -> bool:
@@ -68,13 +96,43 @@ def digest(path: Path) -> str | None:
         return None
 
 
+def state_directory() -> Path:
+    if sys.platform == "win32":
+        return (
+            Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local"))
+            / "rwrl/doctor"
+        )
+    if sys.platform == "darwin":
+        return Path.home() / "Library/Application Support/rwrl/doctor"
+    state = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
+    if not state.is_absolute():
+        state = Path.home() / ".local/state"
+    return state / "rwrl/doctor"
+
+
 class Report:
-    def __init__(self, root: Path):
-        base = Path(os.environ.get("RWRL_DOCTOR_REPORT_DIR", root / "local/doctor"))
-        base.mkdir(parents=True, exist_ok=True)
+    def __init__(self, root: Path | None = None, *, directory: Path | None = None):
+        explicit = directory or os.environ.get("RWRL_DOCTOR_REPORT_DIR")
+        candidates = (
+            [Path(explicit).expanduser()]
+            if explicit
+            else (
+                [root / "local/doctor", state_directory()]
+                if root
+                else [state_directory()]
+            )
+        )
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-        self.path = base / f"{stamp}-{uuid.uuid4().hex[:8]}"
-        self.path.mkdir(mode=0o700)
+        for index, base in enumerate(candidates):
+            try:
+                base.mkdir(parents=True, exist_ok=True)
+                self.path = base / f"{stamp}-{uuid.uuid4().hex[:8]}"
+                self.path.mkdir(mode=0o700)
+                self.path.chmod(0o700)
+                break
+            except OSError:
+                if index == len(candidates) - 1:
+                    raise
         self.log = self.path / "commands.log"
         self.log.touch(mode=0o600)
 
@@ -87,48 +145,119 @@ class Report:
             stream.write("\n")
         temp.replace(path)
 
-    def run(self, argv: list[str], *, input_text: str | None = None, timeout: int = 300, stdout_only: bool = False):
+    def run(
+        self,
+        argv: list[str],
+        *,
+        input_text: str | None = None,
+        timeout: int = 300,
+        stdout_only: bool = False,
+    ):
         # Only developer-built argv is accepted. No shell expansion or stdin passwords.
         with self.log.open("a", encoding="utf-8") as stream:
             stream.write("$ " + shlex.join(redact(argv)) + "\n")
             try:
-                result = subprocess.run(argv, input=input_text, capture_output=True, text=True, timeout=timeout)
+                result = subprocess.run(
+                    argv,
+                    input=input_text,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                )
             except (OSError, subprocess.TimeoutExpired) as error:
                 stream.write(redact(str(error)) + "\n")
                 return 1, str(error)
             output = result.stdout + result.stderr
             stream.write(redact(output) + f"\nexit={result.returncode}\n")
-        return result.returncode, result.stdout if stdout_only and result.returncode == 0 else output
+        return (
+            result.returncode,
+            result.stdout if stdout_only and result.returncode == 0 else output,
+        )
 
 
-def file_action(check: str, title: str, target: str, content: str, *, pending: str = "", exclusive: bool = True) -> Action:
-    return Action("file:" + target, check, title, target=target, content=content,
-                  privileged=True, pending=pending, exclusive=exclusive, before=digest(Path(target)))
+def file_action(
+    check: str,
+    title: str,
+    target: str,
+    content: str,
+    *,
+    pending: str = "",
+    exclusive: bool = True,
+) -> Action:
+    return Action(
+        "file:" + target,
+        check,
+        title,
+        target=target,
+        content=content,
+        privileged=True,
+        pending=pending,
+        exclusive=exclusive,
+        before=digest(Path(target)),
+        capability="udev"
+        if "/udev/" in target
+        else "pam"
+        if "/security/limits.d/" in target
+        else "system",
+    )
 
 
-def execute(actions: list[Action], report: Report, *, allowed: bool, busy, assume_yes: bool,
-            sdk_only: bool = False) -> None:
+def execute(
+    actions: list[Action],
+    report: Report,
+    *,
+    allowed: bool,
+    busy,
+    assume_yes: bool,
+    sdk_only: bool = False,
+    capabilities: Capabilities | None = None,
+) -> None:
+    capabilities = capabilities or Capabilities.detect()
     done: dict[str, Action] = {}
     for action in actions:
         done[action.id] = action
-        if not allowed:
-            action.status, action.detail = "BLOCKED", "automatic repair only supports Ubuntu 22.04 x86_64 outside containers"
-            continue
         if sdk_only and not action.id.startswith("sdk:"):
-            action.status, action.detail = "SKIPPED", "--install-sdk selects Franky wheel replacement only"
+            action.status, action.detail = (
+                "SKIPPED",
+                "--install-sdk selects Franky wheel replacement only",
+            )
             continue
-        if any(dep not in done or done[dep].status not in ("PASS", "PENDING_ACTION") for dep in action.dependencies):
-            action.status, action.detail = "BLOCKED", "a prerequisite repair did not complete"
+        if not allowed:
+            action.status, action.detail = (
+                "BLOCKED",
+                "repairs disabled for this invocation (including --mock)",
+            )
+            continue
+        reason = capabilities.block_reason(
+            "python" if action.python else action.capability
+        )
+        if reason:
+            action.status, action.detail = "BLOCKED", reason
+            continue
+        if any(
+            dep not in done or done[dep].status not in ("PASS", "PENDING_ACTION")
+            for dep in action.dependencies
+        ):
+            action.status, action.detail = (
+                "BLOCKED",
+                "a prerequisite repair did not complete",
+            )
             continue
         if action.python and not project_environment():
-            action.status, action.detail = "BLOCKED", "activate a project venv/conda environment; sudo pip is forbidden"
+            action.status, action.detail = (
+                "BLOCKED",
+                "activate a project venv/conda environment; sudo pip is forbidden",
+            )
             continue
         occupied = busy() if action.exclusive else []
         if occupied:
-            action.status, action.detail = "BLOCKED", f"control processes still running: {occupied}"
+            action.status, action.detail = (
+                "BLOCKED",
+                f"control processes still running: {occupied}",
+            )
             continue
         prefix: list[str] = []
-        if action.privileged:
+        if action.privileged and getattr(os, "geteuid", lambda: -1)() != 0:
             # Never prompt on a pipe. Interactive sudo reads the terminal directly.
             if not assume_yes and sys.stdin.isatty():
                 try:
@@ -138,18 +267,29 @@ def execute(actions: list[Action], report: Report, *, allowed: bool, busy, assum
             else:
                 code, _ = report.run(["sudo", "-n", "true"])
             if code:
-                action.status, action.detail = "BLOCKED", "sudo authorization required; run sudo -v in a terminal, then retry"
+                action.status, action.detail = (
+                    "BLOCKED",
+                    "sudo authorization required; run sudo -v in a terminal, then retry",
+                )
                 continue
             prefix = ["sudo", "-n"]
         if action.target:
             target = Path(action.target)
             if target.is_symlink() or digest(target) != action.before:
-                action.status, action.detail = "BLOCKED", "configuration changed since inspection, or destination is a symlink; inspect again"
+                action.status, action.detail = (
+                    "BLOCKED",
+                    "configuration changed since inspection, or destination is a symlink; inspect again",
+                )
                 continue
             # This CLI owns only its dedicated configuration files.
-            if not (str(target).startswith("/etc/udev/rules.d/99-rwrl-")
-                    or str(target) == "/etc/security/limits.d/99-rwrl-realtime.conf"):
-                action.status, action.detail = "BLOCKED", "destination outside the repair allowlist"
+            if not (
+                str(target).startswith("/etc/udev/rules.d/99-rwrl-")
+                or str(target) == "/etc/security/limits.d/99-rwrl-realtime.conf"
+            ):
+                action.status, action.detail = (
+                    "BLOCKED",
+                    "destination outside the repair allowlist",
+                )
                 continue
             if target.exists():
                 try:
@@ -164,24 +304,43 @@ def execute(actions: list[Action], report: Report, *, allowed: bool, busy, assum
             staged.chmod(0o600)
             # install writes a temporary file beside the destination; mv publishes atomically.
             temporary = str(target) + ".rwrl-" + report.path.name
-            code, output = report.run(prefix + ["install", "-m", "0644", "--", str(staged), temporary])
+            code, output = report.run(
+                prefix + ["install", "-m", "0644", "--", str(staged), temporary]
+            )
             if not code:
-                code, output = report.run(prefix + ["mv", "-f", "--", temporary, str(target)])
+                code, output = report.run(
+                    prefix + ["mv", "-f", "--", temporary, str(target)]
+                )
         else:
             if action.python and action.argv[:3] != [sys.executable, "-m", "pip"]:
-                action.status, action.detail = "BLOCKED", "Python repair must use the running interpreter"
+                action.status, action.detail = (
+                    "BLOCKED",
+                    "Python repair must use the running interpreter",
+                )
                 continue
-            code, output = report.run(prefix + action.argv, timeout=1800 if action.python else 300)
+            code, output = report.run(
+                prefix + action.argv, timeout=1800 if action.python else 300
+            )
         if code:
             action.status, action.detail = "FAIL", redact(output[-2000:])
         else:
             action.status = "PENDING_ACTION" if action.pending else "PASS"
-            action.detail = action.pending or "completed; see post-repair inspection for verification"
+            action.detail = (
+                action.pending
+                or "completed; see post-repair inspection for verification"
+            )
 
 
-def payload(findings: list[Finding], actions: list[Action], report: Report, **extra) -> dict:
-    return {"schema_version": 1, "report_directory": str(report.path),
-            "checks": [asdict(item) for item in findings], "repairs": [asdict(item) for item in actions], **extra}
+def payload(
+    findings: list[Finding], actions: list[Action], report: Report, **extra
+) -> dict:
+    return {
+        "schema_version": 1,
+        "report_directory": str(report.path),
+        "checks": [asdict(item) for item in findings],
+        "repairs": [asdict(item) for item in actions],
+        **extra,
+    }
 
 
 def exit_status(findings: list[Finding], actions: list[Action]) -> int:

@@ -1,4 +1,4 @@
-"""SpaceMouse teleop backend against a mocked ``pyspacemouse`` module (no hardware)."""
+"""SpaceMouse teleop contract against a mocked reader, without HID quantization or hardware."""
 from __future__ import annotations
 
 import sys
@@ -16,8 +16,8 @@ from robot_infra.discovery import enumerate as probes
 from robot_infra.doctor import checks
 
 
-def make_pyspacemouse() -> types.ModuleType:
-    fake = types.ModuleType("pyspacemouse")
+def make_hid() -> types.ModuleType:
+    fake = types.ModuleType("hid")
     fake.twist = (0.0,) * 6
     fake.buttons = (0, 0)
     fake.devices = []
@@ -49,14 +49,16 @@ def make_pyspacemouse() -> types.ModuleType:
 
 
 @pytest.fixture
-def pyspacemouse(monkeypatch):
-    fake = make_pyspacemouse()
-    monkeypatch.setitem(sys.modules, "pyspacemouse", fake)
+def hid_sdk(monkeypatch):
+    fake = make_hid()
+    fake.device = lambda: None
+    monkeypatch.setitem(sys.modules, "hid", fake)
+    monkeypatch.setattr(spacemouse_backend._spacemouse_hid, "open", lambda **kw: fake.open(**kw))
     return fake
 
 
 @pytest.fixture
-def spacemouse(pyspacemouse):
+def spacemouse(hid_sdk):
     created = []
 
     def build(**options):
@@ -85,54 +87,49 @@ def test_registered_and_contract():
 
 
 def test_missing_sdk_raises_sdk_missing_with_install_hint(monkeypatch):
-    monkeypatch.setitem(sys.modules, "pyspacemouse", None)  # makes `import pyspacemouse` fail
+    monkeypatch.setitem(sys.modules, "hid", None)  # makes `import hid` fail
     teleop = SpaceMouseTeleop(TeleopConfig(backend="spacemouse"))
     with pytest.raises(SdkMissing) as info:
         teleop.connect()
-    assert "pip install" in info.value.hint and "pyspacemouse" in info.value.hint
+    assert info.value.hint == "pip install -e '.[spacemouse]'"
     assert not teleop.is_connected
 
 
-def test_legacy_api_without_open_is_version_mismatch(monkeypatch):
-    legacy = types.ModuleType("pyspacemouse")
-    legacy.read_all = lambda: []
-    monkeypatch.setitem(sys.modules, "pyspacemouse", legacy)
+def test_wrong_hid_api_is_version_mismatch(monkeypatch):
+    legacy = types.ModuleType("hid")
+    legacy.Device = lambda: None
+    monkeypatch.setitem(sys.modules, "hid", legacy)
     with pytest.raises(VersionMismatch) as info:
         SpaceMouseTeleop(TeleopConfig(backend="spacemouse")).connect()
-    assert "pyspacemouse>=2.0,<3" in info.value.hint
+    assert "wrong distribution 'hid'" in info.value.message
+    assert "pip install -e '.[spacemouse]'" in info.value.hint
 
 
-def test_legacy_open_returning_bool_is_version_mismatch(monkeypatch):
-    legacy = types.ModuleType("pyspacemouse")
-    legacy.open = lambda **kwargs: True
-    legacy.read_all = lambda: []
-    monkeypatch.setitem(sys.modules, "pyspacemouse", legacy)
-    with pytest.raises(VersionMismatch):
-        SpaceMouseTeleop(TeleopConfig(backend="spacemouse")).connect()
-
-
-def test_open_failure_is_device_not_found(pyspacemouse):
-    pyspacemouse.open = lambda **kwargs: None
+def test_open_failure_is_device_not_found(monkeypatch):
+    fake = types.ModuleType("hid")
+    fake.device = lambda: None
+    fake.enumerate = lambda: []
+    monkeypatch.setitem(sys.modules, "hid", fake)
     with pytest.raises(DeviceNotFound):
         SpaceMouseTeleop(TeleopConfig(backend="spacemouse")).connect()
 
 
-def test_device_index_is_forwarded(spacemouse, pyspacemouse):
+def test_device_index_is_forwarded(spacemouse, hid_sdk):
     spacemouse(device_index=2)
-    assert pyspacemouse.devices[0].kwargs == {"device_index": 2}
+    assert hid_sdk.devices[0].kwargs == {"device_index": 2}
 
 
-def test_axis_mapping_signs_and_order(spacemouse, pyspacemouse):
+def test_axis_mapping_signs_and_order(spacemouse, hid_sdk):
     teleop = spacemouse()
-    pyspacemouse.twist = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6)  # x, y, z, roll, pitch, yaw
+    hid_sdk.twist = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6)  # x, y, z, roll, pitch, yaw
     sample = settled_read(teleop, lambda s: s.action[0] != 0)
     np.testing.assert_allclose(sample.action, [-0.2, 0.1, 0.3, -0.4, -0.5, -0.6], atol=1e-6)
     assert sample.action.dtype == np.float32 and sample.intervening
 
 
-def test_invert_axes_flips_selected_outputs(spacemouse, pyspacemouse):
+def test_invert_axes_flips_selected_outputs(spacemouse, hid_sdk):
     teleop = spacemouse(invert_axes=[0, 5])
-    pyspacemouse.twist = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6)
+    hid_sdk.twist = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6)
     sample = settled_read(teleop, lambda s: s.action[0] != 0)
     np.testing.assert_allclose(sample.action, [0.2, 0.1, 0.3, -0.4, -0.5, 0.6], atol=1e-6)
 
@@ -144,13 +141,13 @@ def test_invalid_options_rejected():
         SpaceMouseTeleop(TeleopConfig(backend="spacemouse", options={"invert_axes": [6]}))
 
 
-def test_below_deadzone_is_not_intervening_and_action_stays_raw(spacemouse, pyspacemouse):
+def test_below_deadzone_is_not_intervening_and_action_stays_raw(spacemouse, hid_sdk):
     teleop = spacemouse(deadzone=0.05)
-    pyspacemouse.twist = (0.0, 0.0, 0.01, 0.0, 0.0, 0.0)
+    hid_sdk.twist = (0.0, 0.0, 0.01, 0.0, 0.0, 0.0)
     sample = settled_read(teleop, lambda s: s.action[2] != 0)
     assert not sample.intervening
     assert sample.action[2] == pytest.approx(0.01)  # legacy semantics: raw twist, flag only
-    pyspacemouse.twist = (0.0, 0.0, 0.2, 0.0, 0.0, 0.0)
+    hid_sdk.twist = (0.0, 0.0, 0.2, 0.0, 0.0, 0.0)
     assert settled_read(teleop, lambda s: s.action[2] > 0.1).intervening
 
 
@@ -159,40 +156,40 @@ def test_idle_sample_has_zero_action_and_open_gripper(spacemouse):
     assert not sample.intervening and not sample.action.any() and sample.gripper == 1.0
 
 
-def press(pyspacemouse, teleop, buttons):
-    pyspacemouse.buttons = buttons
+def press(hid_sdk, teleop, buttons):
+    hid_sdk.buttons = buttons
     return settled_read(teleop, lambda s: [s.buttons["button_0"], s.buttons["button_1"]] == [bool(b) for b in buttons])
 
 
-def test_button_zero_toggles_sticky_gripper_and_reset_reopens(spacemouse, pyspacemouse):
+def test_button_zero_toggles_sticky_gripper_and_reset_reopens(spacemouse, hid_sdk):
     teleop = spacemouse()
-    sample = press(pyspacemouse, teleop, (1, 0))
+    sample = press(hid_sdk, teleop, (1, 0))
     assert sample.intervening  # a pressed button alone counts as activity
     assert settled_read(teleop, lambda s: s.gripper == 0.0).gripper == 0.0
-    press(pyspacemouse, teleop, (0, 0))
+    press(hid_sdk, teleop, (0, 0))
     assert teleop.read().gripper == 0.0  # sticky after release
-    press(pyspacemouse, teleop, (1, 0))
+    press(hid_sdk, teleop, (1, 0))
     assert settled_read(teleop, lambda s: s.gripper == 1.0).gripper == 1.0
-    press(pyspacemouse, teleop, (0, 0))
-    press(pyspacemouse, teleop, (1, 0))
+    press(hid_sdk, teleop, (0, 0))
+    press(hid_sdk, teleop, (1, 0))
     settled_read(teleop, lambda s: s.gripper == 0.0)
-    press(pyspacemouse, teleop, (0, 0))
+    press(hid_sdk, teleop, (0, 0))
     teleop.reset()
     assert settled_read(teleop, lambda s: not s.buttons["button_0"] and s.gripper == 1.0).gripper == 1.0
 
 
-def test_held_button_toggles_only_once(spacemouse, pyspacemouse):
+def test_held_button_toggles_only_once(spacemouse, hid_sdk):
     teleop = spacemouse()
-    press(pyspacemouse, teleop, (1, 0))
+    press(hid_sdk, teleop, (1, 0))
     time.sleep(0.05)  # many polls with the button still held
     assert teleop.read().gripper == 0.0
 
 
 @pytest.mark.parametrize("button", [0, 1])
-def test_a_held_button_latches_one_press_event_and_never_ends_the_episode(spacemouse, pyspacemouse, button):
+def test_a_held_button_latches_one_press_event_and_never_ends_the_episode(spacemouse, hid_sdk, button):
     teleop = spacemouse()
     name = f"button_{button}"
-    pyspacemouse.buttons = tuple(int(index == button) for index in range(2))
+    hid_sdk.buttons = tuple(int(index == button) for index in range(2))
     seen = []
     for _ in range(200):
         sample = teleop.read()
@@ -200,7 +197,7 @@ def test_a_held_button_latches_one_press_event_and_never_ends_the_episode(spacem
         assert sample.events["episode_end"] is False
         if sample.buttons[name] and len(seen) > 1 and any(seen):
             break
-    pyspacemouse.buttons = (0, 0)
+    hid_sdk.buttons = (0, 0)
     time.sleep(0.05)
     assert seen.count(True) == 1  # the held button fires one edge
     for _ in range(2):
@@ -218,34 +215,34 @@ def settled_latest(teleop, predicate, attempts=400):
     raise AssertionError("mocked state never reached the sample")
 
 
-def test_a_press_released_between_two_reads_is_still_latched(spacemouse, pyspacemouse):
+def test_a_press_released_between_two_reads_is_still_latched(spacemouse, hid_sdk):
     teleop = spacemouse()
     teleop.read()
-    pyspacemouse.buttons = (0, 1)
+    hid_sdk.buttons = (0, 1)
     settled_latest(teleop, lambda s: s.buttons["button_1"])
-    pyspacemouse.buttons = (0, 0)
+    hid_sdk.buttons = (0, 0)
     settled_latest(teleop, lambda s: not s.buttons["button_1"])
     sample = teleop.read()
     assert not sample.buttons["button_1"] and sample.events["button_1"] is True
     assert sample.events.get("button_0", False) is False
 
 
-def test_disconnect_closes_device_and_stops_thread(spacemouse, pyspacemouse):
+def test_disconnect_closes_device_and_stops_thread(spacemouse, hid_sdk):
     teleop = spacemouse()
     teleop.read()
-    device = pyspacemouse.devices[0]
+    device = hid_sdk.devices[0]
     assert any(t.name == f"teleop-{teleop.name}" for t in threading.enumerate())
     teleop.disconnect()
     assert device.closed
     assert not any(t.name == f"teleop-{teleop.name}" for t in threading.enumerate())
 
 
-def test_reconnect_opens_a_fresh_device(spacemouse, pyspacemouse):
+def test_reconnect_opens_a_fresh_device(spacemouse, hid_sdk):
     teleop = spacemouse()
     teleop.disconnect()
     teleop.connect()
-    assert len(pyspacemouse.devices) == 2 and pyspacemouse.devices[0].closed
-    assert not pyspacemouse.devices[1].closed
+    assert len(hid_sdk.devices) == 2 and hid_sdk.devices[0].closed
+    assert not hid_sdk.devices[1].closed
     teleop.disconnect()
 
 
@@ -302,7 +299,8 @@ def test_hid_check_reports_udev_hint_when_access_denied(tmp_path, monkeypatch):
     monkeypatch.setattr(checks.os, "access", lambda path, mode: False)
     result = run_hid(str(tmp_path / "hidraw*"))
     assert not result.ok and "hidraw0" in result.message
-    assert 'ATTRS{idVendor}=="256f"' in result.hint and "udevadm control --reload" in result.hint
+    assert "robot_infra/robot_infra/setup/99-spacemouse.rules" in result.hint
+    assert "udevadm control --reload-rules" in result.hint and "plugdev" in result.hint
     assert "--device=/dev/hidrawN" in result.hint
 
 

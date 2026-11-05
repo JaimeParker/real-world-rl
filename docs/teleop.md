@@ -88,7 +88,7 @@ them) are not the env's in the env's order.
 | `device` | Source | Reads | Action space | Notes |
 | --- | --- | --- | --- | --- |
 | `pico` | `PicoTeleopSource` | Pico VR controller over a ZeroMQ `SUB` socket (`EETwistTeleOpWrapper`) | cartesian_delta, 6 + gripper | kwargs: `zmq_url`, `hand`, `pos_scale`, `rot_scale`, `twist_limit`, `intervention_threshold`. Data format below. |
-| `spacemouse` | `SpaceMouseTeleopSource` | a SpaceMouse on this machine, through the device layer's `SpaceMouseTeleop`, as a velocity input over the cartesian command tracker | cartesian_delta, 6 + gripper | button 0 takes over / hands back, button 1 toggles the gripper; see [SpaceMouse](#spacemouse). kwargs: `device_index=0`, `deadzone=0.05`, `invert_axes=()`, `poll_interval_s=0.005`, `read_timeout_s`, and the tracker's (`lead_cap_m`, `lead_cap_rad`, `target_speed_m_s`, `target_speed_rad_s`: the `--teleop-lead-cap-*`/`--teleop-target-speed-*` flags). Needs `pyspacemouse>=2,<3`, imported at `start()`. |
+| `spacemouse` | `SpaceMouseTeleopSource` | a SpaceMouse on this machine, through the device layer's `SpaceMouseTeleop`, as a velocity input over the cartesian command tracker | cartesian_delta, 6 + gripper | button 0 takes over / hands back, button 1 toggles the gripper; see [SpaceMouse](#spacemouse). kwargs: `device_index=0`, `deadzone=0.05`, `invert_axes=()`, `poll_interval_s=0.005`, `read_timeout_s`, and the tracker's (`lead_cap_m`, `lead_cap_rad`, `target_speed_m_s`, `target_speed_rad_s`: the `--teleop-lead-cap-*`/`--teleop-target-speed-*` flags). Needs `hidapi==0.14.0.post4` (import `hid`), imported at `start()`. |
 | `spacemouse_twist` | `SpaceMouseTwistTeleopSource` | the same SpaceMouse as a raw twist (the ManiSkill sim examples only; not for real robots) | cartesian_delta, 6 + gripper | the puck's twist goes to the env as is, moving the puck counts as intervening (`hold_s` extends it), button 0 toggles the sticky gripper (open after every reset), button 1 ends the episode. kwargs: `device_index=0`, `deadzone=1e-3`, `invert_axes=()`, `poll_interval_s=0.005`, `hold_s=0.0`, `read_timeout_s`. |
 | `robot` | `TeleopPartSource` | the teleop part of the robot behind a `real_robot` env (robot yaml `teleop:` section, local or daemon-served) | cartesian_delta, joint_abs or joint_delta, mapped into the env space | kwargs: `teleop_contract`, `joint_limits`, `joint_scale_rad`, `read_timeout_s` (hil_serl: `--robot-teleop-action-mode`, `--no-robot-teleop-has-gripper`). The robot owns the part, so `close()` leaves it connected. |
 | `fake` | `ScriptedTeleopSource` | scripted readings (tests; with no `readings` an operator who never intervenes) | follows the env's action contract, its arm count included | pass `readings=[TeleopReading, ...]` to script one; the last reading repeats. |
@@ -102,6 +102,64 @@ them) are not the env's in the env's order.
 
 ### SpaceMouse
 
+#### SpaceMouse installation and Linux permissions
+
+On the NUC (or the machine with the SpaceMouse), repository root, with the
+[project environment from tutorial step 4](tutorial/01-install.md#4-install-the-project-environment)
+active, install all SpaceMouse Python dependencies with:
+
+```bash
+pip install -e '.[spacemouse]'
+```
+
+The dependency chain is the root `spacemouse` extra →
+`rlgarden-robot-infra[spacemouse]==0.0.1` → `hidapi==0.14.0.post4`
+(trezor/cython-hidapi, import `hid`). The device layer includes its own decoder;
+this path does not import `pyspacemouse` or `easyhid`. Do not install the different
+PyPI distribution named `hid`; it occupies the same import name and has a different
+API. A missing module raises `SdkMissing` with the pip command above; the wrong
+`hid` distribution is reported separately.
+
+For a fresh environment, on the NUC, repository root, no environment active:
+
+```bash
+bash scripts/install.sh --extras franka-gello,spacemouse
+source .venv/bin/activate
+```
+
+The one-extra pip command assumes the three local projects are already installed;
+it does not bootstrap the internal distributions from an empty venv. The wheel
+target is Ubuntu 22.04 / CPython 3.10 / x86_64. This transport avoids easyhid's
+system `libhidapi` lookup; the pinned wheel's ELF/system-library dependencies
+still require validation on a clean Ubuntu 22.04 machine. Wheel installation,
+USB permissions, device directions, timing and disconnect behavior are
+**not yet verified on hardware**. No system `libhidapi` install is prescribed for this wheel
+route; a source build on a platform without a suitable wheel is outside that target.
+
+Install the packaged vendor rules once. On the NUC, repository root, any shell
+(no project environment required), with sudo permission:
+
+```bash
+sudo cp robot_infra/robot_infra/setup/99-spacemouse.rules /etc/udev/rules.d/
+sudo usermod -aG plugdev "$USER"
+sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw
+```
+
+The file covers vendor `256f` (3Dconnexion) and `046d` (older Logitech), with
+`MODE="0664", GROUP="plugdev"`. Log out and log back in, then unplug and replug the
+SpaceMouse. If the repository is unavailable, the alternative copy command below
+works on the NUC from any directory, **with the project environment active** and
+sudo permission; follow it with the same group/reload commands above:
+
+```bash
+sudo cp "$(python -c 'import robot_infra.setup, os; print(os.path.dirname(robot_infra.setup.__file__))')/99-spacemouse.rules" /etc/udev/rules.d/
+```
+
+An open/permission failure points to this rule file and its installation commands.
+Doctor checks the `hid` SDK separately from `/dev/hidraw*` access; inside Docker the
+HID node must also be passed into the container. The legacy `SpaceMouseExpert` and
+`real` extra keep their separate `pyspacemouse` API.
+
 For a `cartesian_delta` env (`real_robot` in `cartesian_delta` mode, or `franka_real`), with the
 operator's labels on the terminal (the SpaceMouse Compact has two buttons, both taken):
 
@@ -114,7 +172,7 @@ python examples/record_real_demos.py --config hil.yaml \
 The HIL actor takes the same two flags. `SpaceMouseTeleopSource`
 (`real_world_rl/teleop/spacemouse.py`) opens the device with the device layer's
 `SpaceMouseTeleop` (`TeleopConfig(backend="spacemouse")`, a poll thread feeding `read()`; the
-twist is in `[-1, 1]` with axis map `[-y, x, z, -roll, -pitch, -yaw]` of the pyspacemouse state,
+twist is in `[-1, 1]` with axis map `[-y, x, z, -roll, -pitch, -yaw]` of the HID reader state,
 `invert_axes` flips the sign of the listed output indices 0-5) and drives the same
 `CartesianTargetTracker` as `leader_cartesian` (see [Mapping](#mapping)):
 
@@ -154,7 +212,7 @@ twist is in `[-1, 1]` with axis map `[-y, x, z, -roll, -pitch, -yaw]` of the pys
 - **The event device's `t`/`h` are ignored** (a warning says so): they set a take-over state,
   which can disagree with a take-over made by button 0. Button 0 is the only toggle.
 - The SDK is imported when `start()` opens the device (the wrapper calls it), so building the
-  source works without `pyspacemouse`; a missing SDK raises `SdkMissing` with the install hint.
+  source works without `hidapi`; a missing SDK raises `SdkMissing` with the install hint.
 
 A run with `--teleop-device spacemouse` records the tracker in the experiment contract
 (`teleop_control`, the same block as `leader_cartesian`). `--teleop-event-device spacemouse` was
@@ -609,7 +667,7 @@ contract (`real_world_rl.action_contract.get_env_action_contract(env)`). Unknown
 raise `ValueError` listing the registered ones. Registration must happen before the name is used,
 so a downstream package imports its module (or exposes it through its own entry point) before
 building the env. Built-in sources are imported on first use of their name, so importing
-`real_world_rl.teleop` pulls in neither `zmq` nor `pyspacemouse`.
+`real_world_rl.teleop` pulls in neither `zmq` nor `hid`.
 
 Actions are in the env's normalized `[-1, 1]` space, gripper last. For a cartesian device whose
 twist is in physical units (as the Pico's), see how the demo scripts normalize it.

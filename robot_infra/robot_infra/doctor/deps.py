@@ -15,7 +15,7 @@ EXTRA_MODULES: dict[str, tuple[str, ...]] = {
     "pyagxarm": ("pyAgxArm",),
     "piper-sdk": ("piper_sdk",),
     "realsense": ("pyrealsense2",),
-    "spacemouse": ("pyspacemouse",),
+    "spacemouse": ("hid",),
     "gello": ("dynamixel_sdk",),
     "gello-events": ("evdev",),
     "grpc": ("grpc",),

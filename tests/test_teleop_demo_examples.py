@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from _teleop_fakes import FakeEnv, make_pyspacemouse
+from _teleop_fakes import FakeEnv, make_hid
 
 from real_world_rl.teleop import make_teleop_source
 from real_world_rl.teleop.fake import ScriptedTeleopSource
@@ -53,8 +53,8 @@ def test_fake_device_builds_an_idle_source(example):
 
 
 def test_spacemouse_kwargs_reach_the_device(example, monkeypatch):
-    fake_sdk = make_pyspacemouse()
-    monkeypatch.setitem(sys.modules, "pyspacemouse", fake_sdk)
+    fake_sdk = make_hid()
+    monkeypatch.setitem(sys.modules, "hid", fake_sdk)
     args = _args(example, device="spacemouse_twist", spacemouse_index=2, spacemouse_invert_axes=[1])
     source = make_teleop_source(args.device, FakeEnv(), **example.build_teleop_kwargs(args))
     assert isinstance(source, SpaceMouseTwistTeleopSource)

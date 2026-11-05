@@ -233,3 +233,15 @@ def test_warnings_print_with_their_hint_and_do_not_fail():
     assert "summary: 1 ok (1 with warnings), 0 failed, 0 skipped" in text
     assert exit_code(results) == 0
     assert cli.format_json(results).count('"warning": true') == 1
+
+
+def test_spacemouse_permission_hint_installs_packaged_vendor_rules(tmp_path, monkeypatch):
+    (tmp_path / "hidraw0").touch()
+    monkeypatch.setattr(checks.os, "access", lambda path, mode: False)
+    ok, message, hint = checks._hid_outcome(str(tmp_path / "hidraw*"))()
+    assert not ok and "no read/write access" in message
+    assert "sudo cp robot_infra/robot_infra/setup/99-spacemouse.rules /etc/udev/rules.d/" in hint
+    assert 'sudo usermod -aG plugdev "$USER"' in hint
+    assert "--reload-rules" in hint and "--subsystem-match=hidraw" in hint
+    assert "log in again" in hint and "replug" in hint
+    assert "pip install" not in hint

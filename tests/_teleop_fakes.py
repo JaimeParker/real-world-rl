@@ -1,9 +1,10 @@
 """Fakes shared by the teleop tests: a minimal env (one arm, or two arms), a cartesian env with a
-measured TCP pose, and a mocked ``pyspacemouse`` SDK."""
+measured TCP pose, and mocked HID transports."""
 from __future__ import annotations
 
 import time
 import types
+from collections import deque
 
 import gymnasium as gym
 import numpy as np
@@ -94,34 +95,66 @@ class TwoArmContractEnv(ContractEnv):
         self.single_action_space = spaces.Box(-1.0, 1.0, (2 * arm_action_dim + 2,), dtype=np.float32)
 
 
-def make_pyspacemouse() -> types.ModuleType:
-    """pyspacemouse 2.x stand-in: set ``fake.twist`` / ``fake.buttons`` to drive the device."""
-    fake = types.ModuleType("pyspacemouse")
+def make_hid() -> types.ModuleType:
+    """trezor hidapi stand-in; twist uses decoded x/y/z/roll/pitch/yaw units."""
+    class Hid(types.ModuleType):
+        @property
+        def buttons(self):
+            return self._buttons
+
+        @buttons.setter
+        def buttons(self, buttons):
+            buttons = tuple(buttons)
+            if buttons == self._buttons:
+                return
+            self._buttons = buttons
+            # HID queues each change, including a release followed by another
+            # press before the next read. Axis reports never replace these.
+            report = [3, sum(int(b) << i for i, b in enumerate(buttons))]
+            for device in self.devices:
+                if not device.closed:
+                    device._button_reports.append(report)
+
+    fake = Hid("hid")
     fake.twist = (0.0,) * 6
-    fake.buttons = (0, 0)
+    fake._buttons = (0, 0)
     fake.devices = []
+    fake.enumerate = lambda: [
+        {"vendor_id": 0x256F, "product_id": 0xC62E, "path": str(index).encode()}
+        for index in range(4)
+    ]
 
     class Device:
         def __init__(self):
             self.closed = False
+            self._button_reports = deque()
+            if any(fake.buttons):
+                self._button_reports.append([3, sum(int(b) << i for i, b in enumerate(fake.buttons))])
+            fake.devices.append(self)
 
-        def read(self):
+        def open_path(self, path):
+            self.kwargs = {"device_index": int(path)}
+
+        def set_nonblocking(self, enabled):
+            assert enabled == 1
+
+        def read(self, size):
             if self.closed:
                 raise OSError("read from a closed SpaceMouse")
             time.sleep(0.001)
+            if self._button_reports:
+                return self._button_reports.popleft()
             x, y, z, roll, pitch, yaw = fake.twist
-            return types.SimpleNamespace(
-                x=x, y=y, z=z, roll=roll, pitch=pitch, yaw=yaw, buttons=list(fake.buttons)
-            )
+            # Wireless reports carry all axes on channel 1. Undo the table's
+            # signs and put pitch before roll, exactly as the hardware does.
+            report = [1]
+            for value in (x, -y, -z, -pitch, -roll, yaw):
+                word = round(value * 350) & 0xFFFF
+                report.extend((word & 0xFF, word >> 8))
+            return report
 
         def close(self):
             self.closed = True
 
-    def open_device(**kwargs):
-        device = Device()
-        device.kwargs = kwargs
-        fake.devices.append(device)
-        return device
-
-    fake.open = open_device
+    fake.device = Device
     return fake

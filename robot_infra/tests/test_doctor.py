@@ -352,3 +352,33 @@ def test_unknown_teleop_backend_fails_sdk_layer():
     sdk = next(r for r in results if r.name == "sdk:teleop:nonexistent")
     assert not sdk.ok and "nonexistent" in sdk.message
     assert exit_code(results) == 1
+
+
+def test_spacemouse_sdk_check_reports_missing_hidapi_and_wrong_distribution(monkeypatch):
+    import sys
+    import types
+
+    from robot_infra.devices.backends.teleops.spacemouse import SpaceMouseTeleop
+    from robot_infra.doctor import checks
+
+    monkeypatch.setitem(sys.modules, "hid", None)
+    outcome = checks._sdk_outcome(SpaceMouseTeleop)
+    assert outcome[0] is False and "hidapi" in outcome[1]
+    assert outcome[2] == "pip install -e '.[spacemouse]'"
+    monkeypatch.setitem(sys.modules, "hid", types.SimpleNamespace(Device=lambda: None))
+    outcome = checks._sdk_outcome(SpaceMouseTeleop)
+    assert outcome[0] is False and "wrong distribution 'hid'" in outcome[1]
+
+
+def test_spacemouse_sdk_check_distinguishes_native_load_failure(monkeypatch):
+    from robot_infra.devices.backends.teleops import _spacemouse_hid
+    from robot_infra.devices.backends.teleops.spacemouse import SpaceMouseTeleop
+    from robot_infra.doctor import checks
+
+    def fail(name):
+        raise OSError("native library unavailable")
+
+    monkeypatch.setattr(_spacemouse_hid.importlib, "import_module", fail)
+    outcome = checks._sdk_outcome(SpaceMouseTeleop)
+    assert outcome[0] is False and "cannot load hidapi" in outcome[1]
+    assert "wheel" in outcome[2] and "udev" not in outcome[2]

@@ -26,6 +26,7 @@ from robot_infra.devices.backends.arms.franky import (
     parse_libfranka_mismatch,
     server_version_cross_check,
 )
+from robot_infra.devices.backends.teleops._spacemouse_hid import UDEV_HINT
 from robot_infra.devices.claims import DeviceClaim, claim_key
 from robot_infra.discovery import enumerate as probes
 from robot_infra.doctor import probes as os_probes
@@ -124,7 +125,7 @@ def _sdk_outcome(backend_cls: type) -> Outcome:
         return True, "no SDK needed"
     try:
         backend_cls.require_sdk()
-    except SdkMissing as error:
+    except (SdkMissing, VersionMismatch) as error:
         return False, error.message, error.hint
     return True, f"'{backend_cls.SDK}' importable"
 
@@ -320,9 +321,7 @@ def _hid_outcome(pattern: str | None = None) -> Callable[[], Outcome]:
             return (
                 False,
                 f"no read/write access to {denied}",
-                'add a udev rule `SUBSYSTEM=="hidraw", ATTRS{idVendor}=="256f", MODE="0666"` to '
-                "/etc/udev/rules.d/99-spacemouse.rules, then `sudo udevadm control --reload && "
-                "sudo udevadm trigger` and replug; inside Docker pass the node with "
+                UDEV_HINT + "; inside Docker pass the node with "
                 "`docker run --device=/dev/hidrawN`",
             )
         return True, f"{len(paths)} HID device(s) readable and writable: {paths}"

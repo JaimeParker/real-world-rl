@@ -195,6 +195,32 @@ error means this package is missing from the interpreter actually running it.
 Installing `franky-control` supplies the `franky` import and its libfranka build;
 it does not require ROS, and the package name is not `franka`.
 
+### Optional SpaceMouse dependencies
+
+On the NUC (or the machine with the device), repository root, with the project
+environment from step 4 active:
+
+<!-- tutorial-test: skip -->
+```bash
+pip install -e '.[spacemouse]'
+```
+
+This adds `hidapi==0.14.0.post4` (trezor/cython-hidapi, import `hid`) for the
+in-tree device reader, without `pyspacemouse`/`easyhid` on this path. Do not install
+the different distribution named `hid`. From an empty environment instead, on the
+NUC, repository root, no environment active:
+
+<!-- tutorial-test: skip -->
+```bash
+bash scripts/install.sh --extras franka-gello,spacemouse
+source .venv/bin/activate
+```
+
+Complete the one-time [SpaceMouse udev steps](../teleop.md#spacemouse-installation-and-linux-permissions)
+on the NUC before opening the device. The wheel target is Ubuntu 22.04 / CPython
+3.10 / x86_64; clean-machine wheel/system-library checks remain pending, and this
+path is **not yet verified on hardware**.
+
 ## 5. Configure once, then run doctor
 
 For a fresh station, run the [setup wizard](02-station.md) now to create

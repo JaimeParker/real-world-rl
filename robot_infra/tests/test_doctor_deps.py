@@ -417,3 +417,14 @@ def test_yes_needs_install_sdk(tmp_path, capsys):
     with pytest.raises(SystemExit) as info:
         cli.main(["--config", write_config(tmp_path), "--yes"])
     assert info.value.code == 2 and "--install-sdk" in capsys.readouterr().err
+
+
+def test_spacemouse_extra_checks_hid_module(monkeypatch):
+    assert deps.EXTRA_MODULES["spacemouse"] == ("hid",)
+    config = FrankaConfig(arm_backend="fake", gripper=None, teleop=TeleopConfig(backend="spacemouse"))
+    fake_find_spec(monkeypatch, missing={"hid"})
+    outcome = deps.deps_outcome(config)
+    assert not outcome.ok and "spacemouse" in outcome.message
+    assert "pip install" in outcome.hint
+    fake_find_spec(monkeypatch, missing={"pyspacemouse", "easyhid"})
+    assert deps.extra_installed("spacemouse")

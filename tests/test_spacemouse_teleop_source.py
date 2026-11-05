@@ -1,7 +1,7 @@
 """SpaceMouseTeleopSource: the puck as a velocity input over the cartesian command tracker,
 button 0 as the take-over / hand-back toggle, button 1 as the gripper toggle. Most tests drive a
 fake ``cartesian_delta`` teleop part (no thread, a scripted clock); the device-layer tests use a
-mocked ``pyspacemouse`` module (no hardware). Covers the velocity integration and the lead cap,
+mocked ``hid`` module (no hardware). Covers the velocity integration and the lead cap,
 the release, the button edges, the gripper, the workspace and stall holds, the flags and the
 experiment-contract block, the composite with the operator keys, one recorder run and the
 intervention wrapper over the real device layer. The last test covers ``spacemouse_twist``, the
@@ -15,7 +15,7 @@ import sys
 import numpy as np
 import pytest
 import torch
-from _teleop_fakes import HOME_TCP, CartesianPoseEnv, ContractEnv, FakeEnv, make_pyspacemouse
+from _teleop_fakes import HOME_TCP, CartesianPoseEnv, ContractEnv, FakeEnv, make_hid
 from scipy.spatial.transform import Rotation
 
 from robot_infra.devices import DeviceFault, SdkMissing
@@ -564,13 +564,31 @@ def test_recording_a_demo_with_the_spacemouse_and_scripted_operator_events():
     np.testing.assert_allclose(env.tcp[:3], HOME_TCP[:3] + [3 * SPEED_M_S * STEP_S, 0.0, 0.0], atol=1e-6)
 
 
-# -- the device layer (mocked pyspacemouse) --------------------------------------------------
+# -- the device layer (mocked hidapi) --------------------------------------------------
+
+
+def test_hid_fake_queues_button_changes_as_separate_reports():
+    sdk = make_hid()
+    device = sdk.device()
+    try:
+        assert device.read(13)[0] == 1
+        sdk.buttons = (1, 0)
+        assert device.read(13) == [3, 1]
+        assert device.read(13)[0] == 1  # a held button emits no new button report
+        sdk.buttons = (0, 0)
+        sdk.buttons = (1, 0)  # release and re-press before the next HID read
+        assert device.read(13) == [3, 0]
+        assert device.read(13) == [3, 1]
+        sdk.buttons = (1, 0)  # assigning the same level emits nothing
+        assert device.read(13)[0] == 1
+    finally:
+        device.close()
 
 
 @pytest.fixture
-def pyspacemouse(monkeypatch):
-    fake = make_pyspacemouse()
-    monkeypatch.setitem(sys.modules, "pyspacemouse", fake)
+def hid_sdk(monkeypatch):
+    fake = make_hid()
+    monkeypatch.setitem(sys.modules, "hid", fake)
     return fake
 
 
@@ -583,51 +601,51 @@ def _step_until(env, predicate, attempts=400):
     raise AssertionError("the mocked device state never reached a step")
 
 
-def test_the_owned_device_is_opened_by_start_and_closed_by_close(pyspacemouse):
+def test_the_owned_device_is_opened_by_start_and_closed_by_close(hid_sdk):
     source = SpaceMouseTeleopSource(
         follower_pose_getter=_Follower(), last_gripper_action_getter=lambda: OPEN, device_index=3
     )
-    assert pyspacemouse.devices == []  # building opens nothing
+    assert hid_sdk.devices == []  # building opens nothing
     source.start()
     try:
-        assert pyspacemouse.devices[0].kwargs == {"device_index": 3}
+        assert hid_sdk.devices[0].kwargs == {"device_index": 3}
     finally:
         source.close()
-    assert pyspacemouse.devices[0].closed
+    assert hid_sdk.devices[0].closed
     source.close()  # safe twice
 
 
 def test_missing_sdk_only_fails_at_start(monkeypatch):
-    monkeypatch.setitem(sys.modules, "pyspacemouse", None)  # makes `import pyspacemouse` fail
+    monkeypatch.setitem(sys.modules, "hid", None)  # makes `import hid` fail
     source = SpaceMouseTeleopSource(follower_pose_getter=_Follower(), last_gripper_action_getter=lambda: OPEN)
     source.reset()  # not connected: nothing to reset
     with pytest.raises(SdkMissing) as error:
         source.start()
-    assert "pyspacemouse" in error.value.hint
+    assert error.value.hint == "pip install -e '.[spacemouse]'"
 
 
-def test_the_wrapper_takes_over_and_hands_back_on_button_0_of_the_device(pyspacemouse):
+def test_the_wrapper_takes_over_and_hands_back_on_button_0_of_the_device(hid_sdk):
     env = CartesianPoseEnv()
     wrapped = TeleopInterventionWrapper(env, device="spacemouse", device_index=1)
     try:
-        assert pyspacemouse.devices[0].kwargs == {"device_index": 1}
+        assert hid_sdk.devices[0].kwargs == {"device_index": 1}
         wrapped.reset()
-        pyspacemouse.twist = (0.5, 0.0, 0.0, 0.0, 0.0, 0.0)  # pyspacemouse x: output axis 1 (base y)
+        hid_sdk.twist = (0.5, 0.0, 0.0, 0.0, 0.0, 0.0)  # HID reader x: output axis 1 (base y)
         for _ in range(20):
             assert wrapped.step(torch.zeros(1, 7))[4]["intervened"] is False  # the puck alone
-        pyspacemouse.buttons = (1, 0)
+        hid_sdk.buttons = (1, 0)
         _step_until(wrapped, lambda info: info["intervened"])
-        pyspacemouse.buttons = (0, 0)
+        hid_sdk.buttons = (0, 0)
         info = _step_until(wrapped, lambda info: info["intervened"] and info["intervene_action"][0, 1] > 0)
         assert info["intervene_action"].abs().max() <= 1.0
         assert wrapped.source.cartesian_tracker.following
-        pyspacemouse.twist = (0.0,) * 6
-        pyspacemouse.buttons = (1, 0)
+        hid_sdk.twist = (0.0,) * 6
+        hid_sdk.buttons = (1, 0)
         _step_until(wrapped, lambda info: not info["intervened"])
         assert not wrapped.source.cartesian_tracker.following
     finally:
         wrapped.close()
-    assert pyspacemouse.devices[0].closed and env.close_calls == 1
+    assert hid_sdk.devices[0].closed and env.close_calls == 1
 
 
 # -- spacemouse_twist: the old raw-twist semantics, sim only ---------------------------------
@@ -642,26 +660,26 @@ def _poll_until(source, predicate, attempts=300):
     raise AssertionError("the mocked device state never reached a reading")
 
 
-def test_spacemouse_twist_keeps_the_raw_twist_motion_intervention_and_old_buttons(pyspacemouse):
+def test_spacemouse_twist_keeps_the_raw_twist_motion_intervention_and_old_buttons(hid_sdk):
     source = make_teleop_source("spacemouse_twist", FakeEnv(), device_index=2, hold_s=0.0)
     assert isinstance(source, SpaceMouseTwistTeleopSource)
     assert (source.action_mode, source.arm_action_dim, source.has_gripper) == ("cartesian_delta", 6, True)
     source.start()
     try:
-        assert pyspacemouse.devices[0].kwargs == {"device_index": 2}
+        assert hid_sdk.devices[0].kwargs == {"device_index": 2}
         assert not source.poll().intervened
-        pyspacemouse.twist = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6)  # x, y, z, roll, pitch, yaw
+        hid_sdk.twist = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6)  # x, y, z, roll, pitch, yaw
         reading = _poll_until(source, lambda r: r.intervened and r.action[0] != 0)  # motion intervenes
         np.testing.assert_allclose(reading.action, [-0.2, 0.1, 0.3, -0.4, -0.5, -0.6, OPEN], atol=1e-6)
         assert not reading.episode_end
 
-        pyspacemouse.twist = (0.0,) * 6
-        pyspacemouse.buttons = (1, 0)
+        hid_sdk.twist = (0.0,) * 6
+        hid_sdk.buttons = (1, 0)
         _poll_until(source, lambda r: r.action[6] == CLOSED)  # button 0: the sticky gripper
-        pyspacemouse.buttons = (0, 1)
+        hid_sdk.buttons = (0, 1)
         reading = _poll_until(source, lambda r: r.episode_end)  # button 1: episode end
         assert reading.intervened  # a held button counts as operating the device
         assert not source.poll().episode_end  # one press, one episode end
     finally:
         source.close()
-    assert pyspacemouse.devices[0].closed
+    assert hid_sdk.devices[0].closed

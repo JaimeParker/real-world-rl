@@ -1,4 +1,4 @@
-"""3Dconnexion SpaceMouse through pyspacemouse 2.x: the puck drives a cartesian twist; every
+"""3Dconnexion SpaceMouse through the in-tree hidapi reader: the puck drives a cartesian twist; every
 button press is latched as an event named after the button (``button_0``, ``button_1``), so a
 press shorter than the consumer's read period is not lost. Neither button ends the episode.
 
@@ -16,10 +16,10 @@ from typing import Any
 
 import numpy as np
 
-from robot_infra.devices.errors import DeviceNotFound, SdkMissing, VersionMismatch
+from robot_infra.devices.backends.teleops import _spacemouse_hid
+from robot_infra.devices.errors import DeviceError
 from robot_infra.devices.teleop import RawReading, Teleop, TeleopConfig
 
-PYSPACEMOUSE_REQUIREMENT = "pyspacemouse>=2.0,<3"
 HIDRAW_GLOB = "/dev/hidraw*"
 # Unverified on hardware: 3Dconnexion is 0x256f, older units enumerate under Logitech 0x046d.
 SPACEMOUSE_VENDOR_IDS = (0x256F, 0x046D)
@@ -30,7 +30,6 @@ _NUM_BUTTONS = 2
 BUTTON_NAMES = tuple(f"button_{index}" for index in range(_NUM_BUTTONS))
 _OPTION_KEYS = {"device_index", "deadzone", "invert_axes", "poll_interval_s"}
 _sleep = time.sleep  # module-level so tests can observe the poll cadence
-_SDK_HINT = f"pip install '{PYSPACEMOUSE_REQUIREMENT}' (or: pip install 'rlgarden-robot-infra[spacemouse]')"
 
 
 @Teleop.register("spacemouse")
@@ -39,18 +38,15 @@ class SpaceMouseTeleop(Teleop):
     the puck counts as idle), ``invert_axes`` (indices 0-5 of the output twist whose sign is
     flipped), ``poll_interval_s`` (default 0.005 = 200 Hz; device poll cadence so a non-blocking
     ``read()`` does not spin a core, may be 0 once ``read()`` is confirmed to block). The twist is the raw puck reading in the robot base frame (axis order
-    ``[-y, x, z, -roll, -pitch, -yaw]`` of the pyspacemouse state), as in HIL-SERL."""
+    ``[-y, x, z, -roll, -pitch, -yaw]`` of the HID reader state), as in HIL-SERL."""
 
-    SDK = "pyspacemouse"
+    SDK = "hid"
     ACTION_SPACE = "cartesian_delta"
     HAS_GRIPPER = True
 
     @classmethod
     def require_sdk(cls) -> ModuleType:
-        try:
-            return super().require_sdk()
-        except SdkMissing as error:
-            raise SdkMissing(error.message, hint=_SDK_HINT, device=error.device) from None
+        return _spacemouse_hid.require_sdk()
 
     def __init__(self, config: TeleopConfig, **kwargs: Any) -> None:
         super().__init__(config, **kwargs)
@@ -94,31 +90,11 @@ class SpaceMouseTeleop(Teleop):
     # -- device ----------------------------------------------------------------
 
     def _open_device(self) -> Any:
-        sdk = self.require_sdk()
-        mismatch = VersionMismatch(
-            f"pyspacemouse {getattr(sdk, '__version__', '?')} lacks the 2.x API "
-            "(open(device_index=...) returning a device with read())",
-            hint=f"pip install '{PYSPACEMOUSE_REQUIREMENT}'",
-            device=self.name,
-        )
-        if not callable(getattr(sdk, "open", None)):
-            raise mismatch
         try:
-            device = sdk.open(device_index=self._device_index)
-        except Exception as error:
-            raise DeviceNotFound(
-                f"cannot open SpaceMouse #{self._device_index}: {error}",
-                hint="plug it in and check /dev/hidraw* permissions (`python -m robot_infra.doctor`)",
-                device=self.name,
-            ) from error
-        if device is None:
-            raise DeviceNotFound(
-                f"pyspacemouse found no SpaceMouse #{self._device_index}",
-                hint="plug it in and check /dev/hidraw* permissions (`python -m robot_infra.doctor`)",
-                device=self.name,
-            )
-        if not callable(getattr(device, "read", None)):
-            raise mismatch
+            device = _spacemouse_hid.open(device_index=self._device_index)
+        except DeviceError as error:
+            error.device = self.name
+            raise
         with self._state_lock:
             self._reset_state()
         return device

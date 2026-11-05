@@ -119,7 +119,10 @@ machine, from the repository root (no venv required), then retry the installer.
 
 On the robot PC only the device layer is needed (see [`robot_infra/README.md`](robot_infra/README.md)):
 `pip install -e robot_infra` (plus the extras for your hardware, e.g. `'robot_infra[franky,grpc]'`).
-`pyspacemouse` (`--teleop-device spacemouse`) is imported lazily and installed only where the device is used.
+For SpaceMouse, on the NUC/device host, repository root, project environment active,
+run `pip install -e '.[spacemouse]'` to add `hidapi==0.14.0.post4` (import `hid`) for
+the in-tree reader; follow the [udev steps](docs/teleop.md#spacemouse-installation-and-linux-permissions).
+This path is not yet verified on hardware.
 
 ## Tests
 
@@ -235,7 +238,7 @@ The HIL methods (`hil_serl`, `residual_hil_serl`, `silri`) take human interventi
 the raw-twist SpaceMouse of the sim examples, not for real robots). Only the actor and
 eval processes open the device; the learner builds its env with the teleop wrapper disabled, so no
 HID or ZMQ device is opened on the GPU box. `--teleop-device spacemouse` is a SpaceMouse on the
-actor's machine, driven through the device layer's `SpaceMouseTeleop` (needs `pyspacemouse>=2,<3`).
+actor's machine, driven through the device layer's `SpaceMouseTeleop` (needs `hidapi==0.14.0.post4`, import `hid`).
 The `TeleopSource` contract, the `info` keys the wrapper writes (`intervene_action`, `policy_action`,
 `intervened`, `intervention_onset`, `human_episode_end`, `teleop_events`), the demo and recording
 scripts, and how to add a device are in [`docs/teleop.md`](docs/teleop.md).

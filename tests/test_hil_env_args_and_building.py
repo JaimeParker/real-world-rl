@@ -450,18 +450,18 @@ def test_options_yaml_must_hold_a_mapping(tmp_path):
 def test_options_yaml_device_index_opens_that_spacemouse(tmp_path, monkeypatch):
     import sys
 
-    from _teleop_fakes import CartesianPoseEnv, make_pyspacemouse
+    from _teleop_fakes import CartesianPoseEnv, make_hid
 
     from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
 
-    pyspacemouse = make_pyspacemouse()
-    monkeypatch.setitem(sys.modules, "pyspacemouse", pyspacemouse)
+    hid_sdk = make_hid()
+    monkeypatch.setitem(sys.modules, "hid", hid_sdk)
     options = tmp_path / "spacemouse.yaml"
     options.write_text("device_index: 2\n", encoding="utf-8")
     args = HilSerlArgs(teleop_device="spacemouse", teleop_options_yaml=str(options))
     wrapped = TeleopInterventionWrapper(CartesianPoseEnv(), **env_building.teleop_wrapper_kwargs(args))
     try:
-        assert pyspacemouse.devices[0].kwargs == {"device_index": 2}
+        assert hid_sdk.devices[0].kwargs == {"device_index": 2}
     finally:
         wrapped.close()
 

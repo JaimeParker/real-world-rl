@@ -40,9 +40,9 @@ piper-sdk = ["piper_sdk"]
 grpc = ["grpcio>=1.60"]
 # server/codec.py: lossy JPEG camera frames (daemon --jpeg-quality); needed on the daemon and the client.
 jpeg = ["pillow", "opencv-python-headless"]
-# devices/backends/teleops/spacemouse.py: SpaceMouse teleop (pyspacemouse 2.x API; the legacy `real` extra
-# is for teleop/spacemouse/, which uses the old read_all() API). hidapi is optional, for discovery.
-spacemouse = ["pyspacemouse>=2.0,<3"]
+# In-tree SpaceMouse decoder with trezor/cython-hidapi (import hid), pinned for
+# Ubuntu 22.04 / CPython 3.10 / x86_64. The legacy `real` extra remains separate.
+spacemouse = ["hidapi==0.14.0.post4"]
 # devices/backends/teleops/gello.py: GELLO leader arm over Dynamixel Protocol 2.0 (also the calibration CLI).
 gello = ["dynamixel-sdk>=3.7.31,<3.9"]
 # devices/backends/teleops/gello.py with options.event_device: pedal/keyboard toggle and events via evdev (Linux).
@@ -53,4 +53,4 @@ dev = ["pytest"]
 include = ["robot_infra*"]
 
 [tool.setuptools.package-data]
-robot_infra = ["setup/*.yaml"]
+robot_infra = ["setup/*.yaml", "setup/*.rules"]

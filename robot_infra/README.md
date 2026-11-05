@@ -38,12 +38,12 @@ pip install -e '.[franky,grpc]'     # e.g. a Franka robot PC running the daemon
 | `pyagxarm` | `pyAgxArm` (from GitHub) | Piper via `arm_backend: pyagxarm` (the default for Piper) | robot PC |
 | `piper-sdk` | `piper_sdk` | Piper via the vendor SDK (`arm_backend: piper_sdk`) | robot PC |
 | `realsense` | `pyrealsense2` | RealSense cameras | robot PC |
-| `spacemouse` | `pyspacemouse>=2.0,<3` | `teleop: {backend: spacemouse}` (optional `hidapi` improves discovery) | robot PC |
+| `spacemouse` | `hidapi==0.14.0.post4` (trezor/cython-hidapi, import `hid`) | `teleop: {backend: spacemouse}` (in-tree reader and discovery) | robot PC |
 | `gello` | `dynamixel-sdk>=3.7.31,<3.9` | `teleop: {backend: gello}` (GELLO leader arm) and its calibration CLI | robot PC |
 | `gello-events` | `evdev` | a gello `event_device` (pedal or keyboard toggle and events, Linux) | robot PC |
 | `grpc` | `grpcio>=1.60` | the daemon (`python -m robot_infra.server`) and `RemoteRobot` | robot PC **and** GPU machine |
 | `jpeg` | `pillow`, `opencv-python-headless` (`cv2`) | `python -m robot_infra.server --jpeg-quality N`; the JPEG path in `server/codec.py` imports `cv2` | robot PC **and** GPU machine |
-| `real` | `flask`, `pyzmq`, `scipy`, `pyspacemouse` | legacy Flask bridge/gripper server and the legacy `teleop/spacemouse/` (old `read_all()` API; do not combine with the `spacemouse` extra's 2.x pin; ROS1 must be installed separately) | robot PC |
+| `real` | `flask`, `pyzmq`, `scipy`, `pyspacemouse` | legacy Flask bridge/gripper server and the legacy `teleop/spacemouse/` (old `read_all()` API, separate from the in-tree reader; ROS1 must be installed separately) | robot PC |
 | `sim` | `mani_skill` | the ManiSkill impedance controllers in `controller/simulator/` | GPU machine |
 | `dev` | `pytest` | running the tests | any |
 
@@ -98,6 +98,59 @@ per arm or one for all arms. `--non-interactive` fails on the first question tha
 flag nor a `--from` value; `--non-interactive --from X` rewrites `X` unchanged. An existing file
 is first copied to `station.yaml.bak.<UTC %Y%m%dT%H%M%SZ>`, then replaced atomically. A probed
 value is required unless `--allow-unprobed`.
+
+
+### SpaceMouse Python dependencies and udev
+
+In the existing project environment, the version chain is the repository-root
+`spacemouse` extra → `rlgarden-robot-infra[spacemouse]==0.0.1` →
+`hidapi==0.14.0.post4` (trezor/cython-hidapi, import `hid`). On the NUC/device host,
+repository root, project environment active:
+
+```bash
+pip install -e '.[spacemouse]'
+```
+
+The in-tree reader ports all 10 models from the vendored PySpaceMouse 1.0.3 table;
+Enterprise is not in that table. It uses `hid.device()` and does not import
+`pyspacemouse`/`easyhid`. Do not install the different distribution named `hid`.
+The legacy `real` extra and `SpaceMouseExpert` still use their existing API.
+For a fresh project environment use the installer on the NUC, repository root,
+no environment active:
+
+```bash
+bash scripts/install.sh --extras franka-gello,spacemouse
+source .venv/bin/activate
+```
+
+The target is Ubuntu 22.04 / CPython 3.10 / x86_64. The wheel route avoids
+system `libhidapi` lookup through easyhid; the wheel's ELF/system-library
+requirements still need a clean-machine check. Installation and device operation
+are **not yet verified on hardware**.
+
+The rules file ships as `robot_infra.setup/99-spacemouse.rules`, permitting vendor
+`256f` and `046d` hidraw devices with `MODE="0664", GROUP="plugdev"`. Install it
+once on the NUC, repository root, any shell (no project environment required),
+with sudo permission:
+
+```bash
+sudo cp robot_infra/robot_infra/setup/99-spacemouse.rules /etc/udev/rules.d/
+sudo usermod -aG plugdev "$USER"
+sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw
+```
+
+Log out and log back in, then unplug and replug the device. Alternatively, on the
+NUC from any directory, **project environment active**, with sudo permission,
+copy the packaged file below, then run the same group/reload commands:
+
+```bash
+sudo cp "$(python -c 'import robot_infra.setup, os; print(os.path.dirname(robot_infra.setup.__file__))')/99-spacemouse.rules" /etc/udev/rules.d/
+```
+
+See [SpaceMouse installation](../docs/teleop.md#spacemouse-installation-and-linux-permissions)
+for the full installation boundary. The device layer's button levels and latched
+press events remain distinct from the application's take-over/gripper semantics
+([step 7](#7-add-a-teleop-device)).
 
 ## How to Start
 
@@ -240,7 +293,7 @@ franka (franka)
     wrist: RealSenseCamera [sdk=pyrealsense2, connected=False]
 ```
 
-With a `teleop:` section a last line is added, for example `  teleop: SpaceMouseTeleop [sdk=pyspacemouse, connected=False]`.
+With a `teleop:` section a last line is added, for example `  teleop: SpaceMouseTeleop [sdk=hid, connected=False]`.
 
 ### 2. Plug in and discover
 
@@ -382,12 +435,12 @@ $ python -m robot_infra.doctor --config robot.yaml --mock
 [4/5] feedback:teleop:teleop ... OK  teleop poll thread alive
 ```
 
-Without `--mock`, on a machine without `pyspacemouse` and without a SpaceMouse, the teleop
+Without `--mock`, on a machine without `hidapi` and without a SpaceMouse, the teleop
 lines read (the `os:hid` line is only checked for the SpaceMouse backend):
 
 ```text
-[1/5] sdk:teleop:spacemouse ... FAIL  SpaceMouseTeleop needs the 'pyspacemouse' package
-    hint: pip install 'pyspacemouse>=2.0,<3' (or: pip install 'rlgarden-robot-infra[spacemouse]')
+[1/5] sdk:teleop:spacemouse ... FAIL  SpaceMouse needs the 'hidapi==0.14.0.post4' distribution (import hid)
+    hint: pip install -e '.[spacemouse]'
 [2/5] os:teleop:teleop ... FAIL  no 'spacemouse' teleop device found
     hint: plug in the teleop device and run `python -m robot_infra.discovery`
 [2/5] os:hid ... FAIL  no HID device found
@@ -395,9 +448,11 @@ lines read (the `os:hid` line is only checked for the SpaceMouse backend):
 ```
 
 When a `/dev/hidraw*` node exists but this user cannot open it, `os:hid` fails with
-`no read/write access to ['/dev/hidraw3']` and the hint
-`add a udev rule SUBSYSTEM=="hidraw", ATTRS{idVendor}=="256f", MODE="0666" to /etc/udev/rules.d/99-spacemouse.rules, then sudo udevadm control --reload && sudo udevadm trigger and replug; inside Docker pass the node with docker run --device=/dev/hidrawN`
-(the vendor id in the rule is the 3Dconnexion one; check `lsusb` for your unit).
+`no read/write access to ['/dev/hidraw3']` and a hint to install the
+[packaged vendor rules](#spacemouse-python-dependencies-and-udev) with `sudo cp`,
+join `plugdev`, reload the rules, log in again and replug. A missing Python SDK
+instead gives the pip command above (NUC, repository root, project environment
+active); native import failures report wheel/platform loading separately.
 
 The Piper example with no CAN adapter plugged in (trimmed):
 
@@ -749,7 +804,7 @@ gripper target (1.0 = open at connect). Neither button raises `episode_end`. rea
 `--teleop-device spacemouse` gives the buttons its own meaning (button 0 take-over, button 1
 gripper) and ignores `gripper` and `intervening`. It needs read/write access to
 `/dev/hidraw*`; `python -m robot_infra.doctor` checks this as `os:hid` and prints the udev
-rule. See [Known limitations](#known-limitations-and-needs-hardware-verification).
+rule installation command. See [Known limitations](#known-limitations-and-needs-hardware-verification).
 
 `backend: gello` (extra `gello`, plus `gello-events` for `event_device`) is a GELLO leader arm
 (passive Dynamixel servos, Protocol 2.0, through a U2D2 or OpenRB-150): a `joint_abs` device
@@ -830,7 +885,7 @@ own.
 | gripper `pyagxarm` / `piper_sdk` | as the arm | - | - | requires `shares_arm_session: true` and the matching arm backend |
 | camera `realsense` | `pyrealsense2` (`realsense`) | - | - | RGB (+ aligned depth in metres with `enable_depth`) |
 | `fake` gripper / camera | none | - | - | tests and `--mock` |
-| teleop `spacemouse` | `pyspacemouse>=2,<3` (`spacemouse`) | - | - | cartesian twist + sticky gripper; `Teleop.backends()` is `fake`, `gello`, `spacemouse` |
+| teleop `spacemouse` | `hidapi==0.14.0.post4`, import `hid` (`spacemouse`) | - | - | cartesian twist + sticky gripper; `Teleop.backends()` is `fake`, `gello`, `spacemouse` |
 | teleop `gello` | `dynamixel-sdk` (`gello`; `evdev` via `gello-events`) | - | - | GELLO leader arm, `joint_abs` + optional gripper; torque off; evdev toggle and events |
 | teleop `fake` | none | - | - | scripted samples, `push()` injection, `fail_after`; tests and `--mock` |
 
@@ -900,7 +955,7 @@ Device errors subclass `DeviceError` (a `RuntimeError`) and carry `message`, `hi
 | `device_already_connected` | `DeviceAlreadyConnected` | defined; not raised by current backends (`connect()` is idempotent) |
 | `device_busy` | `DeviceBusy` | another process holds the claim |
 | `device_fault` | `DeviceFault` (`recoverable: bool`) | reflex, e-stop, no feedback, wrong mode, watchdog |
-| `version_mismatch` | `VersionMismatch` | libfranka vs robot server version; a `pyspacemouse` without the 2.x API (`open(device_index=...)`) |
+| `version_mismatch` | `VersionMismatch` | libfranka vs robot server version; the wrong distribution `hid` without trezor's `hid.device()` API |
 | `safety_violation` | `SafetyViolation` | a `move_to_*` target outside `safety_box` / `joint_limits`; message lists the offending axes, hint `change the target, or the limits in the robot yaml on the robot host` |
 | `transport` | `TransportError` (a `DeviceFault`) | daemon unreachable, timeout, token mismatch |
 
@@ -927,9 +982,11 @@ Nothing below has been exercised on real hardware; the fakes cover the logic onl
   (Logitech, older units). Both are unverified; without `hidapi` it lists every `/dev/hidraw*`.
 - **udev and Docker.** The udev rule printed by `os:hid` and the `docker run --device=/dev/hidrawN`
   hint are untested on a robot PC. A container needs the node passed in before the daemon starts.
-- **Does `pyspacemouse` `read()` block?** The backend polls at `poll_interval_s` (default 0.005 s)
-  so a non-blocking `read()` does not spin a core; set it to `0` only after confirming that
-  `read()` blocks on your pyspacemouse version.
+- **SpaceMouse wheel and timing.** The in-tree reader uses `set_nonblocking(1)` and
+  polls one report every `poll_interval_s` (default 0.005 s, 200 Hz). Queue latency,
+  split-report timing, device directions and disconnect behavior are not yet verified
+  on hardware. The `hidapi==0.14.0.post4` wheel's ELF/system-library dependencies
+  remain unverified on a clean Ubuntu 22.04 / CPython 3.10 / x86_64 machine.
 - **Piper master arm** as a teleop (leader-follower) is not implemented; the leader-arm backend is
   `gello` (Dynamixel). `joint_delta` is exercised by the fake only.
 - **GELLO on hardware.** The `gello` backend and its calibration CLI run against a fake
@@ -974,4 +1031,4 @@ These modules predate the device layer and are kept for existing users. Planned 
   `read_all()` API, extra `real`; `teleop/utils/` twist teleop for Pico over ZeroMQ;
   `teleop/examples/`). The `Teleop` part ([step 7](#7-add-a-teleop-device)) supersedes the
   SpaceMouse code. The Pico path is not migrated yet and `real-world-rl`'s
-  `--teleop-device pico|spacemouse` still imports these modules, so they stay until it is.
+  `--teleop-device pico` still imports these modules, so they stay until it is.

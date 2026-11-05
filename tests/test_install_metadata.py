@@ -60,6 +60,12 @@ def test_device_jpeg_extra_and_local_versions():
     assert not any("git+" in requirement for requirement in device["dependencies"])
 
 
+def test_spacemouse_extra_pins_trezor_hidapi_and_preserves_legacy_real():
+    device = load_project(ROOT / "robot_infra" / "pyproject.toml")
+    assert device["optional-dependencies"]["spacemouse"] == ["hidapi==0.14.0.post4"]
+    assert device["optional-dependencies"]["real"] == ["flask", "pyzmq", "scipy", "pyspacemouse"]
+
+
 def test_installer_shell_syntax():
     subprocess.run(["bash", "-n", str(INSTALLER)], check=True, capture_output=True, text=True)
 

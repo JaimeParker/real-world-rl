@@ -1,0 +1,2 @@
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="256f", MODE="0664", GROUP="plugdev"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", MODE="0664", GROUP="plugdev"

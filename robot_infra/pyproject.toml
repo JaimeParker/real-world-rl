@@ -17,6 +17,9 @@ dependencies = [
     "msgpack",
 ]
 
+[project.scripts]
+robot-infra = "robot_infra.cli:main"
+
 [project.optional-dependencies]
 # controller/simulator/maniskill/: mani_skill-backed sim controllers.
 sim = ["mani_skill"]

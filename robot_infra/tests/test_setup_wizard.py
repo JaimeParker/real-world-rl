@@ -192,10 +192,12 @@ def test_a_failed_calibration_can_be_skipped_and_leaves_a_todo():
 # -- non-interactive and flags --------------------------------------------------------------------
 
 
-def test_non_interactive_without_flags_fails_and_writes_nothing(tmp_path):
+def test_non_interactive_without_flags_fails_and_writes_nothing(tmp_path, capsys):
     out = tmp_path / "station.yaml"
     code, output = run(["--mock", "--non-interactive", "--output", out], never_asked)
-    assert code == 2 and "--non-interactive needs --arms" in output and not out.exists()
+    error = capsys.readouterr().err
+    assert "error:" not in output
+    assert code == 2 and "--non-interactive needs --arms" in error and not out.exists()
 
 
 def test_non_interactive_flags_write_an_uncalibrated_gello_with_a_todo(tmp_path):
@@ -227,10 +229,12 @@ def test_a_new_gello_gripper_channel_is_binarized_and_none_without_a_gripper(tmp
     assert load_station(without).select().config.teleop.options["gripper_binarize_threshold"] is None
 
 
-def test_unprobed_values_need_allow_unprobed(tmp_path):
+def test_unprobed_values_need_allow_unprobed(tmp_path, capsys):
     argv = [*FLAGGED_ONE_ARM, "--robot-ip", "10.1.2.3", "--output", tmp_path / "station.yaml"]
     code, output = run(argv, never_asked)
-    assert code == 2 and "did not answer the probe" in output
+    error = capsys.readouterr().err
+    assert "error:" not in output
+    assert code == 2 and "did not answer the probe" in error
     code, output = run([*argv, "--allow-unprobed"], never_asked)
     assert code == 0, output
     assert load_station(tmp_path / "station.yaml").select().config.robot_ip == "10.1.2.3"
@@ -246,10 +250,12 @@ def test_only_needs_from():
         run_wizard(probes.mock_station_probe(), Answers(only="cameras"), never_asked, print)
 
 
-def test_per_arm_flags_need_one_value_per_arm_or_one_for_all(tmp_path):
+def test_per_arm_flags_need_one_value_per_arm_or_one_for_all(tmp_path, capsys):
     argv = [*FLAGGED_ONE_ARM, "--arms", "2", "--arm-names", "left", "right", "--output", tmp_path / "s.yaml"]
     code, output = run([*argv, "--robot-ip", "172.16.0.2", "172.16.1.2", "10.0.0.1"], never_asked)
-    assert code == 2 and "--robot-ip needs one value per arm (2)" in output
+    error = capsys.readouterr().err
+    assert "error:" not in output
+    assert code == 2 and "--robot-ip needs one value per arm (2)" in error
 
 
 # -- safety limits -----------------------------------------------------------------------------------
@@ -337,10 +343,12 @@ def test_from_keeps_hand_edited_limits_and_fills_missing_ones(tmp_path):
         ("0.3,-0.3,0.05,0.7,0.3,high", "give 6 numbers in m"),
     ],
 )
-def test_an_invalid_safety_box_flag_is_rejected(tmp_path, box, message):
+def test_an_invalid_safety_box_flag_is_rejected(tmp_path, box, message, capsys):
     out = tmp_path / "station.yaml"
     code, output = run([*FLAGGED_ONE_ARM, "--safety-box", box, "--output", out], never_asked)
-    assert code == 2 and "--safety-box" in output and message in output and not out.exists()
+    error = capsys.readouterr().err
+    assert "error:" not in output
+    assert code == 2 and "--safety-box" in error and message in error and not out.exists()
 
 
 def test_an_invalid_safety_box_answer_is_asked_again():
@@ -361,16 +369,18 @@ def test_an_invalid_safety_box_answer_is_asked_again():
         (["--joint-limits=2,-2,-1.5,1.5,-2,2,-3,-0.1,-2,2,0,3.5,-2,2"], "joint 1: lo 2.0 must be below hi -2.0"),
     ],
 )
-def test_invalid_limit_flags_are_rejected(tmp_path, flags, message):
+def test_invalid_limit_flags_are_rejected(tmp_path, flags, message, capsys):
     code, output = run([*FLAGGED_ONE_ARM, *flags, "--output", tmp_path / "s.yaml"], never_asked)
-    assert code == 2 and message in output
+    error = capsys.readouterr().err
+    assert "error:" not in output
+    assert code == 2 and message in error
 
 
-def test_home_joints_outside_the_joint_limits_give_a_readable_error(tmp_path):
+def test_home_joints_outside_the_joint_limits_give_a_readable_error(tmp_path, capsys):
     limits = "-2,2,-1.5,1.5,-2,2,-2,-0.1,-2,2,0,3.5,-2,2"
     code, output = run([*FLAGGED_ONE_ARM, f"--joint-limits={limits}", "--output", tmp_path / "s.yaml"], never_asked)
     assert code == 2
-    assert "the home pose must lie inside the joint limits: joint 4 = -2.356 is outside [-2.0, -0.1]" in output
+    assert "the home pose must lie inside the joint limits: joint 4 = -2.356 is outside [-2.0, -0.1]" in capsys.readouterr().err
 
 
 def test_bimanual_next_steps_map_renamed_arms_and_skip_teleop_without_one():
@@ -460,11 +470,13 @@ def test_only_teleop_can_recalibrate_interactively(tmp_path):
     np.testing.assert_allclose(options["joint_offsets_rad"], probes.SimulatedGelloBus.HORN_OFFSETS_RAD, atol=1e-4)
 
 
-def test_from_rejects_a_non_franka_station(tmp_path):
+def test_from_rejects_a_non_franka_station(tmp_path, capsys):
     piper = tmp_path / "piper.yaml"
     piper.write_text(yaml.safe_dump({"type": "piper", "arm_backend": "fake"}))
     code, output = run(["--mock", "--non-interactive", "--from", piper, "--output", tmp_path / "s.yaml"], never_asked)
-    assert code == 2 and "edit this one by hand" in output
+    error = capsys.readouterr().err
+    assert "error:" not in output
+    assert code == 2 and "edit this one by hand" in error
 
 
 # -- render and write --------------------------------------------------------------------------------

@@ -164,5 +164,10 @@ def save_classifier_data(
     return success_path, failure_path
 
 
+def main_cli(argv: Optional[Sequence[str]] = None) -> None:
+    """rwrl adapter preserving backend selection and the collector parser."""
+    return main(argv=argv)
+
+
 if __name__ == "__main__":
     main()

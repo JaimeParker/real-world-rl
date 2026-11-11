@@ -12,6 +12,7 @@ https://github.com/wuphilipp/gello_software); the helpers below are pure functio
 reader callable so they run without hardware."""
 from __future__ import annotations
 
+from robot_infra.cli.cmd_gello_calibrate import build_parser
 import argparse
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -189,27 +190,14 @@ def format_yaml_block(
     return "\n".join(lines) + "\n"
 
 
+
+
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        prog="robot_infra.devices.backends.teleops.gello_calibrate",
-        description="Calibrate a GELLO leader arm and print the robot yaml teleop: block",
-    )
-    parser.add_argument("--port", required=True, help="/dev/serial/by-id/... of the U2D2 / OpenRB-150")
-    parser.add_argument("--joint-ids", type=int, nargs="+", required=True)
-    parser.add_argument("--gripper-id", type=int, default=None)
-    parser.add_argument("--baudrate", type=int, default=57600)
-    parser.add_argument(
-        "--calibration-pose",
-        type=float,
-        nargs="+",
-        default=None,
-        help="follower joint angles (rad) of the pose the leader is held in; default: the Franka "
-        "pose 0 0 0 -pi/2 0 pi/2 0 for 7 joints",
-    )
-    parser.add_argument("--joint-signs", type=int, nargs="+", default=None, help="initial signs (default all +1)")
-    parser.add_argument("--joint-limits-yaml", default=None, help="robot yaml whose joint_limits give the wrap centres")
-    parser.add_argument("--skip-sign-check", action="store_true", help="take --joint-signs as they are")
-    args = parser.parse_args(argv)
+    parser = build_parser()
+    return validate_args(parser.parse_args(argv), parser)
+
+
+def validate_args(args, parser):
     num_joints = len(args.joint_ids)
     if args.calibration_pose is None:
         if num_joints != len(FRANKA_CALIBRATION_POSE):
@@ -303,7 +291,11 @@ def calibrate_gello(
 
 
 def main(argv: Sequence[str] | None = None, *, ask: Ask = input, echo: Echo = print) -> int:
-    args = _parse_args(argv)
+    return run(_parse_args(argv), None, ask=ask, echo=echo)
+
+
+def run(args, ctx, *, ask: Ask = input, echo: Echo = print) -> int:
+    args = validate_args(args, getattr(args, "_parser", None) or build_parser())
     joint_limits = None if args.joint_limits_yaml is None else load_joint_limits(args.joint_limits_yaml)
     options = calibrate_gello(
         port=args.port,

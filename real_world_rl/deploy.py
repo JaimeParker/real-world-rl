@@ -721,5 +721,12 @@ def run_cli(argv: Optional[Sequence[str]] = None) -> int:
     return main(tyro.cli(DeployArgs, args=argv))
 
 
+def main_cli(argv: Optional[Sequence[str]] = None) -> int:
+    """rwrl adapter; preserve the existing deployment parser and runner."""
+    import tyro
+
+    return main(tyro.cli(DeployArgs, args=argv))
+
+
 if __name__ == "__main__":
     sys.exit(run_cli())

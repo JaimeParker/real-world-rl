@@ -645,7 +645,7 @@ def test_doctor_compatibility_entry_delegates(monkeypatch):
     assert calls == [["doctor", "--config", "station.yaml", "--json"]]
 
 
-def test_doctor_parser_owns_help_and_preserves_trailing_globals(monkeypatch, capsys):
+def test_doctor_parser_owns_help_and_preserves_trailing_globals(capsys):
     from real_world_rl.cli import build_parser
     from real_world_rl.cli.cmd_doctor import DOCTOR
 
@@ -655,8 +655,24 @@ def test_doctor_parser_owns_help_and_preserves_trailing_globals(monkeypatch, cap
     assert args._command is DOCTOR
     assert (args.station, args.robot, args.mock, args.json, args.fix) == ("second", "right", True, True, True)
     assert not getattr(DOCTOR, "accepts_remaining", False)
-    monkeypatch.setattr("real_world_rl.cli.cmd_forward.import_module",
-                        lambda name: pytest.fail("doctor must not forward"))
+    from robot_infra.cli import DeviceCommand
+    assert not isinstance(DOCTOR, DeviceCommand)
+    script = """
+import importlib.abc
+import sys
+class NoDeviceDoctor(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == 'robot_infra.doctor' or fullname.startswith('robot_infra.doctor.'):
+            raise AssertionError('device doctor import: ' + fullname)
+sys.meta_path.insert(0, NoDeviceDoctor())
+from real_world_rl.cli import main
+assert main(['doctor', '--help']) == 0
+assert 'robot_infra.doctor.cli' not in sys.modules
+"""
+    result = subprocess.run([sys.executable, "-c", script], cwd=Path(__file__).resolve().parents[1],
+                            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
     assert main(["doctor", "--help"]) == 0
     output = capsys.readouterr().out
     assert "usage: rwrl doctor" in output

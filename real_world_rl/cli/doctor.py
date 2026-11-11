@@ -10,6 +10,8 @@ import io
 import sys
 from pathlib import Path
 
+from robot_infra.cli.command import affirmative
+
 from .command import Result
 from .errors import SUCCESS_EXIT_CODE
 from .doctor_host import Host
@@ -347,8 +349,6 @@ def run(ctx, usage_error):
     args = ctx.args
     # Internal loader compatibility; the public station option lives in Context.
     args.config = args.station
-    if args.yes and not (args.fix or args.install_sdk):
-        raise usage_error("--yes requires --fix or --install-sdk")
     root = find_checkout()
     try:
         report = Report(root, directory=args.report_dir)
@@ -393,7 +393,7 @@ def run(ctx, usage_error):
         elif sys.stdin.isatty():
             print("Apply this plan? [y/N] ", end="", file=stream, flush=True)
             try:
-                confirmed = input().strip().lower() in ("y", "yes")
+                confirmed = affirmative(input())
             except EOFError:
                 pass
         if not confirmed:

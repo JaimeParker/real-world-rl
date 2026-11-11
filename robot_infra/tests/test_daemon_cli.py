@@ -124,7 +124,9 @@ def test_failed_preflight_exits_1(config_path, stub_transport, monkeypatch, caps
         daemon, "run_doctor", lambda config: [CheckResult(1, "sdk:arm", False, "boom", "install it")]
     )
     assert daemon.main(["--config", config_path]) == 1
-    out = capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    out = captured.err
     assert "sdk:arm ... FAIL  boom" in out and "hint: install it" in out
     assert "preflight failed; fix the items above or start with --no-preflight" in out
     assert stub_transport.served is None

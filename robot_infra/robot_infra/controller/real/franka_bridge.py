@@ -1,25 +1,21 @@
 """Franka bridge: thin Flask/HTTP forwarder to the ROS-side
 ``serl_franka_controllers`` Cartesian impedance controller.
 
-This is a close port of SERL's own ``franka_server.py``
-(``3rd_party/serl/serl_robot_infra/robot_servers/franka_server.py``, reference
-code -- not imported, since only ``serl_franka_controllers`` itself is
-treated as a real vendored dependency in this repo), scoped down to the
-endpoint set ``rl_garden.envs.franka_real.bridge_client.FrankaBridgeClient``
-actually calls: ``/pose``, ``/getstate``, ``/jointreset``, ``/open_gripper``,
-``/close_gripper``, ``/startimp``, ``/stopimp``.
+This legacy ROS1 server exposes the endpoints used by
+``robot_infra.devices.backends.arms.serl_http.SerlHttpArm``: ``/pose``,
+``/getstate``, ``/jointreset``, ``/open_gripper``, ``/close_gripper``,
+``/startimp`` and ``/stopimp``. It forwards to the ROS controller without
+computing a control law, keeping the ROS dependency in this module.
+See ``robot_infra/README.md`` for the device-layer setup and backend guide.
 
-Explicitly a **transitional** solution -- see
-``docs/superpowers/specs/2026-07-09-real-robot-rl-design.md`` and
-``docs/robot-infra-roadmap.md``: this file does no control-law computation
-itself, it only forwards to the ROS controller so the ROS dependency stays
-confined to this one module.
+It remains a standalone ``python -m robot_infra.controller.real.franka_bridge``
+entry point and is intentionally excluded from the unified CLI registry.
 
 All ROS/Flask imports are lazy (inside functions/methods) so this module can
 be imported -- e.g. for discovery/inspection -- without ROS, Flask, or any
 Franka message packages installed. Running the server obviously still
 requires them plus a real robot; that is explicitly out of scope for this
-repo's automated tests (see the design doc's Testing & Verification section).
+repo's automated tests.
 """
 from __future__ import annotations
 

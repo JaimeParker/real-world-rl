@@ -324,7 +324,7 @@ def test_install_sdk_yes_installs_and_reruns_the_doctor(tmp_path, monkeypatch, c
     assert "--install-sdk" not in pip.calls[1]
 
 
-@pytest.mark.parametrize("answer", ["n", "N", "", "no"])
+@pytest.mark.parametrize("answer", ["n", "N", "", "no", "yes", "true", "1"])
 def test_install_sdk_declined_installs_nothing(tmp_path, monkeypatch, capsys, arm_mismatch, answer):
     path = write_config(tmp_path)
     pip = FakeSubprocess(monkeypatch)
@@ -359,7 +359,7 @@ def test_install_sdk_pip_failure_skips_the_rerun(tmp_path, monkeypatch, capsys, 
     path = write_config(tmp_path)
     pip = FakeSubprocess(monkeypatch, returncodes=[2])
     assert cli.main(["--config", path, "--install-sdk", "--yes"]) == 1
-    assert len(pip.calls) == 1 and "pip exited with code 2" in capsys.readouterr().out
+    assert len(pip.calls) == 1 and "pip exited with code 2" in capsys.readouterr().err
 
 
 def test_install_sdk_json_reports_the_command_without_prompting(tmp_path, monkeypatch, capsys, arm_mismatch):
@@ -369,6 +369,8 @@ def test_install_sdk_json_reports_the_command_without_prompting(tmp_path, monkey
     assert cli.main(["--config", path, "--install-sdk", "--json"]) == 1
     payload = json.loads(capsys.readouterr().out)
     assert pip.calls == []
+    assert payload["status"] == "FAIL" and payload["schema_version"] == 1
+    payload = payload["results"]
     (entry,) = payload["install_sdk"]
     assert (entry["robot"], entry["server_version"], entry["library_version"]) == (robot_name(path), 10, 9)
     assert entry["command"].split()[1:] == INSTALL_ARGV_10[1:]
@@ -413,10 +415,14 @@ def test_install_sdk_refuses_robots_with_different_server_versions(tmp_path, mon
     assert "by-robot-server-version/10/" in out and "by-robot-server-version/9/" in out
 
 
-def test_yes_needs_install_sdk(tmp_path, capsys):
-    with pytest.raises(SystemExit) as info:
-        cli.main(["--config", write_config(tmp_path), "--yes"])
-    assert info.value.code == 2 and "--install-sdk" in capsys.readouterr().err
+def test_yes_without_install_sdk_still_runs_preflight(tmp_path, monkeypatch, capsys):
+    path = write_config(tmp_path)
+    checked = []
+    monkeypatch.setattr(cli, "doctor_station", lambda *a, **kw: checked.append((a, kw)) or {})
+    monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("--yes must not prompt"))
+    assert cli.main(["--config", path, "--yes"]) == 0
+    assert len(checked) == 1 and checked[0][1]["fix"] is False
+    assert "overall:" in capsys.readouterr().out
 
 
 def test_spacemouse_extra_checks_hid_module(monkeypatch):

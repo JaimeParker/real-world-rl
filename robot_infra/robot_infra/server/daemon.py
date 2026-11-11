@@ -5,6 +5,8 @@ the station file is resolved (``$ROBOT_INFRA_CONFIG``, ``./local/station.yaml``,
 per robot (or serves only ``--robot NAME``)."""
 from __future__ import annotations
 
+from robot_infra.cli.cmd_daemon import build_parser
+from robot_infra.cli.errors import FAILURE_EXIT_CODE, SUCCESS_EXIT_CODE, USAGE_EXIT_CODE
 import argparse
 import os
 import signal
@@ -17,7 +19,6 @@ from typing import Sequence
 
 from robot_infra.devices import Robot, RobotConfig
 from robot_infra.discovery.autoconfig import (
-    DEFAULT_DAEMON_BIND,
     Station,
     fill_from_env,
     load_config_with_env,
@@ -37,23 +38,10 @@ _launch_daemon = subprocess.Popen
 _sleep = time.sleep
 
 
-def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(prog="robot_infra.server", description="Serve one robot over the network")
-    parser.add_argument("--config", default=None, help="robot or station yaml; default: $ROBOT_INFRA_CONFIG, "
-        "./local/station.yaml, then ~/.config/robot_infra/station.yaml")
-    parser.add_argument("--robot", default=None, help="serve only this robot of a station (default: every robot, "
-        "one daemon process each)")
-    parser.add_argument("--bind", default=None, help="host:port to listen on (default: the robot's daemon.bind, "
-        f"else {DEFAULT_DAEMON_BIND}); single robot only")
-    parser.add_argument("--token", default=None, help="shared secret clients must send (default: the robot's "
-        "daemon.token); single robot only")
-    parser.add_argument("--no-preflight", action="store_true", help="skip the doctor before serving")
-    parser.add_argument("--watchdog-s", type=float, default=0.5, help="idle a servoing arm after this long without actions")
-    parser.add_argument("--jpeg-quality", type=int, default=None, help="lossy-JPEG the color image of every camera frame at this quality (1-100); depth stays raw. "
-        "Train and deploy with the same value; default sends raw frames")
-    parser.add_argument("--transport", choices=_TRANSPORT_NAMES, default="grpc")
-    return parser.parse_args(argv)
 
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    return build_parser().parse_args(argv)
 
 def _make_transport(name: str) -> Transport:
     if name == "grpc":
@@ -69,9 +57,10 @@ def load_daemon_config(args: argparse.Namespace) -> RobotConfig:
 
 def preflight_passed(config: RobotConfig) -> bool:
     results = run_doctor(config)
-    print(format_text(results))
-    if exit_code(results):
-        print("preflight failed; fix the items above or start with --no-preflight")
+    failed = exit_code(results)
+    print(format_text(results), file=sys.stderr if failed else sys.stdout)
+    if failed:
+        print("preflight failed; fix the items above or start with --no-preflight", file=sys.stderr)
         return False
     return True
 
@@ -88,12 +77,15 @@ def build_daemon(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(argv)
+    return run(parse_args(argv), None)
+
+
+def run(args, ctx) -> int:
     try:
         path = resolve_station_config_path(args.config)
     except FileNotFoundError as error:
-        print(error)
-        return 2
+        print(error, file=sys.stderr)
+        return USAGE_EXIT_CODE
     station = load_station(path)
     if args.robot is None and len(station.robots) > 1:
         return serve_station(args, path, station)
@@ -106,7 +98,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 def serve_robot(args: argparse.Namespace, config: RobotConfig, *, bind: str, token: str | None) -> int:
     """Preflight, then serve ``config`` on ``bind`` until SIGINT/SIGTERM."""
     if not args.no_preflight and not preflight_passed(config):
-        return 1
+        return FAILURE_EXIT_CODE
     service, transport = build_daemon(args, config=config)
     robot = service.robot
     print(robot.describe_text())
@@ -126,7 +118,7 @@ def serve_robot(args: argparse.Namespace, config: RobotConfig, *, bind: str, tok
             signal.signal(signum, handler)
         transport.stop()
         service.close()
-    return 0
+    return SUCCESS_EXIT_CODE
 
 
 # -- multi-robot station ---------------------------------------------------------
@@ -174,8 +166,8 @@ def serve_station(args: argparse.Namespace, config_path: str | Path, station: St
     problems = _station_conflicts(args, station)
     if problems:
         for problem in problems:
-            print(f"error: {problem}")
-        return 2
+            print(f"error: {problem}", file=sys.stderr)
+        return USAGE_EXIT_CODE
     print(f"starting {len(station.robots)} daemons from {config_path}: " + ", ".join(
         f"'{name}' on {robot.bind}" for name, robot in station.robots.items()
     ))
@@ -217,7 +209,8 @@ def _wait_for_children(children: dict[str, subprocess.Popen]) -> dict[str, int]:
             returncode = child.poll()
             if returncode is not None:
                 exit_codes[name] = _shell_exit_code(returncode)
-                print(f"daemon '{name}' exited with code {exit_codes[name]}")
+                print(f"daemon '{name}' exited with code {exit_codes[name]}",
+                      file=sys.stderr if exit_codes[name] else sys.stdout)
         if len(exit_codes) == len(children):
             return {name: exit_codes[name] for name in children}
         _sleep(_CHILD_POLL_INTERVAL_S)

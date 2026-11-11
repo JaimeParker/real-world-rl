@@ -15,7 +15,7 @@ a thread writes to once ``waitid(..., WNOWAIT)`` returns. Linux only.
 """
 from __future__ import annotations
 
-import argparse
+from robot_infra.cli.cmd_supervise import build_parser
 import ctypes
 import dataclasses
 import json
@@ -33,7 +33,7 @@ from robot_infra.supervise.heartbeat import HEARTBEAT_FD_ENV, LONG_OPERATION_BYT
 
 _PR_SET_PDEATHSIG = 1
 # Exit code when the child was escalated but still exited 0 (it handled the SIGINT gracefully).
-ESCALATED_EXIT_CODE = 1
+from robot_infra.cli.errors import ESCALATED_EXIT_CODE, LAUNCH_FAILURE_EXIT_CODE, USAGE_EXIT_CODE
 
 
 class UnsupportedPlatform(RuntimeError):
@@ -92,28 +92,15 @@ class SupervisorOptions:
                 raise ValueError(f"{name} must be a positive finite number of seconds, got {value}")
 
 
+
+
 def parse_args(argv: Sequence[str] | None = None) -> tuple[SupervisorOptions, list[str], Optional[str]]:
-    defaults = SupervisorOptions()
-    parser = argparse.ArgumentParser(
-        prog="robot_infra.supervise",
-        description="Run a robot process under a separate heartbeat watchdog; on silence escalate "
-        "SIGINT -> SIGTERM -> SIGKILL to its process group.",
-        usage="python -m robot_infra.supervise [options] -- <command...>",
-    )
-    parser.add_argument("--heartbeat-timeout-s", type=float, default=defaults.heartbeat_timeout_s,
-                        help="escalate after this long without a heartbeat")
-    parser.add_argument("--grace-s", type=float, default=defaults.grace_s,
-                        help="wait this long after SIGINT before SIGTERM")
-    parser.add_argument("--kill-s", type=float, default=defaults.kill_s,
-                        help="wait this long after SIGTERM before SIGKILL")
-    parser.add_argument("--startup-s", type=float, default=defaults.startup_s,
-                        help="no heartbeat is required until the first one arrives or this elapses")
-    parser.add_argument("--long-op-s", type=float, default=defaults.long_op_s,
-                        help="silence allowed after the child announces a long operation (an env reset)")
-    parser.add_argument("--log", default=None, help="append a jsonl event log to this path")
-    parser.add_argument("command", nargs=argparse.REMAINDER, help="the supervised command, after --")
-    args = parser.parse_args(argv)
-    command = list(args.command)
+    parser = build_parser()
+    return options_from_args(parser.parse_args(argv), parser)
+
+
+def options_from_args(args, parser):
+    command = list(args.child_command)
     if command and command[0] == "--":
         command = command[1:]
     if not command:
@@ -308,18 +295,22 @@ def _drain(fd: int) -> Optional[bytes]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    options, command, log_path = parse_args(argv)
+    return run(build_parser().parse_args(argv), None)
+
+
+def run(args, ctx) -> int:
+    options, command, log_path = options_from_args(args, getattr(args, "_parser", None) or build_parser())
     try:
         require_supported_platform()
     except UnsupportedPlatform as error:
         _say(str(error))
-        return 2
+        return USAGE_EXIT_CODE
     log = open(log_path, "a", encoding="utf-8") if log_path is not None else None
     try:
         return supervise(command, options, log=log)
     except (FileNotFoundError, PermissionError) as error:
         _say(f"cannot start {command[0]!r}: {error}")
-        return 127
+        return LAUNCH_FAILURE_EXIT_CODE
     finally:
         if log is not None:
             log.close()

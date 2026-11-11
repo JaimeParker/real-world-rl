@@ -366,7 +366,18 @@ def parser_for(argv: Sequence[str]) -> tuple[Callable[[Sequence[str]], None], li
     """The parser of ``argv``'s program and the arguments it takes."""
     if argv[0] == "rwrl":
         from real_world_rl.cli import build_parser
-        return build_parser().parse_args, list(argv[1:])
+        def parse_rwrl(arguments):
+            parser = build_parser()
+            args, remaining = parser.parse_known_args(arguments)
+            from real_world_rl.cli.cmd_learning import LearningCommand
+            if isinstance(args._command, LearningCommand):
+                learning_parsers = {"train": parse_training, "record": parse_recorder,
+                                    "deploy": parse_deploy, "collect-reward": parse_collector}
+                entrypoint_args = args._command.entrypoint_argv(args, remaining)
+                return learning_parsers[args._command.name](entrypoint_args)
+            return parser.parse_args(arguments)
+
+        return parse_rwrl, list(argv[1:])
     if argv[0] in CONSOLE_SCRIPT_PARSERS:
         return CONSOLE_SCRIPT_PARSERS[argv[0]], list(argv[1:])
     if argv[0] in _PYTHONS and len(argv) >= 3 and argv[1] == "-m" and argv[2] == "robot_infra.supervise":
@@ -447,3 +458,15 @@ def test_variables_expand_like_the_shell():
         expand_variables("run --base $BASE", variables)
     with pytest.raises(ValueError, match="undefined"):
         expand_variables("run $MISSING", variables)
+
+
+@pytest.mark.parametrize('name,parser_name', [
+    ('train', 'parse_training'), ('record', 'parse_recorder'),
+    ('deploy', 'parse_deploy'), ('collect-reward', 'parse_collector'),
+])
+def test_rwrl_learning_parser_hook(monkeypatch, name, parser_name):
+    calls = []
+    monkeypatch.setitem(globals(), parser_name, lambda argv: calls.append(argv))
+    parse, argv = parser_for(['rwrl', '--preset', 'P.yaml', name, 'algo', '--help'])
+    parse(argv)
+    assert calls == [['--config', 'P.yaml', 'algo', '--help']]

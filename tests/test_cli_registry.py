@@ -4,7 +4,6 @@ from contextlib import contextmanager
 import io
 import json
 from pathlib import Path
-from types import SimpleNamespace
 import sys
 
 import pytest
@@ -26,7 +25,8 @@ def options(**changes):
 def test_registry_contract_and_parser_commands():
     names = [command.name for command in COMMANDS]
     assert names == ["status", "q", "tcp", "stop", "recover", "home", "gripper",
-                     "doctor", "setup", "daemon", "supervise", "teleop", "workspace"]
+                     "doctor", "setup", "daemon", "supervise", "discover", "gello-calibrate", "teleop", "workspace",
+                     "train", "record", "deploy", "collect-reward"]
     assert len(names) == len(set(names))
     parser = build_parser()
     subparsers = next(action for action in parser._actions if isinstance(action, argparse._SubParsersAction))
@@ -125,32 +125,62 @@ def test_command_system_exit_codes(monkeypatch, capsys, code, expected, as_json)
         assert captured.err == ""
 
 
-def test_forwarded_json_is_not_redirected_or_rendered_twice(monkeypatch, capsys):
-    def child(argv):
-        assert argv == ["--help", "--unknown"]
-        print('{"child": true}')
-        return 17
+@pytest.mark.parametrize("name,argv", [
+    ("setup", []),
+    ("daemon", []),
+    ("supervise", ["--", "python", "child.py"]),
+    ("discover", []),
+    ("gello-calibrate", ["--port", "/dev/example", "--joint-ids", "1"]),
+])
+def test_native_commands_without_json_fail_before_run(monkeypatch, capsys, name, argv):
+    from importlib import import_module
+    from robot_infra.cli import COMMANDS as device_commands
 
-    monkeypatch.setattr("real_world_rl.cli.cmd_forward.import_module",
-                        lambda name: SimpleNamespace(main=child))
-    assert main(["--json", "setup", "--help", "--unknown"]) == 17
+    command = next(command for command in device_commands if command.name == name)
+    calls = []
+    monkeypatch.setattr(import_module(command.module), "run", lambda *args: calls.append(args))
+    assert main(["--json", name, *argv]) == USAGE_EXIT_CODE
+    assert calls == []
     captured = capsys.readouterr()
-    assert captured.out.splitlines() == ['{"child": true}']
-    assert captured.err == ""
+    payload = json.loads(captured.out)
+    assert captured.out.splitlines() == [json.dumps(payload)]
+    assert payload["error"] == f"{name} has no JSON output"
+    assert f"{name} has no JSON output" in captured.err
 
 
-@pytest.mark.parametrize("name,expected", [
+@pytest.mark.parametrize("name,argv", [
     ("setup", ["--from", "S", "--mock"]),
     ("daemon", ["--config", "S", "--robot", "R"]),
-    ("supervise", []),
+    ("supervise", ["--grace-s", "1", "--", "python", "--json"]),
+    ("discover", ["--config", "S"]),
+    ("gello-calibrate", ["--port", "/dev/example", "--joint-ids", "1"]),
 ])
-def test_declarative_forward_option_mapping(monkeypatch, name, expected):
+def test_native_registry_dispatch_preserves_implementation_arguments(monkeypatch, capsys, name, argv):
+    from importlib import import_module
+    from robot_infra.cli import COMMANDS as device_commands
+
+    command = next(command for command in device_commands if command.name == name)
+    assert next(item for item in COMMANDS if item.name == name) is command
+    implementation = import_module(command.module)
+    expected = vars(implementation.build_parser().parse_args(argv))
     calls = []
-    monkeypatch.setattr("real_world_rl.cli.cmd_forward.import_module", lambda module: SimpleNamespace(
-        main=lambda argv: calls.append(argv)))
-    assert main(["--station", "S", "--robot", "R", "--preset", "P", "--mock", "--json", "--yes",
-                 name, "--", "literal"]) == SUCCESS_EXIT_CODE
-    assert calls == [[*expected, "--", "literal"]]
+
+    def run(args, ctx):
+        calls.append((args, ctx))
+        print("native output")
+        return 17
+
+    monkeypatch.setattr(implementation, "run", run)
+    assert main([name, *argv]) == 17
+    assert len(calls) == 1
+    args, ctx = calls[0]
+    assert ctx.args is args
+    assert ctx.remaining == []
+    for key, value in expected.items():
+        assert getattr(args, key) == value
+    captured = capsys.readouterr()
+    assert captured.out.splitlines() == ["native output"]
+    assert captured.err == ""
 
 
 @pytest.mark.parametrize("command,status,as_json,expected", [
@@ -195,7 +225,10 @@ def test_context_station_is_lazy_cached_and_connection_factory_is_injectable(mon
     station = object()
     monkeypatch.setattr("robot_infra.discovery.autoconfig.resolve_station_config_path", lambda value: value)
     monkeypatch.setattr("real_world_rl.station.load_station", lambda path: calls.append(path) or station)
-    ctx = Context(options(station="station.yaml"))
+    from real_world_rl.station import load_station
+    from real_world_rl.cli import connect as connection_module
+    ctx = Context(options(station="station.yaml"), station_loader=load_station,
+                  connection_factory=lambda args: connection_module.open_robot(args))
     assert calls == []
     assert ctx.station() is station
     assert ctx.station() is station
@@ -231,3 +264,53 @@ def test_save_confirmation_uses_context_without_rebinding(monkeypatch, capsys, t
     assert calls[0][2]
     assert json.loads(capsys.readouterr().out)["error"] == "cancelled"
     assert station.read_text() == "type: franka\nworkspace: null\n"
+
+
+def test_device_commands_are_shared_but_rwrl_doctor_is_distinct():
+    from robot_infra.cli import COMMANDS as device_commands
+    from real_world_rl.cli.cmd_doctor import DOCTOR
+    native = {command.name: command for command in device_commands}
+    composed = {command.name: command for command in COMMANDS}
+    for name, command in native.items():
+        if name == "doctor":
+            assert composed[name] is DOCTOR
+            assert composed[name] is not command
+        else:
+            assert composed[name] is command
+
+
+def test_rwrl_context_injects_upper_layer_station_loader(monkeypatch):
+    import real_world_rl.station
+    station = object()
+    calls = []
+    monkeypatch.setattr(real_world_rl.station, "load_station", lambda path: calls.append(path) or station)
+    monkeypatch.setattr("robot_infra.discovery.autoconfig.resolve_station_config_path", lambda value: value)
+
+    class StationCommand:
+        name = "station-test"
+        help = "inspect station context"
+
+        def register(self, parser):
+            pass
+
+        def run(self, args, ctx):
+            assert ctx.station() is station
+            assert ctx.station() is station
+            return Result({}, "loaded")
+
+    monkeypatch.setattr("real_world_rl.cli.COMMANDS", [StationCommand()])
+    assert main(["--station", "station.yaml", "station-test"]) == 0
+    assert calls == ["station.yaml"]
+
+
+def test_protocol_and_errors_are_reexports():
+    from real_world_rl.cli import command, errors
+    from robot_infra.cli import command as shared_command, errors as shared_errors
+    assert command.Context is shared_command.Context
+    assert command.Result is shared_command.Result
+    assert command.Command is shared_command.Command
+    assert command.confirm is shared_command.confirm
+    assert command.render is shared_command.render
+    assert errors.CliError is shared_errors.CliError
+    assert (errors.ABORTED_EXIT_CODE, errors.ESCALATED_EXIT_CODE,
+            errors.LAUNCH_FAILURE_EXIT_CODE) == (130, 1, 127)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import argparse
+from contextlib import nullcontext, redirect_stdout
 import dataclasses
 import json
 import shlex
@@ -9,6 +9,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from robot_infra.cli.cmd_doctor import build_parser
+from robot_infra.cli.command import affirmative, doctor_envelope
+from robot_infra.cli.errors import FAILURE_EXIT_CODE, SUCCESS_EXIT_CODE
 from robot_infra.discovery.autoconfig import (
     fill_from_env,
     load_station,
@@ -27,7 +30,6 @@ from robot_infra.doctor.deps import franky_wheel_install_argv
 
 _LAYER_COUNT = 5
 _JSON_EXCLUDED_FIELDS = ("autofix", "details")
-_YES_ANSWERS = ("y", "yes")
 _INSTALL_PROMPT = "Install now? [y/N] "
 
 
@@ -61,7 +63,7 @@ def _result_dicts(results: list[CheckResult]) -> list[dict]:
 
 
 def format_json(results: list[CheckResult]) -> str:
-    return json.dumps(_result_dicts(results))
+    return format_station_json({"robot": results})
 
 
 def doctor_station(
@@ -85,7 +87,7 @@ def doctor_station(
 
 
 def station_exit_code(results_by_robot: dict[str, list[CheckResult]]) -> int:
-    return max((exit_code(results) for results in results_by_robot.values()), default=0)
+    return max((exit_code(results) for results in results_by_robot.values()), default=SUCCESS_EXIT_CODE)
 
 
 def format_station_text(results_by_robot: dict[str, list[CheckResult]]) -> str:
@@ -107,8 +109,11 @@ def _station_payload(results_by_robot: dict[str, list[CheckResult]]) -> list | d
 
 
 def format_station_json(results_by_robot: dict[str, list[CheckResult]]) -> str:
-    """One robot: exactly ``format_json``. Several: ``{robot name: [result, ...]}``."""
-    return json.dumps(_station_payload(results_by_robot))
+    """Envelope around the original one-robot list or multi-robot map."""
+    return json.dumps(doctor_envelope(
+        code=station_exit_code(results_by_robot), checks=[], repairs=[],
+        results=_station_payload(results_by_robot),
+    ))
 
 
 # -- --install-sdk ---------------------------------------------------------------------------
@@ -136,7 +141,7 @@ def libfranka_mismatches(results_by_robot: dict[str, list[CheckResult]]) -> list
 
 
 def format_install_sdk_json(results_by_robot: dict[str, list[CheckResult]]) -> str:
-    """``{"results": <the --json report>, "install_sdk": [{robot, server_version, library_version, command}]}``."""
+    """Envelope around the original results/install_sdk report object."""
     install = [
         {
             "robot": mismatch.robot,
@@ -146,7 +151,10 @@ def format_install_sdk_json(results_by_robot: dict[str, list[CheckResult]]) -> s
         }
         for mismatch in libfranka_mismatches(results_by_robot)
     ]
-    return json.dumps({"results": _station_payload(results_by_robot), "install_sdk": install})
+    return json.dumps(doctor_envelope(
+        code=station_exit_code(results_by_robot), checks=[], repairs=[],
+        results={"results": _station_payload(results_by_robot), "install_sdk": install},
+    ))
 
 
 def _confirmed(prompt: str) -> bool:
@@ -154,7 +162,7 @@ def _confirmed(prompt: str) -> bool:
         answer = input(prompt)
     except EOFError:
         return False
-    return answer.strip().lower() in _YES_ANSWERS
+    return affirmative(answer)
 
 
 def doctor_rerun_argv(path: str | Path, robot: str) -> list[str]:
@@ -194,42 +202,30 @@ def install_franky_wheel(
         return code
     completed = subprocess.run(first.install_argv)
     if completed.returncode != 0:
-        print(f"pip exited with code {completed.returncode}; the handshake was not re-checked")
-        return 1
+        print(f"pip exited with code {completed.returncode}; the handshake was not re-checked", file=sys.stderr)
+        return FAILURE_EXIT_CODE
     print("installed; re-running the doctor in a fresh interpreter")
     rerun_codes = [subprocess.run(doctor_rerun_argv(path, mismatch.robot)).returncode for mismatch in mismatches]
     mismatched = {mismatch.robot for mismatch in mismatches}
     other_codes = [exit_code(results) for name, results in results_by_robot.items() if name not in mismatched]
-    return max([*rerun_codes, *other_codes], default=0)
+    return max([*rerun_codes, *other_codes], default=SUCCESS_EXIT_CODE)
+
+
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="robot_infra.doctor", description="Layered robot diagnostic")
-    parser.add_argument(
-        "--config",
-        default=None,
-        help="robot or station yaml; default: $ROBOT_INFRA_CONFIG, ./local/station.yaml, then "
-        "~/.config/robot_infra/station.yaml",
-    )
-    parser.add_argument("--robot", default=None, help="check only this robot of a station (default: all)")
-    parser.add_argument("--mock", action="store_true", help="swap every backend for its fake")
-    parser.add_argument("--fix", action="store_true", help="run autofixes for failed checks")
-    parser.add_argument("--json", action="store_true", help="machine-readable output")
-    parser.add_argument(
-        "--install-sdk",
-        action="store_true",
-        help="after a libfranka version mismatch, offer to pip install the franky wheel for the robot server "
-        "version (asks first; with --json only reports the command)",
-    )
-    parser.add_argument("--yes", action="store_true", help="with --install-sdk: install without asking")
-    args = parser.parse_args(argv)
-    if args.yes and not args.install_sdk:
-        parser.error("--yes only applies to --install-sdk")
+    parser = build_parser()
+    return run(parser.parse_args(argv), None)
+
+
+def run(args, ctx) -> int:
+    parser = getattr(args, "_parser", None) or build_parser()
     try:
         path = resolve_station_config_path(args.config)
     except FileNotFoundError as error:
         parser.error(str(error))
-    results_by_robot = doctor_station(path, robot=args.robot, mock=args.mock, fix=args.fix)
+    with redirect_stdout(sys.stderr) if args.json else nullcontext():
+        results_by_robot = doctor_station(path, robot=args.robot, mock=args.mock, fix=args.fix)
     if args.json:
         print(format_install_sdk_json(results_by_robot) if args.install_sdk else format_station_json(results_by_robot))
         return station_exit_code(results_by_robot)

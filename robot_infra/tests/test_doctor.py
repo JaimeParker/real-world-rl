@@ -211,6 +211,9 @@ def test_cli_text_and_json(tmp_path, capsys):
     assert "summary:" in text and "[3/5] handshake ... OK" in text
     assert cli.main(["--config", path, "--mock", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == 1 and payload["status"] == "PASS"
+    assert payload["checks"] == [] and payload["repairs"] == []
+    payload = payload["results"]
     assert {entry["layer"] for entry in payload} == {0, 1, 2, 3, 4, 5}
     assert all("autofix" not in entry and "details" not in entry for entry in payload)
 
@@ -247,7 +250,7 @@ def test_cli_checks_every_robot_of_a_station_or_one(tmp_path, capsys):
     one = capsys.readouterr().out
     assert "== robot" not in one and one.count("summary:") == 1
     assert cli.main(["--config", path, "--mock", "--json"]) == 0
-    assert set(json.loads(capsys.readouterr().out)) == {"left", "right"}
+    assert set(json.loads(capsys.readouterr().out)["results"]) == {"left", "right"}
 
 
 def test_cli_station_exit_code_fails_when_one_robot_fails(tmp_path, monkeypatch, capsys):

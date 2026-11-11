@@ -1,7 +1,7 @@
 """``python -m robot_infra.discovery [--config robot.yaml]``: print what hardware is visible."""
 from __future__ import annotations
 
-import argparse
+from robot_infra.cli.cmd_discover import build_parser
 from pathlib import Path
 
 from robot_infra.discovery.autoconfig import (
@@ -30,14 +30,14 @@ def host_ips_from_station(path: str | Path) -> list[str]:
     return list(dict.fromkeys(ips))
 
 
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="robot_infra.discovery", description=__doc__)
-    parser.add_argument(
-        "--config",
-        help="robot or station yaml; its robot IPs are probed (never connected). Default: the "
-        "station file the daemon would use; none found means no hosts",
-    )
-    args = parser.parse_args(argv)
+    parser = build_parser()
+    return run(parser.parse_args(argv), None)
+
+
+def run(args, ctx) -> int:
     path = _station_path(args.config)
     host_ips = host_ips_from_station(path) if path is not None else []
     print(discover_all(host_ips).format())

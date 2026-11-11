@@ -25,6 +25,49 @@ The gym environment for real-world RL lives in
 [real-world-rl](https://github.com/JaimeParker/real-world-rl), which imports
 this package. `robot_infra` itself does not depend on `rl_garden`.
 
+## robot-infra CLI
+
+The device distribution installs `robot-infra`, whose native commands are
+`setup`, `daemon`, `supervise`, `discover`, `doctor` and `gello-calibrate`.
+The command protocol and parser do not import torch or `real_world_rl`.
+Station input is `--station PATH`. Daemon, discover and doctor retain
+`--config PATH`, and setup retains `--from PATH`, as temporary aliases marked
+"(alias, will be removed)" in help. Setup uses that file as defaults, not as
+its output path; station lookup defaults are unchanged. Errors use stderr,
+and exit-code constants live in `robot_infra.cli.errors`. The device binary
+registers `--station`, `--robot`, `--mock`, `--json` and `--yes` globals;
+`--preset` and `--direct` belong to `rwrl`.
+The existing `python -m robot_infra.*` entry points
+remain supported and call the same run functions. The full project exposes
+these same command objects through `rwrl`, except that `rwrl doctor` runs the
+host/project doctor while `robot-infra doctor` runs the device doctor.
+
+On the robot PC, from the repository root with the environment containing
+`rlgarden-robot-infra` active:
+
+```bash
+robot-infra --help
+robot-infra daemon --help
+robot-infra doctor --station local/station.yaml --json
+```
+
+Both doctors accept `--yes` to skip confirmation while still running preflight,
+even without a repair flag. Repair confirmation accepts only `y` (ignoring
+case and surrounding whitespace). The shared exit policy is 0 for success,
+1 for runtime/device failure or unresolved doctor findings, and 2 for usage
+or configuration errors. Setup interruption returns 130; supervisor launch
+failure returns 127 and stop escalation returns 1, otherwise child status is
+preserved.
+
+Commands without JSON output (`setup`, `daemon`, `supervise`, `discover`,
+`gello-calibrate`) reject the global `--json` option with usage exit code 2.
+`supervise` retains its `-- <child command...>` boundary; child flags are passed
+to the child unchanged. Each native command's `--help` lists its original
+module flags. `gello-calibrate` prints a teleop YAML block;
+`setup --only teleop --calibrate` runs the same calibration in the wizard and
+writes station YAML. `gello-calibrate` is also available through its existing
+`python -m robot_infra.devices.backends.teleops.gello_calibrate` entry point.
+
 ## Install
 
 Requires Python >= 3.10.
@@ -392,7 +435,10 @@ Flags:
   autofixes are `arm.recover()` for a Franka in Reflex/UserStopped/Guiding mode
   (`mode:robot_mode`), `camera.reopen()` for a camera that delivers no frames, and a
   non-privileged `setfacl` for a gello port this user cannot open (`os:serial`).
-- `--json` prints a list of `{layer, name, ok, message, hint, skipped, warning}` objects (several
+- `--json` wraps the original device report under `results`, with the same
+  `schema_version: 1`, `status` (`PASS` or `FAIL`), `checks` and `repairs` envelope
+  as `rwrl doctor`. The device doctor has empty host `checks`/`repairs` lists.
+  Its inner report is a list of `{layer, name, ok, message, hint, skipped, warning}` objects (several
   robots: `{<name>: [...]}`).
 - `--install-sdk` (with `--yes`: without asking) installs the franky wheel that matches the
   robot after a libfranka version mismatch; see
@@ -539,11 +585,11 @@ system versions to robot server versions. Then the doctor prints the exact comma
 <this python> -m pip install franky-control --extra-index-url https://timschneider42.github.io/franky/whl/by-robot-server-version/<N>/ --force-reinstall --no-deps
 ```
 
-and asks `Install now? [y/N]`. Only `y` or `yes` installs (into the interpreter running the
+and asks `Install now? [y/N]`. Only `y` (case-insensitive, surrounding whitespace ignored) installs (into the interpreter running the
 doctor); then it re-runs the doctor for those robots in a fresh interpreter, because the old
 libfranka stays loaded in the current one, and exits with that run's code. Nothing is installed
 without confirmation unless `--yes` is given. With `--json` the doctor never prompts or installs:
-it prints `{"results": <the --json report>, "install_sdk": [{robot, server_version,
+its envelope wraps `{"results": <the original device report>, "install_sdk": [{robot, server_version,
 library_version, command}]}`. Robots that report different server versions are not installed
 automatically (one Python environment holds one franky wheel); the doctor prints one command per
 robot instead. `--no-deps` assumes franky's dependencies (`numpy`, `websockets`) are already
@@ -552,7 +598,7 @@ installed, which installing the `franky` extra first takes care of.
 With `real-world-rl` installed in the project environment, `rwrl doctor` is a separate,
 broader doctor: it checks the host, the project environment and the configured devices,
 previews targeted repairs (`--fix` applies host and software repairs), and writes its own
-versioned JSON report, which differs from this one; its device probes never repair
+versioned JSON envelope with host checks and repairs; its device probes never repair
 (`fix=False`). Run it on the NUC with the project environment active (see
 [rwrl](../docs/cli.md#robot-host-diagnosis-and-repair)).
 

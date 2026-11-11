@@ -158,7 +158,7 @@ def test_sigterm_is_forwarded_to_every_child_and_the_handler_restored(station_pa
 )
 def test_bind_or_token_with_several_robots_is_an_error(station_path, launcher, capsys, extra, message):
     assert daemon.main(["--config", str(station_path), *extra]) == 2
-    assert launcher.children == [] and message in capsys.readouterr().out
+    assert launcher.children == [] and message in capsys.readouterr().err
 
 
 def test_two_robots_on_one_bind_is_an_error(tmp_path, launcher, capsys):
@@ -167,7 +167,7 @@ def test_two_robots_on_one_bind_is_an_error(tmp_path, launcher, capsys):
     path = tmp_path / "station.yaml"
     path.write_text(yaml.safe_dump(data))
     assert daemon.main(["--config", str(path)]) == 2
-    assert launcher.children == [] and "both bind 0.0.0.0:50051" in capsys.readouterr().out
+    assert launcher.children == [] and "both bind 0.0.0.0:50051" in capsys.readouterr().err
 
 
 def test_robot_flag_serves_one_robot_with_its_daemon_block(station_path, launcher, stub_transport, capsys):
@@ -205,4 +205,4 @@ def test_no_config_and_no_station_exits_2(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.chdir(tmp_path)
     assert daemon.main(["--no-preflight"]) == 2
-    assert "python -m robot_infra.setup" in capsys.readouterr().out
+    assert "python -m robot_infra.setup" in capsys.readouterr().err

@@ -5,11 +5,13 @@ Runs the real-world training registry's CLI: one subcommand per method in
 """
 from __future__ import annotations
 
+from typing import Sequence
+
 from real_world_rl.training import registry
 
 
-def main() -> None:
-    registry.run_cli()
+def main(argv: Sequence[str] | None = None) -> None:
+    registry.run_cli(argv)
 
 
 if __name__ == "__main__":

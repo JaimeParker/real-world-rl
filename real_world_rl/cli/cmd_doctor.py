@@ -2,13 +2,15 @@
 import argparse
 from pathlib import Path
 
+from robot_infra.cli.command import doctor_envelope
+
 from .errors import CliError, USAGE_EXIT_CODE
 
 
 class DoctorCommand:
     name = "doctor"
-    help = ""  # Preserve the root help listing from the forwarded command.
-    trailing_globals = ("robot", "preset", "mock", "json", "yes")
+    help = "Inspect the host, project environment and devices"
+    trailing_globals = ("station", "robot", "preset", "mock", "json", "yes")
     parser_options = {
         "allow_abbrev": False,
         "description": "Robot-host diagnostics: inspect, preview, confirm, repair, then inspect again.",
@@ -16,7 +18,8 @@ class DoctorCommand:
 
     def register(self, parser):
         # Legacy spelling, mapped directly onto the shared global station value.
-        parser.add_argument("--config", dest="station", metavar="CONFIG", default=argparse.SUPPRESS)
+        parser.add_argument("--config", dest="station", metavar="PATH", default=argparse.SUPPRESS,
+                            help="--station (alias, will be removed)")
         parser.add_argument("--fix", action="store_true")
         parser.add_argument(
             "--install-sdk", action="store_true",
@@ -40,7 +43,9 @@ class DoctorCommand:
 
     def run(self, args, ctx):
         from .doctor import run
-        return run(ctx, lambda message, directory=None: self.usage_error(args._parser, message, directory))
+        result = run(ctx, lambda message, directory=None: self.usage_error(args._parser, message, directory))
+        result.payload = doctor_envelope(code=result.exit_code, **result.payload)
+        return result
 
 
 DOCTOR = DoctorCommand()

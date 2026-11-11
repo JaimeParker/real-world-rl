@@ -330,17 +330,28 @@ def test_doctor_forwarding(station, capsys):
     ("setup", "robot_infra.setup.__main__"),
     ("daemon", "robot_infra.server.daemon"), ("supervise", "robot_infra.supervise.supervisor"),
 ])
-def test_forward_argv_and_exit_code(monkeypatch, command, module):
-    import types
-    from real_world_rl.cli import cmd_forward as forward
+def test_native_subcommand_uses_same_argv_and_implementation(monkeypatch, command, module):
+    from importlib import import_module
+    from robot_infra.cli.command import Context
 
+    implementation = import_module(module)
+    argv = {
+        "setup": ["--from", "S", "--mock"],
+        "daemon": ["--config", "S", "--robot", "R"],
+        "supervise": ["--grace-s", "1", "--", "python", "--json"],
+    }[command]
     seen = []
-    monkeypatch.setattr(forward, "import_module", lambda name: (
-        seen.append(name) or types.SimpleNamespace(main=lambda argv: seen.append(argv) or 7)
-    ))
-    remaining = ["--help", "--unknown=literal", "--", "python", "--json"]
-    assert main([command, *remaining]) == 7
-    assert seen == [module, remaining]
+
+    def run(args, ctx, **kwargs):
+        seen.append((vars(args).copy(), ctx))
+        return 7
+
+    monkeypatch.setattr(implementation, "run", run)
+    assert implementation.main(argv) == 7
+    assert main([command, *argv]) == 7
+    for key, value in seen[0][0].items():
+        assert seen[1][0][key] == value
+    assert isinstance(seen[1][1], Context)
 
 
 def test_global_doctor_options_reach_context(monkeypatch):
@@ -351,7 +362,7 @@ def test_global_doctor_options_reach_context(monkeypatch):
     def run(ctx, usage_error):
         args = ctx.args
         seen.append((args.station, args.robot, args.mock, args.json, args.fix))
-        return Result({}, "")
+        return Result({"checks": [], "repairs": []}, "")  # the envelope needs both keys, as doctor.run always provides
     monkeypatch.setattr(doctor, "run", run)
     assert main(["--station", "S", "--robot", "arm", "--mock", "--json", "doctor", "--fix"]) == 0
     assert seen == [("S", "arm", True, True, True)]
@@ -389,7 +400,9 @@ import runpy
 import sys
 class NoHeavyImports(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname.split('.')[0] in {'torch', 'rl_garden', 'robot_infra', 'numpy', 'yaml'}:
+        if (fullname.split('.')[0] in {'torch', 'rl_garden', 'numpy', 'yaml'}
+                or (fullname.startswith('robot_infra.') and fullname != 'robot_infra.cli'
+                    and not fullname.startswith('robot_infra.cli.'))):
             raise AssertionError('heavy import: ' + fullname)
 sys.meta_path.insert(0, NoHeavyImports())
 import real_world_rl

@@ -135,7 +135,7 @@ def resolve_station_config_path(
     locations = [f"${STATION_CONFIG_ENV}", *(str(candidate) for candidate in candidates)]
     raise FileNotFoundError(
         "no robot config given and no station config found; looked at " + ", ".join(locations)
-        + f". Pass --config <yaml>, or run `{SETUP_COMMAND}` to write one"
+        + f". Pass --station <yaml>, or run `{SETUP_COMMAND}` to write one"
     )
 
 

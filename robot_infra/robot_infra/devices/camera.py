@@ -152,7 +152,7 @@ class Camera(Part, BackendRegistry, ABC):
         if frame is None:
             raise DeviceFault(
                 f"camera '{self.name}' produced no frame within {timeout:.1f}s",
-                hint="check the USB cable/bandwidth and run `python -m robot_infra.doctor`",
+                hint="check the USB cable/bandwidth and run `robot-infra doctor`",
                 device=self.name,
                 recoverable=True,
             )

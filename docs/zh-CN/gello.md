@@ -34,7 +34,7 @@ GELLO 是被动式、3D 打印的 Franka Panda 仿形主臂，以 Dynamixel 舵�
   ```
 
   OpenRB-150 是 USB CDC 设备，没有该延迟计时器。
-- **权限。** 用户需要加入 `dialout` 组，运行 `sudo usermod -aG dialout $USER` 后重新登录，或配置 udev；Docker 中通过 `--device=/dev/serial/by-id/...` 传入节点。`python -m robot_infra.doctor --config robot.yaml` 检查端口存在及读写权限（`os:serial`）。后端不会终止其他进程或更改权限。
+- **权限。** 用户需要加入 `dialout` 组，运行 `sudo usermod -aG dialout $USER` 后重新登录，或配置 udev；Docker 中通过 `--device=/dev/serial/by-id/...` 传入节点。`rwrl doctor --station robot.yaml` 检查端口存在及读写权限（`os:serial`）。后端不会终止其他进程或更改权限。
 - **供电。** 舵机需要供电才能读取。U2D2 无法通过 USB 给 Dynamixel 总线供电，应使用供电集线器或 OpenRB-150 电源。后端在连接和关闭时都向每个舵机写入力矩关闭命令，始终保持被动，由人工移动主臂。
 
 > **使能力矩时的注意事项。** Dynamixel Wizard 测试或第 9 节未来主臂跟随功能启用 GELLO 舵机力矩后，主臂会自主运动。使用符合额定值的电源，XL330 标称 5 V，禁止使用 12 V；电源应能同时提供所有舵机的堵转电流，并设置较低的电流或 PWM 限制，保持手与线缆避开运动部件。该主臂的 XL330 力矩开启行为尚待验证。
@@ -50,10 +50,10 @@ pip install -e "robot_infra[gello-events]"   # evdev, only for an event_device (
 
 ## 2. 标定
 
-标定命令确定每台设备的关节方向、偏移和扳机范围，打印 `teleop:` YAML 配置块。`python -m robot_infra.setup` 会逐臂直接执行并写入工作站文件，因此使用向导时可以跳过下方手动粘贴步骤，见 [robot_infra README](robot-infra.md#setup-wizard)。
+标定命令确定每台设备的关节方向、偏移和扳机范围，打印 `teleop:` YAML 配置块。`rwrl setup` 会逐臂直接执行并写入工作站文件，因此使用向导时可以跳过下方手动粘贴步骤，见 [robot_infra README](robot-infra.md#setup-wizard)。
 
 ```bash
-python -m robot_infra.devices.backends.teleops.gello_calibrate \
+rwrl gello-calibrate \
     --port /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_XXXXXXXX-if00-port0 \
     --joint-ids 1 2 3 4 5 6 7 --gripper-id 8 \
     --joint-limits-yaml robot.yaml
@@ -94,7 +94,7 @@ teleop:
 
 ## 3. 机器人 YAML（`real_robot`、franky）
 
-从 `robot_infra/docs/robot.franka.example.yaml` 开始，加入设备限制和 GELLO。也可以运行 `python -m robot_infra.setup`，生成包含机器人、相机、GELLO 标定及守护进程端口的工作站 YAML，默认路径 `./local/station.yaml`，守护进程无需 `--config` 即可找到。向导写入 Panda `joint_limits`、`max_delta_per_step` 上限和请求的 `safety_box`。运动前按实际工作站核对数值；手写配置也需提供这些限制：
+从 `robot_infra/docs/robot.franka.example.yaml` 开始，加入设备限制和 GELLO。也可以运行 `rwrl setup`，生成包含机器人、相机、GELLO 标定及守护进程端口的工作站 YAML，默认路径 `./local/station.yaml`，守护进程无需 `--config` 即可找到。向导写入 Panda `joint_limits`、`max_delta_per_step` 上限和请求的 `safety_box`。运动前按实际工作站核对数值；手写配置也需提供这些限制：
 
 ```yaml
 type: franka
@@ -129,7 +129,7 @@ teleop:
 在机器人 PC 上启动服务：
 
 ```bash
-python -m robot_infra.server --config robot.yaml --bind 0.0.0.0:50051 --token T
+robot-infra daemon --station robot.yaml --bind 0.0.0.0:50051 --token T
 ```
 
 actor 预设 `hil.yaml` 通过 `--config` 传入，完整字段见 README“真机运行”：
@@ -162,7 +162,7 @@ real_robot:
 
 ```bash
 # on the robot host, next to the SERL bridge
-python -m robot_infra.server --config robot.gello_station.yaml --bind 0.0.0.0:50052
+robot-infra daemon --station robot.gello_station.yaml --bind 0.0.0.0:50052
 ```
 
 actor 用 Panda 正向运动学将关节转为笛卡尔 twist，选择 `--teleop-device leader_cartesian --teleop-options-yaml station.yaml`，选项文件含 `remote_address: robot-host:50052`。follower 跟踪持续 command target：无人驱动时固定 hold，命令领先实测最多 `--teleop-lead-cap-m 0.05` / `--teleop-lead-cap-rad 0.3`，推进速度最多 `--teleop-target-speed-m-s 0.05` / `--teleop-target-speed-rad-s 0.3`。环境尺度至少等于上限，real_robot 用 0.05/0.3，franka_real 用其 action scales。同一输入源也支持 real_robot cartesian_delta，`examples/presets/gello_cartesian.yaml` 为单臂 50 Hz 仅状态预设。映射、tracker、夹爪及 DH 核对见 [teleop](teleop.md#leader-arm-on-a-cartesian-robot-leader_cartesian)。
@@ -174,7 +174,7 @@ actor 用 Panda 正向运动学将关节转为笛卡尔 twist，选择 `--teleop
 `examples/record_real_demos.py` 与 actor 使用相同的环境构建方式，仅记录介入步骤，输出 learner 通过 `--demo-dataset-paths` 加载的 pkl 和动作约定附属文件。录制动作模式必须与后续训练一致，附属文件不符时 learner 拒绝加载：`joint_delta` 全流程使用 `joint_delta` 示范，`joint_abs` 另录一套 `joint_abs` 数据，见[教程 04](tutorial/04-record-demos.md)。
 
 ```bash
-python examples/record_real_demos.py --config hil.yaml \
+rwrl record --config hil.yaml \
     --teleop-device leader_arm --robot-teleop-action-mode joint_delta \
     --teleop-event-device keyboard --output-path demos/task.pkl --num-successes 20
 ```
@@ -194,7 +194,7 @@ python examples/record_real_demos.py --config hil.yaml \
 - `--teleop-event-device keyboard`（教程路线）：actor 桌面的 pynput，`t` 接管、`h` 交还、Esc 结束、`s`/`f`/`r` 成功/失败/重录、`q` 回合后退出。`stdin` 从命令终端读取同样按键，无需桌面且支持 SSH。YAML 保留 `intervention: always`，事件状态覆盖它。
 - 机器人 PC evdev 键盘/脚踏：在 teleop options 配 `intervention: toggle` 和 `/dev/input/by-id/...` 的 `event_device`，安装 `gello-events`、用户在 input 组，去掉 CLI 事件设备；按键由 `event_keys` 决定。
 
-向导 `python -m robot_infra.setup` 将 GELLO 选项、标定、teleop 和守护端口写入 station，见 [setup wizard](robot-infra.md#setup-wizard)，可直接用它代替手写机器人 YAML。
+向导 `rwrl setup` 将 GELLO 选项、标定、teleop 和守护端口写入 station，见 [setup wizard](robot-infra.md#setup-wizard)，可直接用它代替手写机器人 YAML。
 
 <a id="two-gellos-two-arms"></a>
 

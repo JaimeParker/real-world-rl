@@ -61,7 +61,7 @@ record_case() {
   mkdir "$trial_dir" || return
   cp local/station.smoke.yaml "$trial_dir/station.yaml" || return
   cp local/bimanual.smoke.yaml "$trial_dir/env.yaml" || return
-  python -m robot_infra.supervise --log "$trial_dir/supervise.jsonl" -- python examples/record_real_demos.py --config local/bimanual.smoke.yaml --output-path "$trial_dir/demo.pkl" --run-id "$(basename "$trial_dir")" --num-successes 1 --max-episodes 1 --max-episode-steps "$step_cap" 2>&1 | tee "$trial_dir/recorder.log"
+  rwrl supervise --log "$trial_dir/supervise.jsonl" -- rwrl record --config local/bimanual.smoke.yaml --output-path "$trial_dir/demo.pkl" --run-id "$(basename "$trial_dir")" --num-successes 1 --max-episodes 1 --max-episode-steps "$step_cap" 2>&1 | tee "$trial_dir/recorder.log"
   local status=("${PIPESTATUS[@]}")
   rc=${status[0]}; if [[ $rc == 0 && ${status[1]} != 0 ]]; then rc=${status[1]}; fi
   printf '%s\n' "$rc" > "$trial_dir/exit-code.txt"
@@ -77,14 +77,14 @@ Run P00–P03-R with daemons off. After both doctor checks pass, start this in a
 <!-- tutorial-test: skip -->
 ```bash
 RUN_ROOT=$(cat local/bimanual-current-run)
-python -m robot_infra.server --config local/station.smoke.yaml --watchdog-s 5 2>&1 | tee "$RUN_ROOT/daemon.log"
+robot-infra daemon --station local/station.smoke.yaml --watchdog-s 5 2>&1 | tee "$RUN_ROOT/daemon.log"
 ```
 
 `record_case` prompts GO before each reset, allows exactly one attempt (default 1200 steps), runs the supervisor, captures exit status and exports archive evidence. Reference expansion of its T00 recorder invocation follows; use the table's helper, which also captures/exports evidence, rather than running this a second time:
 
 ```bash
-python -m robot_infra.supervise --log "$RUN_ROOT/T00/supervise.jsonl" -- \
-    python examples/record_real_demos.py --config local/bimanual.smoke.yaml \
+rwrl supervise --log "$RUN_ROOT/T00/supervise.jsonl" -- \
+    rwrl record --config local/bimanual.smoke.yaml \
     --output-path "$RUN_ROOT/T00/demo.pkl" --run-id T00 \
     --num-successes 1 --max-episodes 1 --max-episode-steps 1200
 ```
@@ -94,8 +94,8 @@ python -m robot_infra.supervise --log "$RUN_ROOT/T00/supervise.jsonl" -- \
 | P00 Baseline and inventory | `check P00 bash -c 'git rev-parse HEAD; git diff; uname -a; ip -br address; ip route'` | Commit/local changes, both robot models/firmware/server versions, Hand/load/TCP, FCI IPs and GELLO serial/calibration inventory recorded | `P00/console.log` |
 | P01 Environment and SDK | `check P01 bash scripts/install.sh --extras franka-gello --no-doctor` | Install succeeds; real-time setup and dialout/input permissions verified for this PC. Activate the environment the installer created (`.venv` by default) afterward | `P01/console.log` |
 | P02 Configuration and static release | `check P02 read_leaders` | Move each leader joint; verify calibration/direction/static readings and F1/F2/S/F/R/Esc events; Ctrl-C closes leaders. Approve homes/limits, disjoint workspaces and simultaneous reset paths | `P02/console.log` |
-| P03-L Left doctor | `check P03-L python -m robot_infra.doctor --config local/station.smoke.yaml --robot left` | Left SDK, permissions, handshake, feedback and mode checks pass; daemons remain off | `P03-L/console.log` |
-| P03-R Right doctor | `check P03-R python -m robot_infra.doctor --config local/station.smoke.yaml --robot right` | Right SDK, permissions, handshake, feedback and mode checks pass; daemons remain off | `P03-R/console.log` |
+| P03-L Left doctor | `check P03-L rwrl doctor --station local/station.smoke.yaml --robot left` | Left SDK, permissions, handshake, feedback and mode checks pass; daemons remain off | `P03-L/console.log` |
+| P03-R Right doctor | `check P03-R rwrl doctor --station local/station.smoke.yaml --robot right` | Right SDK, permissions, handshake, feedback and mode checks pass; daemons remain off | `P03-R/console.log` |
 | T00 Reset and idle hold | `record_case T00` | Approved homes/open grippers; moving inactive leaders does not move followers; Esc finalizes exactly one unknown/truncated episode and exits | `T00/summary.json` |
 | T01 Left takeover and hand-back | `record_case T01` | Align then F1: correct left joints/gripper, right holds; F1 hand-back holds; out-of-tolerance onset waits for alignment; Esc; left mask matches video | `T01/steps.csv` |
 | T02 Right takeover and hand-back | `record_case T02` | T01 mirrored with F2: correct right following/gripper, left holds, right hand-back holds; Esc; right mask matches | `T02/steps.csv` |

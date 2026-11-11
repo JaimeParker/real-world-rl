@@ -158,8 +158,8 @@ registry rebuilds the agent). The minimal shape, for a GELLO served by the robot
 `joint_delta` env:
 
 ```bash
-python examples/train_real_world.py silri --role learner --config hil.yaml --demo-dataset-paths 'demos/*.pkl'
-python examples/train_real_world.py silri --role actor --config hil.yaml --teleop-device leader_arm \
+rwrl train silri --role learner --config hil.yaml --demo-dataset-paths 'demos/*.pkl'
+rwrl train silri --role actor --config hil.yaml --teleop-device leader_arm \
     --robot-teleop-action-mode joint_delta --teleop-event-device keyboard --reward-from-teleop-events
 ```
 

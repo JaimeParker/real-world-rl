@@ -74,7 +74,7 @@ _PORT_HINT = (
     "check the USB cable and use the stable /dev/serial/by-id/... path; the user needs the "
     "'dialout' group (`sudo usermod -aG dialout $USER`, then log in again) or a udev rule; "
     "inside Docker pass the node with `docker run --device=<port>`; "
-    "run `python -m robot_infra.doctor`"
+    "run `robot-infra doctor`"
 )
 
 

@@ -237,7 +237,7 @@ def test_cli_without_any_config_is_a_usage_error(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit) as info:
         cli.main(["--mock"])
-    assert info.value.code == 2 and "python -m robot_infra.setup" in capsys.readouterr().err
+    assert info.value.code == 2 and "Pass --station <yaml>, or run `robot-infra setup` to write one" in capsys.readouterr().err
 
 
 def test_cli_checks_every_robot_of_a_station_or_one(tmp_path, capsys):

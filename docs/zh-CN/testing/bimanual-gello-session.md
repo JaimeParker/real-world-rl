@@ -65,7 +65,7 @@ record_case() {
   mkdir "$trial_dir" || return
   cp local/station.smoke.yaml "$trial_dir/station.yaml" || return
   cp local/bimanual.smoke.yaml "$trial_dir/env.yaml" || return
-  python -m robot_infra.supervise --log "$trial_dir/supervise.jsonl" -- python examples/record_real_demos.py --config local/bimanual.smoke.yaml --output-path "$trial_dir/demo.pkl" --run-id "$(basename "$trial_dir")" --num-successes 1 --max-episodes 1 --max-episode-steps "$step_cap" 2>&1 | tee "$trial_dir/recorder.log"
+  rwrl supervise --log "$trial_dir/supervise.jsonl" -- rwrl record --config local/bimanual.smoke.yaml --output-path "$trial_dir/demo.pkl" --run-id "$(basename "$trial_dir")" --num-successes 1 --max-episodes 1 --max-episode-steps "$step_cap" 2>&1 | tee "$trial_dir/recorder.log"
   local status=("${PIPESTATUS[@]}")
   rc=${status[0]}; if [[ $rc == 0 && ${status[1]} != 0 ]]; then rc=${status[1]}; fi
   printf '%s\n' "$rc" > "$trial_dir/exit-code.txt"
@@ -81,14 +81,14 @@ P00–P03-R 期间守护进程关闭。两侧 doctor 通过后，在第二终端
 <!-- tutorial-test: skip -->
 ```bash
 RUN_ROOT=$(cat local/bimanual-current-run)
-python -m robot_infra.server --config local/station.smoke.yaml --watchdog-s 5 2>&1 | tee "$RUN_ROOT/daemon.log"
+robot-infra daemon --station local/station.smoke.yaml --watchdog-s 5 2>&1 | tee "$RUN_ROOT/daemon.log"
 ```
 
 `record_case` 每次 reset 前要求 GO，仅允许一次尝试（默认 1200 步），运行 supervisor、记录退出码并导出归档证据。以下为 T00 内层命令的参考展开；实际使用表格函数完成日志/证据导出，不要重复执行：
 
 ```bash
-python -m robot_infra.supervise --log "$RUN_ROOT/T00/supervise.jsonl" -- \
-    python examples/record_real_demos.py --config local/bimanual.smoke.yaml \
+rwrl supervise --log "$RUN_ROOT/T00/supervise.jsonl" -- \
+    rwrl record --config local/bimanual.smoke.yaml \
     --output-path "$RUN_ROOT/T00/demo.pkl" --run-id T00 \
     --num-successes 1 --max-episodes 1 --max-episode-steps 1200
 ```
@@ -98,8 +98,8 @@ python -m robot_infra.supervise --log "$RUN_ROOT/T00/supervise.jsonl" -- \
 | P00 基线与设备盘点 | `check P00 bash -c 'git rev-parse HEAD; git diff; uname -a; ip -br address; ip route'` | 提交/本地修改、双臂型号/固件/server 版本、Hand/负载/TCP、FCI IP 和 GELLO 串口/标定均已留档 | `P00/console.log` |
 | P01 环境与 SDK | `check P01 bash scripts/install.sh --extras franka-gello --no-doctor` | 安装成功；核对本机实时条件及 dialout/input 权限，随后激活安装器创建的环境（默认为 `.venv`） | `P01/console.log` |
 | P02 配置与静态放行 | `check P02 read_leaders` | 逐关节移动 leader，核对标定/方向/静态读数与 F1/F2/S/F/R/Esc 事件，Ctrl-C 关闭 leader；核准 home/限位、分离工作区及同时复位路径 | `P02/console.log` |
-| P03-L 左侧 doctor | `check P03-L python -m robot_infra.doctor --config local/station.smoke.yaml --robot left` | 左侧 SDK、权限、握手、反馈及模式检查通过；守护进程保持关闭 | `P03-L/console.log` |
-| P03-R 右侧 doctor | `check P03-R python -m robot_infra.doctor --config local/station.smoke.yaml --robot right` | 右侧 SDK、权限、握手、反馈及模式检查通过；守护进程保持关闭 | `P03-R/console.log` |
+| P03-L 左侧 doctor | `check P03-L rwrl doctor --station local/station.smoke.yaml --robot left` | 左侧 SDK、权限、握手、反馈及模式检查通过；守护进程保持关闭 | `P03-L/console.log` |
+| P03-R 右侧 doctor | `check P03-R rwrl doctor --station local/station.smoke.yaml --robot right` | 右侧 SDK、权限、握手、反馈及模式检查通过；守护进程保持关闭 | `P03-R/console.log` |
 | T00 复位与无人接管保持 | `record_case T00` | 核准 home/开爪；未接管时移动 leader 不驱动 follower；Esc 后仅一个未知/截断回合并退出 | `T00/summary.json` |
 | T01 左侧接管与交还 | `record_case T01` | 对齐后 F1：左关节/夹爪正确、右侧保持；F1 交还保持；超容差等待对齐；Esc；左掩码与视频相符 | `T01/steps.csv` |
 | T02 右侧接管与交还 | `record_case T02` | 按 T01 对称执行 F2：右跟随/夹爪正确，左保持，右交还保持；Esc；右掩码相符 | `T02/steps.csv` |

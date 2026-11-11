@@ -111,7 +111,7 @@ def test_one_arm_with_defaults_calibrates_writes_and_passes_the_doctor(tmp_path)
     assert any("calibrate the GELLO" in prompt for prompt in operator.prompts)
     assert any("calibration pose" in prompt for prompt in operator.prompts)
     assert "summary:" in output and "0 failed" in output
-    assert f"python -m robot_infra.server --config {out}" in output
+    assert f"serve the robot: robot-infra daemon --station {out}" in output
     assert "--teleop-device gello --teleop-options-yaml" in output and "--obs.rgb wrist front front_2" in output
     assert "real_robot_bimanual" not in output
     assert any("safety box of 'arm'" in prompt for prompt in operator.prompts)
@@ -152,7 +152,7 @@ def test_the_default_local_scope_is_found_without_config(tmp_path):
     code, output = run(["--mock"], Operator({"teleop device": "none"}))
     assert code == 0, output
     assert (tmp_path / "local" / "station.yaml").is_file()
-    assert "serve the robot: python -m robot_infra.server  (listens on 0.0.0.0:50051)" in output
+    assert "serve the robot: robot-infra daemon  (listens on 0.0.0.0:50051)" in output
     assert "--teleop-device" not in output
 
 

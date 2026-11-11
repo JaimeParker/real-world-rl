@@ -6,7 +6,7 @@
 
 [中文入口](../README.zh-CN.md) · [English](../../robot_infra/README.md)
 
-`robot_infra` 是 [rl-garden](https://github.com/JaimeParker/rl-garden) 的真机设备层，现位于 [real-world-rl](https://github.com/JaimeParker/real-world-rl) 仓库的 `robot_infra/` 目录，作为独立、无 torch 依赖的发行包。它原为单独的 `rlgarden-robot-infra` 仓库，历史已保留。机器人 PC 仅需克隆该仓库，并从根目录运行 `pip install -e robot_infra`，或按硬件安装 `pip install -e 'robot_infra[franky,grpc]'`，见[安装](#install)；无需使用 `robot_infra/` 外的组件。GPU 机器则安装 `rl-garden/` 子模块及两个发行包：`pip install -e rl-garden -e robot_infra -e .`。它提供：
+`robot_infra` 是 [rl-garden](https://github.com/JaimeParker/rl-garden) 的真机设备层，现位于 [real-world-rl](https://github.com/JaimeParker/real-world-rl) 仓库的 `robot_infra/` 目录，作为独立发行包；CLI 与设备层运行时不导入 torch，只有 `controller/` 需要 torch，发行包仍声明该依赖。它原为单独的 `rlgarden-robot-infra` 仓库，历史已保留。机器人 PC 仅需克隆该仓库，并从根目录运行 `pip install -e robot_infra`，或按硬件安装 `pip install -e 'robot_infra[franky,grpc]'`，见[安装](#install)；无需使用 `robot_infra/` 外的组件。GPU 机器则安装 `rl-garden/` 子模块及两个发行包：`pip install -e rl-garden -e robot_infra -e .`。它提供：
 
 - **设备层**：带类型的 `Arm` / `Gripper` / `Camera` / `Teleop` 约定，支持 Franka 的 franky 与旧 ROS1 桥接、AgileX Piper 的 pyAgxArm 与 piper_sdk、Intel RealSense 和 SpaceMouse，并执行 TCP 工作区盒、关节限制和单步上限等**设备侧限制**。
 - **设备发现**：探测相机、遥操作设备、CAN 接口、机器人主机和 HID。
@@ -15,6 +15,28 @@
 - `RemoteRobot`：供 GPU 机器使用的客户端机器人镜像。
 
 真机 RL 的 gym 环境位于 [real-world-rl](https://github.com/JaimeParker/real-world-rl)，由该项目导入本包。`robot_infra` 自身不依赖 `rl_garden`。
+
+<a id="robot-infra-cli"></a>
+
+## robot-infra CLI
+
+设备发行包安装 `robot-infra`，原生命令包括 `setup`、`daemon`、`supervise`、`discover`、`doctor` 和 `gello-calibrate`。命令协议和解析器不导入 torch 或 `real_world_rl`。
+工作站输入为 `--station PATH`。Daemon、discover 和 doctor 暂时保留 `--config PATH`，setup 暂时保留 `--from PATH`，帮助中标为 "(alias, will be removed)"。Setup 将该文件作为默认值来源，不作为输出路径；工作站查找默认行为不变。错误使用 stderr，退出码常量位于 `robot_infra.cli.errors`。
+设备命令注册 `--station`、`--robot`、`--mock`、`--json` 和 `--yes` 全局选项；`--preset` 和 `--direct` 属于 `rwrl`。
+原有 Python 模块入口继续兼容，调用同一运行函数。完整项目通过 `rwrl` 暴露同一组命令对象，区别是 `rwrl doctor` 检查主机/项目，`robot-infra doctor` 检查设备。
+
+在机器人 PC 的仓库根目录，激活包含 `rlgarden-robot-infra` 的环境：
+
+```bash
+robot-infra --help
+robot-infra daemon --help
+robot-infra doctor --station local/station.yaml --json
+```
+
+两种 doctor 都接受 `--yes`，只跳过确认，仍运行预检查，即使没有修复标志。修复确认只接受 `y`，忽略大小写及两侧空白。共同退出策略为成功 0、运行/设备失败或未解决的检查结果 1、用法或配置错误 2。Setup 中断返回 130，supervisor 启动失败返回 127，停止升级返回 1，否则保留子进程状态。
+
+无 JSON 输出的命令（`setup`、`daemon`、`supervise`、`discover`、`gello-calibrate`）拒绝全局 `--json`，用法退出码为 2。
+`supervise` 保留 `-- <child command...>` 边界；子命令参数原样传给子进程。各原生命令的 `--help` 列出原模块参数。`gello-calibrate` 打印遥操作 YAML 块；`setup --only teleop --calibrate` 在向导内运行同一标定并写工作站 YAML。Python 模块入口继续作为兼容别名。
 
 <a id="install"></a>
 
@@ -36,8 +58,8 @@ pip install -e '.[franky,grpc]'     # e.g. a Franka robot PC running the daemon
 | `spacemouse` | `hidapi==0.14.0.post4`（trezor/cython-hidapi，导入 `hid`） | `teleop: {backend: spacemouse}`（自带的 HID 读取器与设备发现）。 | 机器人 PC。 |
 | `gello` | `dynamixel-sdk>=3.7.31,<3.9` | GELLO `teleop: {backend: gello}` 与标定命令。 | 机器人 PC。 |
 | `gello-events` | `evdev` | Linux 上 GELLO `event_device` 脚踏或键盘切换与事件。 | 机器人 PC。 |
-| `grpc` | `grpcio>=1.60` | `python -m robot_infra.server` 守护进程及 `RemoteRobot`。 | 机器人 PC **与** GPU 机器。 |
-| `jpeg` | `pillow`、`opencv-python-headless`（`cv2`） | `python -m robot_infra.server --jpeg-quality N`；`server/codec.py` 的 JPEG 路线导入 `cv2`。 | 机器人 PC **与** GPU 机器。 |
+| `grpc` | `grpcio>=1.60` | `robot-infra daemon` 守护进程及 `RemoteRobot`。 | 机器人 PC **与** GPU 机器。 |
+| `jpeg` | `pillow`、`opencv-python-headless`（`cv2`） | `robot-infra daemon --jpeg-quality N`；`server/codec.py` 的 JPEG 路线导入 `cv2`。 | 机器人 PC **与** GPU 机器。 |
 | `real` | `flask`、`pyzmq`、`scipy`、`pyspacemouse` | 旧 Flask 桥接、夹爪服务与 `teleop/spacemouse/`（旧 `read_all()` API，与自带的 HID 读取器分开；ROS1 另装）。 | 机器人 PC。 |
 | `sim` | `mani_skill` | `controller/simulator/` 中 ManiSkill 阻抗控制器。 | GPU 机器。 |
 | `dev` | `pytest` | 运行测试。 | 任意机器。 |
@@ -52,31 +74,31 @@ Franka 工作站可为单臂或双臂。连接机器人以太网、RealSense 相
 
 ```bash
 pip install -e '.[franky,grpc,realsense,gello]'
-python -m robot_infra.setup
+robot-infra setup
 ```
 
 向导探测 `172.16.0.2`、`172.16.1.2`、`$ROBOT_IP`、`--robot-ip` 及 `--scan-subnet CIDR` 所有主机的 TCP 22/443/1337；读取 RealSense 序列号；在所有 `/dev/serial/by-id/usb-FTDI_*`、`usb-ROBOTIS_*` 串口以 57600–4000000 波特广播 ping；并发现 SpaceMouse。随后逐臂询问机器人 IP、机械臂与夹爪后端、归位关节、相机（`1=wrist,2=front`）、遥操作设备（GELLO 端口和舵机 ID，最后一个 ID 默认供夹爪扳机）、介入方式和守护进程端口。每套 GELLO 现场标定，步骤同[第 7 步](#7-add-a-teleop-device)；跳过则写入零偏移与 `# TODO calibrate`。最后生成带注释工作站 YAML、运行 doctor，并打印后续命令。
 
 每臂获得 Panda 数据表 `joint_limits`，可通过 `--joint-limits` 设置；单步上限为 `max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}`，对应 `--max-delta-xyz-m`、`--max-delta-joint-rad`；还会询问 `safety_box`，基坐标系、米，建议 `[0.3, -0.3, 0.05, 0.7, 0.3, 0.6]`，可用 `--safety-box` 设置，必须包含归位姿态。
 
-守护进程、doctor、discovery 无需 `--config` 也能找到工作站 YAML，依次采用：
+守护进程、doctor、discovery 无需 `--station` 也能找到工作站 YAML，依次采用：
 
 1. `$ROBOT_INFRA_CONFIG`。
 2. 当前目录的 `./local/station.yaml`，向导默认 `--scope local`，`local/` 已被 Git 忽略。
 3. `$XDG_CONFIG_HOME/robot_infra/station.yaml`，默认 `~/.config/robot_infra/station.yaml`，对应 `--scope user`。
 
-`--config <yaml>` 优先于上述三项。
+`--station <yaml>` 优先于上述三项。
 
 ```bash
-python -m robot_infra.setup --mock                     # canned hardware and a simulated GELLO; the doctor runs with --mock
-python -m robot_infra.setup --from local/station.yaml  # the old file's values are the defaults
-python -m robot_infra.setup --from local/station.yaml --only cameras   # redo one section: cameras | teleop | daemon
-python -m robot_infra.setup --non-interactive --mock --arms 1 --arm-names arm --robot-ip 172.16.0.2 \
+robot-infra setup --mock                     # canned hardware and a simulated GELLO; the doctor runs with --mock
+robot-infra setup --station local/station.yaml  # the old file's values are the defaults
+robot-infra setup --station local/station.yaml --only cameras   # redo one section: cameras | teleop | daemon
+robot-infra setup --non-interactive --mock --arms 1 --arm-names arm --robot-ip 172.16.0.2 \
     --arm-backend franky --gripper franky --home-joints 0,-0.785,0,-2.356,0,1.571,0.785 \
     --cameras 123422070001=wrist --teleop none --daemon-port 50051 --output /tmp/station.yaml
 ```
 
-每个问题都有命令行参数，见 `python -m robot_infra.setup --help`；逐臂参数可每臂一个值，也可一个值用于全部。`--non-interactive` 在遇到既无参数也无 `--from` 值的首个问题时失败；`--non-interactive --from X` 原样重写 `X`。已有文件先备份成 `station.yaml.bak.<UTC %Y%m%dT%H%M%SZ>`，再原子替换。除非指定 `--allow-unprobed`，配置值必须来自已探测结果。
+每个问题都有命令行参数，见 `robot-infra setup --help`；逐臂参数可每臂一个值，也可一个值用于全部。`--non-interactive` 在遇到既无参数也无 `--station` 值的首个问题时失败；`--non-interactive --station X` 原样重写 `X`。已有文件先备份成 `station.yaml.bak.<UTC %Y%m%dT%H%M%SZ>`，再原子替换。除非指定 `--allow-unprobed`，配置值必须来自已探测结果。
 
 <a id="spacemouse-python-dependencies-and-udev"></a>
 
@@ -140,7 +162,7 @@ robots:
     daemon: {bind: 0.0.0.0:50052, token: null}
 ```
 
-`python -m robot_infra.server` 为每台启动独立进程，`python -m robot_infra.doctor` 逐台检查，`--robot <name>` 选择单台。两套 GELLO、三台相机的完整示例为 [`docs/station.bimanual.example.yaml`](../../robot_infra/docs/station.bimanual.example.yaml)。`Robot.from_yaml` 仅读取不含 `daemon:` 的单机器人文件。
+`robot-infra daemon` 为每台启动独立进程，`robot-infra doctor` 逐台检查，`--robot <name>` 选择单台。两套 GELLO、三台相机的完整示例为 [`docs/station.bimanual.example.yaml`](../../robot_infra/docs/station.bimanual.example.yaml)。`Robot.from_yaml` 仅读取不含 `daemon:` 的单机器人文件。
 
 上层包可通过 `parse_station`、`load_station` 或 `load_station_with_env`，使用 `sections={name: validator}` 注册额外的机器人映射站点分节（section）。与 `daemon:` 类似，这些分节描述机器人，但不属于设备配置：加载器在调用 `RobotConfig.from_dict` 前移除每个已注册键，校验其值，并将返回值存入 `StationRobot.sections`。设备层不解释分节内容。未注册的未知键仍会报错；单机器人和 `robots:` 映射均支持分节。设置向导渲染设备配置，不渲染上层分节。
 
@@ -243,15 +265,15 @@ franka (franka)
 ### 2. 连接并发现设备
 
 ```bash
-python -m robot_infra.discovery --config robot.yaml
+robot-infra discover --station robot.yaml
 ```
 
-discovery 仅探测，不连接机器人。`--config` 可选；它对指定配置或[工作站文件](#setup-wizard)中每台机器人的 `robot_ip` 执行 ping，并探测 TCP 22、80、443、1337、50051。
+discovery 仅探测，不连接机器人。`--station` 可选；它对指定配置或[工作站文件](#setup-wizard)中每台机器人的 `robot_ip` 执行 ping，并探测 TCP 22、80、443、1337、50051。
 
 未连接任何设备的机器实际输出如下：
 
 ```text
-$ python -m robot_infra.discovery --config robot.yaml
+$ robot-infra discover --station robot.yaml
 cameras:
   none
 teleops:
@@ -274,17 +296,17 @@ hid devices:
 | `hosts` | 对配置 `robot_ip` 执行 `ping` 和 TCP 连接。 | `ping=ok`；Franka 1337 开放通常表示 FCI 可访问。 |
 | `hid devices` | `/dev/hidraw*`。 | SpaceMouse 和其他 HID 遥操作设备。 |
 
-没有 `--config` 也没有工作站文件时，`hosts:` 显示 `none`。
+没有 `--station` 也没有工作站文件时，`hosts:` 显示 `none`。
 
 <a id="3-check-with-the-doctor"></a>
 
 ### 3. 运行 doctor 检查
 
 ```bash
-python -m robot_infra.doctor --config robot.yaml [--robot NAME] [--mock] [--fix] [--json] [--install-sdk [--yes]]
+robot-infra doctor --station robot.yaml [--robot NAME] [--mock] [--fix] [--json] [--install-sdk [--yes]]
 ```
 
-未传 `--config` 时检查[工作站文件](#setup-wizard)。多机器人逐台检查，每份报告前有 `== robot '<name>' ==`，末尾有 `overall:`；`--robot NAME` 只检查一台。
+未传 `--station` 时检查[工作站文件](#setup-wizard)。多机器人逐台检查，每份报告前有 `== robot '<name>' ==`，末尾有 `overall:`；`--robot NAME` 只检查一台。
 
 doctor 按 0–5 顺序执行六层，`teleop:` 段为 0、1、2、4 层增加检查：
 
@@ -312,7 +334,7 @@ doctor 会连接并断开机器人，不会关闭电源。
 Franka 示例的 `--mock` 运行结果：
 
 ```text
-$ python -m robot_infra.doctor --config robot.yaml --mock
+$ robot-infra doctor --station robot.yaml --mock
 [0/5] deps ... OK  no extras needed (fake or SDK-free backends)
 [1/5] sdk:arm ... OK  no SDK needed
 [1/5] sdk:gripper ... OK  no SDK needed
@@ -331,7 +353,7 @@ summary: 9 ok, 0 failed, 3 skipped
 相同配置在没有 franky、机器人和相机的机器上：
 
 ```text
-$ python -m robot_infra.doctor --config robot.yaml
+$ robot-infra doctor --station robot.yaml
 [0/5] deps ... FAIL  missing extras for this station: franky
     hint: pip install -e 'robot_infra[franky]' (from the repository root; or pip install 'rlgarden-robot-infra[franky]'); if the handshake then reports a libfranka mismatch, rerun the doctor with --install-sdk
 [1/5] sdk:arm ... FAIL  FrankyArm needs the 'franky' package
@@ -343,7 +365,7 @@ $ python -m robot_infra.doctor --config robot.yaml
     hint: check: robot powered on and brakes released; Desk reachable at https://172.16.0.2/desk; you hold control in Desk; FCI activated (Desk → Activate FCI); cable on the Control port; firewall allows UDP
 [2/5] os:tcp ... OK  port 1337 closed (informational)
 [2/5] os:camera:wrist ... FAIL  no RealSense device found (serial unset)
-    hint: plug in the camera and run `python -m robot_infra.discovery`
+    hint: plug in the camera and run `robot-infra discover`
 [3/5] handshake ... FAIL  FrankyArm needs the 'franky' package
     hint: pip install franky-control (or: pip install 'rlgarden-robot-infra[franky]')
 [4/5] feedback ... SKIP  skipped: handshake failed
@@ -354,7 +376,7 @@ summary: 2 ok, 6 failed, 2 skipped
 加入 `teleop: {backend: spacemouse}` 后，`--mock` 替换为 fake 并丢弃设备选项，增加以下输出：
 
 ```text
-$ python -m robot_infra.doctor --config robot.yaml --mock
+$ robot-infra doctor --station robot.yaml --mock
 ...
 [1/5] sdk:teleop:fake ... OK  no SDK needed
 [2/5] os:teleop:teleop ... SKIP  skipped (--mock)
@@ -368,7 +390,7 @@ $ python -m robot_infra.doctor --config robot.yaml --mock
 [1/5] sdk:teleop:spacemouse ... FAIL  SpaceMouse needs the 'hidapi==0.14.0.post4' distribution (import hid)
     hint: pip install -e '.[spacemouse]'
 [2/5] os:teleop:teleop ... FAIL  no 'spacemouse' teleop device found
-    hint: plug in the teleop device and run `python -m robot_infra.discovery`
+    hint: plug in the teleop device and run `robot-infra discover`
 [2/5] os:hid ... FAIL  no HID device found
     hint: no /dev/hidraw* node: check the USB cable and port; inside Docker pass it with `docker run --device=/dev/hidrawN`
 ```
@@ -398,7 +420,7 @@ $ python -m robot_infra.doctor --config robot.yaml --mock
 |---|---|---|
 | 缺 pip extras | `deps` FAIL `missing extras for this station: franky, gello`，提示 `pip install -e 'robot_infra[franky,gello]' ...`。 | 从仓库根目录运行给出的命令，列表精确对应缺失的 extras。 |
 | Franka 不可达：未上电、制动锁定、Desk 无控制权或 FCI、线缆接在 Arm 口、防火墙 | `os:ping` FAIL `<ip> does not reply` 或 `handshake` FAIL `cannot reach Franka at <ip>: ...`（例如 `libfranka: Connection to FCI refused. Please install FCI feature or enable FCI mode in Desk.`），提示 `check: robot powered on and brakes released; Desk reachable at https://<ip>/desk; you hold control in Desk; FCI activated (Desk → Activate FCI); cable on the Control port; firewall allows UDP`。 | 按提示逐项检查。Desk 页面能打开还不够，必须持有控制权并激活 FCI。PC 接 Control box，而非机械臂底座；防火墙须允许来自机器人的 UDP。 |
-| libfranka 不匹配 | `handshake` FAIL `libfranka mismatch: robot server 10, installed library 9`，提示 `the robot server version 10 comes from libfranka's handshake error (authoritative); to cross-check, read the system version in Desk → Settings → System and look it up in the compatibility matrix https://frankarobotics.github.io/docs/compatibility.html; then: python -m robot_infra.doctor --config <cfg> --install-sdk`。 | 见[安装正确的 franky wheel](#installing-the-right-franky-wheel)。连接后 `mode:libfranka_version` 显示已安装的 libfranka 版本。 |
+| libfranka 不匹配 | `handshake` FAIL `libfranka mismatch: robot server 10, installed library 9`，提示 `the robot server version 10 comes from libfranka's handshake error (authoritative); to cross-check, read the system version in Desk → Settings → System and look it up in the compatibility matrix https://frankarobotics.github.io/docs/compatibility.html; then: robot-infra doctor --station <cfg> --install-sdk`。 | 见[安装正确的 franky wheel](#installing-the-right-franky-wheel)。连接后 `mode:libfranka_version` 显示已安装的 libfranka 版本。 |
 | 用户不在 `dialout` / `input` | `os:groups` FAIL `not in group(s) dialout, input; no read/write access to [...]`（ACL 或 udev 已允许访问时为 WARN），提示 `sudo usermod -aG dialout,input $USER, then log out and back in`。 | 执行命令后重新登录，运行中的会话保留旧组。 |
 | GELLO 串口不可读 | `os:serial` FAIL `no read/write access to <port>`，提示 `grant this user access now: setfacl -m u:$USER:rw <port> ...`。 | `--fix` 尝试不加 sudo 执行 `setfacl`，否则加 sudo。ACL 在重插后丢失，组或 udev 规则才持久。 |
 | brltty 占用 CH340 适配器 | `os:brltty` FAIL `brltty active and a CH340 adapter (USB id 1a86) is attached; brltty has likely claimed <port>`（端口仍存在时为 WARN），提示 `sudo systemctl mask --now brltty-udev.service brltty.service, then replug the adapter`。 | 屏蔽 brltty（`--runtime` 屏蔽在重启后失效），然后重新插入。 |
@@ -409,7 +431,7 @@ $ python -m robot_infra.doctor --config robot.yaml --mock
 | Piper 未使能，可能是供电或急停。 | `handshake` 报 `Piper on 'can0' did not enable within 5s`，提示 `check that the arm is powered, that 'can0' is up at 1000000 bit/s, and that its emergency stop is released`。 | 接通电源、释放急停并重试；连接后的 `mode:piper_status` 报告状态。 |
 | 无 CAN 反馈，机械臂可能处于主臂或示教模式。 | `handshake` 报 `... enabled but sent no joint feedback within 2s`，或 `mode:follower` 报 `no joint feedback`，提示 `no CAN feedback: the arm may be in master/teach mode; switch it to follower (slave) mode and power-cycle`。 | 切换从臂模式并断电重启。 |
 | pyagxarm 的 Piper 固件配置不匹配。 | `handshake` 报 `firmware probe ... failed` / `cannot map Piper firmware ...`，提示 `set firmware_profile explicitly (default\|v183\|v188\|v189) in the robot config`。 | 在 YAML 显式设置 `firmware_profile`。 |
-| 相机序列号不存在。 | `os:camera:<name>` 报 `camera '<name>' serial '<s>' not found`，提示 `set serial; discovered: [...]`；未填 `serial` 时为 `no RealSense device found (serial unset)` 或 `serial unset and N devices attached; set serial to one of [...]`；握手报 `RealSense serial '<s>' for camera '<name>' not attached`。 | 从 `python -m robot_infra.discovery` 复制序列号，多相机时必须填 `serial`。 |
+| 相机序列号不存在。 | `os:camera:<name>` 报 `camera '<name>' serial '<s>' not found`，提示 `set serial; discovered: [...]`；未填 `serial` 时为 `no RealSense device found (serial unset)` 或 `serial unset and N devices attached; set serial to one of [...]`；握手报 `RealSense serial '<s>' for camera '<name>' not attached`。 | 从 `robot-infra discover` 复制序列号，多相机时必须填 `serial`。 |
 | 相机没有帧。 | `feedback:camera:<name>` 报 `no frames within 2s`，提示 `check USB 3 bandwidth; try another port; run with --fix to reopen`；或 `RealSense '<s>' failed to start`，提示 `check the USB 3 cable/port and udev rules (librealsense scripts/setup_udev_rules.sh)`。 | 使用 USB 3 端口和线缆，避免多相机共享集线器，安装 librealsense udev 后尝试 `--fix`。 |
 | 守护进程不可达。 | 客户端 `TransportError: robot daemon unreachable at <addr>`。 | 启动服务，检查 `--bind`、地址和防火墙。 |
 | 令牌不匹配。 | 客户端 `TransportError: token mismatch`，提示 `pass the same --token to the daemon and the remote config`。 | 两端使用同一令牌。 |
@@ -423,8 +445,8 @@ $ python -m robot_infra.doctor --config robot.yaml --mock
 `franky` extra 安装捆绑某个 libfranka 版本的默认 `franky-control` wheel。机器人服务器版本不同会拒绝握手，doctor 报告 `libfranka mismatch: robot server <N>, installed library <M>`。此时运行：
 
 ```bash
-python -m robot_infra.doctor --config robot.yaml --install-sdk         # asks before installing
-python -m robot_infra.doctor --config robot.yaml --install-sdk --yes   # installs without asking
+robot-infra doctor --station robot.yaml --install-sdk         # asks before installing
+robot-infra doctor --station robot.yaml --install-sdk --yes   # installs without asking
 ```
 
 使用 `--install-sdk` 时，doctor 从 libfranka 握手错误获取权威 robot server 版本。Desk 不直接显示该数值；在 Settings → System 读取系统版本如 5.9.2，通过[兼容表](https://frankarobotics.github.io/docs/compatibility.html)映射交叉核对，然后打印实际 pip 命令：
@@ -433,9 +455,9 @@ python -m robot_infra.doctor --config robot.yaml --install-sdk --yes   # install
 <this python> -m pip install franky-control --extra-index-url https://timschneider42.github.io/franky/whl/by-robot-server-version/<N>/ --force-reinstall --no-deps
 ```
 
-随后询问 `Install now? [y/N]`，只有 `y` 或 `yes` 才安装到运行 doctor 的解释器；之后用新解释器重跑相关机器人的 doctor，因为当前解释器中仍加载着旧 libfranka，并返回该次运行的退出码。除非指定 `--yes`，否则未经确认不会安装。`--json` 永不询问或安装，仅输出 `{"results": <the --json report>, "install_sdk": [{robot, server_version, library_version, command}]}`。报告不同服务器版本的机器人不会自动安装，因为同一 Python 环境只有一个 franky wheel；改为逐台打印命令。`--no-deps` 假设 franky 的依赖（`numpy`、`websockets`）已具备，先安装 `franky` extra 即可满足。
+随后询问 `Install now? [y/N]`，只有 `y`（忽略大小写和两侧空白）才安装到运行 doctor 的解释器；之后用新解释器重跑相关机器人的 doctor，因为当前解释器中仍加载着旧 libfranka，并返回该次运行的退出码。除非指定 `--yes`，否则未经确认不会安装。`--json` 永不询问或安装，仅输出 `{"results": <the original device report>, "install_sdk": [{robot, server_version, library_version, command}]}`。报告不同服务器版本的机器人不会自动安装，因为同一 Python 环境只有一个 franky wheel；改为逐台打印命令。`--no-deps` 假设 franky 的依赖（`numpy`、`websockets`）已具备，先安装 `franky` extra 即可满足。
 
-项目环境（project environment）已安装 `real-world-rl` 时，`rwrl doctor` 转发到同一个 doctor；在 NUC、仓库根目录、项目环境激活时运行，见 [rwrl](cli.md#commands)。
+项目环境已安装 `real-world-rl` 时，`rwrl doctor` 是独立且覆盖更广的诊断入口：检查主机、项目环境和已配置设备，预览针对性修复（`--fix` 应用主机与软件修复），并写入含主机检查和修复的版本化 JSON 外层。设备探测始终使用 `fix=False`，不会修复设备。在 NUC 激活项目环境后运行，见 [rwrl](cli.md#robot-host-diagnosis-and-repair)。
 
 <a id="4-serve-the-robot"></a>
 
@@ -443,17 +465,17 @@ python -m robot_infra.doctor --config robot.yaml --install-sdk --yes   # install
 
 ```bash
 pip install -e '.[grpc]'   # plus the robot's backend extras
-python -m robot_infra.server --config robot.yaml --bind 0.0.0.0:50051 [--token T] [--watchdog-s 0.5] [--no-preflight]
+robot-infra daemon --station robot.yaml --bind 0.0.0.0:50051 [--token T] [--watchdog-s 0.5] [--no-preflight]
 ```
 
 | 参数 | 默认值 | 含义 |
 |---|---|---|
-| `--config` | [工作站文件](#setup-wizard) | 机器人或工作站 YAML。 |
+| `--station` | [工作站文件](#setup-wizard) | 机器人或工作站 YAML。 |
 | `--robot` | 所有机器人 | 只服务指定机器人；省略时多机器人各启动一个进程。 |
 | `--bind` | 机器人 `daemon.bind`，否则 `0.0.0.0:50051` | 监听 `host:port`，仅限单机器人。 |
 | `--token` | 机器人 `daemon.token`，否则无 | 共享令牌，客户端经 gRPC 元数据 `x-robot-token` 发送相同值，仅限单机器人。 |
 
-多机器人且未指定 `--robot` 时，命令作为监督进程，为每台运行 `python -m robot_infra.server --config <station> --robot <name>`，各自使用独立进程会话，并传递 `--watchdog-s`、`--jpeg-quality`、`--no-preflight`、`--transport`。它转发 SIGINT/SIGTERM，等待所有子进程，以第一个非零退出码结束。此时 `--bind` / `--token` 会报错，应逐臂设置 `daemon.bind` / `daemon.token`；两台机器人使用同一 `daemon.bind` 也报错。SIGKILL 杀死监督进程后守护进程仍运行，需用 SIGTERM 停止。
+多机器人且未指定 `--robot` 时，命令作为监督进程，为每台运行 `robot-infra daemon --station <station> --robot <name>`，各自使用独立进程会话，并传递 `--watchdog-s`、`--jpeg-quality`、`--no-preflight`、`--transport`。它转发 SIGINT/SIGTERM，等待所有子进程，以第一个非零退出码结束。此时 `--bind` / `--token` 会报错，应逐臂设置 `daemon.bind` / `daemon.token`；两台机器人使用同一 `daemon.bind` 也报错。SIGKILL 杀死监督进程后守护进程仍运行，需用 SIGTERM 停止。
 | `--watchdog-s` | `0.5` | 超过指定秒数未收到动作，让伺服机械臂进入空闲。 |
 | `--no-preflight` | 关闭 | 启动服务前跳过 doctor。 |
 | `--transport` | `grpc` | 当前唯一传输方式。 |
@@ -465,7 +487,7 @@ python -m robot_infra.server --config robot.yaml --bind 0.0.0.0:50051 [--token T
 
 执行过程：
 
-1. **配置。** 加载 YAML 后，为 `""` 或 null 的字段读取同名大写环境变量，例如 `FIRMWARE_PROFILE=v188`。`ROBOT_IP`、`CAN_INTERFACE` 仅在 YAML 显式设置 `robot_ip: ""` / `can_interface: ""` 时生效，因为其默认值非空。相机 `serial` 为空且同后端仅连接一台时自动填充。守护进程、doctor、`python -m robot_infra.discovery --config` 均应用自动填充，`Robot.from_yaml` 按文件原值读取。
+1. **配置。** 加载 YAML 后，为 `""` 或 null 的字段读取同名大写环境变量，例如 `FIRMWARE_PROFILE=v188`。`ROBOT_IP`、`CAN_INTERFACE` 仅在 YAML 显式设置 `robot_ip: ""` / `can_interface: ""` 时生效，因为其默认值非空。相机 `serial` 为空且同后端仅连接一台时自动填充。守护进程、doctor、`robot-infra discover --station` 均应用自动填充，`Robot.from_yaml` 按文件原值读取。
 2. **预检查。** 除 `--no-preflight` 外，运行完整非 `--mock` doctor。任何失败都打印 `preflight failed; fix the items above or start with --no-preflight` 并以 1 退出。doctor 持设备锁连接和断开，同机器人已有服务会导致 `handshake` 失败。fake 跳过 OS 检查，显示 `backend 'fake' needs no OS device`，因此 fake 演示无需关闭预检查。
 3. **启动输出**，下例来自 fake 配置：
 
@@ -588,9 +610,9 @@ robot.disconnect()
 
 #### 监督单进程机器人运行
 
-无守护进程时，机器人进程通过进程内 SDK 驱动机械臂，因此外部无法调用 `arm.stop()`。`python -m robot_infra.supervise` 将它作为独立 watchdog 进程的子进程运行：
+在机器人主机的仓库根目录激活完整项目环境后，使用 `rwrl supervise` 和 `rwrl record`。无守护进程时，机器人进程通过进程内 SDK 驱动机械臂，因此外部无法调用 `arm.stop()`。`rwrl supervise` 将它作为独立 watchdog 进程的子进程运行：
 
-    python -m robot_infra.supervise --log runs/<run>/supervise.jsonl -- python examples/record_real_demos.py --config hil.yaml ...
+    rwrl supervise --log runs/<run>/supervise.jsonl -- rwrl record --config hil.yaml ...
 
 | 参数 | 默认 | 含义 |
 |---|---|---|
@@ -603,7 +625,7 @@ robot.disconnect()
 
 子进程在独立会话中运行，通过 `ROBOT_INFRA_HEARTBEAT_FD` 接收管道写端。`robot_infra.supervise.Heartbeat.from_env()` 是子进程端接口：每步调用 `beat()`，重置前调用 `begin_long_operation()`；无该变量时不执行操作。Ctrl-C、SIGTERM 或终端关闭只传到监督进程，由它转发 SIGINT 并等待子进程；它以子进程退出码结束，升级信号后为非零。监督进程死亡时子进程收到 SIGINT，下次心跳抛 `SupervisorLost`。仅 Linux，依赖 prctl 和进程组。
 
-监督进程只能终止进程，随后 libfranka 断开控制连接，机器人由固件以 `Reflex` 状态停止。在 Desk 清错或运行 `python -m robot_infra.doctor --config robot.yaml --fix` 恢复。进程外受控 `stop()` 只存在于守护进程路线（`--watchdog-s`）；进程内第一层为通过 `real_robot.watchdog_s` 启用的 `StepWatchdog`（见 `docs/real-world-experiments.md`）。
+监督进程只能终止进程，随后 libfranka 断开控制连接，机器人由固件以 `Reflex` 状态停止。在 Desk 清错或运行 `robot-infra doctor --station robot.yaml --fix` 恢复。进程外受控 `stop()` 只存在于守护进程路线（`--watchdog-s`）；进程内第一层为通过 `real_robot.watchdog_s` 启用的 `StepWatchdog`（见 `docs/real-world-experiments.md`）。
 
 <a id="7-add-a-teleop-device"></a>
 
@@ -653,12 +675,12 @@ robot.teleop.reset()                           # drops latched events and the ho
 
 `read(timeout_s)` 超时抛 `DeviceFault`，连续 5 次轮询失败后抛可恢复 `DeviceFault`，需重连机器人；等待期间断开则抛 `DeviceNotConnected`。它是单消费者接口，两个客户端读取同一遥操作设备会分走事件。
 
-`backend: spacemouse`（extra `spacemouse`；选项 `device_index` 为 0、`deadzone` 为 1e-3、`invert_axes`、`poll_interval_s` 为 0.005）是带夹爪的 `cartesian_delta` 设备。推杆 twist 为 `[-y, x, z, -roll, -pitch, -yaw]`；每次按键锁存为 `button_0` / `button_1` 事件，避免两次读取间漏按。按钮 0 仍切换设备层粘滞夹爪（连接时打开），两按钮均不发送 `episode_end`。real_world_rl 的 `--teleop-device spacemouse` 另赋语义：0 接管、1 夹爪，忽略设备 `gripper` / `intervening`。需可读写 `/dev/hidraw*`；`python -m robot_infra.doctor` 通过 `os:hid` 检查并打印 udev 规则安装命令，见[已知限制](#known-limitations-and-needs-hardware-verification)。
+`backend: spacemouse`（extra `spacemouse`；选项 `device_index` 为 0、`deadzone` 为 1e-3、`invert_axes`、`poll_interval_s` 为 0.005）是带夹爪的 `cartesian_delta` 设备。推杆 twist 为 `[-y, x, z, -roll, -pitch, -yaw]`；每次按键锁存为 `button_0` / `button_1` 事件，避免两次读取间漏按。按钮 0 仍切换设备层粘滞夹爪（连接时打开），两按钮均不发送 `episode_end`。real_world_rl 的 `--teleop-device spacemouse` 另赋语义：0 接管、1 夹爪，忽略设备 `gripper` / `intervening`。需可读写 `/dev/hidraw*`；`robot-infra doctor` 通过 `os:hid` 检查并打印 udev 规则安装命令，见[已知限制](#known-limitations-and-needs-hardware-verification)。
 
 `backend: gello` 使用 `gello` 组，`event_device` 另需 `gello-events`。它读取经 U2D2 或 OpenRB-150 连接、Protocol 2.0 的被动 Dynamixel 主臂，输出 `joint_abs`，每个 `joint_ids` 一关节，设置 `gripper_id` 后有夹爪。每次轮询同步读一次，关节 `i` 为 `wrap((raw_rad - joint_offsets_rad[i]) * joint_signs[i])`，环绕区间 `[wrap_centers_rad[i] - pi, wrap_centers_rad[i] + pi)`，连接无需指定起始姿态；中心应取 `joint_limits` 中点，Panda 第 6 关节超过 pi，需正中心。夹爪为 `clip((raw - gripper_closed_rad) / (gripper_open_rad - gripper_closed_rad), 0, 1)`，1 表示打开，可用 `gripper_binarize_threshold` 二值化。默认 `intervention: always` 每次都报告 `intervening`；`toggle` 经 `evdev` 读取机器人 PC 的 `event_device` 脚踏或键盘，其他键由 `event_keys` 触发 `episode_end` / `success` / `failure` / `rerecord`。连接和断开都关闭力矩，缺舵机或同步读取失败会使轮询失败，避免复用旧样本。完整选项见 [`docs/robot.franka.example.yaml`](../../robot_infra/docs/robot.franka.example.yaml)。每台需标定一次，关闭力矩并手动移动；[配置向导](#setup-wizard)直接执行并写入工作站文件。独立标定命令会打印可粘贴配置：
 
 ```bash
-python -m robot_infra.devices.backends.teleops.gello_calibrate \
+robot-infra gello-calibrate \
     --port /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_XXXX-if00-port0 \
     --joint-ids 1 2 3 4 5 6 7 --gripper-id 8 \
     --calibration-pose 0 0 0 -1.57 0 1.57 0 --joint-limits-yaml robot.yaml

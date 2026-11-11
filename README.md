@@ -24,15 +24,14 @@ tests here pass against.
 
 ## Methods
 
-Each method is a subcommand of `python examples/train_real_world.py <method> --role {actor,learner,eval}`
+Each method is a subcommand of `rwrl train <method> --role {actor,learner,eval}`
 (`real_world_bc` has no roles). `residual_hil_serl` and `silri` are also registered on rl-garden's
 online registry through the `rlgarden.algorithms` entry point, so `examples/deploy_real_robot.py`
 can rebuild their agents from a checkpoint (`rl-garden-eval` cannot evaluate residual checkpoints:
 they need a base provider).
-The training, recording and deploy scripts in `examples/` are thin wrappers over console scripts of the installed package:
-`real-world-rl-train` / `python -m real_world_rl.training`, `real-world-rl-record` /
-`python -m real_world_rl.demos`, `real-world-rl-deploy` / `python -m real_world_rl.deploy`,
-plus `real-world-rl-collect-reward` / `python -m real_world_rl.reward.collect_data` for reward-classifier data.
+Use `rwrl train`, `rwrl record`, `rwrl deploy` and `rwrl collect-reward` for training,
+recording, deployment and reward-classifier data collection. The existing console scripts,
+Python module entrypoints and scripts in `examples/` remain compatibility aliases.
 
 SpaceMouse defaults to `--spacemouse-mode tracker`; opt into `--spacemouse-mode serl`
 for raw motion takeover, release returning control to the policy, and held-button gripper control, with
@@ -161,13 +160,13 @@ The robot daemon runs on the robot PC (see the robot_infra README,
 [How to Start](robot_infra/README.md#how-to-start)):
 
 ```bash
-python -m robot_infra.setup                  # writes ./local/station.yaml (the setup wizard)
-python -m robot_infra.server --watchdog-s 5  # serves it: no --config needed
+rwrl setup                  # writes ./local/station.yaml (the setup wizard)
+robot-infra daemon --watchdog-s 5  # serves it: no --station needed
 ```
 
 The [setup wizard](robot_infra/README.md#setup-wizard) writes the station yaml of a Franka station
 (one daemon process per robot for a two-arm station). A hand-written robot yaml is served with
-`python -m robot_infra.server --config robot.yaml --bind 0.0.0.0:50051 --watchdog-s 5`.
+`robot-infra daemon --station robot.yaml --bind 0.0.0.0:50051 --watchdog-s 5`.
 
 The daemon idles a servoing arm that gets no action for `--watchdog-s` (default 0.5 s), and the
 env enters servo mode at the end of `reset()`. If the first policy step after a reset can take
@@ -302,7 +301,7 @@ teleop:
 ### Deploy
 
 ```bash
-python examples/deploy_real_robot.py --checkpoint runs/.../checkpoints/checkpoint_<step>.pt \
+rwrl deploy --checkpoint runs/.../checkpoints/checkpoint_<step>.pt \
     --algo rlpd_hybrid --real_robot.remote ROBOT_PC:50051 --real_robot.token T \
     --episodes 5 --max-steps-per-episode 100
 ```
@@ -385,7 +384,7 @@ the policy is untrained). Robot PC side, with a fake-backend `robot.yaml` of typ
 fake teleop above):
 
 ```bash
-python -m robot_infra.server --config robot.yaml --bind 127.0.0.1:50061 --token T \
+robot-infra daemon --station robot.yaml --bind 127.0.0.1:50061 --token T \
     --jpeg-quality 90 --watchdog-s 5 --no-preflight
 ```
 
@@ -396,15 +395,15 @@ Learner and actor (two terminals; `hil.yaml` is the preset above with `remote: 1
 COMMON="--config hil.yaml --teleop-device robot --robot-teleop-action-mode joint_abs \
     --log-dir runs --log-type none --exp-name smoke --batch-size 16 --learning-starts 32 \
     --buffer-size 2000 --checkpoint-freq 10 --sync-host 127.0.0.1 --sync-port 6055 --publish-freq 10"
-python examples/train_real_world.py hil_serl --role learner $COMMON
-python examples/train_real_world.py hil_serl --role actor $COMMON
+rwrl train hil_serl --role learner $COMMON
+rwrl train hil_serl --role actor $COMMON
 ```
 
 Stop both with Ctrl-C. The learner writes `runs/smoke/config.json` and
 `runs/smoke/checkpoints/checkpoint_<update>.pt`. Then deploy the last checkpoint:
 
 ```bash
-python examples/deploy_real_robot.py --checkpoint runs/smoke/checkpoints/checkpoint_<update>.pt \
+rwrl deploy --checkpoint runs/smoke/checkpoints/checkpoint_<update>.pt \
     --algo rlpd_hybrid --real_robot.remote 127.0.0.1:50061 --real_robot.token T \
     --episodes 2 --max-steps-per-episode 15
 ```
@@ -417,8 +416,8 @@ reachable address, and a real `control_hz`.
 Two-process real-robot training for SERL (state-only or image) uses the same flags:
 
 ```bash
-python examples/train_real_world.py serl --role learner ...
-python examples/train_real_world.py serl --role actor --env-backend real_robot \
+rwrl train serl --role learner ...
+rwrl train serl --role actor --env-backend real_robot \
     --real_robot.remote ROBOT_PC:50051 --real_robot.num_joints 7 \
     --obs.rgb wrist --obs.image-size 128 128 ...
 ```
@@ -443,7 +442,7 @@ the contract. rl-garden's Pattern-A RLinf adapter
 env worker and has no real-robot or image path, so it cannot drive this
 package.
 
-Run training with `python examples/train_real_world.py serl --role ...`
+Run training with `rwrl train serl --role ...`
 (see that file's module docstring for the two-process actor/learner launch
 shape). See [`docs/teleop.md`](docs/teleop.md) for the teleop demo/recording
 workflow, and [`docs/hil-serl-roadmap.md`](docs/hil-serl-roadmap.md) for what

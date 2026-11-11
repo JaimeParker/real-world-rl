@@ -146,7 +146,8 @@ def test_default_installer_runs_mock_and_prints_hardware_next_step(installer_che
     assert calls[-1] == ["-m", "robot_infra.doctor", "--mock"]
     assert ["-m", "pip", "install", "-e", "./rl-garden", "-e", "./robot_infra",
             "-e", ".[franka-gello,test]"] in calls
-    assert "--config local/station.yaml" in result.stdout
+    assert "Next, configure local/station.yaml, then run from this repository root:" in result.stdout
+    assert "rwrl doctor --station local/station.yaml" in result.stdout
 
 
 def test_custom_options_and_existing_venv(installer_checkout):

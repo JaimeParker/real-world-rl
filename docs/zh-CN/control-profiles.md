@@ -40,7 +40,7 @@ Franky 应用显式配置前检查已安装 tracker 构造器签名。值直接�
 配置向导还可通过可选参数接收配置，无需增加交互提示：
 
 ```bash
-python -m robot_infra.setup --from local/station.yaml --control '{max_delta_tau: 0.5}'
+rwrl --station local/station.yaml setup --control '{max_delta_tau: 0.5}'
 ```
 
 可传一份双臂共用映射，或逐臂映射。不传参数会保留现有配置，`--control null` 会删除配置。现有相机宽高描述源视频流；裁剪/ROI 和策略缩放属于实验预处理配置。

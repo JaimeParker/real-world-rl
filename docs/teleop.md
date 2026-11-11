@@ -248,7 +248,7 @@ On the NUC, repository root, with the project environment active and the station
 operator's labels on the terminal (the SpaceMouse Compact has two buttons, both taken):
 
 ```bash
-python examples/record_real_demos.py --config hil.yaml \
+rwrl record --config hil.yaml \
     --teleop-device spacemouse --teleop-event-device stdin \
     --output-path demos/task_20.pkl --num-successes 20
 ```
@@ -337,11 +337,11 @@ A leader arm reports absolute leader joint positions. `LeaderArmPartSource`
 adds an onset policy for the moment the operator takes over. Two ways to read a GELLO:
 
 - `--teleop-device leader_arm`: the GELLO is the `teleop:` part of the robot yaml the daemon
-  serves on the robot PC (`python -m robot_infra.server --config robot.yaml ...`), read through
-  `RemoteRobot`. `python -m robot_infra.setup` writes the section (calibration included) into a
+  serves on the robot PC (`robot-infra daemon --station robot.yaml ...`), read through
+  `RemoteRobot`. `rwrl setup` writes the section (calibration included) into a
   station yaml; or add it to the robot yaml by hand (for example
   `robot_infra/docs/robot.franka.example.yaml`);
-  `python -m robot_infra.devices.backends.teleops.gello_calibrate --port ... --joint-ids 1 2 3 4 5 6 7 --gripper-id 8`
+  `rwrl gello-calibrate --port ... --joint-ids 1 2 3 4 5 6 7 --gripper-id 8`
   prints the `options` block for a unit:
 
   ```yaml
@@ -368,7 +368,7 @@ HIL recipe over the daemon (a `joint_delta` follower; `--robot-teleop-action-mod
 name a joint space for a leader arm, it declares the part before the remote robot connects):
 
 ```bash
-python examples/train_real_world.py hil_serl --role actor --env-backend real_robot \
+rwrl train hil_serl --role actor --env-backend real_robot \
     --real_robot.remote ROBOT_PC:50051 --real_robot.action_mode joint_delta \
     --teleop-device leader_arm --robot-teleop-action-mode joint_delta \
     --teleop-onset ramp --teleop-event-device keyboard
@@ -444,9 +444,9 @@ part, and the robot daemon serves it:
 ```bash
 # on the robot host, next to the SERL bridge
 pip install -e "robot_infra[gello]"          # + [gello-events] for an evdev pedal/keyboard
-python -m robot_infra.devices.backends.teleops.gello_calibrate --port /dev/serial/by-id/usb-FTDI_... \
+rwrl gello-calibrate --port /dev/serial/by-id/usb-FTDI_... \
     --joint-ids 1 2 3 4 5 6 7 --gripper-id 8            # paste the printed options into the yaml
-python -m robot_infra.server --config robot.gello_station.yaml --bind 0.0.0.0:50052
+robot-infra daemon --station robot.gello_station.yaml --bind 0.0.0.0:50052
 ```
 
 The fake arm holds no hardware and is never commanded, so the stub does not compete with the
@@ -495,7 +495,7 @@ gripper_binarize_threshold: 0.5
 ```
 
 ```bash
-python examples/train_real_world.py hil_serl --role actor --env-backend franka_real ... \
+rwrl train hil_serl --role actor --env-backend franka_real ... \
     --teleop-device leader_cartesian --teleop-options-yaml station.yaml
 ```
 
@@ -672,7 +672,7 @@ right:
 ```
 
 or, with `--teleop-arm-device gello`, the robot_infra station yaml itself
-(`robots: {left: ..., right: ...}`, as `python -m robot_infra.setup` writes it): each robot's
+(`robots: {left: ..., right: ...}`, as `rwrl setup` writes it): each robot's
 `teleop.options` (and `hold_s`) become that arm's kwargs, matched by robot name to the env's
 `arm_names`. A single-robot station or robot yaml works the same way for `--teleop-device gello`
 on one arm. With `leader_arm` or `robot` per arm, each daemon reads its own GELLO, so a station
@@ -681,7 +681,7 @@ yaml is refused there.
 HIL over the two daemons:
 
 ```bash
-python examples/train_real_world.py hil_serl --role actor --config bimanual.yaml \
+rwrl train hil_serl --role actor --config bimanual.yaml \
     --teleop-device bimanual --teleop-arm-device leader_arm \
     --robot-teleop-action-mode joint_delta --teleop-event-device keyboard
 ```

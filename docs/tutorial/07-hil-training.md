@@ -90,11 +90,11 @@ specified in the current [experiment guide](../real-world-experiments.md#step-wa
 
 ```bash
 # Learner machine: repository root, project environment active.
-python examples/train_real_world.py hil_serl --role learner $COMMON --exp-name hil-pick-and-place \
+rwrl train hil_serl --role learner $COMMON --exp-name hil-pick-and-place \
     --demo-dataset-paths demos/pick-and-place.pkl
 # NUC: repository root, project environment active.
-python -m robot_infra.supervise --startup-s 60 --log runs/hil-pick-and-place/supervise.jsonl -- \
-    python examples/train_real_world.py hil_serl --role actor $COMMON --exp-name hil-pick-and-place
+rwrl supervise --startup-s 60 --log runs/hil-pick-and-place/supervise.jsonl -- \
+    rwrl train hil_serl --role actor $COMMON --exp-name hil-pick-and-place
 ```
 
 The actor waits up to `--sync-startup-timeout` (default 30 seconds) for an initial learner
@@ -115,11 +115,11 @@ the learner machine, then the supervised actor on the NUC, from each repository 
 RESIDUAL="--residual-variant hybrid --residual-action-scale 0.1 --residual-bc-weight 0.1 \
     --critic-only-updates 500"
 BASE_BC='checkpoint:runs/bc-pick-and-place/checkpoints/final.pt?algo=real_world_bc'
-python examples/train_real_world.py residual_hil_serl --role learner $COMMON $RESIDUAL \
+rwrl train residual_hil_serl --role learner $COMMON $RESIDUAL \
     --exp-name residual-bc-pick-and-place --base-provider "$BASE_BC"
 # NUC: repository root, project environment active.
-python -m robot_infra.supervise --startup-s 60 --log runs/residual-bc-pick-and-place/supervise.jsonl -- \
-    python examples/train_real_world.py residual_hil_serl --role actor $COMMON $RESIDUAL \
+rwrl supervise --startup-s 60 --log runs/residual-bc-pick-and-place/supervise.jsonl -- \
+    rwrl train residual_hil_serl --role actor $COMMON $RESIDUAL \
     --exp-name residual-bc-pick-and-place --base-provider "$BASE_BC"
 ```
 
@@ -132,11 +132,11 @@ the learner machine, then the supervised actor on the NUC, from each repository 
 RESIDUAL="--residual-variant hybrid --residual-action-scale 0.1 --residual-bc-weight 0.1 \
     --critic-only-updates 500"
 BASE_ACT='act:runs/act-pick-and-place/checkpoints/final.pt?temporal_agg=1'
-python examples/train_real_world.py residual_hil_serl --role learner $COMMON $RESIDUAL \
+rwrl train residual_hil_serl --role learner $COMMON $RESIDUAL \
     --exp-name residual-act-pick-and-place --base-provider "$BASE_ACT"
 # NUC: repository root, project environment active.
-python -m robot_infra.supervise --startup-s 60 --log runs/residual-act-pick-and-place/supervise.jsonl -- \
-    python examples/train_real_world.py residual_hil_serl --role actor $COMMON $RESIDUAL \
+rwrl supervise --startup-s 60 --log runs/residual-act-pick-and-place/supervise.jsonl -- \
+    rwrl train residual_hil_serl --role actor $COMMON $RESIDUAL \
     --exp-name residual-act-pick-and-place --base-provider "$BASE_ACT"
 ```
 
@@ -161,11 +161,11 @@ residuals from a zero base, see [residual.md](../residual.md#human-intervention)
 
 ```bash
 # Learner machine: repository root, project environment active.
-python examples/train_real_world.py silri --role learner $COMMON --exp-name silri-pick-and-place \
+rwrl train silri --role learner $COMMON --exp-name silri-pick-and-place \
     --demo-dataset-paths demos/pick-and-place.pkl
 # NUC: repository root, project environment active.
-python -m robot_infra.supervise --startup-s 60 --log runs/silri-pick-and-place/supervise.jsonl -- \
-    python examples/train_real_world.py silri --role actor $COMMON --exp-name silri-pick-and-place
+rwrl supervise --startup-s 60 --log runs/silri-pick-and-place/supervise.jsonl -- \
+    rwrl train silri --role actor $COMMON --exp-name silri-pick-and-place
 ```
 
 Before its first update the SiLRI learner pretrains its human-behaviour model on the demo buffer
@@ -200,19 +200,19 @@ NUC, repository root, project environment active, after defining `ENV_FLAGS` and
 base variables above:
 
 ```bash
-python -m robot_infra.supervise --startup-s 60 --log runs/hil-pick-and-place/eval-supervise.jsonl -- \
-    python examples/train_real_world.py hil_serl --role eval $ENV_FLAGS --exp-name hil-pick-and-place \
+rwrl supervise --startup-s 60 --log runs/hil-pick-and-place/eval-supervise.jsonl -- \
+    rwrl train hil_serl --role eval $ENV_FLAGS --exp-name hil-pick-and-place \
     --load-checkpoint runs/hil-pick-and-place/checkpoints/final.pt --eval-n-trajs 10
-python -m robot_infra.supervise --startup-s 60 --log runs/residual-bc-pick-and-place/eval-supervise.jsonl -- \
-    python examples/train_real_world.py residual_hil_serl --role eval $ENV_FLAGS $RESIDUAL \
+rwrl supervise --startup-s 60 --log runs/residual-bc-pick-and-place/eval-supervise.jsonl -- \
+    rwrl train residual_hil_serl --role eval $ENV_FLAGS $RESIDUAL \
     --exp-name residual-bc-pick-and-place --base-provider "$BASE_BC" \
     --load-checkpoint runs/residual-bc-pick-and-place/checkpoints/final.pt --eval-n-trajs 10
-python -m robot_infra.supervise --startup-s 60 --log runs/residual-act-pick-and-place/eval-supervise.jsonl -- \
-    python examples/train_real_world.py residual_hil_serl --role eval $ENV_FLAGS $RESIDUAL \
+rwrl supervise --startup-s 60 --log runs/residual-act-pick-and-place/eval-supervise.jsonl -- \
+    rwrl train residual_hil_serl --role eval $ENV_FLAGS $RESIDUAL \
     --exp-name residual-act-pick-and-place --base-provider "$BASE_ACT" \
     --load-checkpoint runs/residual-act-pick-and-place/checkpoints/final.pt --eval-n-trajs 10
-python -m robot_infra.supervise --startup-s 60 --log runs/silri-pick-and-place/eval-supervise.jsonl -- \
-    python examples/train_real_world.py silri --role eval $ENV_FLAGS --exp-name silri-pick-and-place \
+rwrl supervise --startup-s 60 --log runs/silri-pick-and-place/eval-supervise.jsonl -- \
+    rwrl train silri --role eval $ENV_FLAGS --exp-name silri-pick-and-place \
     --load-checkpoint runs/silri-pick-and-place/checkpoints/final.pt --eval-n-trajs 10
 ```
 
@@ -294,13 +294,13 @@ paths and capacities. For the `hil_serl` run above:
 
 ```bash
 # Learner machine: repository root, project environment active.
-python examples/train_real_world.py hil_serl --role learner $COMMON --exp-name hil-pick-and-place \
+rwrl train hil_serl --role learner $COMMON --exp-name hil-pick-and-place \
     --demo-dataset-paths demos/pick-and-place.pkl --load-checkpoint \
     runs/hil-pick-and-place/checkpoints/bundle_manifest.json --checkpoint-dir \
     runs/hil-pick-and-place/checkpoints
 # NUC: repository root, project environment active.
-python -m robot_infra.supervise --startup-s 60 --log runs/hil-pick-and-place/supervise.jsonl -- \
-    python examples/train_real_world.py hil_serl --role actor $COMMON --exp-name hil-pick-and-place
+rwrl supervise --startup-s 60 --log runs/hil-pick-and-place/supervise.jsonl -- \
+    rwrl train hil_serl --role actor $COMMON --exp-name hil-pick-and-place
 ```
 
 The actor reuses its existing outbox; acknowledged IDs are admitted once. A learner/network outage

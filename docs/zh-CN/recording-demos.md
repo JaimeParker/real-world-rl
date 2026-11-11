@@ -19,7 +19,7 @@
 GELLO 由机器人 daemon 提供，follower 为 `joint_delta`（教程各阶段的设置），按键使用键盘：
 
 ```bash
-python examples/record_real_demos.py --config hil.yaml \
+rwrl record --config hil.yaml \
     --teleop-device leader_arm --robot-teleop-action-mode joint_delta \
     --teleop-event-device keyboard --teleop-onset arm \
     --output-path demos/task_20.pkl --num-successes 20
@@ -49,7 +49,7 @@ SpaceMouse 参数（详情见 [teleop.md](teleop.md#spacemouse)）：
 然后用示范训练：
 
 ```bash
-python examples/train_real_world.py hil_serl --role learner --config hil.yaml \
+rwrl train hil_serl --role learner --config hil.yaml \
     --demo-dataset-paths demos/task_20.pkl ...
 ```
 

@@ -33,8 +33,8 @@ rwrl --preset examples/presets/gello_cartesian.yaml --yes home go
 在 NUC 的仓库根目录，激活项目环境后运行：
 
 ```bash
-python -m robot_infra.supervise --log runs/record-pick-and-place/supervise.jsonl -- \
-    python examples/record_real_demos.py --config examples/presets/gello_cartesian.yaml \
+rwrl supervise --log runs/record-pick-and-place/supervise.jsonl -- \
+    rwrl record --config examples/presets/gello_cartesian.yaml \
     --teleop-device leader_cartesian --teleop-event-device stdin \
     --real_robot.watchdog_s 0.3 \
     --output-path demos/pick-and-place.pkl --num-successes 20
@@ -83,8 +83,8 @@ supervisor 将硬件进程作为子进程运行。终端按键传给子进程；
 使用同一 NUC、仓库根目录和项目环境。按 [teleop.md](../teleop.md#spacemouse) 安装 SpaceMouse extra。覆盖预设的 GELLO 选项文件，避免将 leader 选项传给 SpaceMouse 输入源：
 
 ```bash
-python -m robot_infra.supervise --log runs/record-spacemouse/supervise.jsonl -- \
-    python examples/record_real_demos.py --config examples/presets/gello_cartesian.yaml \
+rwrl supervise --log runs/record-spacemouse/supervise.jsonl -- \
+    rwrl record --config examples/presets/gello_cartesian.yaml \
     --teleop-device spacemouse --teleop-event-device stdin --teleop-options-yaml None \
     --real_robot.watchdog_s 0.3 \
     --output-path demos/pick-and-place-spacemouse.pkl --num-successes 20
@@ -121,8 +121,8 @@ python -m robot_infra.supervise --log runs/record-spacemouse/supervise.jsonl -- 
 在 NUC 的仓库根目录激活项目环境，使用单独调试的 `hil_abs.yaml`（`joint_abs`、关节限位、本地机器人及 GELLO teleop 部件）：
 
 ```bash
-python -m robot_infra.supervise --log runs/record-joint-abs/supervise.jsonl -- \
-    python examples/record_real_demos.py --config hil_abs.yaml \
+rwrl supervise --log runs/record-joint-abs/supervise.jsonl -- \
+    rwrl record --config hil_abs.yaml \
     --teleop-device leader_arm --robot-teleop-action-mode joint_abs --teleop-event-device stdin \
     --output-path demos/pick-and-place-abs.pkl --num-successes 20
 ```

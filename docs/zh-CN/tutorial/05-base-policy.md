@@ -24,7 +24,7 @@
 在 GPU 仓库根准备**仅供离线的 `hil.yaml`**：复制现场版 `examples/presets/gello_cartesian.yaml`，移除根部全部 `teleop_*` 字段（设备、事件设备、选项路径、四个 tracker 值），保留 `env_backend`、`env_id`、`obs` 和整个 `real_robot`。BC 不接受在线 teleop CLI 字段；离线加载器从示范元数据恢复 tracker 契约，因此保留 sidecar。该副本仅供 BC，04 和 07 用完整预设。
 
 ```bash
-python examples/train_real_world.py real_world_bc --config hil.yaml \
+rwrl train real_world_bc --config hil.yaml \
     --demo-dataset-paths demos/pick-and-place.pkl \
     --log-dir runs --exp-name bc-pick-and-place --buffer-size 100000 \
     --num-offline-steps 20000 --no-tanh-squash

@@ -47,7 +47,7 @@ Which path to use:
   The OpenRB-150 is a USB CDC device and has no latency timer.
 - **Permissions.** The user needs the `dialout` group (`sudo usermod -aG dialout $USER`, then
   log in again) or a udev rule; in Docker pass the node with `--device=/dev/serial/by-id/...`.
-  `python -m robot_infra.doctor --config robot.yaml` checks that the configured port exists and is
+  `rwrl doctor --station robot.yaml` checks that the configured port exists and is
   readable and writable (`os:serial`). The backend never kills processes or changes permissions.
 - **Power.** The servos must be powered to be read (a U2D2 does not power the Dynamixel bus from
   USB; use a power hub or the OpenRB-150's supply). The backend writes torque off to every servo
@@ -70,12 +70,12 @@ pip install -e "robot_infra[gello-events]"   # evdev, only for an event_device (
 ## 2. Calibration
 
 The calibration CLI finds the per-unit joint signs, the joint offsets and the trigger range, and
-prints the `teleop:` yaml block. (`python -m robot_infra.setup` runs these steps inline per arm and
+prints the `teleop:` yaml block. (`rwrl setup` runs these steps inline per arm and
 writes the result into the station yaml, so with the wizard you can skip the paste below; see the
 [robot_infra README](../robot_infra/README.md#setup-wizard).)
 
 ```bash
-python -m robot_infra.devices.backends.teleops.gello_calibrate \
+rwrl gello-calibrate \
     --port /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_XXXXXXXX-if00-port0 \
     --joint-ids 1 2 3 4 5 6 7 --gripper-id 8 \
     --joint-limits-yaml robot.yaml
@@ -125,7 +125,7 @@ the joint angles with the follower's.
 ## 3. The robot yaml (`real_robot`, franky)
 
 Start from `robot_infra/docs/robot.franka.example.yaml` and add the safety limits and the GELLO. The
-alternative is `python -m robot_infra.setup`, which writes a station yaml with the robot, cameras,
+alternative is `rwrl setup`, which writes a station yaml with the robot, cameras,
 GELLO calibration and daemon port (`./local/station.yaml`, found by the daemon without `--config`);
 it writes Panda `joint_limits`, a `max_delta_per_step` cap and a requested `safety_box`.
 Inspect those values against the actual station before motion; hand-written files need the
@@ -168,7 +168,7 @@ teleop:
 Serve it on the robot PC:
 
 ```bash
-python -m robot_infra.server --config robot.yaml --bind 0.0.0.0:50051 --token T
+robot-infra daemon --station robot.yaml --bind 0.0.0.0:50051 --token T
 ```
 
 The actor's preset (`hil.yaml`, passed with `--config`; the README's
@@ -205,7 +205,7 @@ gripper, no cameras) whose only real device is the GELLO,
 
 ```bash
 # on the robot host, next to the SERL bridge
-python -m robot_infra.server --config robot.gello_station.yaml --bind 0.0.0.0:50052
+robot-infra daemon --station robot.gello_station.yaml --bind 0.0.0.0:50052
 ```
 
 The actor turns the leader joints into a cartesian twist with Panda forward kinematics
@@ -229,7 +229,7 @@ learner rejects a pkl whose sidecar does not match its env (`joint_delta` demos 
 a `joint_delta` pipeline, a separate `joint_abs` set for a `joint_abs` one; [tutorial 04](tutorial/04-record-demos.md)).
 
 ```bash
-python examples/record_real_demos.py --config hil.yaml \
+rwrl record --config hil.yaml \
     --teleop-device leader_arm --robot-teleop-action-mode joint_delta \
     --teleop-event-device keyboard --output-path demos/task.pkl --num-successes 20
 ```
@@ -264,7 +264,7 @@ Where the intervention toggle comes from:
 ### Two GELLOs, two arms
 
 For a two-arm station (`--env-backend real_robot_bimanual`, [bimanual.md](bimanual.md)) give each
-robot its own GELLO. `python -m robot_infra.setup` writes the station yaml for both: it probes the
+robot its own GELLO. `rwrl setup` writes the station yaml for both: it probes the
 GELLO buses, runs the calibration of each unit inline and writes `robots: {left, right}`, each with
 its `teleop:` section and daemon port (the robot_infra README's
 [Setup wizard](../robot_infra/README.md#setup-wizard);

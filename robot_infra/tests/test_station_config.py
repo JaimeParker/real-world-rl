@@ -80,7 +80,7 @@ def test_nothing_found_names_every_location_and_the_wizard(tmp_path):
     assert f"${STATION_CONFIG_ENV}" in message
     assert str(tmp_path / "local" / "station.yaml") in message
     assert str(tmp_path / "xdg" / "robot_infra" / "station.yaml") in message
-    assert "python -m robot_infra.setup" in message
+    assert "Pass --station <yaml>, or run `robot-infra setup` to write one" in message
 
 
 # -- loading --------------------------------------------------------------------------------

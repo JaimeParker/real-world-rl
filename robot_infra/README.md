@@ -37,7 +37,7 @@ its output path; station lookup defaults are unchanged. Errors use stderr,
 and exit-code constants live in `robot_infra.cli.errors`. The device binary
 registers `--station`, `--robot`, `--mock`, `--json` and `--yes` globals;
 `--preset` and `--direct` belong to `rwrl`.
-The existing `python -m robot_infra.*` entry points
+The existing Python module entry points
 remain supported and call the same run functions. The full project exposes
 these same command objects through `rwrl`, except that `rwrl doctor` runs the
 host/project doctor while `robot-infra doctor` runs the device doctor.
@@ -65,8 +65,7 @@ Commands without JSON output (`setup`, `daemon`, `supervise`, `discover`,
 to the child unchanged. Each native command's `--help` lists its original
 module flags. `gello-calibrate` prints a teleop YAML block;
 `setup --only teleop --calibrate` runs the same calibration in the wizard and
-writes station YAML. `gello-calibrate` is also available through its existing
-`python -m robot_infra.devices.backends.teleops.gello_calibrate` entry point.
+writes station YAML. The Python module entry point remains a compatibility alias.
 
 ## Install
 
@@ -86,8 +85,8 @@ pip install -e '.[franky,grpc]'     # e.g. a Franka robot PC running the daemon
 | `spacemouse` | `hidapi==0.14.0.post4` (trezor/cython-hidapi, import `hid`) | `teleop: {backend: spacemouse}` (in-tree reader and discovery) | robot PC |
 | `gello` | `dynamixel-sdk>=3.7.31,<3.9` | `teleop: {backend: gello}` (GELLO leader arm) and its calibration CLI | robot PC |
 | `gello-events` | `evdev` | a gello `event_device` (pedal or keyboard toggle and events, Linux) | robot PC |
-| `grpc` | `grpcio>=1.60` | the daemon (`python -m robot_infra.server`) and `RemoteRobot` | robot PC **and** GPU machine |
-| `jpeg` | `pillow`, `opencv-python-headless` (`cv2`) | `python -m robot_infra.server --jpeg-quality N`; the JPEG path in `server/codec.py` imports `cv2` | robot PC **and** GPU machine |
+| `grpc` | `grpcio>=1.60` | the daemon (`robot-infra daemon`) and `RemoteRobot` | robot PC **and** GPU machine |
+| `jpeg` | `pillow`, `opencv-python-headless` (`cv2`) | `robot-infra daemon --jpeg-quality N`; the JPEG path in `server/codec.py` imports `cv2` | robot PC **and** GPU machine |
 | `real` | `flask`, `pyzmq`, `scipy`, `pyspacemouse` | legacy Flask bridge/gripper server and the legacy `teleop/spacemouse/` (old `read_all()` API, separate from the in-tree reader; ROS1 must be installed separately) | robot PC |
 | `sim` | `mani_skill` | the ManiSkill impedance controllers in `controller/simulator/` | GPU machine |
 | `dev` | `pytest` | running the tests | any |
@@ -102,7 +101,7 @@ the RealSense cameras and the GELLO leader arm(s) (USB), then run on the robot P
 
 ```bash
 pip install -e '.[franky,grpc,realsense,gello]'
-python -m robot_infra.setup
+robot-infra setup
 ```
 
 It probes the hardware (TCP 22/443/1337 of `172.16.0.2`, `172.16.1.2`, `$ROBOT_IP` and
@@ -120,27 +119,27 @@ a servo step cap `max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}` (`--max-de
 `--max-delta-joint-rad`) and a `safety_box` it asks for (base frame, metres, suggested
 `[0.3, -0.3, 0.05, 0.7, 0.3, 0.6]`, `--safety-box`), which must contain the home pose.
 
-The daemon, the doctor and discovery find the station yaml without `--config`. They take the
+The daemon, the doctor and discovery find the station yaml without `--station`. They take the
 first of:
 
 1. `$ROBOT_INFRA_CONFIG`
 2. `./local/station.yaml` (relative to the current directory; the wizard's default, `--scope local`; `local/` is git-ignored)
 3. `$XDG_CONFIG_HOME/robot_infra/station.yaml`, default `~/.config/robot_infra/station.yaml` (`--scope user`)
 
-`--config <yaml>` still wins over all three.
+`--station <yaml>` still wins over all three.
 
 ```bash
-python -m robot_infra.setup --mock                     # canned hardware and a simulated GELLO; the doctor runs with --mock
-python -m robot_infra.setup --from local/station.yaml  # the old file's values are the defaults
-python -m robot_infra.setup --from local/station.yaml --only cameras   # redo one section: cameras | teleop | daemon
-python -m robot_infra.setup --non-interactive --mock --arms 1 --arm-names arm --robot-ip 172.16.0.2 \
+robot-infra setup --mock                     # canned hardware and a simulated GELLO; the doctor runs with --mock
+robot-infra setup --station local/station.yaml  # the old file's values are the defaults
+robot-infra setup --station local/station.yaml --only cameras   # redo one section: cameras | teleop | daemon
+robot-infra setup --non-interactive --mock --arms 1 --arm-names arm --robot-ip 172.16.0.2 \
     --arm-backend franky --gripper franky --home-joints 0,-0.785,0,-2.356,0,1.571,0.785 \
     --cameras 123422070001=wrist --teleop none --daemon-port 50051 --output /tmp/station.yaml
 ```
 
-Every question has a flag (`python -m robot_infra.setup --help`); per-arm flags take one value
+Every question has a flag (`robot-infra setup --help`); per-arm flags take one value
 per arm or one for all arms. `--non-interactive` fails on the first question that has neither a
-flag nor a `--from` value; `--non-interactive --from X` rewrites `X` unchanged. An existing file
+flag nor a `--station` value; `--non-interactive --station X` rewrites `X` unchanged. An existing file
 is first copied to `station.yaml.bak.<UTC %Y%m%dT%H%M%SZ>`, then replaced atomically. A probed
 value is required unless `--allow-unprobed`.
 
@@ -231,8 +230,8 @@ robots:
     daemon: {bind: 0.0.0.0:50052, token: null}
 ```
 
-`python -m robot_infra.server` then starts one daemon process per robot, and
-`python -m robot_infra.doctor` checks each robot in turn; `--robot <name>` picks one. A full
+`robot-infra daemon` then starts one daemon process per robot, and
+`robot-infra doctor` checks each robot in turn; `--robot <name>` picks one. A full
 example with two GELLOs and three cameras is
 [`docs/station.bimanual.example.yaml`](docs/station.bimanual.example.yaml).
 `Robot.from_yaml` reads single-robot files without a `daemon:` block only.
@@ -364,17 +363,17 @@ With a `teleop:` section a last line is added, for example `  teleop: SpaceMouse
 ### 2. Plug in and discover
 
 ```bash
-python -m robot_infra.discovery --config robot.yaml
+robot-infra discover --station robot.yaml
 ```
 
-Discovery only probes. It never connects to a robot. `--config` is optional: the given
+Discovery only probes. It never connects to a robot. `--station` is optional: the given
 config's (or else the [station file's](#setup-wizard)) `robot_ip` of every robot is pinged and
 TCP-probed on ports 22, 80, 443, 1337 and 50051.
 
 On a machine with nothing attached (real output):
 
 ```text
-$ python -m robot_infra.discovery --config robot.yaml
+$ robot-infra discover --station robot.yaml
 cameras:
   none
 teleops:
@@ -400,15 +399,15 @@ With hardware attached, the lines take the form `realsense: <serial>, <serial>`,
 | `hosts` | `ping` and TCP connect to the config's `robot_ip` | `ping=ok`. For Franka, 1337 open usually means FCI is reachable. |
 | `hid devices` | `/dev/hidraw*` | SpaceMouse and other HID teleop devices |
 
-Without `--config` and without a station file, `hosts:` prints `none`.
+Without `--station` and without a station file, `hosts:` prints `none`.
 
 ### 3. Check with the doctor
 
 ```bash
-python -m robot_infra.doctor --config robot.yaml [--robot NAME] [--mock] [--fix] [--json] [--install-sdk [--yes]]
+robot-infra doctor --station robot.yaml [--robot NAME] [--mock] [--fix] [--json] [--install-sdk [--yes]]
 ```
 
-Without `--config` the doctor checks the [station file](#setup-wizard). A station with several
+Without `--station` the doctor checks the [station file](#setup-wizard). A station with several
 robots is checked robot by robot (`== robot '<name>' ==` before each report, an `overall:` line
 at the end); `--robot NAME` checks one.
 
@@ -453,7 +452,7 @@ The doctor connects to the robot and disconnects it again. It never powers anyth
 A `--mock` run of the Franka example:
 
 ```text
-$ python -m robot_infra.doctor --config robot.yaml --mock
+$ robot-infra doctor --station robot.yaml --mock
 [0/5] deps ... OK  no extras needed (fake or SDK-free backends)
 [1/5] sdk:arm ... OK  no SDK needed
 [1/5] sdk:gripper ... OK  no SDK needed
@@ -472,7 +471,7 @@ summary: 9 ok, 0 failed, 3 skipped
 The same config on a machine with no franky, no robot and no camera:
 
 ```text
-$ python -m robot_infra.doctor --config robot.yaml
+$ robot-infra doctor --station robot.yaml
 [0/5] deps ... FAIL  missing extras for this station: franky
     hint: pip install -e 'robot_infra[franky]' (from the repository root; or pip install 'rlgarden-robot-infra[franky]'); if the handshake then reports a libfranka mismatch, rerun the doctor with --install-sdk
 [1/5] sdk:arm ... FAIL  FrankyArm needs the 'franky' package
@@ -484,7 +483,7 @@ $ python -m robot_infra.doctor --config robot.yaml
     hint: check: robot powered on and brakes released; Desk reachable at https://172.16.0.2/desk; you hold control in Desk; FCI activated (Desk → Activate FCI); cable on the Control port; firewall allows UDP
 [2/5] os:tcp ... OK  port 1337 closed (informational)
 [2/5] os:camera:wrist ... FAIL  no RealSense device found (serial unset)
-    hint: plug in the camera and run `python -m robot_infra.discovery`
+    hint: plug in the camera and run `robot-infra discover`
 [3/5] handshake ... FAIL  FrankyArm needs the 'franky' package
     hint: pip install franky-control (or: pip install 'rlgarden-robot-infra[franky]')
 [4/5] feedback ... SKIP  skipped: handshake failed
@@ -496,7 +495,7 @@ With a `teleop: {backend: spacemouse}` section, `--mock` swaps the teleop for th
 (its options are dropped) and the extra lines are:
 
 ```text
-$ python -m robot_infra.doctor --config robot.yaml --mock
+$ robot-infra doctor --station robot.yaml --mock
 ...
 [1/5] sdk:teleop:fake ... OK  no SDK needed
 [2/5] os:teleop:teleop ... SKIP  skipped (--mock)
@@ -511,7 +510,7 @@ lines read (the `os:hid` line is only checked for the SpaceMouse backend):
 [1/5] sdk:teleop:spacemouse ... FAIL  SpaceMouse needs the 'hidapi==0.14.0.post4' distribution (import hid)
     hint: pip install -e '.[spacemouse]'
 [2/5] os:teleop:teleop ... FAIL  no 'spacemouse' teleop device found
-    hint: plug in the teleop device and run `python -m robot_infra.discovery`
+    hint: plug in the teleop device and run `robot-infra discover`
 [2/5] os:hid ... FAIL  no HID device found
     hint: no /dev/hidraw* node: check the USB cable and port; inside Docker pass it with `docker run --device=/dev/hidrawN`
 ```
@@ -546,7 +545,7 @@ values are filled in from your config.
 |---|---|---|
 | Missing pip extras | `deps` FAIL `missing extras for this station: franky, gello`, hint `pip install -e 'robot_infra[franky,gello]' ...` | Run the quoted command from the repository root (the list is exactly the missing extras). |
 | Franka unreachable: robot off, brakes locked, no control or FCI in Desk, cable on the Arm port, firewall | `os:ping` FAIL `<ip> does not reply` or `handshake` FAIL `cannot reach Franka at <ip>: ...` (for example `libfranka: Connection to FCI refused. Please install FCI feature or enable FCI mode in Desk.`), hint `check: robot powered on and brakes released; Desk reachable at https://<ip>/desk; you hold control in Desk; FCI activated (Desk → Activate FCI); cable on the Control port; firewall allows UDP` | Work through the hint in order. A Desk page that loads is not enough: you must hold control and FCI must be activated. Plug the PC into the Control box (not the arm base). Allow UDP from the robot through the firewall. |
-| libfranka version mismatch | `handshake` FAIL `libfranka mismatch: robot server 10, installed library 9`, hint `the robot server version 10 comes from libfranka's handshake error (authoritative); to cross-check, read the system version in Desk → Settings → System and look it up in the compatibility matrix https://frankarobotics.github.io/docs/compatibility.html; then: python -m robot_infra.doctor --config <cfg> --install-sdk` | See [Installing the right franky wheel](#installing-the-right-franky-wheel). `mode:libfranka_version` shows the installed libfranka once connected. |
+| libfranka version mismatch | `handshake` FAIL `libfranka mismatch: robot server 10, installed library 9`, hint `the robot server version 10 comes from libfranka's handshake error (authoritative); to cross-check, read the system version in Desk → Settings → System and look it up in the compatibility matrix https://frankarobotics.github.io/docs/compatibility.html; then: robot-infra doctor --station <cfg> --install-sdk` | See [Installing the right franky wheel](#installing-the-right-franky-wheel). `mode:libfranka_version` shows the installed libfranka once connected. |
 | User not in `dialout` / `input` | `os:groups` FAIL `not in group(s) dialout, input; no read/write access to [...]` (WARN when an ACL or udev rule grants access anyway), hint `sudo usermod -aG dialout,input $USER, then log out and back in` | Run the command, then log in again: a running session keeps its old groups. |
 | Gello port not readable | `os:serial` FAIL `no read/write access to <port>`, hint `grant this user access now: setfacl -m u:$USER:rw <port> ...` | `--fix` tries the `setfacl` without sudo; otherwise prefix sudo. An ACL is lost on replug; the group or a udev rule is permanent. |
 | brltty claims a CH340 adapter | `os:brltty` FAIL `brltty active and a CH340 adapter (USB id 1a86) is attached; brltty has likely claimed <port>` (WARN while the port still exists), hint `sudo systemctl mask --now brltty-udev.service brltty.service, then replug the adapter` | Mask brltty (a `--runtime` mask is lost on reboot), then replug. |
@@ -557,7 +556,7 @@ values are filled in from your config.
 | Piper does not enable (power, e-stop) | `handshake` FAIL `Piper on 'can0' did not enable within 5s`, hint `check that the arm is powered, that 'can0' is up at 1000000 bit/s, and that its emergency stop is released` | Power the arm, release the e-stop, rerun. `mode:piper_status` names the arm status once connected. |
 | No CAN feedback (arm in master/teach mode) | `handshake` FAIL `... enabled but sent no joint feedback within 2s`, or `mode:follower` FAIL `no joint feedback`; hint `no CAN feedback: the arm may be in master/teach mode; switch it to follower (slave) mode and power-cycle` | Switch the arm to follower (slave) mode and power-cycle it. |
 | Wrong Piper firmware profile (pyagxarm) | `handshake` FAIL `firmware probe ... failed` / `cannot map Piper firmware ...`, hint `set firmware_profile explicitly (default\|v183\|v188\|v189) in the robot config` | Set `firmware_profile` in the yaml. |
-| Camera serial not found | `os:camera:<name>` FAIL `camera '<name>' serial '<s>' not found`, hint `set serial; discovered: [...]` (with `serial` unset: `no RealSense device found (serial unset)` or `serial unset and N devices attached; set serial to one of [...]`); `handshake` FAIL `RealSense serial '<s>' for camera '<name>' not attached` | Copy a serial from `python -m robot_infra.discovery`. With more than one camera attached, `serial` is required. |
+| Camera serial not found | `os:camera:<name>` FAIL `camera '<name>' serial '<s>' not found`, hint `set serial; discovered: [...]` (with `serial` unset: `no RealSense device found (serial unset)` or `serial unset and N devices attached; set serial to one of [...]`); `handshake` FAIL `RealSense serial '<s>' for camera '<name>' not attached` | Copy a serial from `robot-infra discover`. With more than one camera attached, `serial` is required. |
 | Camera gives no frames | `feedback:camera:<name>` FAIL `no frames within 2s`, hint `check USB 3 bandwidth; try another port; run with --fix to reopen`; or `RealSense '<s>' failed to start`, hint `check the USB 3 cable/port and udev rules (librealsense scripts/setup_udev_rules.sh)` | Use a USB 3 port and cable (not a hub shared with other cameras), install the librealsense udev rules, then try `--fix`. |
 | Daemon unreachable | client `TransportError: robot daemon unreachable at <addr>` | Start the daemon, check `--bind`, the address and the firewall. |
 | Token mismatch | client `TransportError: token mismatch`, hint `pass the same --token to the daemon and the remote config` | Use the same token on both sides. |
@@ -571,8 +570,8 @@ version. A robot whose robot server version differs refuses the handshake, and t
 reports `libfranka mismatch: robot server <N>, installed library <M>`. Then:
 
 ```bash
-python -m robot_infra.doctor --config robot.yaml --install-sdk         # asks before installing
-python -m robot_infra.doctor --config robot.yaml --install-sdk --yes   # installs without asking
+robot-infra doctor --station robot.yaml --install-sdk         # asks before installing
+robot-infra doctor --station robot.yaml --install-sdk --yes   # installs without asking
 ```
 
 With `--install-sdk` the doctor prints the robot server version from libfranka's handshake error
@@ -606,18 +605,18 @@ versioned JSON envelope with host checks and repairs; its device probes never re
 
 ```bash
 pip install -e '.[grpc]'   # plus the robot's backend extras
-python -m robot_infra.server --config robot.yaml --bind 0.0.0.0:50051 [--token T] [--watchdog-s 0.5] [--no-preflight]
+robot-infra daemon --station robot.yaml --bind 0.0.0.0:50051 [--token T] [--watchdog-s 0.5] [--no-preflight]
 ```
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--config` | the [station file](#setup-wizard) | robot or station yaml |
+| `--station` | the [station file](#setup-wizard) | robot or station yaml |
 | `--robot` | every robot | serve one robot of a station; without it a station with several robots starts one daemon process per robot |
 | `--bind` | the robot's `daemon.bind`, else `0.0.0.0:50051` | `host:port` to listen on (single robot only) |
 | `--token` | the robot's `daemon.token`, else none | shared secret; clients must send the same one (gRPC metadata `x-robot-token`) (single robot only) |
 
 With several robots and no `--robot`, the command is a supervisor: it starts
-`python -m robot_infra.server --config <station> --robot <name>` per robot (each in its own
+`robot-infra daemon --station <station> --robot <name>` per robot (each in its own
 process session, with `--watchdog-s`, `--jpeg-quality`, `--no-preflight` and `--transport`
 passed on), forwards SIGINT/SIGTERM to them, waits for all and exits with the first non-zero
 child exit code. `--bind`/`--token` are then an error (set `daemon.bind`/`daemon.token` per
@@ -650,7 +649,7 @@ What happens:
    `FIRMWARE_PROFILE=v188`. `ROBOT_IP` and `CAN_INTERFACE` apply only if the yaml sets
    `robot_ip: ""` / `can_interface: ""`, because both have non-empty defaults. A camera
    with an empty `serial` takes the serial when exactly one camera of its backend is
-   attached. The daemon, the doctor and `python -m robot_infra.discovery --config` all apply
+   attached. The daemon, the doctor and `robot-infra discover --station` all apply
    this autofill; `Robot.from_yaml` reads the yaml as written.
 2. **Preflight.** Unless you pass `--no-preflight`, the full doctor (not `--mock`) runs
    and prints its report. If any check fails, the daemon prints `preflight failed; fix the
@@ -831,9 +830,10 @@ limits, however, are enforced here too: `Robot.from_yaml` builds the arm with th
 
 #### Supervising a single-process robot run
 
-Without a daemon, the robot process drives the arm through the in-process SDK, so nothing outside it can call `arm.stop()`. `python -m robot_infra.supervise` runs it as the child of a separate watchdog process:
+On the robot host, from the repository root with the full project environment active,
+use `rwrl supervise` and `rwrl record`. Without a daemon, the robot process drives the arm through the in-process SDK, so nothing outside it can call `arm.stop()`. `rwrl supervise` runs it as the child of a separate watchdog process:
 
-    python -m robot_infra.supervise --log runs/<run>/supervise.jsonl -- python examples/record_real_demos.py --config hil.yaml ...
+    rwrl supervise --log runs/<run>/supervise.jsonl -- rwrl record --config hil.yaml ...
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -846,7 +846,7 @@ Without a daemon, the robot process drives the arm through the in-process SDK, s
 
 The child runs in its own session and receives the write end of a pipe in `ROBOT_INFRA_HEARTBEAT_FD`. `robot_infra.supervise.Heartbeat.from_env()` is the child side: `beat()` once per step, `begin_long_operation()` before a reset. Without the variable it does nothing. Ctrl-C, SIGTERM or a closed terminal reach only the supervisor, which forwards SIGINT and waits for the child; it exits with the child's code, non-zero after an escalation. If the supervisor dies, the child gets SIGINT and its next heartbeat raises `SupervisorLost`. Linux only (prctl, process groups).
 
-The supervisor's only lever is the kill. libfranka then drops the control connection and the robot stops at the firmware level, in `Reflex`. Clear it in Desk or with `python -m robot_infra.doctor --config robot.yaml --fix`. A controlled out-of-process `stop()` exists only on the daemon route (`--watchdog-s`). The in-process first layer is `StepWatchdog`, enabled with `real_robot.watchdog_s` (see `docs/real-world-experiments.md`).
+The supervisor's only lever is the kill. libfranka then drops the control connection and the robot stops at the firmware level, in `Reflex`. Clear it in Desk or with `robot-infra doctor --station robot.yaml --fix`. A controlled out-of-process `stop()` exists only on the daemon route (`--watchdog-s`). The in-process first layer is `StepWatchdog`, enabled with `real_robot.watchdog_s` (see `docs/real-world-experiments.md`).
 
 ### 7. Add a teleop device
 
@@ -908,7 +908,7 @@ gives the twist `[-y, x, z, -roll, -pitch, -yaw]`, every button press is latched
 gripper target (1.0 = open at connect). Neither button raises `episode_end`. real_world_rl's
 `--teleop-device spacemouse` gives the buttons its own meaning (button 0 take-over, button 1
 gripper) and ignores `gripper` and `intervening`. It needs read/write access to
-`/dev/hidraw*`; `python -m robot_infra.doctor` checks this as `os:hid` and prints the udev
+`/dev/hidraw*`; `robot-infra doctor` checks this as `os:hid` and prints the udev
 rule installation command. See [Known limitations](#known-limitations-and-needs-hardware-verification).
 
 `backend: gello` (extra `gello`, plus `gello-events` for `event_device`) is a GELLO leader arm
@@ -929,7 +929,7 @@ runs these steps inline and writes the result into the station yaml. Standalone,
 the block to paste:
 
 ```bash
-python -m robot_infra.devices.backends.teleops.gello_calibrate \
+robot-infra gello-calibrate \
     --port /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_XXXX-if00-port0 \
     --joint-ids 1 2 3 4 5 6 7 --gripper-id 8 \
     --calibration-pose 0 0 0 -1.57 0 1.57 0 --joint-limits-yaml robot.yaml

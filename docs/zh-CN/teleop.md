@@ -155,7 +155,7 @@ sudo cp "$(python -c 'import robot_infra.setup, os; print(os.path.dirname(robot_
 在 NUC 的仓库根目录激活项目环境并配置好工位 `hil.yaml`，对于 `cartesian_delta` 环境（`cartesian_delta` 模式的 `real_robot` 或 `franka_real`），由终端提供操作员标签（SpaceMouse Compact 的两个按钮均已占用）：
 
 ```bash
-python examples/record_real_demos.py --config hil.yaml \
+rwrl record --config hil.yaml \
     --teleop-device spacemouse --teleop-event-device stdin \
     --output-path demos/task_20.pkl --num-successes 20
 ```
@@ -195,7 +195,7 @@ robot YAML 路线（`--teleop-device robot` 和 `backend: spacemouse` teleop 段
 
 主臂报告绝对关节位置。`LeaderArmPartSource`（`real_world_rl/teleop/leader_arm.py`）与 `TeleopPartSource` 一样映射到环境关节动作模式（`joint_abs`：按 `joint_limits` 归一化；`joint_delta`：`(q_leader - q_follower) / joint_scale_rad`，每步在一个 `joint_scale_rad` 处饱和），并添加操作员接管瞬间的起始策略。读取 GELLO 有两种方式：
 
-- `--teleop-device leader_arm`：GELLO 是机器人 PC 上 daemon 提供的 robot YAML 的 `teleop:` 部件（`python -m robot_infra.server --config robot.yaml ...`），经 `RemoteRobot` 读取。`python -m robot_infra.setup` 将该段（包括标定）写入工作站 YAML；也可手动添加到 robot YAML（例如 `robot_infra/docs/robot.franka.example.yaml`）；`python -m robot_infra.devices.backends.teleops.gello_calibrate --port ... --joint-ids 1 2 3 4 5 6 7 --gripper-id 8` 打印单台设备的 `options` 块：
+- `--teleop-device leader_arm`：GELLO 是机器人 PC 上 daemon 提供的 robot YAML 的 `teleop:` 部件（`robot-infra daemon --station robot.yaml ...`），经 `RemoteRobot` 读取。`rwrl setup` 将该段（包括标定）写入工作站 YAML；也可手动添加到 robot YAML（例如 `robot_infra/docs/robot.franka.example.yaml`）；`rwrl gello-calibrate --port ... --joint-ids 1 2 3 4 5 6 7 --gripper-id 8` 打印单台设备的 `options` 块：
 
   ```yaml
   teleop:
@@ -218,7 +218,7 @@ robot YAML 路线（`--teleop-device robot` 和 `backend: spacemouse` teleop 段
 经 daemon 的 HIL 配方（`joint_delta` follower；主臂的 `--robot-teleop-action-mode` 只需指定关节空间，在远程机器人连接前声明部件）：
 
 ```bash
-python examples/train_real_world.py hil_serl --role actor --env-backend real_robot \
+rwrl train hil_serl --role actor --env-backend real_robot \
     --real_robot.remote ROBOT_PC:50051 --real_robot.action_mode joint_delta \
     --teleop-device leader_arm --robot-teleop-action-mode joint_delta \
     --teleop-onset ramp --teleop-event-device keyboard
@@ -271,9 +271,9 @@ GELLO 插在机器人主机（运行 SERL bridge 的机器）上。一个 `type:
 ```bash
 # on the robot host, next to the SERL bridge
 pip install -e "robot_infra[gello]"          # + [gello-events] for an evdev pedal/keyboard
-python -m robot_infra.devices.backends.teleops.gello_calibrate --port /dev/serial/by-id/usb-FTDI_... \
+rwrl gello-calibrate --port /dev/serial/by-id/usb-FTDI_... \
     --joint-ids 1 2 3 4 5 6 7 --gripper-id 8            # paste the printed options into the yaml
-python -m robot_infra.server --config robot.gello_station.yaml --bind 0.0.0.0:50052
+robot-infra daemon --station robot.gello_station.yaml --bind 0.0.0.0:50052
 ```
 
 fake 臂不占用硬件且不会收到运动命令，因此占位机器人不与 bridge 争用实体机器人。使用与同机真实机器人 daemon 不同的端口。
@@ -311,7 +311,7 @@ gripper_binarize_threshold: 0.5
 ```
 
 ```bash
-python examples/train_real_world.py hil_serl --role actor --env-backend franka_real ... \
+rwrl train hil_serl --role actor --env-backend franka_real ... \
     --teleop-device leader_cartesian --teleop-options-yaml station.yaml
 ```
 
@@ -417,12 +417,12 @@ right:
   joint_signs: [...]
 ```
 
-或者在 `--teleop-arm-device gello` 下，直接使用 robot_infra 工作站 YAML（`robots: {left: ..., right: ...}`，由 `python -m robot_infra.setup` 写出）：各机器人 `teleop.options`（及 `hold_s`）成为该臂 kwargs，按机器人名称匹配环境 `arm_names`。单臂 `--teleop-device gello` 使用单机器人工作站或 robot YAML 也相同。每臂用 `leader_arm` 或 `robot` 时，各 daemon 读取自身 GELLO，因此拒绝工作站 YAML。
+或者在 `--teleop-arm-device gello` 下，直接使用 robot_infra 工作站 YAML（`robots: {left: ..., right: ...}`，由 `rwrl setup` 写出）：各机器人 `teleop.options`（及 `hold_s`）成为该臂 kwargs，按机器人名称匹配环境 `arm_names`。单臂 `--teleop-device gello` 使用单机器人工作站或 robot YAML 也相同。每臂用 `leader_arm` 或 `robot` 时，各 daemon 读取自身 GELLO，因此拒绝工作站 YAML。
 
 经两个 daemon 的 HIL：
 
 ```bash
-python examples/train_real_world.py hil_serl --role actor --config bimanual.yaml \
+rwrl train hil_serl --role actor --config bimanual.yaml \
     --teleop-device bimanual --teleop-arm-device leader_arm \
     --robot-teleop-action-mode joint_delta --teleop-event-device keyboard
 ```

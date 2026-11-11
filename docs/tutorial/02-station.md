@@ -1,14 +1,14 @@
 # 2. Configure the station
 
-`python -m robot_infra.setup` is an interactive wizard. Run it on the robot PC with the arm, the
+`rwrl setup` is an interactive wizard. Run it on the robot PC with the arm, the
 cameras and the GELLO plugged in and powered. It probes the hardware, asks a few questions,
 calibrates the GELLO inline, writes one annotated `station.yaml`, runs the doctor on it and prints
 the next commands. The questions are in `robot_infra/setup/wizard.py`; every one has a flag
-(`python -m robot_infra.setup --help`). All commands on this page run on the NUC,
+(`rwrl setup --help`). All commands on this page run on the NUC,
 from the repository root, with the project environment active.
 
 ```bash
-python -m robot_infra.setup
+rwrl setup
 ```
 
 ## Select the hardware
@@ -19,7 +19,7 @@ recorder, actor or daemon using the devices before running the wizard.
 It is interactive unless `--non-interactive` is supplied. For example:
 
 ```bash
-python -m robot_infra.setup --arms 1 --arm-names arm --robot-ip 172.16.0.2 --teleop gello --scope local
+rwrl setup --arms 1 --arm-names arm --robot-ip 172.16.0.2 --teleop gello --scope local
 ```
 
 | Flag | Meaning and default when omitted |
@@ -56,7 +56,7 @@ Answer notes:
 ## The inline GELLO calibration
 
 Answering `yes` to the calibration question runs the same procedure as
-`python -m robot_infra.devices.backends.teleops.gello_calibrate` (torque is off, so you move the
+`rwrl gello-calibrate` (torque is off, so you move the
 leader by hand). In order:
 
 1. For each of the seven joints: move that joint in the robot's positive direction and press Enter.
@@ -75,7 +75,7 @@ If you answer `no`, the yaml gets zero offsets, all `+1` signs and a `# TODO cal
 calibrate later with the command below. A failed calibration asks `retry the calibration? [Y/n]`.
 
 ```bash
-python -m robot_infra.setup --from local/station.yaml --only teleop --calibrate
+rwrl setup --station local/station.yaml --only teleop --calibrate
 ```
 
 ## Where the file lands
@@ -83,13 +83,13 @@ python -m robot_infra.setup --from local/station.yaml --only teleop --calibrate
 The wizard writes `./local/station.yaml` (relative to the directory you run it in; `local/` is
 git-ignored) by default (`--scope local`), or `~/.config/robot_infra/station.yaml` with
 `--scope user`, or any path with `--output`. The daemon, the doctor and discovery find the file
-without `--config`, taking the first of:
+without `--station`, taking the first of:
 
 1. `$ROBOT_INFRA_CONFIG`
 2. `./local/station.yaml`
 3. `$XDG_CONFIG_HOME/robot_infra/station.yaml` (default `~/.config/robot_infra/station.yaml`)
 
-`--config <yaml>` always wins. Run all later `robot_infra` commands from the same directory, or set
+`--station <yaml>` always wins. Run all later `robot_infra` commands from the same directory, or set
 `ROBOT_INFRA_CONFIG`.
 
 ## Multiple arms
@@ -104,7 +104,7 @@ On the NUC, repository root, project environment active, an interactive two-arm 
 no cameras and calibration deferred is:
 
 ```bash
-python -m robot_infra.setup --arms 2 --arm-names left right \
+rwrl setup --arms 2 --arm-names left right \
     --robot-ip 172.16.0.2 172.16.0.4 --cameras none none \
     --teleop gello --no-calibrate --scope local
 ```
@@ -120,8 +120,8 @@ independent reset target.
 per-arm devices. Check one arm at a time on the NUC, repository root, project environment active:
 
 ```bash
-python -m robot_infra.doctor --config local/station.yaml --robot left
-python -m robot_infra.doctor --config local/station.yaml --robot right
+rwrl doctor --station local/station.yaml --robot left
+rwrl doctor --station local/station.yaml --robot right
 ```
 
 *If not:* check the identity and FCI session on the failing arm's Desk. A Hand
@@ -140,14 +140,14 @@ your cell before the first motion: the box is in the robot base frame (`tcp_pose
 and must contain the home pose, the object and the bin; `home_joints` must lie inside `joint_limits`.
 The device layer clips servo targets to these limits in either process layout and refuses out-of-range `move_to_*` targets
 ([Safety rules](../../robot_infra/README.md#safety-rules)). The training env can only be tighter than
-the yaml. Re-running the wizard with `--from` keeps the values you edited.
+the yaml. Re-running the wizard with `--station` keeps the values you edited.
 
 ## Regenerating and rehearsing
 
 ```bash
-python -m robot_infra.setup --from local/station.yaml                    # old values are the defaults
-python -m robot_infra.setup --from local/station.yaml --only cameras     # redo one section: cameras | teleop | daemon
-python -m robot_infra.setup --mock --output /tmp/station.mock.yaml       # rehearse without hardware
+rwrl setup --station local/station.yaml                    # old values are the defaults
+rwrl setup --station local/station.yaml --only cameras     # redo one section: cameras | teleop | daemon
+rwrl setup --mock --output /tmp/station.mock.yaml       # rehearse without hardware
 ```
 
 Use `--output` for a rehearsal so it does not replace your real `local/station.yaml`. For scripted
@@ -195,7 +195,7 @@ as verification of that runtime path.
 Check without touching hardware, on the NUC, repository root, project environment active:
 
 ```bash
-python examples/train_real_world.py hil_serl --config hil.yaml --print-config
+rwrl train hil_serl --config hil.yaml --print-config
 ```
 
 *You should see:* JSON with `env_backend: real_robot`, a `real_robot.robot`

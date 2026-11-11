@@ -18,8 +18,8 @@
 
 ## 方法
 
-每个方法对应 `python examples/train_real_world.py <method> --role {actor,learner,eval}` 的子命令，`real_world_bc` 没有角色。`residual_hil_serl` 和 `silri` 还通过 `rlgarden.algorithms` 注册到 rl-garden 在线注册表，使 `examples/deploy_real_robot.py` 可从 checkpoint 重建智能体。残差 checkpoint 需要基础提供器，因此不能用 `rl-garden-eval` 评估。
-`examples/` 的训练、录制与部署脚本是已安装包命令的薄包装：`real-world-rl-train` / `python -m real_world_rl.training`、`real-world-rl-record` / `python -m real_world_rl.demos`、`real-world-rl-deploy` / `python -m real_world_rl.deploy`；奖励分类器数据采集使用 `real-world-rl-collect-reward` / `python -m real_world_rl.reward.collect_data`。
+每个方法对应 `rwrl train <method> --role {actor,learner,eval}` 的子命令，`real_world_bc` 没有角色。`residual_hil_serl` 和 `silri` 还通过 `rlgarden.algorithms` 注册到 rl-garden 在线注册表，使 `examples/deploy_real_robot.py` 可从 checkpoint 重建智能体。残差 checkpoint 需要基础提供器，因此不能用 `rl-garden-eval` 评估。
+使用 `rwrl train`、`rwrl record`、`rwrl deploy` 和 `rwrl collect-reward` 进行训练、录制、部署和奖励分类器数据采集。原有 console script、Python 模块入口及 `examples/` 脚本保留为兼容别名。
 
 SpaceMouse 默认使用 `--spacemouse-mode tracker`；选择 `--spacemouse-mode serl` 后，原始运动触发接管，松开后将控制权交还策略，按住按钮控制夹爪，并使用配置的 xyz/RPY 安全盒（见[模式指南](teleop.md#spacemouse)）。
 
@@ -121,11 +121,11 @@ rl-garden 自身测试在子模块内运行，见 `rl-garden/.agents/runbooks/te
 守护进程运行在机器人 PC，见设备层 README 的[如何开始](robot-infra.md#how-to-start)：
 
 ```bash
-python -m robot_infra.setup                  # writes ./local/station.yaml (the setup wizard)
-python -m robot_infra.server --watchdog-s 5  # serves it: no --config needed
+rwrl setup                  # writes ./local/station.yaml (the setup wizard)
+robot-infra daemon --watchdog-s 5  # serves it: no --station needed
 ```
 
-[配置向导](robot-infra.md#setup-wizard)生成 Franka 工作站 YAML，双臂每机器人一个守护进程。手写机器人 YAML 可用 `python -m robot_infra.server --config robot.yaml --bind 0.0.0.0:50051 --watchdog-s 5` 启动。
+[配置向导](robot-infra.md#setup-wizard)生成 Franka 工作站 YAML，双臂每机器人一个守护进程。手写机器人 YAML 可用 `robot-infra daemon --station robot.yaml --bind 0.0.0.0:50051 --watchdog-s 5` 启动。
 
 机械臂在 `--watchdog-s` 内未收到动作会进入空闲，默认 0.5 秒；环境在 `reset()` 结束时进入伺服。若首次推理或繁忙 learner 使 reset 后第一步耗时更长，应提高 `--watchdog-s`，否则首个 `step()` 抛 `DeviceFault: the daemon watchdog stopped the arm ...`。
 
@@ -215,7 +215,7 @@ teleop:
 ### 部署
 
 ```bash
-python examples/deploy_real_robot.py --checkpoint runs/.../checkpoints/checkpoint_<step>.pt \
+rwrl deploy --checkpoint runs/.../checkpoints/checkpoint_<step>.pt \
     --algo rlpd_hybrid --real_robot.remote ROBOT_PC:50051 --real_robot.token T \
     --episodes 5 --max-steps-per-episode 100
 ```
@@ -260,7 +260,7 @@ hil_serl learner 的在线与示范快照在每个 pkl 旁生成 `<name>.contrac
 单机无硬件流程已在项目容器验证，训练时间短，策略尚未训练好。机器人 PC 侧准备 `type: franka` 的 fake `robot.yaml`，配置 `arm_backend: fake`、`gripper: {backend: fake}`、名为 `wrist` 的 fake 相机、关节限制、`max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.1}` 及上文 fake 遥操作，参考 robot_infra 示例 YAML：
 
 ```bash
-python -m robot_infra.server --config robot.yaml --bind 127.0.0.1:50061 --token T \
+robot-infra daemon --station robot.yaml --bind 127.0.0.1:50061 --token T \
     --jpeg-quality 90 --watchdog-s 5 --no-preflight
 ```
 
@@ -270,14 +270,14 @@ learner 与 actor 使用两个终端。`hil.yaml` 基于前述预设，修改为
 COMMON="--config hil.yaml --teleop-device robot --robot-teleop-action-mode joint_abs \
     --log-dir runs --log-type none --exp-name smoke --batch-size 16 --learning-starts 32 \
     --buffer-size 2000 --checkpoint-freq 10 --sync-host 127.0.0.1 --sync-port 6055 --publish-freq 10"
-python examples/train_real_world.py hil_serl --role learner $COMMON
-python examples/train_real_world.py hil_serl --role actor $COMMON
+rwrl train hil_serl --role learner $COMMON
+rwrl train hil_serl --role actor $COMMON
 ```
 
 Ctrl-C 停止两个进程。learner 写出 `runs/smoke/config.json` 和 `runs/smoke/checkpoints/checkpoint_<update>.pt`，随后部署最后一个 checkpoint：
 
 ```bash
-python examples/deploy_real_robot.py --checkpoint runs/smoke/checkpoints/checkpoint_<update>.pt \
+rwrl deploy --checkpoint runs/smoke/checkpoints/checkpoint_<update>.pt \
     --algo rlpd_hybrid --real_robot.remote 127.0.0.1:50061 --real_robot.token T \
     --episodes 2 --max-steps-per-episode 15
 ```
@@ -287,8 +287,8 @@ python examples/deploy_real_robot.py --checkpoint runs/smoke/checkpoints/checkpo
 SERL 状态或图像双进程真机训练使用相同参数：
 
 ```bash
-python examples/train_real_world.py serl --role learner ...
-python examples/train_real_world.py serl --role actor --env-backend real_robot \
+rwrl train serl --role learner ...
+rwrl train serl --role actor --env-backend real_robot \
     --real_robot.remote ROBOT_PC:50051 --real_robot.num_joints 7 \
     --obs.rgb wrist --obs.image-size 128 128 ...
 ```
@@ -299,7 +299,7 @@ RLinf 从 [`configs/rlinf/realworld_rlgarden_franka.yaml`](../../configs/rlinf/r
 
 **RLinf** 通过 Gymnasium 注册访问本包。真机配置的环境块设置 `env_type: real` 及 `init_params.id: "real_world_rl.integrations.rlinf.register:RLGardenReal-v0"`，RLinf 的 `RealWorldEnv` 随后通过 `gym.make` 构建每 worker 一台机器人的 `RealRobotEnv`，以 `override_cfg` 为配置。环境块及风险见 [`configs/rlinf/realworld_rlgarden_franka.yaml`](../../configs/rlinf/realworld_rlgarden_franka.yaml)，约定测试见 `tests/test_rlinf_registration.py`。rl-garden 的 Pattern-A RLinf 适配器 `rl_garden/integrations/rlinf/{sac_actor,sac_rollout}.py` 运行 RLinf 自身 worker，没有真机或图像路径，无法驱动本包。
 
-训练使用 `python examples/train_real_world.py serl --role ...`，双进程启动形式见该文件模块说明。遥操作演示与录制见 [`docs/teleop.md`](teleop.md)，HIL-SERL 移植能力及原因见 [`docs/hil-serl-roadmap.md`](hil-serl-roadmap.md)。
+训练使用 `rwrl train serl --role ...`，双进程启动形式见该文件模块说明。遥操作演示与录制见 [`docs/teleop.md`](teleop.md)，HIL-SERL 移植能力及原因见 [`docs/hil-serl-roadmap.md`](hil-serl-roadmap.md)。
 
 
 实验恢复、自主/辅助指标、部件接管和轨迹归档见[真机实验](real-world-experiments.md)。人工动作掩码让局部示范在 BC、残差和 SiLRI 训练中保持对齐；无夹爪 HIL 配置使用连续策略。硬件验证仍待完成。

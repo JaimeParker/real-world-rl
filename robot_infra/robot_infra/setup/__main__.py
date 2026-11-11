@@ -110,14 +110,14 @@ def _found_without_config(path: Path) -> bool:
 
 
 def next_steps_text(draft: StationDraft, path: Path, *, found_without_config: bool) -> str:
-    config_flag = "" if found_without_config else f" --config {path}"
+    config_flag = "" if found_without_config else f" --station {path}"
     lines = ["next steps:"]
     if draft.multi_robot:
-        lines.append(f"  serve every robot, one daemon process each: python -m robot_infra.server{config_flag}")
+        lines.append(f"  serve every robot, one daemon process each: robot-infra daemon{config_flag}")
         lines.extend(f"    '{arm.key}' listens on {arm.bind}" for arm in draft.arms)
     else:
-        lines.append(f"  serve the robot: python -m robot_infra.server{config_flag}  (listens on {draft.arms[0].bind})")
-    lines.append(f"  recheck any time: python -m robot_infra.doctor{config_flag}")
+        lines.append(f"  serve the robot: robot-infra daemon{config_flag}  (listens on {draft.arms[0].bind})")
+    lines.append(f"  recheck any time: robot-infra doctor{config_flag}")
     camera_names = [camera.name for arm in draft.arms for camera in arm.config.cameras]
     rgb = [f"    --obs.rgb {' '.join(camera_names)}"] if camera_names else []
     if draft.multi_robot:

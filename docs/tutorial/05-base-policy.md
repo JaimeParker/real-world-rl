@@ -32,7 +32,7 @@ restores the recorded tracker contract from the demo metadata; keep the sidecar
 with the pkl. This copy is for BC only; 04 and 07 use the full cartesian preset.
 
 ```bash
-python examples/train_real_world.py real_world_bc --config hil.yaml \
+rwrl train real_world_bc --config hil.yaml \
     --demo-dataset-paths demos/pick-and-place.pkl \
     --log-dir runs --exp-name bc-pick-and-place --buffer-size 100000 \
     --num-offline-steps 20000 --no-tanh-squash

@@ -175,7 +175,7 @@ source .venv/bin/activate
 python -m pip install -U pip
 python -m pip install -e ./rl-garden -e ./robot_infra -e '.[franka-gello,test]'
 python -c 'import rl_garden, robot_infra, real_world_rl'
-python -m robot_infra.doctor --mock
+rwrl doctor --mock
 ```
 
 </details>
@@ -233,7 +233,7 @@ With no recorder, actor or daemon holding the devices, on the NUC, repository
 root, project environment active:
 
 ```bash
-python -m robot_infra.doctor --config local/station.yaml
+rwrl doctor --station local/station.yaml
 ```
 
 | Layer | What it verifies | If it fails |
@@ -262,7 +262,7 @@ that feature lands. On the NUC, repository root, project environment active:
 
 <!-- tutorial-test: skip -->
 ```bash
-python -m robot_infra.doctor --config local/station.yaml --install-sdk
+rwrl doctor --station local/station.yaml --install-sdk
 ```
 
 The guided repair reads the robot server version from libfranka's handshake
@@ -343,7 +343,7 @@ selected input route works, and the latency value reads `1` where supported.
 With the project environment active, rerun:
 
 ```bash
-python -m robot_infra.doctor --config local/station.yaml
+rwrl doctor --station local/station.yaml
 ```
 
 *If not:* verify the selected USB device and driver, refreshed group membership,
@@ -364,7 +364,7 @@ Do just these three things before starting a session:
    project environment active:
 
 ```bash
-python -m robot_infra.doctor --config local/station.yaml
+rwrl doctor --station local/station.yaml
 ```
 
 *You should see:* a real handshake and zero failed checks. *If not:* use the

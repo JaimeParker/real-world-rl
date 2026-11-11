@@ -15,7 +15,7 @@
 无人接管部署时，将 `local/station.yaml` 复制为 `local/station.deploy.yaml` 并删除机器人的 `teleop:` 块。守护进程连接时，已配置设备必须在场。先停止训练守护进程，同机器人第二个实例会收到 `DeviceBusy`。部署采用与训练相同的 `--jpeg-quality`，本教程未设置：
 
 ```bash
-python -m robot_infra.server --config local/station.deploy.yaml --watchdog-s 5
+robot-infra daemon --station local/station.deploy.yaml --watchdog-s 5
 ```
 
 <a id="run-a-checkpoint"></a>
@@ -25,7 +25,7 @@ python -m robot_infra.server --config local/station.deploy.yaml --watchdog-s 5
 无人接管运行时，显式关闭接管：
 
 ```bash
-python examples/deploy_real_robot.py --checkpoint runs/bc-pick-and-place/checkpoints/final.pt --algo \
+rwrl deploy --checkpoint runs/bc-pick-and-place/checkpoints/final.pt --algo \
     real_world_bc --real_robot.remote ROBOT_PC:50051 --no-enable-teleop --episodes 5 \
     --max-steps-per-episode 200
 ```
@@ -40,7 +40,7 @@ python examples/deploy_real_robot.py --checkpoint runs/bc-pick-and-place/checkpo
 例如，使用 ACT 基础策略的残差 bundle：
 
 ```bash
-python examples/deploy_real_robot.py --checkpoint \
+rwrl deploy --checkpoint \
     runs/residual-act-pick-and-place/checkpoints/bundle_manifest.json --algo \
     residual_hil_serl_hybrid --real_robot.remote ROBOT_PC:50051 --no-enable-teleop --episodes 5
 ```

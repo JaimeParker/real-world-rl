@@ -30,7 +30,7 @@ _USER_CONFIG_DIR = "robot_infra"
 _DAEMON_KEY = "daemon"
 _DAEMON_KEYS = {"bind", "token"}
 _ROBOTS_KEY = "robots"
-SETUP_COMMAND = "python -m robot_infra.setup"
+SETUP_COMMAND = "robot-infra setup"
 
 
 @lru_cache(maxsize=1)

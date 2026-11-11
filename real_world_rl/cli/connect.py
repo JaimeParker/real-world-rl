@@ -51,7 +51,7 @@ def open_robot(args) -> Iterator[RobotConnection]:
         station = load_station(station_path)
         selected = station.select(args.robot)
     except (FileNotFoundError, ValueError, KeyError) as error:
-        raise CliError(str(error), code=USAGE_EXIT_CODE, hint="run python -m robot_infra.setup") from error
+        raise CliError(str(error), code=USAGE_EXIT_CODE, hint="run rwrl setup") from error
     remote = False
     if selected.daemon_declared:
         address = client_address(selected.bind)

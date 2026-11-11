@@ -6,10 +6,10 @@
 
 [中文入口](../../README.zh-CN.md) · [English](../../tutorial/02-station.md)
 
-`python -m robot_infra.setup` 是交互向导。机械臂、相机和 GELLO 插好并上电后，在机器人 PC 运行：探测硬件、提问、内联标定 GELLO、写出带注释的 `station.yaml`、运行 doctor 并打印后续命令。问题实现位于 `robot_infra/setup/wizard.py`，每项均有参数，见 `python -m robot_infra.setup --help`。本页全部命令在 NUC、仓库根、项目环境（project environment）激活时执行。
+`rwrl setup` 是交互向导。机械臂、相机和 GELLO 插好并上电后，在机器人 PC 运行：探测硬件、提问、内联标定 GELLO、写出带注释的 `station.yaml`、运行 doctor 并打印后续命令。问题实现位于 `robot_infra/setup/wizard.py`，每项均有参数，见 `rwrl setup --help`。本页全部命令在 NUC、仓库根、项目环境（project environment）激活时执行。
 
 ```bash
-python -m robot_infra.setup
+rwrl setup
 ```
 
 <a id="select-the-hardware"></a>
@@ -19,7 +19,7 @@ python -m robot_infra.setup
 命令环境同上，见 [01](01-install.md#4-安装项目环境)。先停占用设备的 recorder、actor 或守护进程。未传 `--non-interactive` 时为交互模式，例如：
 
 ```bash
-python -m robot_infra.setup --arms 1 --arm-names arm --robot-ip 172.16.0.2 --teleop gello --scope local
+rwrl setup --arms 1 --arm-names arm --robot-ip 172.16.0.2 --teleop gello --scope local
 ```
 
 | 参数 | 含义与省略时默认行为 |
@@ -47,7 +47,7 @@ python -m robot_infra.setup --arms 1 --arm-names arm --robot-ip 172.16.0.2 --tel
 
 ## 内联 GELLO 标定
 
-回答 `yes` 运行与 `python -m robot_infra.devices.backends.teleops.gello_calibrate` 相同的流程。扭矩关闭，手动移动 leader：
+回答 `yes` 运行与 `rwrl gello-calibrate` 相同的流程。扭矩关闭，手动移动 leader：
 
 1. 逐个七关节朝机器人正方向移动并回车。输出 `joint N: observed sign +1 (current +1); use it? [Y/n]`，回车接受，`n` 保留旧符号。位移不足 0.1 rad 保留符号；mock 不运动，会提示 `moved less than 0.1 rad; keeping sign +1`。
 2. 保持标定姿态后回车：`[0.0, 0.0, 0.0, -1.5708, 0.0, 1.5708, 0.0]`，即第 4 关节 -90°、第 6 关节 +90°，其余为零。输出 `offset residuals (rad): [...]`；超过 pi/8 表示姿态或符号可能有误，应重新标定。
@@ -56,20 +56,20 @@ python -m robot_infra.setup --arms 1 --arm-names arm --robot-ip 172.16.0.2 --tel
 回答 `no` 写入零偏移、全 `+1` 符号及 `# TODO calibrate` 注释。失败会问 `retry the calibration? [Y/n]`。以后用以下命令补标定：
 
 ```bash
-python -m robot_infra.setup --from local/station.yaml --only teleop --calibrate
+rwrl setup --station local/station.yaml --only teleop --calibrate
 ```
 
 <a id="where-the-file-lands"></a>
 
 ## 文件保存位置
 
-默认 `--scope local` 写入执行目录的 `./local/station.yaml`（`local/` 被 git 忽略）；`--scope user` 写 `~/.config/robot_infra/station.yaml`，`--output` 指定任意路径。不带 `--config` 时，守护进程、doctor 和 discovery 按顺序取首个文件：
+默认 `--scope local` 写入执行目录的 `./local/station.yaml`（`local/` 被 git 忽略）；`--scope user` 写 `~/.config/robot_infra/station.yaml`，`--output` 指定任意路径。不带 `--station` 时，守护进程、doctor 和 discovery 按顺序取首个文件：
 
 1. `$ROBOT_INFRA_CONFIG`
 2. `./local/station.yaml`
 3. `$XDG_CONFIG_HOME/robot_infra/station.yaml`，默认 `~/.config/robot_infra/station.yaml`
 
-显式 `--config <yaml>` 优先。后续命令应从同目录执行，或设置 `ROBOT_INFRA_CONFIG`。
+显式 `--station <yaml>` 优先。后续命令应从同目录执行，或设置 `ROBOT_INFRA_CONFIG`。
 
 <a id="multiple-arms"></a>
 
@@ -80,7 +80,7 @@ python -m robot_infra.setup --from local/station.yaml --only teleop --calibrate
 NUC、仓库根、项目环境激活，无相机且延后标定的双臂交互示例：
 
 ```bash
-python -m robot_infra.setup --arms 2 --arm-names left right \
+rwrl setup --arms 2 --arm-names left right \
     --robot-ip 172.16.0.2 172.16.0.4 --cameras none none \
     --teleop gello --no-calibrate --scope local
 ```
@@ -90,8 +90,8 @@ python -m robot_infra.setup --arms 2 --arm-names left right \
 *应该看到：* `robots.left`、`robots.right` 含正确 IP 和各自设备。在 NUC、仓库根、项目环境激活，逐臂检查：
 
 ```bash
-python -m robot_infra.doctor --config local/station.yaml --robot left
-python -m robot_infra.doctor --config local/station.yaml --robot right
+rwrl doctor --station local/station.yaml --robot left
+rwrl doctor --station local/station.yaml --robot right
 ```
 
 *否则：* 在失败臂的 Desk 检查身份和 FCI。Hand 初始化失败常是开错页面或旧页状态陈旧。刷新正确 IP，确认控制权、实体 Hand 与末端电源。重新初始化会移动手指，不是只读诊断。双臂实验设置见 [bimanual.md](../bimanual.md)。
@@ -101,16 +101,16 @@ python -m robot_infra.doctor --config local/station.yaml --robot right
 ## 检查安全限制
 
 向导写入 Panda 关节限位及单步上限 `joint_limits`、`max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}`，并询问 `safety_box`，建议桌面工作区。首动前按现场核对三者：盒位于基坐标系，`tcp_pose = O_T_EE`，单位米，须包含 home、物体和箱子；`home_joints` 应在关节限位内。
-两种进程布局均由设备层裁剪伺服目标并拒绝越界 `move_to_*`，见[安全规则](../robot-infra.md#safety-rules)。训练环境只能更严。`--from` 重跑保留已编辑值。
+两种进程布局均由设备层裁剪伺服目标并拒绝越界 `move_to_*`，见[安全规则](../robot-infra.md#safety-rules)。训练环境只能更严。`--station` 重跑保留已编辑值。
 
 <a id="regenerating-and-rehearsing"></a>
 
 ## 重新生成和演练
 
 ```bash
-python -m robot_infra.setup --from local/station.yaml                    # old values are the defaults
-python -m robot_infra.setup --from local/station.yaml --only cameras     # redo one section: cameras | teleop | daemon
-python -m robot_infra.setup --mock --output /tmp/station.mock.yaml       # rehearse without hardware
+rwrl setup --station local/station.yaml                    # old values are the defaults
+rwrl setup --station local/station.yaml --only cameras     # redo one section: cameras | teleop | daemon
+rwrl setup --mock --output /tmp/station.mock.yaml       # rehearse without hardware
 ```
 
 演练用 `--output`，避免覆盖真实 station。脚本化操作见 [robot_infra README](../robot-infra.md#setup-wizard) 的 `--non-interactive`。
@@ -142,7 +142,7 @@ cp examples/presets/hil_single_arm.yaml hil.yaml
 在 NUC、仓库根、项目环境激活时无硬件检查：
 
 ```bash
-python examples/train_real_world.py hil_serl --config hil.yaml --print-config
+rwrl train hil_serl --config hil.yaml --print-config
 ```
 
 *应该看到：* JSON 中 `env_backend: real_robot`、`real_robot.robot` 映射，无远程地址，`action_mode: cartesian_delta`、`control_hz: 50`。

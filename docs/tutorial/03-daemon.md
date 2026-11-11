@@ -31,7 +31,7 @@ with the **project environment active**. Ensure no other process owns these devi
 The remote route needs `robot_infra[grpc]` installed on both NUC and actor.
 
 ```bash
-python -m robot_infra.server --config local/station.yaml --watchdog-s 5
+robot-infra daemon --station local/station.yaml --watchdog-s 5
 ```
 
 `--watchdog-s` defaults to **0.5 seconds**. The explicit **5 seconds** above allows
@@ -82,7 +82,7 @@ Check that configuration without connecting, on the actor machine, repository
 root, project environment active:
 
 ```bash
-python examples/train_real_world.py hil_serl --config hil.yaml --print-config
+rwrl train hil_serl --config hil.yaml --print-config
 ```
 
 *You should see:* exactly one connection source (`remote`), the correct camera

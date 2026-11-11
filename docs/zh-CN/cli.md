@@ -4,7 +4,7 @@
 
 # rwrl：工作站命令行
 
-`rwrl` 提供录制、训练和部署脚本之间使用的硬件原语：检查工作站、保存 home 姿态、回 home、操作夹爪、停止机械臂或恢复错误。人和 agent 使用同一套命令；`--json`、`--yes` 和退出码使内置原语适合非交互调用。
+`rwrl` 统一训练、录制、部署和工作站操作。硬件原语可用于：检查工作站、保存 home 姿态、回 home、操作夹爪、停止机械臂或恢复错误。人和 agent 使用同一套命令；`--json`、`--yes` 和退出码使内置原语适合非交互调用。
 
 <a id="where-to-run"></a>
 
@@ -28,7 +28,18 @@
 | `--json` | 默认关闭；内置原语在 stdout 输出一个 JSON 结果，诊断、运动目标和确认提示写入 stderr。 |
 | `--yes` | 默认关闭；跳过内置运动确认或 doctor 修复计划确认；前置检查仍然有效。 |
 
-后两个选项对转发命令的作用范围不同，见下文。
+不提供 JSON 输出的命令会拒绝 `--json`，用法错误退出码为 2，见下文。
+
+<a id="learning-commands"></a>
+
+## 学习命令
+
+`train`、`record`、`deploy` 和 `collect-reward` 分别调用现有训练、示范录制、部署和奖励数据采集入口。包括 `--help` 在内的参数属于各入口，会原样传递。
+全局 `--preset PATH` 为学习命令在参数前添加 `--config PATH`；两者同时指定会报用法错误。全局 `--station`、`--robot`、`--direct`、`--mock`、`--json` 和 `--yes` 不适用于学习命令，使用时返回退出码 2。请将入口自身的参数放在子命令后。
+
+在训练主机的仓库根目录激活项目环境后，使用 `rwrl train --help` 查看算法参数解析器，不启动训练。
+
+原有四个 console script、Python 模块入口和示例脚本继续兼容。训练参数仍由训练入口定义，rwrl 层不定义或重新解释它们。
 
 <a id="connection-ownership"></a>
 
@@ -61,9 +72,9 @@ Franka FCI 只允许一个控制连接。直连路线中，先结束 recorder/ac
 | `stop` | 调用臂 `stop()`；成功打印 `stop: ok` | 停臂 | 无 | 0 / 1 / 2 |
 | `recover` | 调用臂 `recover()`；成功打印 `recover: ok` | 清除臂错误 | 无 | 0 / 1 / 2 |
 | `doctor` | 检查主机与已配置设备，预览针对性修复 | 读取；`--fix` 修复主机/软件，不恢复机器人或执行运动 | 整份修复计划确认一次，或 `--yes` | 0 / 1 / 2 |
-| `setup` | 转发到 `robot_infra.setup.__main__` | 发现、标定和 doctor | 向导原有提问 | 原样保留原 CLI 状态 |
-| `daemon` | 转发到 `robot_infra.server.daemon` | 预检查，为客户端运动提供硬件服务 | 无包装层提示 | 原样保留原 CLI 状态 |
-| `supervise` | 转发到 `robot_infra.supervise.supervisor` | 取决于子命令 | 取决于子命令 | 原样保留原 CLI 状态 |
+| `setup` | 发现并配置工作站 | 发现、标定和 doctor | 向导原有提问 | 原样保留原 CLI 状态 |
+| `daemon` | 通过网络提供机器人服务 | 预检查，为客户端运动提供硬件服务 | 无包装层提示 | 原样保留原 CLI 状态 |
+| `supervise` | 监督机器人进程 | 取决于子命令 | 取决于子命令 | 原样保留原 CLI 状态 |
 | `teleop calibrate` | 拟合并验证方向映射；见 [spacemouse-commissioning.md](spacemouse-commissioning.md) | 仅输入；可选写文件 | 保存/启用确认 | 0 / 1 / 2 |
 | `teleop profiles list/show/use` | 检查或选择具名标定档案（profile）；见 [spacemouse-commissioning.md](spacemouse-commissioning.md) | 无运动；use 写入工作站 | use 时确认保存 | 0 / 1 / 2 |
 | `teleop diagnose` | 仅输入诊断；见 [spacemouse-commissioning.md](spacemouse-commissioning.md) | 无机器人运动 | 无 | 0 / 1 / 2 |
@@ -71,17 +82,19 @@ Franka FCI 只允许一个控制连接。直连路线中，先结束 recorder/ac
 | `workspace show/capture/set/validate` | 检查、采样或配置约束；见 [spacemouse-commissioning.md](spacemouse-commissioning.md) | capture 读取 TCP；无运动 | 涉及保存时确认 | 0 / 1 / 2；文本模式验证失败为 5 |
 | `teleop inspect-stop` | 离线评估已保存的停止证据；见 [spacemouse-commissioning.md](spacemouse-commissioning.md#live-input-calibration-and-diagnosis) | 无硬件连接 | 无 | 0 PASS / 3 FAIL / 4 BLOCKED；其他情况为错误码 |
 
-转发保留剩余参数、输出和返回状态，不添加原语的 JSON 外层或包装层运动提示。转发命令之后的选项属于该 CLI。包装层仅转换以下全局选项：
+`setup`、`daemon`、`supervise`、`discover` 和 `gello-calibrate` 是 `robot_infra` 提供的原生命令，也可通过 `robot-infra` 使用。两个 CLI 使用同一组注册命令对象和实现。
+工作站输入统一使用 `--station PATH`；daemon、discover 和设备 doctor 暂时保留 `--config PATH`，setup 暂时保留 `--from PATH`，帮助中均标为 "(alias, will be removed)"。
+对于 setup，工作站输入提供已有默认值，**不是输出路径**。命令后的局部值优先于根级 `--station` 值；工作站查找顺序保持不变。
+`--mock` 和 `--robot` 保留适用的设备语义；其他不相关的全局选项不配置这些命令。这五个命令没有 JSON 输出，使用 `--json` 会报用法错误（退出码 2）。supervisor 的 `--` 之后的参数属于子命令。
 
-| 转发命令 | 转换的全局选项 |
-|---|---|
-| `setup` | `--station` → `--from`（已有默认配置，**不是输出路径**）、`--mock` |
-| `daemon` | `--station` → `--config`、`--robot` |
-| `supervise` | 无；supervisor 和子命令选项均放在 `supervise` 之后 |
+`discover` 输出可见硬件，不连接机器人主机。`gello-calibrate` 标定 GELLO 主臂并输出遥操作 YAML 块；`setup --only teleop --calibrate` 在向导内执行同一标定并写入工作站 YAML。
+`robot-infra doctor` 仍是设备层诊断；`rwrl doctor` 是下文的主机与项目诊断。
 
-其他包装层全局选项对这些 CLI 不生效。
-
-Doctor 直接注册在 `rwrl` 解析器中；`rwrl doctor --help` 显示 rwrl 自己的 doctor 帮助。它共用全局选项 `--station`、`--robot`、`--preset`、`--mock`、`--json` 和 `--yes`。为兼容旧用法，`doctor` 后的 `--config PATH` 是 `--station PATH` 的别名；`--robot`、`--preset`、`--mock`、`--json` 和 `--yes` 也可放在 `doctor` 后。同一选项同时出现在命令前后时，后面的值优先。`python -m real_world_rl.cli.doctor` 保留为过渡入口，委托给 `rwrl doctor`。doctor 的 `--yes` 必须搭配 `--fix` 或 `--install-sdk`。其版本化 JSON 报告与原语 JSON 和底层 `python -m robot_infra.doctor` 的报告不同。Python doctor、setup、daemon 和监督接口见[设备层 README](robot-infra.md#3-check-with-the-doctor)。
+Doctor 直接注册在 `rwrl` 解析器中；`rwrl doctor --help` 显示自身帮助。它共用全局 `--station`、`--robot`、`--preset`、`--mock`、`--json` 和 `--yes`。
+为兼容旧用法，doctor 后的 `--config PATH` 是 `--station PATH` 的别名；`--robot`、`--preset`、`--mock`、`--json`、`--yes` 和 `--station` 也可放在 doctor 后。同一选项同时出现在命令前后时，后面的值优先。
+`python -m real_world_rl.cli.doctor` 保留为过渡入口，委托给 `rwrl doctor`。两种 doctor 的 `--yes` 都只跳过确认，仍运行全部预检查，即使没有请求修复。
+两种 JSON 报告共用 `schema_version: 1`、`status`（`PASS` 或 `FAIL`）、`checks` 和 `repairs`，保留 rwrl doctor 的既有字段名。设备 doctor 原有的列表/映射或安装 SDK 对象包装在 `results` 下，其主机专用 `checks` 和 `repairs` 为空列表。
+Python doctor、setup、daemon 和监督接口见[设备层 README](robot-infra.md#3-check-with-the-doctor)。
 
 <a id="robot-host-diagnosis-and-repair"></a>
 
@@ -265,7 +278,8 @@ gripper width 0.0000 m (0.00 of max_width_m 0.080), grasped=unknown, source Fake
 | 1 | 运行时/设备失败：声明的 daemon 不可达、无 home/夹爪、home 关节值无效、越界或其他异常。 |
 | 2 | 用法/配置选择错误：未知参数、缺少工作站、多机器人工作站缺少 `--robot`、`home set` 缺少 `--preset`、`gripper move F` 无效、daemon 可达时使用 `--direct`、运动被拒绝或取消。 |
 
-错误在 stderr 打印 `error: MESSAGE`，有 hint 时追加 ` (hint: HINT)`。`--json` 还在 stdout 打印 `{"error": "MESSAGE", "hint": "HINT"}`（hint 可为空）。`RWRL_DEBUG=1` 会为报告的异常额外在 stderr 打印 traceback。转发命令保留自身状态与输出规则，包括由包装层处理的异常。
+错误在 stderr 打印 `error: MESSAGE`，有 hint 时追加 ` (hint: HINT)`。`--json` 还在 stdout 打印 `{"error": "MESSAGE", "hint": "HINT"}`（hint 可为空）。`RWRL_DEBUG=1` 会为报告的异常额外在 stderr 打印 traceback。两个命令行均使用 `robot_infra.cli.errors` 中的退出码常量。
+原生设备命令的错误也使用 stderr。Supervisor 保留子进程状态；启动失败返回 127，停止升级返回 1，setup 中断返回 130。停止轨迹结果保留 3/4，文本模式工作区验证保留 5。
 
 内置命令成功时，stdout 为一个 JSON 对象，包含 `command`、`path` 和该命令特有字段。以下完整 JSON 示例由 fake 臂初始关节状态推导：
 
@@ -281,7 +295,7 @@ rwrl --mock --json q
 
 ## Agent 调用约定
 
-先运行 `rwrl status` 检查连接与硬件。非交互调用内置原语时，运动使用 `--json --yes`，只读命令使用 `--json`。全局选项放在命令前，检查退出码，同时读取 stderr 的 `error: … (hint: …)` 诊断及 JSON 错误。`--json` 将 stdout 留给结果，SDK 输出、目标和提示移到 stderr。`--yes` 授权所请求的运动，因此发出前核实目标工作站、home 和工作区。调用 doctor、setup、daemon、supervise 时遵循被转发 CLI 自身的规则。
+先运行 `rwrl status` 检查连接与硬件。非交互调用内置原语时，运动使用 `--json --yes`，只读命令使用 `--json`。全局选项放在命令前，检查退出码，同时读取 stderr 的 `error: … (hint: …)` 诊断及 JSON 错误。`--json` 将 stdout 留给结果，SDK 输出、目标和提示移到 stderr。`--yes` 授权所请求的运动，因此发出前核实目标工作站、home 和工作区。调用 doctor、setup、daemon、supervise 时遵循设备命令自身的规则。
 
 缺少必需参数时退出码为 2。使用 `--json` 时，错误除 `error` 和 `hint` 外还包含 `required_fields`（CLI 标志名或缺失子命令的目标名称）。SpaceMouse 运行时检查也会报告缺失的预设、采集输出/名称及样本文件要求。这只描述缺少的输入，不授权运动或免除确认。标定的 `NEEDS_SAMPLES` 结果则列出缺失的方向标签，表示采集尚未完成。
 

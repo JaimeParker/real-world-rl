@@ -126,8 +126,8 @@ SilriActorLoop                                      SilriLearnerLoop
 learner、actor、eval 的完整命令、环境预设和遥操作参数见[教程 07](tutorial/07-hil-training.md#silri)；部署见[教程 08](tutorial/08-deploy.md)。`--algo silri` 通过 rl-garden 在线注册表的 `silri` 条目重建智能体。GELLO 由机器人守护进程提供、环境采用 `joint_delta` 时的最简形式如下：
 
 ```bash
-python examples/train_real_world.py silri --role learner --config hil.yaml --demo-dataset-paths 'demos/*.pkl'
-python examples/train_real_world.py silri --role actor --config hil.yaml --teleop-device leader_arm \
+rwrl train silri --role learner --config hil.yaml --demo-dataset-paths 'demos/*.pkl'
+rwrl train silri --role actor --config hil.yaml --teleop-device leader_arm \
     --robot-teleop-action-mode joint_delta --teleop-event-device keyboard --reward-from-teleop-events
 ```
 

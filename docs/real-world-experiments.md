@@ -89,9 +89,9 @@ the physical stop button or the robot's own protections.
 
 | Layer | Where it runs | Detects | Action |
 |---|---|---|---|
-| Daemon watchdog, `python -m robot_infra.server --watchdog-s 0.5` | the daemon process on the robot PC (daemon route only) | no action for `watchdog_s` while servoing | `arm.stop()`, arm to `IDLE` |
+| Daemon watchdog, `robot-infra daemon --watchdog-s 0.5` | the daemon process on the robot PC (daemon route only) | no action for `watchdog_s` while servoing | `arm.stop()`, arm to `IDLE` |
 | Step watchdog, env config `watchdog_s` (default off) | a thread inside the robot process | no `env.step()` for `watchdog_s` after a reset | `arm.stop()` once; the next step raises `StepWatchdogTripped` |
-| Supervisor, `python -m robot_infra.supervise` | a separate parent process | no heartbeat for `--heartbeat-timeout-s` | SIGINT, then SIGTERM, then SIGKILL to the robot process group |
+| Supervisor, `rwrl supervise` | a separate parent process | no heartbeat for `--heartbeat-timeout-s` | SIGINT, then SIGTERM, then SIGKILL to the robot process group |
 
 ### Step watchdog (in-process)
 
@@ -113,8 +113,8 @@ It shares the process and the GIL with the control loop. It does not cover a fro
 Run the recorder or the actor as the child of a supervisor:
 
 ```bash
-python -m robot_infra.supervise --log runs/<run>/supervise.jsonl -- \
-    python examples/record_real_demos.py --config hil.yaml ...
+rwrl supervise --log runs/<run>/supervise.jsonl -- \
+    rwrl record --config hil.yaml ...
 ```
 
 | Option | Default | Meaning |
@@ -164,7 +164,7 @@ It cannot:
 1. Check that the arm is at rest and the work cell is safe; keep the physical stop in reach.
 2. Read the reason in the supervisor's stderr and the `escalate` events of `--log`.
 3. The robot is in `Reflex`: release the external activation device if it is pressed, clear
-   the errors in Desk, or run `python -m robot_infra.doctor --config robot.yaml --fix`, which
+   the errors in Desk, or run `rwrl doctor --station robot.yaml --fix`, which
    recovers the arm and re-runs the mode check.
 4. The killed run did not finalize. The SQLite outbox/journal keeps every committed row;
    the recorder's last episode and the action in flight are lost. Restart with the same

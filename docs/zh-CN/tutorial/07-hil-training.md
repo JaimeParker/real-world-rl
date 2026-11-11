@@ -45,11 +45,11 @@ COMMON="$ENV_FLAGS --sync-host $LEARNER_IP --sync-port 6000 --log-dir runs \
 
 ```bash
 # Learner machine: repository root, project environment active.
-python examples/train_real_world.py hil_serl --role learner $COMMON --exp-name hil-pick-and-place \
+rwrl train hil_serl --role learner $COMMON --exp-name hil-pick-and-place \
     --demo-dataset-paths demos/pick-and-place.pkl
 # NUC: repository root, project environment active.
-python -m robot_infra.supervise --startup-s 60 --log runs/hil-pick-and-place/supervise.jsonl -- \
-    python examples/train_real_world.py hil_serl --role actor $COMMON --exp-name hil-pick-and-place
+rwrl supervise --startup-s 60 --log runs/hil-pick-and-place/supervise.jsonl -- \
+    rwrl train hil_serl --role actor $COMMON --exp-name hil-pick-and-place
 ```
 
 actor 在 reset/step 前等待 learner 初始快照，最多 `--sync-startup-timeout`（默认 30 秒）。该快照仍可能包含未训练策略；笛卡尔遥操作不会使其自主动作自动安全。随时准备按 `t` 接管，并在需要时使用物理停止装置。learner 预加载示范，等待 `--learning-starts` 个在线转移（默认 4000；预加载示范不计入）后训练。它发布首个就绪策略，之后每 `--publish-freq` 次更新发布快照（默认 100）。快照 session/version 标识 learner 重启前后的更新。策略学习时随时准备介入。
@@ -64,11 +64,11 @@ actor 在 reset/step 前等待 learner 初始快照，最多 `--sync-startup-tim
 RESIDUAL="--residual-variant hybrid --residual-action-scale 0.1 --residual-bc-weight 0.1 \
     --critic-only-updates 500"
 BASE_BC='checkpoint:runs/bc-pick-and-place/checkpoints/final.pt?algo=real_world_bc'
-python examples/train_real_world.py residual_hil_serl --role learner $COMMON $RESIDUAL \
+rwrl train residual_hil_serl --role learner $COMMON $RESIDUAL \
     --exp-name residual-bc-pick-and-place --base-provider "$BASE_BC"
 # NUC: repository root, project environment active.
-python -m robot_infra.supervise --startup-s 60 --log runs/residual-bc-pick-and-place/supervise.jsonl -- \
-    python examples/train_real_world.py residual_hil_serl --role actor $COMMON $RESIDUAL \
+rwrl supervise --startup-s 60 --log runs/residual-bc-pick-and-place/supervise.jsonl -- \
+    rwrl train residual_hil_serl --role actor $COMMON $RESIDUAL \
     --exp-name residual-bc-pick-and-place --base-provider "$BASE_BC"
 ```
 
@@ -82,11 +82,11 @@ python -m robot_infra.supervise --startup-s 60 --log runs/residual-bc-pick-and-p
 RESIDUAL="--residual-variant hybrid --residual-action-scale 0.1 --residual-bc-weight 0.1 \
     --critic-only-updates 500"
 BASE_ACT='act:runs/act-pick-and-place/checkpoints/final.pt?temporal_agg=1'
-python examples/train_real_world.py residual_hil_serl --role learner $COMMON $RESIDUAL \
+rwrl train residual_hil_serl --role learner $COMMON $RESIDUAL \
     --exp-name residual-act-pick-and-place --base-provider "$BASE_ACT"
 # NUC: repository root, project environment active.
-python -m robot_infra.supervise --startup-s 60 --log runs/residual-act-pick-and-place/supervise.jsonl -- \
-    python examples/train_real_world.py residual_hil_serl --role actor $COMMON $RESIDUAL \
+rwrl supervise --startup-s 60 --log runs/residual-act-pick-and-place/supervise.jsonl -- \
+    rwrl train residual_hil_serl --role actor $COMMON $RESIDUAL \
     --exp-name residual-act-pick-and-place --base-provider "$BASE_ACT"
 ```
 
@@ -105,11 +105,11 @@ actor 执行 `clamp(base + scale * residual, -1, 1)`；默认人工介入覆盖�
 
 ```bash
 # Learner machine: repository root, project environment active.
-python examples/train_real_world.py silri --role learner $COMMON --exp-name silri-pick-and-place \
+rwrl train silri --role learner $COMMON --exp-name silri-pick-and-place \
     --demo-dataset-paths demos/pick-and-place.pkl
 # NUC: repository root, project environment active.
-python -m robot_infra.supervise --startup-s 60 --log runs/silri-pick-and-place/supervise.jsonl -- \
-    python examples/train_real_world.py silri --role actor $COMMON --exp-name silri-pick-and-place
+rwrl supervise --startup-s 60 --log runs/silri-pick-and-place/supervise.jsonl -- \
+    rwrl train silri --role actor $COMMON --exp-name silri-pick-and-place
 ```
 
 首次更新前，SiLRI learner 在示范缓冲区上预训练人工行为模型（`--bc-pretrain-steps`，默认 500）；期间 actor 行继续进入 learner journal，之后再消费。随后随人工介入到来刷新模型（[silri.md](../silri.md#data-flow)）。
@@ -127,19 +127,19 @@ python -m robot_infra.supervise --startup-s 60 --log runs/silri-pick-and-place/s
 在机器人上执行确定性回合，无 learner、不采集数据；成功需显式成功标签（带 `--reward-from-teleop-events` 的 `s` 或分类器），只有整回合未接管才计为自主成功。先停 actor，不要介入（[06](06-intervening.md#the-sequence)）。在 NUC 的仓库根目录激活项目环境，先定义上述 `ENV_FLAGS` 和匹配基础变量，再运行各 eval 命令：
 
 ```bash
-python -m robot_infra.supervise --startup-s 60 --log runs/hil-pick-and-place/eval-supervise.jsonl -- \
-    python examples/train_real_world.py hil_serl --role eval $ENV_FLAGS --exp-name hil-pick-and-place \
+rwrl supervise --startup-s 60 --log runs/hil-pick-and-place/eval-supervise.jsonl -- \
+    rwrl train hil_serl --role eval $ENV_FLAGS --exp-name hil-pick-and-place \
     --load-checkpoint runs/hil-pick-and-place/checkpoints/final.pt --eval-n-trajs 10
-python -m robot_infra.supervise --startup-s 60 --log runs/residual-bc-pick-and-place/eval-supervise.jsonl -- \
-    python examples/train_real_world.py residual_hil_serl --role eval $ENV_FLAGS $RESIDUAL \
+rwrl supervise --startup-s 60 --log runs/residual-bc-pick-and-place/eval-supervise.jsonl -- \
+    rwrl train residual_hil_serl --role eval $ENV_FLAGS $RESIDUAL \
     --exp-name residual-bc-pick-and-place --base-provider "$BASE_BC" \
     --load-checkpoint runs/residual-bc-pick-and-place/checkpoints/final.pt --eval-n-trajs 10
-python -m robot_infra.supervise --startup-s 60 --log runs/residual-act-pick-and-place/eval-supervise.jsonl -- \
-    python examples/train_real_world.py residual_hil_serl --role eval $ENV_FLAGS $RESIDUAL \
+rwrl supervise --startup-s 60 --log runs/residual-act-pick-and-place/eval-supervise.jsonl -- \
+    rwrl train residual_hil_serl --role eval $ENV_FLAGS $RESIDUAL \
     --exp-name residual-act-pick-and-place --base-provider "$BASE_ACT" \
     --load-checkpoint runs/residual-act-pick-and-place/checkpoints/final.pt --eval-n-trajs 10
-python -m robot_infra.supervise --startup-s 60 --log runs/silri-pick-and-place/eval-supervise.jsonl -- \
-    python examples/train_real_world.py silri --role eval $ENV_FLAGS --exp-name silri-pick-and-place \
+rwrl supervise --startup-s 60 --log runs/silri-pick-and-place/eval-supervise.jsonl -- \
+    rwrl train silri --role eval $ENV_FLAGS --exp-name silri-pick-and-place \
     --load-checkpoint runs/silri-pick-and-place/checkpoints/final.pt --eval-n-trajs 10
 ```
 
@@ -201,13 +201,13 @@ tensorboard --logdir runs
 
 ```bash
 # Learner machine: repository root, project environment active.
-python examples/train_real_world.py hil_serl --role learner $COMMON --exp-name hil-pick-and-place \
+rwrl train hil_serl --role learner $COMMON --exp-name hil-pick-and-place \
     --demo-dataset-paths demos/pick-and-place.pkl --load-checkpoint \
     runs/hil-pick-and-place/checkpoints/bundle_manifest.json --checkpoint-dir \
     runs/hil-pick-and-place/checkpoints
 # NUC: repository root, project environment active.
-python -m robot_infra.supervise --startup-s 60 --log runs/hil-pick-and-place/supervise.jsonl -- \
-    python examples/train_real_world.py hil_serl --role actor $COMMON --exp-name hil-pick-and-place
+rwrl supervise --startup-s 60 --log runs/hil-pick-and-place/supervise.jsonl -- \
+    rwrl train hil_serl --role actor $COMMON --exp-name hil-pick-and-place
 ```
 
 actor 复用现有 outbox；已确认 ID 只接纳一次。learner/网络故障时，只要 outbox 还有容量，就退避重试。残差或 SiLRI 使用原方法参数及匹配 manifest/目录。仅 manifest 不会迁移 journal。bundle 恢复始终恢复完整回放/游标单元，不受 `--load-replay-buffer` 影响；单代独立 `agent.pt` 是新运行仅加载权重的入口。独立实验使用新 `--exp-name`/`--run-id` 或独立 outbox。

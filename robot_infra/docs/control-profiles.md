@@ -61,7 +61,7 @@ tests without simulating torque dynamics.
 The setup wizard also accepts an optional profile without adding new prompts:
 
 ```bash
-python -m robot_infra.setup --from local/station.yaml --control '{max_delta_tau: 0.5}'
+rwrl --station local/station.yaml setup --control '{max_delta_tau: 0.5}'
 ```
 
 Pass one mapping for both arms or one per arm. Omit the flag to preserve the

@@ -1,7 +1,7 @@
 # rwrl: station command line
 
-`rwrl` provides hardware primitives between recording, training and deployment
-scripts: inspect the station, save a home pose, return home, operate the gripper,
+`rwrl` unifies training, recording, deployment and station operations. Its hardware
+primitives let you inspect the station, save a home pose, return home, operate the gripper,
 stop or recover the arm. People and agents use the same commands; `--json`,
 `--yes` and exit codes make the built-in primitives usable without interaction.
 

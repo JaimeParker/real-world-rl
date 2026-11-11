@@ -79,11 +79,11 @@ real_robot_bimanual:
 每臂使用独立 `robot_infra` 守护进程、机器人 YAML 和端口，见 robot_infra README 的[如何开始](robot-infra.md#how-to-start)。可以在两台机器人 PC 上运行，也可以在一台 PC 上使用两个端口：
 
 ```bash
-python -m robot_infra.server --config left.yaml --bind 0.0.0.0:50051 --watchdog-s 5
-python -m robot_infra.server --config right.yaml --bind 0.0.0.0:50052 --watchdog-s 5
+robot-infra daemon --station left.yaml --bind 0.0.0.0:50051 --watchdog-s 5
+robot-infra daemon --station right.yaml --bind 0.0.0.0:50052 --watchdog-s 5
 ```
 
-含 `robots:` 列表的 robot_infra 工作站 YAML 描述两臂。`python -m robot_infra.setup` 的[配置向导](robot-infra.md#setup-wizard)会生成该文件；不传 `--config` 运行 `python -m robot_infra.server --watchdog-s 5`，会按文件中每臂的 `daemon.bind` 启动一个进程。因此仅在使用独立 YAML 文件时才需要上面的两条命令。将 `left.remote` / `right.remote` 指向对应地址。
+含 `robots:` 列表的 robot_infra 工作站 YAML 描述两臂。`rwrl setup` 的[配置向导](robot-infra.md#setup-wizard)会生成该文件；不传 `--station` 运行 `robot-infra daemon --watchdog-s 5`，会按文件中每臂的 `daemon.bind` 启动一个进程。因此仅在使用独立 YAML 文件时才需要上面的两条命令。将 `left.remote` / `right.remote` 指向对应地址。
 
 <a id="teleop-and-demo-recording"></a>
 
@@ -94,7 +94,7 @@ python -m robot_infra.server --config right.yaml --bind 0.0.0.0:50052 --watchdog
 通过两个守护进程运行 HIL actor，用一个键盘控制切换和事件：
 
 ```bash
-python examples/train_real_world.py hil_serl --role actor --config bimanual.yaml \
+rwrl train hil_serl --role actor --config bimanual.yaml \
     --teleop-device bimanual --teleop-arm-device leader_arm \
     --robot-teleop-action-mode joint_delta --teleop-event-device keyboard
 ```
@@ -102,7 +102,7 @@ python examples/train_real_world.py hil_serl --role actor --config bimanual.yaml
 也可以把两套 GELLO 插在 actor 机器上，从 robot_infra 工作站 YAML 读取配置；`robots: {left, right}` 中每臂都有 `teleop:` 段：
 
 ```bash
-python examples/train_real_world.py hil_serl --role actor --config bimanual.yaml \
+rwrl train hil_serl --role actor --config bimanual.yaml \
     --teleop-device bimanual --teleop-arm-device gello \
     --teleop-options-yaml local/station.yaml --teleop-event-device keyboard
 ```
@@ -110,7 +110,7 @@ python examples/train_real_world.py hil_serl --role actor --config bimanual.yaml
 示范录制使用相同参数，见 [recording-demos.md](recording-demos.md)：
 
 ```bash
-python examples/record_real_demos.py --config bimanual.yaml \
+rwrl record --config bimanual.yaml \
     --teleop-device bimanual --teleop-arm-device leader_arm \
     --robot-teleop-action-mode joint_abs --teleop-event-device keyboard \
     --output-path demos/bimanual_20.pkl --num-successes 20 --max-episode-steps 300
@@ -125,7 +125,7 @@ python examples/record_real_demos.py --config bimanual.yaml \
 使用 `examples/deploy_real_robot.py --env-backend real_robot_bimanual`，连接设置位于 `--real_robot_bimanual.{left,right}.*`。训练时的双臂配置决定 `arm_names`、`max_episode_steps` 和每臂约定字段；训练与部署必须使用同一后端。`--algo rlpd_hybrid`（hil_serl）根据部署环境约定重建双夹爪智能体；`--algo real_world_bc` 部署 `real_world_bc` 运行：
 
 ```bash
-python examples/deploy_real_robot.py --checkpoint runs/<bc run>/checkpoints/final.pt \
+rwrl deploy --checkpoint runs/<bc run>/checkpoints/final.pt \
     --algo real_world_bc --env-backend real_robot_bimanual \
     --real_robot_bimanual.left.remote LEFT_PC:50051 --real_robot_bimanual.right.remote RIGHT_PC:50052
 ```
@@ -136,25 +136,25 @@ python examples/deploy_real_robot.py --checkpoint runs/<bc run>/checkpoints/fina
 
 ## 已完成的无硬件验证
 
-`tests/test_bimanual_station_smoke.py` 使用 fake 设备验证完整双臂流程。工作站 YAML 的 `robots: {left, right}` 为每臂配置 fake 机械臂、夹爪、两台相机和脚本化 `joint_abs` 主臂部件，其中一个守护进程设置令牌。通过 `robot_infra.discovery.autoconfig.load_station` 加载，每臂由回环地址上的独立 gRPC 守护进程服务，构建函数为 `robot_infra.server.daemon.build_daemon`，与 `python -m robot_infra.server` 每臂启动的实现相同。测试通过后端注册表构建 `real_robot_bimanual` 环境，每臂独立 `remote`，采用 `joint_delta` 和四台 `--obs.rgb` 相机，然后依次运行下列命令对应的流程：
+`tests/test_bimanual_station_smoke.py` 使用 fake 设备验证完整双臂流程。工作站 YAML 的 `robots: {left, right}` 为每臂配置 fake 机械臂、夹爪、两台相机和脚本化 `joint_abs` 主臂部件，其中一个守护进程设置令牌。通过 `robot_infra.discovery.autoconfig.load_station` 加载，每臂由回环地址上的独立 gRPC 守护进程服务，构建函数为 `robot_infra.server.daemon.build_daemon`，与 `robot-infra daemon` 每臂启动的实现相同。测试通过后端注册表构建 `real_robot_bimanual` 环境，每臂独立 `remote`，采用 `joint_delta` 和四台 `--obs.rgb` 相机，然后依次运行下列命令对应的流程：
 
 ```bash
-python examples/train_real_world.py hil_serl --role actor --config bimanual.yaml \
+rwrl train hil_serl --role actor --config bimanual.yaml \
     --teleop-device bimanual --teleop-arm-device leader_arm --robot-teleop-action-mode joint_abs
-python examples/record_real_demos.py --config bimanual.yaml \
+rwrl record --config bimanual.yaml \
     --teleop-device bimanual --teleop-arm-device leader_arm --robot-teleop-action-mode joint_abs \
     --output-path demos/bimanual.pkl --num-successes 1
-python examples/train_real_world.py residual_hil_serl --role actor --config bimanual.yaml \
+rwrl train residual_hil_serl --role actor --config bimanual.yaml \
     --teleop-device bimanual --teleop-arm-device leader_arm --robot-teleop-action-mode joint_abs \
     --residual-variant hybrid --base-provider zero
-python examples/train_real_world.py silri --role actor --config bimanual.yaml \
+rwrl train silri --role actor --config bimanual.yaml \
     --teleop-device bimanual --teleop-arm-device leader_arm --robot-teleop-action-mode joint_abs
-python examples/train_real_world.py hil_serl --role learner --config bimanual.yaml \
+rwrl train hil_serl --role learner --config bimanual.yaml \
     --demo-dataset-paths demos/bimanual.pkl            # likewise residual_hil_serl
                                                        # (--allow-base-less-demos) and silri
-python examples/train_real_world.py real_world_bc --config bimanual.yaml \
+rwrl train real_world_bc --config bimanual.yaml \
     --demo-dataset-paths demos/bimanual.pkl
-python examples/deploy_real_robot.py --checkpoint runs/<bc run>/checkpoints/final.pt \
+rwrl deploy --checkpoint runs/<bc run>/checkpoints/final.pt \
     --algo real_world_bc --env-backend real_robot_bimanual ...
 ```
 
@@ -217,7 +217,7 @@ real_robot_bimanual:
     state_fields: [joint_pos, gripper_pos]
 ```
 
-**守护进程（[03](tutorial/03-daemon.md)）。** doctor 分别打印 `== robot 'left' ==`、`== robot 'right' ==` 和最终 `overall: 2 robots, all passed`；`--robot left` 只检查一臂。运行相同的 `python -m robot_infra.server --watchdog-s 5` 会启动两个守护进程，先显示 `starting 2 daemons from <path>: 'left' on 0.0.0.0:50051, 'right' on 0.0.0.0:50052`，随后各进程输出自己的预检查与 `serving ...`。端口来自文件的 `daemon.bind`。`--robot left` 只启动一臂；多机器人时 `--bind` 和 `--token` 会报错，应逐臂写入文件。无硬件演练由 `tests/test_bimanual_station_smoke.py` 完成，见[无硬件验证](#verified-hardware-free)。
+**守护进程（[03](tutorial/03-daemon.md)）。** doctor 分别打印 `== robot 'left' ==`、`== robot 'right' ==` 和最终 `overall: 2 robots, all passed`；`--robot left` 只检查一臂。运行相同的 `robot-infra daemon --watchdog-s 5` 会启动两个守护进程，先显示 `starting 2 daemons from <path>: 'left' on 0.0.0.0:50051, 'right' on 0.0.0.0:50052`，随后各进程输出自己的预检查与 `serving ...`。端口来自文件的 `daemon.bind`。`--robot left` 只启动一臂；多机器人时 `--bind` 和 `--token` 会报错，应逐臂写入文件。无硬件演练由 `tests/test_bimanual_station_smoke.py` 完成，见[无硬件验证](#verified-hardware-free)。
 
 **录制示范（[04](tutorial/04-record-demos.md)）。** 设备参数改为 `--config bimanual.yaml --teleop-device bimanual --teleop-arm-device leader_arm --robot-teleop-action-mode joint_delta --teleop-event-device keyboard`。每臂读取自己的 GELLO，任一操作员介入就记录该步，另一臂保持静止。`--max-episode-steps` 覆盖 `--real_robot_bimanual.max_episode_steps`。
 
@@ -235,7 +235,7 @@ BC 基础策略无需额外设置，描述为 `checkpoint:...?algo=real_world_bc
 **部署（[08](tutorial/08-deploy.md)）。** 增加 `--env-backend real_robot_bimanual`，并提供每臂连接与相机；双臂相机列表不会从训练记录自动填入：
 
 ```bash
-python examples/deploy_real_robot.py --checkpoint runs/bc/checkpoints/final.pt \
+rwrl deploy --checkpoint runs/bc/checkpoints/final.pt \
     --algo real_world_bc --env-backend real_robot_bimanual \
     --real_robot_bimanual.left.remote ROBOT_PC:50051 \
     --real_robot_bimanual.right.remote ROBOT_PC:50052 \

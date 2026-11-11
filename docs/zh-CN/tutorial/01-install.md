@@ -130,7 +130,7 @@ source .venv/bin/activate
 python -m pip install -U pip
 python -m pip install -e ./rl-garden -e ./robot_infra -e '.[franka-gello,test]'
 python -c 'import rl_garden, robot_infra, real_world_rl'
-python -m robot_infra.doctor --mock
+rwrl doctor --mock
 ```
 
 </details>
@@ -176,7 +176,7 @@ source .venv/bin/activate
 确保 recorder、actor、守护进程均未占用设备。在 NUC、仓库根、项目环境激活：
 
 ```bash
-python -m robot_infra.doctor --config local/station.yaml
+rwrl doctor --station local/station.yaml
 ```
 
 | 层 | 检查内容 | 失败时 |
@@ -195,7 +195,7 @@ libfranka/server 不匹配时，目标修复流程如下。**交付依赖：**`-
 
 <!-- tutorial-test: skip -->
 ```bash
-python -m robot_infra.doctor --config local/station.yaml --install-sdk
+rwrl doctor --station local/station.yaml --install-sdk
 ```
 
 引导修复从 libfranka 握手错误读取 robot server 版本，要求通过 Desk → Settings → System 的系统版本与兼容表交叉核对，确认后安装匹配 wheel。选型依据是 **robot server 版本**，不是 `FCI 1.0.0`。安装后重跑普通 doctor。在功能交付前保留 Desk 版本记录，先解决 SDK 兼容性；不要反复装同一默认 wheel 并期待握手结果变化。
@@ -256,7 +256,7 @@ fi
 *应该看到：* 串口持续存在且可读写，所选输入方式工作，支持该属性的设备读取为 `1`。激活项目环境后重跑：
 
 ```bash
-python -m robot_infra.doctor --config local/station.yaml
+rwrl doctor --station local/station.yaml
 ```
 
 *否则：* 核对 USB 设备/驱动、刷新后的组成员资格及串口占用。相机或帧缺失另查序列号、USB 3 和厂商 udev 规则。`realtime: ignore` 允许 generic 内核但不保证时序，`realtime: enforce` 需要合适的实时配置。
@@ -272,7 +272,7 @@ python -m robot_infra.doctor --config local/station.yaml
 3. 其他占用设备的进程停止后，在 NUC、仓库根、项目环境激活时运行：
 
 ```bash
-python -m robot_infra.doctor --config local/station.yaml
+rwrl doctor --station local/station.yaml
 ```
 
 *应该看到：* 真实握手通过且零失败。*否则：* 按前述失败层定位，不要因为另一浏览器仍持控制权就覆盖已配置 station 或重新标定。

@@ -13,7 +13,7 @@ Stop the training daemon first; a second daemon on the same robot gets `DeviceBu
 the same `--jpeg-quality` as training (the tutorial used none):
 
 ```bash
-python -m robot_infra.server --config local/station.deploy.yaml --watchdog-s 5
+robot-infra daemon --station local/station.deploy.yaml --watchdog-s 5
 ```
 
 ## Run a checkpoint
@@ -21,7 +21,7 @@ python -m robot_infra.server --config local/station.deploy.yaml --watchdog-s 5
 Explicitly disable takeover for an unattended run:
 
 ```bash
-python examples/deploy_real_robot.py --checkpoint runs/bc-pick-and-place/checkpoints/final.pt --algo \
+rwrl deploy --checkpoint runs/bc-pick-and-place/checkpoints/final.pt --algo \
     real_world_bc --real_robot.remote ROBOT_PC:50051 --no-enable-teleop --episodes 5 \
     --max-steps-per-episode 200
 ```
@@ -36,7 +36,7 @@ python examples/deploy_real_robot.py --checkpoint runs/bc-pick-and-place/checkpo
 For example, an ACT-base residual bundle:
 
 ```bash
-python examples/deploy_real_robot.py --checkpoint \
+rwrl deploy --checkpoint \
     runs/residual-act-pick-and-place/checkpoints/bundle_manifest.json --algo \
     residual_hil_serl_hybrid --real_robot.remote ROBOT_PC:50051 --no-enable-teleop --episodes 5
 ```

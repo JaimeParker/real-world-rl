@@ -35,7 +35,7 @@ GELLO served by the robot daemon, `joint_delta` follower (the tutorial's setting
 keyboard for the buttons:
 
 ```bash
-python examples/record_real_demos.py --config hil.yaml \
+rwrl record --config hil.yaml \
     --teleop-device leader_arm --robot-teleop-action-mode joint_delta \
     --teleop-event-device keyboard --teleop-onset arm \
     --output-path demos/task_20.pkl --num-successes 20
@@ -89,7 +89,7 @@ recorded when either operator intervenes; the other arm is then held still. The 
 Then train with the demos:
 
 ```bash
-python examples/train_real_world.py hil_serl --role learner --config hil.yaml \
+rwrl train hil_serl --role learner --config hil.yaml \
     --demo-dataset-paths demos/task_20.pkl ...
 ```
 

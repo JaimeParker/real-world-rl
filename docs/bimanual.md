@@ -82,13 +82,13 @@ robot_infra README, [How to Start](../robot_infra/README.md#how-to-start)), for 
 robot PCs or on one PC with two ports:
 
 ```bash
-python -m robot_infra.server --config left.yaml --bind 0.0.0.0:50051 --watchdog-s 5
-python -m robot_infra.server --config right.yaml --bind 0.0.0.0:50052 --watchdog-s 5
+robot-infra daemon --station left.yaml --bind 0.0.0.0:50051 --watchdog-s 5
+robot-infra daemon --station right.yaml --bind 0.0.0.0:50052 --watchdog-s 5
 ```
 
 A robot_infra station yaml with a `robots:` list describes both arms of a station.
-`python -m robot_infra.setup` writes it (the [setup wizard](../robot_infra/README.md#setup-wizard))
-and `python -m robot_infra.server --watchdog-s 5` with no `--config` starts one daemon process per
+`rwrl setup` writes it (the [setup wizard](../robot_infra/README.md#setup-wizard))
+and `robot-infra daemon --watchdog-s 5` with no `--station` starts one daemon process per
 robot on the ports in the file's `daemon.bind` entries, so the two commands above are only needed
 for separate yaml files. Point `left.remote` / `right.remote` at the two addresses.
 
@@ -106,7 +106,7 @@ actual expert dimensions, separately from hold overrides.
 HIL actor over the two daemons, one keyboard for the toggle and the buttons:
 
 ```bash
-python examples/train_real_world.py hil_serl --role actor --config bimanual.yaml \
+rwrl train hil_serl --role actor --config bimanual.yaml \
     --teleop-device bimanual --teleop-arm-device leader_arm \
     --robot-teleop-action-mode joint_delta --teleop-event-device keyboard
 ```
@@ -115,7 +115,7 @@ Two GELLOs on the actor's machine instead, with their options taken from the rob
 yaml (`robots: {left, right}`, each with its `teleop:` section):
 
 ```bash
-python examples/train_real_world.py hil_serl --role actor --config bimanual.yaml \
+rwrl train hil_serl --role actor --config bimanual.yaml \
     --teleop-device bimanual --teleop-arm-device gello \
     --teleop-options-yaml local/station.yaml --teleop-event-device keyboard
 ```
@@ -123,7 +123,7 @@ python examples/train_real_world.py hil_serl --role actor --config bimanual.yaml
 Demo recording takes the same flags ([recording-demos.md](recording-demos.md)):
 
 ```bash
-python examples/record_real_demos.py --config bimanual.yaml \
+rwrl record --config bimanual.yaml \
     --teleop-device bimanual --teleop-arm-device leader_arm \
     --robot-teleop-action-mode joint_abs --teleop-event-device keyboard \
     --output-path demos/bimanual_20.pkl --num-successes 20 --max-episode-steps 300
@@ -140,7 +140,7 @@ deployed with the other. `--algo rlpd_hybrid` (hil_serl) rebuilds the two-grippe
 deploy env's contract, and `--algo real_world_bc` deploys a `real_world_bc` run:
 
 ```bash
-python examples/deploy_real_robot.py --checkpoint runs/<bc run>/checkpoints/final.pt \
+rwrl deploy --checkpoint runs/<bc run>/checkpoints/final.pt \
     --algo real_world_bc --env-backend real_robot_bimanual \
     --real_robot_bimanual.left.remote LEFT_PC:50051 --real_robot_bimanual.right.remote RIGHT_PC:50052
 ```
@@ -153,27 +153,27 @@ Add each arm's `token`, `cameras` and `image_size` (equal to the training run's)
 with `robots: {left, right}` (fake arm, gripper, two cameras and a scripted `joint_abs` leader part
 per arm, a token on one daemon) loaded with `robot_infra.discovery.autoconfig.load_station`, each
 robot served by its own gRPC daemon (`robot_infra.server.daemon.build_daemon`, what
-`python -m robot_infra.server` starts per robot) on loopback. Against those daemons it builds the
+`robot-infra daemon` starts per robot) on loopback. Against those daemons it builds the
 `real_robot_bimanual` env through the backend registry (`remote` per arm, `joint_delta`, four
 `--obs.rgb` cameras) and runs, in order, what these commands run:
 
 ```bash
-python examples/train_real_world.py hil_serl --role actor --config bimanual.yaml \
+rwrl train hil_serl --role actor --config bimanual.yaml \
     --teleop-device bimanual --teleop-arm-device leader_arm --robot-teleop-action-mode joint_abs
-python examples/record_real_demos.py --config bimanual.yaml \
+rwrl record --config bimanual.yaml \
     --teleop-device bimanual --teleop-arm-device leader_arm --robot-teleop-action-mode joint_abs \
     --output-path demos/bimanual.pkl --num-successes 1
-python examples/train_real_world.py residual_hil_serl --role actor --config bimanual.yaml \
+rwrl train residual_hil_serl --role actor --config bimanual.yaml \
     --teleop-device bimanual --teleop-arm-device leader_arm --robot-teleop-action-mode joint_abs \
     --residual-variant hybrid --base-provider zero
-python examples/train_real_world.py silri --role actor --config bimanual.yaml \
+rwrl train silri --role actor --config bimanual.yaml \
     --teleop-device bimanual --teleop-arm-device leader_arm --robot-teleop-action-mode joint_abs
-python examples/train_real_world.py hil_serl --role learner --config bimanual.yaml \
+rwrl train hil_serl --role learner --config bimanual.yaml \
     --demo-dataset-paths demos/bimanual.pkl            # likewise residual_hil_serl
                                                        # (--allow-base-less-demos) and silri
-python examples/train_real_world.py real_world_bc --config bimanual.yaml \
+rwrl train real_world_bc --config bimanual.yaml \
     --demo-dataset-paths demos/bimanual.pkl
-python examples/deploy_real_robot.py --checkpoint runs/<bc run>/checkpoints/final.pt \
+rwrl deploy --checkpoint runs/<bc run>/checkpoints/final.pt \
     --algo real_world_bc --env-backend real_robot_bimanual ...
 ```
 
@@ -256,7 +256,7 @@ real_robot_bimanual:
 
 **Daemon ([03](tutorial/03-daemon.md)).** The doctor prints `== robot 'left' ==` and
 `== robot 'right' ==` blocks and a final `overall: 2 robots, all passed`; `--robot left` checks one.
-The same `python -m robot_infra.server --watchdog-s 5` starts both daemons: it prints
+The same `robot-infra daemon --watchdog-s 5` starts both daemons: it prints
 `starting 2 daemons from <path>: 'left' on 0.0.0.0:50051, 'right' on 0.0.0.0:50052`, then each daemon
 prints its own preflight and `serving ...` line. The ports come from the file's `daemon.bind` entries.
 `--robot left` serves just one; `--bind` and `--token` are errors for several robots (set them per
@@ -288,7 +288,7 @@ The BC base needs nothing extra (`checkpoint:...?algo=real_world_bc`). A two-arm
 connection and cameras (the cameras are not filled from the training run for two arms):
 
 ```bash
-python examples/deploy_real_robot.py --checkpoint runs/bc/checkpoints/final.pt \
+rwrl deploy --checkpoint runs/bc/checkpoints/final.pt \
     --algo real_world_bc --env-backend real_robot_bimanual \
     --real_robot_bimanual.left.remote ROBOT_PC:50051 \
     --real_robot_bimanual.right.remote ROBOT_PC:50052 \

@@ -105,7 +105,7 @@ if $run_doctor; then
     printf 'No --station supplied: mock doctor does not verify hardware.\n'
     run_step 'Doctor (mock)' "$venv_python" -m robot_infra.doctor --mock
     printf 'Next, configure local/station.yaml, then run from this repository root:\n  '
-    printf '%q -m robot_infra.doctor --config local/station.yaml\n' "$venv_python"
+    printf '%q doctor --station local/station.yaml\n' "$venv_dir/bin/rwrl"
   fi
 fi
 printf '\nInstallation complete. Activate this venv:\n  source %q\n' "$venv_dir/bin/activate"

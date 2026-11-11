@@ -1,12 +1,12 @@
 #@ header
-# robot_infra station config, written by `python -m robot_infra.setup`.
+# robot_infra station config, written by `robot-infra setup`.
 # The daemon, the doctor and discovery find it without --config (first match wins):
 #   $ROBOT_INFRA_CONFIG, ./local/station.yaml, ~/.config/robot_infra/station.yaml
-# Edit it by hand, or regenerate it with `python -m robot_infra.setup --from <this file>`
+# Edit it by hand, or regenerate it with `robot-infra setup --station <this file>`
 # (add `--only cameras|teleop|daemon` to redo one section). Check it with
-# `python -m robot_infra.doctor`, serve it with `python -m robot_infra.server`.
+# `robot-infra doctor`, serve it with `robot-infra daemon`.
 #@ multi_header
-# Several robots: `python -m robot_infra.server` starts one daemon process per robot, each on
+# Several robots: `robot-infra daemon` starts one daemon process per robot, each on
 # its daemon.bind; `--robot <name>` serves or checks a single one.
 robots:
 #@ robot
@@ -43,7 +43,7 @@ gripper:
 #@ no_gripper
 gripper: null                 # no gripper
 #@ cameras
-cameras:                      # serials from `python -m robot_infra.discovery`
+cameras:                      # serials from `robot-infra discover`
 {{entries}}
 #@ camera
   - name: {{name}}            # observation key on the actor side (--obs.rgb)
@@ -78,7 +78,7 @@ teleop:                       # GELLO leader arm (extra `gello`; `gello-events` 
     poll_interval_s: {{poll_interval_s}}  # sleep before each bus read
 #@ gello_todo
     # TODO calibrate: joint_offsets_rad, joint_signs and the gripper range are placeholders.
-    # Run `python -m robot_infra.setup --from <this file> --only teleop --calibrate`.
+    # Run `robot-infra setup --station <this file> --only teleop --calibrate`.
 #@ teleop_other
 teleop:
   name: {{name}}              # the daemon serves teleop.<name>.read / teleop.<name>.reset
@@ -88,6 +88,6 @@ teleop:
 #@ no_teleop
 teleop: null                  # no operator device
 #@ daemon
-daemon:                       # read by `python -m robot_infra.server`; not part of the robot config
+daemon:                       # read by `robot-infra daemon`; not part of the robot config
   bind: {{bind}}              # host:port this robot's daemon listens on
   token: {{token}}            # shared secret clients must send; null = none

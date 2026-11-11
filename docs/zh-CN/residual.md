@@ -90,7 +90,7 @@ L_bc = mean over intervened rows of  sum_d ( u_d - clip((a_human_d - a_base_d) /
 完整的 BC / ACT 基础策略下 learner、actor、eval 命令、环境预设和遥操作参数见[教程 07](tutorial/07-hil-training.md#residual_hil_serl-bc-base)，部署见[教程 08](tutorial/08-deploy.md)。GELLO 由机器人守护进程提供、环境采用 `joint_delta` 时，最简形式如下；包括 learner 在内的每个角色都需要 `--base-provider`：
 
 ```bash
-python examples/train_real_world.py residual_hil_serl --role actor --config hil.yaml \
+rwrl train residual_hil_serl --role actor --config hil.yaml \
     --teleop-device leader_arm --robot-teleop-action-mode joint_delta --teleop-event-device keyboard \
     --reward-from-teleop-events --base-provider 'checkpoint:runs/bc/checkpoints/final.pt?algo=real_world_bc'
 ```

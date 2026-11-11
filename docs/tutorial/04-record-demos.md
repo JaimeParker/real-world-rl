@@ -51,8 +51,8 @@ file is saved as `examples/presets/gello_cartesian.yaml.bak`. See
 On the NUC, repository root, project environment active:
 
 ```bash
-python -m robot_infra.supervise --log runs/record-pick-and-place/supervise.jsonl -- \
-    python examples/record_real_demos.py --config examples/presets/gello_cartesian.yaml \
+rwrl supervise --log runs/record-pick-and-place/supervise.jsonl -- \
+    rwrl record --config examples/presets/gello_cartesian.yaml \
     --teleop-device leader_cartesian --teleop-event-device stdin \
     --real_robot.watchdog_s 0.3 \
     --output-path demos/pick-and-place.pkl --num-successes 20
@@ -124,8 +124,8 @@ covered in [teleop.md](../teleop.md#spacemouse). Override the preset's GELLO
 options file so that no leader options are passed to the SpaceMouse source:
 
 ```bash
-python -m robot_infra.supervise --log runs/record-spacemouse/supervise.jsonl -- \
-    python examples/record_real_demos.py --config examples/presets/gello_cartesian.yaml \
+rwrl supervise --log runs/record-spacemouse/supervise.jsonl -- \
+    rwrl record --config examples/presets/gello_cartesian.yaml \
     --teleop-device spacemouse --teleop-event-device stdin --teleop-options-yaml None \
     --real_robot.watchdog_s 0.3 \
     --output-path demos/pick-and-place-spacemouse.pkl --num-successes 20
@@ -207,8 +207,8 @@ On the NUC, repository root, project environment active, with the separately com
 `hil_abs.yaml` (`joint_abs`, joint limits, local robot plus GELLO teleop part):
 
 ```bash
-python -m robot_infra.supervise --log runs/record-joint-abs/supervise.jsonl -- \
-    python examples/record_real_demos.py --config hil_abs.yaml \
+rwrl supervise --log runs/record-joint-abs/supervise.jsonl -- \
+    rwrl record --config hil_abs.yaml \
     --teleop-device leader_arm --robot-teleop-action-mode joint_abs --teleop-event-device stdin \
     --output-path demos/pick-and-place-abs.pkl --num-successes 20
 ```

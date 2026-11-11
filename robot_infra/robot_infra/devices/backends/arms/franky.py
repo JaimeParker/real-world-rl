@@ -43,7 +43,7 @@ FRANKY_VERSION_HINT = (
     "install the franky wheel matching your robot server version: pip install franky-control "
     f"--extra-index-url {FRANKY_WHEEL_INDEX_URL.format(server_version='<N>')} "
     f"(to find N, read the system version in {DESK_SYSTEM_VERSION_PATH} and look it up in the "
-    f"compatibility matrix {FRANKA_COMPATIBILITY_URL}; `python -m robot_infra.doctor --install-sdk` "
+    f"compatibility matrix {FRANKA_COMPATIBILITY_URL}; `robot-infra doctor --install-sdk` "
     "reads N from the handshake error and installs the wheel)"
 )
 _BLOCKING_ROBOT_MODES = ("Reflex", "UserStopped", "Guiding")

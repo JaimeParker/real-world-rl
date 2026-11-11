@@ -377,7 +377,7 @@ def test_missing_station_and_usage(capsys, monkeypatch, tmp_path):
     monkeypatch.setattr(autoconfig, "resolve_station_config_path", missing)
     assert main(["--json", "status"]) == 2
     payload = json.loads(capsys.readouterr().out)
-    assert "python -m robot_infra.setup" in payload["hint"]
+    assert "run rwrl setup" in payload["hint"]
     for argv in (["--json"], ["--json", "wat"], ["--json", "q", "--typo"],
                  ["--json", "gripper", "move", "bad"]):
         assert main(argv) == 2

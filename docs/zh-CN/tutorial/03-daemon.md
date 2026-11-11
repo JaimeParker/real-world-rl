@@ -27,7 +27,7 @@
 先完成[真实 doctor 握手](01-install.md#5-configure-once-then-run-doctor)。本节所有命令在 **NUC、仓库根、项目环境（project environment）激活**时执行，确保没有其他进程占设备。NUC 和 actor 均需 `robot_infra[grpc]`。
 
 ```bash
-python -m robot_infra.server --config local/station.yaml --watchdog-s 5
+robot-infra daemon --station local/station.yaml --watchdog-s 5
 ```
 
 `--watchdog-s` 默认 **0.5 秒**，示例显式 **5 秒**允许 reset 后首次推理较慢。间隔超限时守护进程将臂置 idle，下一动作失败。按现场选择，5 秒只是示例，不保证长暂停安全。
@@ -61,7 +61,7 @@ python -m pip install -e 'robot_infra[grpc]'
 在 actor 机器、仓库根、项目环境中，无连接检查：
 
 ```bash
-python examples/train_real_world.py hil_serl --config hil.yaml --print-config
+rwrl train hil_serl --config hil.yaml --print-config
 ```
 
 *应该看到：* 唯一连接源 `remote`、正确相机、动作模式和频率。实跑时客户端连接才触发硬件连接。

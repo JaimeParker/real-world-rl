@@ -364,20 +364,43 @@ CONSOLE_SCRIPT_PARSERS: dict[str, Callable[[Sequence[str]], None]] = {
 
 def parser_for(argv: Sequence[str]) -> tuple[Callable[[Sequence[str]], None], list[str]]:
     """The parser of ``argv``'s program and the arguments it takes."""
-    if argv[0] == "rwrl":
-        from real_world_rl.cli import build_parser
-        def parse_rwrl(arguments):
-            parser = build_parser()
-            args, remaining = parser.parse_known_args(arguments)
-            from real_world_rl.cli.cmd_learning import LearningCommand
-            if isinstance(args._command, LearningCommand):
-                learning_parsers = {"train": parse_training, "record": parse_recorder,
-                                    "deploy": parse_deploy, "collect-reward": parse_collector}
-                entrypoint_args = args._command.entrypoint_argv(args, remaining)
-                return learning_parsers[args._command.name](entrypoint_args)
-            return parser.parse_args(arguments)
+    if argv[0] in ("rwrl", "robot-infra"):
+        if argv[0] == "rwrl":
+            from real_world_rl.cli import build_parser
+        else:
+            from robot_infra.cli import COMMANDS as device_commands
+            from robot_infra.cli.main import build_parser as build_device_parser
 
-        return parse_rwrl, list(argv[1:])
+            build_parser = functools.partial(
+                build_device_parser,
+                commands=device_commands, prog="robot-infra", description="Robot device infrastructure",
+                global_options=("station", "robot", "mock", "json", "yes"),
+            )
+        from real_world_rl.cli.cmd_learning import LearningCommand
+
+        parser = build_parser()
+        args, remaining = parser.parse_known_args(list(argv[1:]))
+        if isinstance(args._command, LearningCommand):
+            learning_parsers = {
+                "train": parse_training,
+                "record": parse_recorder,
+                "deploy": parse_deploy,
+                "collect-reward": parse_collector,
+            }
+            # Keep --config in the entrypoint argv: the training registry and
+            # recorder/collector parse functions load presets before invoking tyro.
+            entrypoint_args = args._command.entrypoint_argv(args, remaining)
+            return learning_parsers[args._command.name], list(entrypoint_args)
+        if args.command == "supervise":
+            # Validate supervisor flags before recursively validating its child.
+            parser.parse_args(list(argv[1:]))
+            child = args.child_command
+            if child[:1] == ["--"]:
+                child = child[1:]
+            if not child:
+                raise LookupError("supervise requires a child command after --")
+            return parser_for(child)
+        return parser.parse_args, list(argv[1:])
     if argv[0] in CONSOLE_SCRIPT_PARSERS:
         return CONSOLE_SCRIPT_PARSERS[argv[0]], list(argv[1:])
     if argv[0] in _PYTHONS and len(argv) >= 3 and argv[1] == "-m" and argv[2] == "robot_infra.supervise":
@@ -418,7 +441,8 @@ def test_testing_pages_include_a_parsed_supervised_recorder():
     supervised = [
         command for command in COMMANDS
         if command.page.startswith("docs/testing/")
-        and command.argv[:3] == ("python", "-m", "robot_infra.supervise")
+        and (command.argv[:2] in (("rwrl", "supervise"), ("robot-infra", "supervise"))
+             or command.argv[:3] == ("python", "-m", "robot_infra.supervise"))
     ]
     assert any(parser_for(command.argv)[0] is parse_recorder for command in supervised), (
         "docs/testing/*.md must retain a parsed supervisor + recorder expansion"
@@ -464,9 +488,12 @@ def test_variables_expand_like_the_shell():
     ('train', 'parse_training'), ('record', 'parse_recorder'),
     ('deploy', 'parse_deploy'), ('collect-reward', 'parse_collector'),
 ])
-def test_rwrl_learning_parser_hook(monkeypatch, name, parser_name):
+@pytest.mark.parametrize("use_preset_alias", [False, True])
+def test_rwrl_learning_parser_hook(monkeypatch, name, parser_name, use_preset_alias):
     calls = []
     monkeypatch.setitem(globals(), parser_name, lambda argv: calls.append(argv))
-    parse, argv = parser_for(['rwrl', '--preset', 'P.yaml', name, 'algo', '--help'])
+    command = (['rwrl', '--preset', 'P.yaml', name] if use_preset_alias
+               else ['rwrl', name, '--config', 'P.yaml'])
+    parse, argv = parser_for([*command, 'algo', '--help'])
     parse(argv)
     assert calls == [['--config', 'P.yaml', 'algo', '--help']]

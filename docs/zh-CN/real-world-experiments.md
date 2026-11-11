@@ -52,9 +52,9 @@ learner 不可达时，例如重启或断网，actor 继续运行；上传按 0.
 
 | 层 | 所在位置 | 检测 | 动作 |
 |---|---|---|---|
-| 守护 watchdog，`python -m robot_infra.server --watchdog-s 0.5` | 机器人 PC 守护进程，仅该路线 | 伺服时超过 watchdog_s 无动作 | arm.stop，切 IDLE |
+| 守护 watchdog，`robot-infra daemon --watchdog-s 0.5` | 机器人 PC 守护进程，仅该路线 | 伺服时超过 watchdog_s 无动作 | arm.stop，切 IDLE |
 | Step watchdog，环境 watchdog_s，默认关闭 | 机器人进程内线程 | reset 后超过阈值无 step | stop 一次，下个 step 抛 StepWatchdogTripped |
-| Supervisor，`python -m robot_infra.supervise` | 独立父进程 | 超过 heartbeat-timeout-s 无心跳 | 对子进程组依次 SIGINT、SIGTERM、SIGKILL |
+| Supervisor，`rwrl supervise` | 独立父进程 | 超过 heartbeat-timeout-s 无心跳 | 对子进程组依次 SIGINT、SIGTERM、SIGKILL |
 
 <a id="step-watchdog-in-process"></a>
 
@@ -71,8 +71,8 @@ learner 不可达时，例如重启或断网，actor 继续运行；上传按 0.
 将 recorder 或 actor 作为监督子进程：
 
 ```bash
-python -m robot_infra.supervise --log runs/<run>/supervise.jsonl -- \
-    python examples/record_real_demos.py --config hil.yaml ...
+rwrl supervise --log runs/<run>/supervise.jsonl -- \
+    rwrl record --config hil.yaml ...
 ```
 
 | 选项 | 默认 | 含义 |
@@ -107,7 +107,7 @@ recorder/actor 通过 `robot_infra.supervise.Heartbeat` 每步和 reset 后发�
 
 1. 确认机器人静止、工位安全、物理停止可达。
 2. 读 stderr 原因及 log 的 escalate 事件。
-3. Reflex 时释放外部激活装置，在 Desk 清错，或 `python -m robot_infra.doctor --config robot.yaml --fix` 恢复并复查模式。
+3. Reflex 时释放外部激活装置，在 Desk 清错，或 `rwrl doctor --station robot.yaml --fix` 恢复并复查模式。
 4. 被杀运行未完成收尾。SQLite outbox/journal 保留已提交行，但 recorder 最后回合及执行中的动作可能丢失。用同一 outbox 路径重启续传。
 
 <a id="learner-checkpoints-and-recovery"></a>

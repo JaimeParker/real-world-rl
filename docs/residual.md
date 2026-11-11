@@ -136,7 +136,7 @@ is in [tutorial 08](tutorial/08-deploy.md). The minimal shape, for a GELLO serve
 on a `joint_delta` env (every role, the learner included, takes `--base-provider`):
 
 ```bash
-python examples/train_real_world.py residual_hil_serl --role actor --config hil.yaml \
+rwrl train residual_hil_serl --role actor --config hil.yaml \
     --teleop-device leader_arm --robot-teleop-action-mode joint_delta --teleop-event-device keyboard \
     --reward-from-teleop-events --base-provider 'checkpoint:runs/bc/checkpoints/final.pt?algo=real_world_bc'
 ```

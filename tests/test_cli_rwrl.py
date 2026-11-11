@@ -327,12 +327,12 @@ def test_doctor_forwarding(station, capsys):
 
 
 @pytest.mark.parametrize("command,module", [
-    ("doctor", "real_world_rl.cli.doctor"), ("setup", "robot_infra.setup.__main__"),
+    ("setup", "robot_infra.setup.__main__"),
     ("daemon", "robot_infra.server.daemon"), ("supervise", "robot_infra.supervise.supervisor"),
 ])
 def test_forward_argv_and_exit_code(monkeypatch, command, module):
     import types
-    from real_world_rl.cli import forward
+    from real_world_rl.cli import cmd_forward as forward
 
     seen = []
     monkeypatch.setattr(forward, "import_module", lambda name: (
@@ -343,15 +343,18 @@ def test_forward_argv_and_exit_code(monkeypatch, command, module):
     assert seen == [module, remaining]
 
 
-def test_global_doctor_options_are_translated(monkeypatch):
-    import types
-    from real_world_rl.cli import forward
+def test_global_doctor_options_reach_context(monkeypatch):
+    from real_world_rl.cli import doctor
+    from real_world_rl.cli.command import Result
 
     seen = []
-    monkeypatch.setattr(forward, "import_module", lambda name: types.SimpleNamespace(
-        main=lambda argv: seen.append(argv) or 0))
+    def run(ctx, usage_error):
+        args = ctx.args
+        seen.append((args.station, args.robot, args.mock, args.json, args.fix))
+        return Result({}, "")
+    monkeypatch.setattr(doctor, "run", run)
     assert main(["--station", "S", "--robot", "arm", "--mock", "--json", "doctor", "--fix"]) == 0
-    assert seen == [["--config", "S", "--robot", "arm", "--mock", "--json", "--fix"]]
+    assert seen == [("S", "arm", True, True, True)]
 
 
 def test_missing_station_and_usage(capsys, monkeypatch, tmp_path):

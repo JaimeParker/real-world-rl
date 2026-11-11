@@ -14,7 +14,7 @@
     {
       "source": "docs/cli.md",
       "translation": "docs/zh-CN/cli.md",
-      "source_sha256": "5dfe67c1920bcf398d961180acf22419a377c217cf510a1e7f892a50d76d377b"
+      "source_sha256": "d14588391b983c38baad1f9b3bf5c0d6e06b012fe06ba9e9f0d7e9b834aecc33"
     },
     {
       "source": "docs/gello.md",
@@ -59,7 +59,7 @@
     {
       "source": "docs/spacemouse-commissioning.md",
       "translation": "docs/zh-CN/spacemouse-commissioning.md",
-      "source_sha256": "de5b7df122c1f1001b1f6aba333b445fe2e6bec7ca698a72f7afb185de3342dc"
+      "source_sha256": "e604b6cb90fb695d3c7064cefb89fd1a986f99c136c8d925ff74edcc3cc86ee8"
     },
     {
       "source": "docs/teleop.md",
@@ -119,7 +119,7 @@
     {
       "source": "robot_infra/README.md",
       "translation": "docs/zh-CN/robot-infra.md",
-      "source_sha256": "436596d2d66e120196badf04876d79aad85fa237130e81aa6f2798b2c0e19511"
+      "source_sha256": "58b3326f9567a860a2b3abceb60a0be81670e34976585411548f6598269844d9"
     },
     {
       "source": "rl-garden/rl_garden/models/act/README.md",
@@ -149,7 +149,7 @@
     {
       "source": "docs/testing/spacemouse-control-session.md",
       "translation": "docs/zh-CN/testing/spacemouse-control-session.md",
-      "source_sha256": "7b39a9e978e88eab4a6a3b0cbc739999165da096494a5923dba24a4fd33fc2cd"
+      "source_sha256": "b290787b3d815278c8ee699c7b679fbcaa831b2e57b9cd98c47c36dd8a4752e0"
     },
     {
       "source": "docs/testing/spacemouse-control-session-record.csv",

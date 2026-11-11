@@ -81,8 +81,8 @@ refused confirmation; details follow the table.
 | `supervise` | Forward to `robot_infra.supervise.supervisor` | Depends on child command | Depends on child | Native status, unchanged |
 | `teleop calibrate` | Fit and validate direction mapping; see [spacemouse-commissioning.md](spacemouse-commissioning.md) | Input only; optional file writes | Save/use confirmation | 0 / 1 / 2 |
 | `teleop profiles list/show/use` | Inspect or select a named profile; see [spacemouse-commissioning.md](spacemouse-commissioning.md) | No motion; use writes station | Save confirmation for use | 0 / 1 / 2 |
-| `teleop diagnose` | Input-only or supervised motion diagnosis; see [spacemouse-commissioning.md](spacemouse-commissioning.md) | Motion only with `--motion` | Motion confirmation when applicable | 0 / 1 / 2 |
-| `teleop run` | Supervised recording with episode holding; see [spacemouse-commissioning.md](spacemouse-commissioning.md#supervised-recording-sessions) | Reset and teleoperation | Yes, or `--yes` | Child status or wrapper error |
+| `teleop diagnose` | Input-only diagnosis; see [spacemouse-commissioning.md](spacemouse-commissioning.md) | No robot motion | No | 0 / 1 / 2 |
+| `teleop run` | Supervised recording with episode holding; `--diagnose translation\|rotation\|all` enables motion diagnostics; see [spacemouse-commissioning.md](spacemouse-commissioning.md#supervised-recording-sessions) | Reset and teleoperation | Yes, or `--yes` | Child status or wrapper error |
 | `workspace show/capture/set/validate` | Inspect, sample or configure constraints; see [spacemouse-commissioning.md](spacemouse-commissioning.md) | Capture reads TCP; no motion | Save confirmation when applicable | 0 / 1 / 2; text validation failure 5 |
 | `teleop inspect-stop` | Evaluate saved stop evidence offline; see [spacemouse-commissioning.md](spacemouse-commissioning.md#live-input-calibration-and-diagnosis) | No hardware connection | No | 0 PASS / 3 FAIL / 4 BLOCKED; errors otherwise |
 
@@ -92,12 +92,20 @@ command belong to that CLI. The wrapper translates only these global options:
 
 | Forwarded command | Global options translated |
 |---|---|
-| `doctor` | `--station` → `--config`, `--robot`, `--preset`, `--mock`, `--json`, `--yes` |
 | `setup` | `--station` → `--from` (existing defaults, **not output path**), `--mock` |
 | `daemon` | `--station` → `--config`, `--robot` |
 | `supervise` | None; supply supervisor and child options after `supervise` |
 
-Other wrapper globals have no effect on those CLIs. Doctor's `--yes` requires
+Other wrapper globals have no effect on those CLIs.
+
+Doctor is registered directly in the `rwrl` parser; `rwrl doctor --help` displays
+rwrl's own doctor help. It shares the global `--station`, `--robot`, `--preset`,
+`--mock`, `--json` and `--yes` options. For compatibility, `--config PATH` after
+`doctor` aliases `--station PATH`, and `--robot`, `--preset`, `--mock`, `--json`
+and `--yes` are also accepted after `doctor`. A trailing value takes precedence
+when the same option is supplied before and after the command.
+`python -m real_world_rl.cli.doctor` remains a transitional entry point that
+delegates to `rwrl doctor`. Doctor's `--yes` requires
 `--fix` or `--install-sdk`. Its versioned JSON report differs from primitive
 JSON and from the lower-level `python -m robot_infra.doctor` report.
 See the [device-layer README](../robot_infra/README.md#3-check-with-the-doctor)

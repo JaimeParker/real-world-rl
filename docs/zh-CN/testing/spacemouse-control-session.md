@@ -31,7 +31,7 @@ A1 只打开 SpaceMouse。站在机械臂后方定义固定桌面坐标：+X 向
 
 ```bash
 rwrl --station local/station.yaml teleop calibrate --profile rear --frame table --save --output profiles.yaml --use
-rwrl --station local/station.yaml teleop diagnose --input-only --profile rear --duration-s 5
+rwrl --station local/station.yaml teleop diagnose --profile rear --duration-s 5
 ```
 
 全部带标签方向符合意图、残差满足所选阈值（默认 25 度），且保留原始证据时 A1 通过。允许自然跨轴输入；方向和可用性比精确端点定位更重要。符号错误、反射映射或证据不足需要重采，而不是再次猜测安装 roll 补偿。单组重采见 [CLI 标定](../spacemouse-commissioning.md#spacemouse-profiles-and-task-frame-workspace)。
@@ -57,9 +57,9 @@ B1/B2 仅在具备独立核验的机械臂身份、新鲜反馈、正确坐标�
 C1 平移、C2 旋转、C3 全轴使用低诊断增益。每条命令都在 `robot_infra.supervise` 下启动录制器；不要再套第二层 supervisor。reset 可能使机械臂回 home。达到名义步数预算后保持到 q；`--duration-s` 不是墙钟终止截止时间。
 
 ```bash
-rwrl --station local/station.yaml --preset local/task.yaml teleop diagnose --mode tracker --motion translation --gain 0.2 --duration-s 10 --record local/check-translation.pkl
-rwrl --station local/station.yaml --preset local/task.yaml teleop diagnose --mode tracker --motion rotation --gain 0.2 --duration-s 10 --record local/check-rotation.pkl
-rwrl --station local/station.yaml --preset local/task.yaml teleop diagnose --mode tracker --motion all --gain 0.2 --duration-s 10 --record local/check-all.pkl
+rwrl --station local/station.yaml --preset local/task.yaml teleop run --mode tracker --diagnose translation --gain 0.2 --duration-s 10 --record local/check-translation.pkl
+rwrl --station local/station.yaml --preset local/task.yaml teleop run --mode tracker --diagnose rotation --gain 0.2 --duration-s 10 --record local/check-rotation.pkl
+rwrl --station local/station.yaml --preset local/task.yaml teleop run --mode tracker --diagnose all --gain 0.2 --duration-s 10 --record local/check-all.pkl
 ```
 
 使用 `--mode serl` 和新输出路径重复。PASS 要求正负方向符合意图、不同 TCP 姿态下仍沿固定桌面轴、组合控制可用，且无实测工作区越界或故障。比较 `diagnostics-<timestamp>-<id>.jsonl` 中的原始输入、请求/限制后/已接受目标及实测基/任务坐标系位姿；裁剪与映射错误分开报告。轻微手部耦合和跟踪滞后本身不导致方向验收失败。控制不符合预期时停止，不要仅为填完表格行而继续。

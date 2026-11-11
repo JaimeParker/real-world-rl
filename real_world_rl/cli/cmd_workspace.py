@@ -1,0 +1,128 @@
+"""Workspace inspection, measurement, validation and reviewed updates."""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from .command import Result
+from .errors import CliError, USAGE_EXIT_CODE, SUCCESS_EXIT_CODE, WORKSPACE_INVALID_EXIT_CODE
+from .station_edit import station_document, confirm_write, atomic_save
+
+
+def workspace_command(args, config, path, raw, document, node, ctx):
+    from robot_infra.devices.workspace import Workspace, task_transform
+    from real_world_rl.teleop.workspace_points import point_set, candidate_bounds
+    import yaml
+    if args.action == "capture":
+        if args.save and (not args.name or not args.output):
+            raise CliError("saving measurements requires --name and --output", code=USAGE_EXIT_CODE,
+                           required_fields=[flag for flag, value in (("--name", args.name), ("--output", args.output)) if not value])
+        file = Path(args.output) if args.output else None
+        if file is not None and not file.is_absolute():
+            file = path.parent / file
+        previous = file.read_bytes() if file is not None and file.exists() else None
+        points, _ = point_set(yaml.safe_load(previous) if previous else None, config.task_frame)
+        with ctx.open_robot() as connection:
+            pose = connection.arm.read_state()["tcp_pose"].tolist()
+        transform = task_transform(config.task_frame)
+        import numpy as np
+        position = transform[:3, :3].T @ (np.asarray(pose[:3]) - transform[:3, 3])
+        result = {"base_pose": pose, "task_position": position.tolist(), "units": "m; quaternion xyzw",
+                "frame": config.task_frame["name"] if config.task_frame else "base",
+                "note": "Measurement only; not an accepted workspace boundary"}
+        if args.save:
+            from datetime import datetime, timezone
+            points['points'][args.name] = {'base_pose': pose, 'captured_at': datetime.now(timezone.utc).isoformat()}
+            point_set(points, config.task_frame)
+            confirm_write(ctx, file, points, previous)
+            result['saved'] = atomic_save(file, points, previous)
+        return result
+    if args.action == "show":
+        result = {"task_frame": config.task_frame, "workspace": config.workspace,
+                  "base_safety_box": config.safety_box,
+                  "units": {"position": "m", "angle": "rad", "quaternion": "xyzw"},
+                  "source": {"station": str(path), "robot": config.name,
+                             "frame_calibration": (config.task_frame or {}).get("source")},
+                  "scope": "configured constraints only; no live daemon or physical calibration verification",
+                  "combination": "intersection of base safety box and oriented workspace; orientation limits also apply"}
+        if config.workspace is not None:
+            from itertools import product
+            import numpy as np
+            geometry = Workspace(config.workspace, config.task_frame)
+            corners = np.asarray(list(product(*zip(geometry.low, geometry.high))))
+            result["workspace_corners_base_m"] = (corners @ geometry.rotation.T + geometry.origin).tolist()
+            result["workspace_corners_frame_m"] = corners.tolist()
+            result["corner_note"] = "oriented box vertices, not replacement axis-aligned bounds; not proof of collision-free interior"
+        return result
+    if args.action == "validate":
+        if config.workspace is None:
+            raise CliError("no workspace configured", code=USAGE_EXIT_CODE)
+        from robot_infra.devices.safety import ArmSafety
+        safety = ArmSafety.from_config(config)
+        from robot_infra.devices.errors import SafetyViolation
+        try:
+            safety.require_pose_inside(args.pose)
+        except SafetyViolation as error:
+            return {"valid": False, "pose": args.pose, "violations": [error.message]}
+        return {"valid": True, "pose": args.pose, "violations": []}
+    if args.from_points:
+        if args.low is not None or args.high is not None:
+            raise CliError("--from-points cannot be combined with --low/--high", code=USAGE_EXIT_CODE)
+        file = Path(args.from_points)
+        if not file.is_absolute():
+            file = path.parent / file
+        candidate = candidate_bounds(yaml.safe_load(file.read_text()), config.task_frame)
+        if candidate['frame'] != args.frame:
+            raise CliError("--frame must match captured points", code=USAGE_EXIT_CODE)
+    else:
+        if args.low is None or args.high is None:
+            raise CliError("provide --low and --high, or --from-points", code=USAGE_EXIT_CODE)
+        candidate = {"frame": args.frame, "low": args.low, "high": args.high}
+    if args.orientation_xyzw is not None:
+        candidate["orientation_xyzw"] = args.orientation_xyzw
+    if args.max_angle_rad is not None:
+        candidate["max_angle_rad"] = args.max_angle_rad
+    Workspace(candidate, config.task_frame)
+    result = {"candidate": candidate, "saved": None,
+              "note": "Candidate only; captured extrema do not certify the enclosed volume is safe"}
+    if args.save:
+        node["workspace"] = candidate
+        confirm_write(ctx, path, document, raw)
+        result["saved"] = atomic_save(path, document, raw)
+    return result
+
+
+class WorkspaceCommand:
+    name = "workspace"
+    help = "inspect and configure task-frame workspace"
+
+    def register(self, parser):
+        ws = parser.add_subparsers(dest="action", required=True)
+        ws.add_parser("show")
+        validate = ws.add_parser("validate")
+        validate.add_argument("--pose", nargs=7, type=float, required=True, metavar="VALUE")
+        capture = ws.add_parser("capture")
+        capture.add_argument("--name", help="measurement name; required when saving")
+        capture.add_argument("--output", help="points YAML, relative to station directory")
+        capture.add_argument("--save", action="store_true")
+        setter = ws.add_parser("set")
+        setter.add_argument("--frame", required=True)
+        setter.add_argument("--low", nargs=3, type=float)
+        setter.add_argument("--high", nargs=3, type=float)
+        setter.add_argument("--from-points", help="propose bounds from captured points YAML")
+        setter.add_argument("--orientation-xyzw", nargs=4, type=float)
+        setter.add_argument("--max-angle-rad", type=float)
+        setter.add_argument("--save", action="store_true")
+
+    def run(self, args, ctx):
+        path, raw, document, node, selected = station_document(args)
+        config = selected.config
+        result = {"schema_version": 1, "station": str(path), "robot": config.name}
+        result.update(workspace_command(args, config, path, raw, document, node, ctx))
+        code = SUCCESS_EXIT_CODE
+        if args.action == "validate" and not result["valid"] and not args.json:
+            code = WORKSPACE_INVALID_EXIT_CODE
+        return Result(result, json.dumps(result, indent=2, allow_nan=False), code)
+
+
+WORKSPACE = WorkspaceCommand()

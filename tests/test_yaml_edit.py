@@ -98,13 +98,14 @@ def test_home_rejects_stale_preset(tmp_path):
 
 def test_preview_matches_saved_text(tmp_path, capsys):
     from types import SimpleNamespace
-    from real_world_rl.cli.teleop_config import atomic_save, confirm_write
+    from real_world_rl.cli.station_edit import atomic_save, confirm_write
     path = tmp_path / 'station.yaml'
     before = '# retained\nrobot: {name: "left", home_joints: [0.2]}\n'
     path.write_text(before)
     desired = yaml.safe_load(before)
     desired['robot']['home_joints'] = [0.0]
-    confirm_write(SimpleNamespace(yes=True), path, desired, before.encode())
+    from real_world_rl.cli.command import Context
+    confirm_write(Context(SimpleNamespace(yes=True)), path, desired, before.encode())
     preview = capsys.readouterr().err
     saved = atomic_save(path, desired, before.encode())
     after = path.read_text()

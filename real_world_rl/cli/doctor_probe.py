@@ -7,6 +7,8 @@ import json
 import sys
 from contextlib import redirect_stdout
 
+from .errors import SUCCESS_EXIT_CODE
+
 
 def main():
     request = json.load(sys.stdin)
@@ -29,7 +31,7 @@ def main():
         for row in results
     ]
     print(json.dumps(payload, default=str))
-    return 0
+    return SUCCESS_EXIT_CODE
 
 
 if __name__ == "__main__":

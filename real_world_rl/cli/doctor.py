@@ -2,35 +2,19 @@
 
 from __future__ import annotations
 
-import argparse
 import dataclasses
 import json
 import os
 import shlex
+import io
 import sys
 from pathlib import Path
 
+from .command import Result
+from .errors import SUCCESS_EXIT_CODE
 from .doctor_host import Host
 from .doctor_platform import find_checkout
 from .doctor_repair import Action, Report, execute, exit_status, payload, redact
-
-
-class _Parser(argparse.ArgumentParser):
-    json_output = False
-    report_directory = None
-
-    def error(self, message):
-        if self.json_output:
-            print(
-                json.dumps(
-                    {
-                        "schema_version": 1,
-                        "error": redact(message),
-                        "report_directory": self.report_directory,
-                    }
-                )
-            )
-        super().error(redact(message))
 
 
 def load_targets(args):
@@ -358,48 +342,31 @@ def inspect(args, host: Host):
     return results_by_robot
 
 
-def main(argv=None):
-    parser = _Parser(prog="rwrl doctor", description=__doc__, allow_abbrev=False)
-    parser.json_output = "--json" in (sys.argv[1:] if argv is None else argv)
-    parser.add_argument("--config")
-    parser.add_argument("--robot")
-    parser.add_argument("--preset")
-    parser.add_argument("--mock", action="store_true")
-    parser.add_argument("--fix", action="store_true")
-    parser.add_argument(
-        "--install-sdk",
-        action="store_true",
-        help="repair only a handshake-confirmed Franky mismatch",
-    )
-    parser.add_argument("--yes", action="store_true")
-    parser.add_argument("--json", action="store_true")
-    parser.add_argument(
-        "--report-dir",
-        type=Path,
-        help="report base directory (overrides RWRL_DOCTOR_REPORT_DIR)",
-    )
-    args = parser.parse_args(argv)
+def run(ctx, usage_error):
+    """Execute diagnostics using the shared CLI context; return a renderable report."""
+    args = ctx.args
+    # Internal loader compatibility; the public station option lives in Context.
+    args.config = args.station
     if args.yes and not (args.fix or args.install_sdk):
-        parser.error("--yes requires --fix or --install-sdk")
+        raise usage_error("--yes requires --fix or --install-sdk")
     root = find_checkout()
     try:
         report = Report(root, directory=args.report_dir)
     except OSError as error:
-        parser.error(
+        raise usage_error(
             f"cannot create private doctor report: {error}; use --report-dir with a writable directory"
         )
-    parser.report_directory = str(report.path)
     try:
         host = Host(root, report)
         results = inspect(args, host)
     except Exception as error:
         report.save("error.json", {"error": str(error)})
-        parser.error(redact(str(error)))
+        raise usage_error(redact(str(error)), str(report.path))
     actions = host.actions
     before = payload(host.findings, actions, report, results=results)
     report.save("before.json", before)
     report.save("plan.json", before["repairs"])
-    stream = sys.stderr if args.json else sys.stdout
+    stream = ctx.stderr if args.json else ctx.stdout
     if not args.json:
         for row in host.findings:
             print(f"{row.status:14} {row.id}: {row.message}", file=stream)
@@ -467,21 +434,30 @@ def main(argv=None):
     result = redact(result)
     report.save("report.json", result)
     code = exit_status(host.findings, actions)
-    if args.json:
-        print(json.dumps(result, ensure_ascii=False))
-    else:
-        print(f"Report: {report.path}")
+    output = io.StringIO()
+    if not args.json:
+        print(f"Report: {report.path}", file=output)
         if confirmed:
             for action in actions:
-                print(f"{action.status:14} {action.id}: {action.detail}")
+                print(f"{action.status:14} {action.id}: {action.detail}", file=output)
             for row in host.findings:
-                print(f"{row.status:14} {row.id}: {row.message}")
+                print(f"{row.status:14} {row.id}: {row.message}", file=output)
         print(
             "Result: "
             + (
                 "no blocking findings; review SKIPPED/WARN coverage"
-                if code == 0
+                if code == SUCCESS_EXIT_CODE
                 else "unresolved failures / blocked checks / pending user actions"
-            )
+            ), file=output,
         )
-    return code
+    return Result(result, output.getvalue().removesuffix("\n"), code, ensure_ascii=False)
+
+
+def main(argv=None):
+    """Transitional Python/module entry point; delegate to the unified rwrl doctor."""
+    from . import main as rwrl_main
+    return rwrl_main(["doctor", *(sys.argv[1:] if argv is None else argv)])
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

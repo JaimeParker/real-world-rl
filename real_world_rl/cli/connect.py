@@ -7,13 +7,13 @@ import socket
 import sys
 from typing import Any, Iterator
 
-from .errors import CliError
+from .errors import CliError, USAGE_EXIT_CODE
 
 
 def client_address(bind: str) -> str:
     host, separator, port = bind.rpartition(":")
     if not separator or not host or not port.isdigit() or not 0 <= int(port) <= 65535:
-        raise CliError(f"invalid daemon bind {bind!r}", code=2)
+        raise CliError(f"invalid daemon bind {bind!r}", code=USAGE_EXIT_CODE)
     return f"{'127.0.0.1' if host == '0.0.0.0' else host}:{port}"
 
 
@@ -51,13 +51,13 @@ def open_robot(args) -> Iterator[RobotConnection]:
         station = load_station(station_path)
         selected = station.select(args.robot)
     except (FileNotFoundError, ValueError, KeyError) as error:
-        raise CliError(str(error), code=2, hint="run python -m robot_infra.setup") from error
+        raise CliError(str(error), code=USAGE_EXIT_CODE, hint="run python -m robot_infra.setup") from error
     remote = False
     if selected.daemon_declared:
         address = client_address(selected.bind)
         reachable = probe_daemon(address)
         if args.direct and reachable:
-            raise CliError("the daemon owns the arm", code=2, hint="omit --direct")
+            raise CliError("the daemon owns the arm", code=USAGE_EXIT_CODE, hint="omit --direct")
         if not args.direct:
             if not reachable:
                 raise CliError(f"daemon declared at {selected.bind} but not reachable",

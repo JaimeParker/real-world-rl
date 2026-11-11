@@ -142,6 +142,8 @@ robots:
 
 `python -m robot_infra.server` 为每台启动独立进程，`python -m robot_infra.doctor` 逐台检查，`--robot <name>` 选择单台。两套 GELLO、三台相机的完整示例为 [`docs/station.bimanual.example.yaml`](../../robot_infra/docs/station.bimanual.example.yaml)。`Robot.from_yaml` 仅读取不含 `daemon:` 的单机器人文件。
 
+上层包可通过 `parse_station`、`load_station` 或 `load_station_with_env`，使用 `sections={name: validator}` 注册额外的机器人映射站点分节（section）。与 `daemon:` 类似，这些分节描述机器人，但不属于设备配置：加载器在调用 `RobotConfig.from_dict` 前移除每个已注册键，校验其值，并将返回值存入 `StationRobot.sections`。设备层不解释分节内容。未注册的未知键仍会报错；单机器人和 `robots:` 映射均支持分节。设置向导渲染设备配置，不渲染上层分节。
+
 **Franka Panda、Franka Hand 与一台 RealSense**
 
 ```yaml

@@ -8,12 +8,12 @@ from typing import Any
 
 import yaml
 
-from .errors import CliError
+from .errors import CliError, USAGE_EXIT_CODE
 
 
 def mapping(value: Any, label: str) -> dict:
     if not isinstance(value, dict):
-        raise CliError(f"{label} must be a mapping", code=2)
+        raise CliError(f"{label} must be a mapping", code=USAGE_EXIT_CODE)
     return value
 
 
@@ -63,7 +63,7 @@ class Preset:
         self, current: list[float], limits: list[tuple[str, Any]], *, num_joints: int
     ) -> dict:
         if self.path is None:
-            raise CliError("home set requires --preset", code=2)
+            raise CliError("home set requires --preset", code=USAGE_EXIT_CODE)
         current = joints(current, num_joints, "current joint_pos")
         updated = [round(value, 4) for value in current]
         limits = [*limits, ("preset joint_limits", self.env.get("joint_limits"))]

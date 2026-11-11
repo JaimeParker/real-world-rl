@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .errors import DOCTOR_UNRESOLVED_EXIT_CODE, SUCCESS_EXIT_CODE
+
 import hashlib
 import json
 import os
@@ -355,4 +357,5 @@ def payload(
 
 def exit_status(findings: list[Finding], actions: list[Action]) -> int:
     unresolved = {"FAIL", "BLOCKED", "PENDING_ACTION"}
-    return int(any(item.status in unresolved for item in [*findings, *actions]))
+    return (DOCTOR_UNRESOLVED_EXIT_CODE if any(item.status in unresolved for item in [*findings, *actions])
+            else SUCCESS_EXIT_CODE)

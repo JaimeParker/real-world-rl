@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from real_world_rl.cli import doctor
+from real_world_rl.cli import doctor, main
 from real_world_rl.cli.doctor_host import Host, process_owners
 from real_world_rl.cli.doctor_platform import Capabilities
 from real_world_rl.cli.doctor_repair import (
@@ -376,7 +376,7 @@ def test_declining_or_non_tty_does_not_execute_repairs(report, monkeypatch, caps
     monkeypatch.setattr(
         doctor, "execute", lambda *a, **kw: pytest.fail("no confirmation")
     )
-    assert doctor.main(["--fix", "--json"]) == 1
+    assert main(["doctor", "--fix", "--json"]) == 1
     result = json.loads(capsys.readouterr().out)
     assert result["confirmed"] is False and result["repairs"][0]["status"] == "BLOCKED"
 
@@ -392,7 +392,7 @@ def test_yes_runs_repairs_and_rechecks(report, monkeypatch, capsys):
 
     monkeypatch.setattr(doctor, "inspect", fake_inspect)
     monkeypatch.setattr(doctor, "execute", lambda *a, **kw: calls.append("repair"))
-    assert doctor.main(["--fix", "--yes", "--json"]) == 0
+    assert main(["doctor", "--fix", "--yes", "--json"]) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["confirmed"] is True and result["checks"][0]["status"] == "PASS"
     assert (Path(result["report_directory"]) / "before.json").exists()
@@ -413,9 +413,7 @@ def test_probe_never_exposes_fix_or_motion_entrypoints():
 
 
 def test_missing_preset_is_usage_error_with_a_report(report, capsys):
-    with pytest.raises(SystemExit) as error:
-        doctor.main(["--preset", "/nonexistent/preset.yaml"])
-    assert error.value.code == 2
+    assert main(["doctor", "--preset", "/nonexistent/preset.yaml"]) == 2
     assert any(report.path.parent.glob("*/error.json"))
 
 
@@ -599,3 +597,108 @@ def test_missing_libusb_has_system_repair_not_only_pip(host, monkeypatch):
     assert action.privileged and action.exclusive
     assert action.argv == ["apt-get", "install", "--reinstall", "-y", "libusb-1.0-0"]
     assert not action.python
+
+
+def test_registered_doctor_json_is_single_line(report, monkeypatch, capsys):
+    def inspect(args, host):
+        print("SDK diagnostic chatter")
+        host.add("sample", "PASS", "设备可读")
+        return {}
+
+    monkeypatch.setattr(doctor, "inspect", inspect)
+    assert main(["--json", "doctor"]) == 0
+    captured = capsys.readouterr()
+    assert len(captured.out.splitlines()) == 1
+    result = json.loads(captured.out)
+    assert result["schema_version"] == 1
+    assert result["checks"][0]["message"] == "设备可读"
+    assert "设备可读" in captured.out  # Preserve doctor's ensure_ascii=False output.
+    assert "SDK diagnostic chatter" in captured.err
+
+
+def test_global_station_and_legacy_config_are_equivalent(report, tmp_path, monkeypatch, capsys):
+    path = tmp_path / "station.yaml"
+    path.write_text("type: franka\nname: sample\narm_backend: fake\ngripper: null\n")
+    targets = []
+
+    def inspect(args, host):
+        loaded, expected = doctor.load_targets(args)
+        targets.append(([(name, config.to_dict(), source, daemon, bind)
+                         for name, config, source, daemon, bind in loaded], expected))
+        host.add("sample", "PASS", "configuration loaded")
+        return {}
+
+    monkeypatch.setattr(doctor, "inspect", inspect)
+    assert main(["--station", str(path), "--json", "doctor"]) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert main(["doctor", "--config", str(path), "--json"]) == 0
+    second = json.loads(capsys.readouterr().out)
+    assert targets[0] == targets[1]
+    assert first["checks"] == second["checks"]
+    assert first["results"] == second["results"]
+
+
+def test_doctor_compatibility_entry_delegates(monkeypatch):
+    calls = []
+    monkeypatch.setattr("real_world_rl.cli.main", lambda argv: calls.append(argv) or 1)
+    assert doctor.main(["--config", "station.yaml", "--json"]) == 1
+    assert calls == [["doctor", "--config", "station.yaml", "--json"]]
+
+
+def test_doctor_parser_owns_help_and_preserves_trailing_globals(monkeypatch, capsys):
+    from real_world_rl.cli import build_parser
+    from real_world_rl.cli.cmd_doctor import DOCTOR
+
+    parser = build_parser()
+    args = parser.parse_args(["--station", "first", "--robot", "left", "--mock", "--json",
+                              "doctor", "--config", "second", "--robot", "right", "--fix"])
+    assert args._command is DOCTOR
+    assert (args.station, args.robot, args.mock, args.json, args.fix) == ("second", "right", True, True, True)
+    assert not getattr(DOCTOR, "accepts_remaining", False)
+    monkeypatch.setattr("real_world_rl.cli.cmd_forward.import_module",
+                        lambda name: pytest.fail("doctor must not forward"))
+    assert main(["doctor", "--help"]) == 0
+    output = capsys.readouterr().out
+    assert "usage: rwrl doctor" in output
+    assert "--fix" in output and "--report-dir" in output and "--install-sdk" in output
+
+
+def test_doctor_unknown_option_preserves_versioned_error_json(capsys):
+    assert main(["--json", "doctor", "--unknown"]) == 2
+    captured = capsys.readouterr()
+    assert len(captured.out.splitlines()) == 1
+    assert json.loads(captured.out) == {
+        "schema_version": 1, "error": "unrecognized arguments: --unknown", "report_directory": None,
+    }
+    assert "usage: rwrl doctor" in captured.err
+    assert "rwrl doctor: error: unrecognized arguments: --unknown" in captured.err
+
+
+@pytest.mark.parametrize("status,expected", [
+    ("PASS", 0), ("WARN", 0), ("SKIPPED", 0),
+    ("FAIL", 1), ("BLOCKED", 1), ("PENDING_ACTION", 1),
+])
+def test_registered_doctor_returns_status_code(report, monkeypatch, capsys, status, expected):
+    def inspect(args, host):
+        host.add("sample", status, "status evidence")
+        return {}
+
+    monkeypatch.setattr(doctor, "inspect", inspect)
+    assert main(["--json", "doctor"]) == expected
+    assert json.loads(capsys.readouterr().out)["checks"][0]["status"] == status
+
+
+def test_registered_doctor_text_summary_is_unchanged(report, monkeypatch, capsys):
+    def inspect(args, host):
+        host.add("sample", "PASS", "ready")
+        return {}
+
+    monkeypatch.setattr(doctor, "inspect", inspect)
+    assert main(["doctor"]) == 0
+    captured = capsys.readouterr()
+    lines = captured.out.splitlines()
+    assert lines[0] == f"{'PASS':14} sample: ready"
+    assert lines[1].startswith("Report: ")
+    assert Path(lines[1].removeprefix("Report: "), "report.json").is_file()
+    assert lines[2:] == ["Result: no blocking findings; review SKIPPED/WARN coverage"]
+    assert captured.err == ""

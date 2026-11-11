@@ -12,6 +12,8 @@
 
 工作站机器人可声明任务坐标系（task frame）`task_frame`，包含 `name` 和有效的 4×4 `base_T_frame` 刚体变换。`teleop_profiles` 指定标定档案（profile）YAML 的 `file`（相对于工作站文件）和 `default` 档案名。档案文件包含 `schema_version: 1` 和 `profiles` 映射。每个档案声明 `frame`、`yaw_rad` 和 `axis_mapping_version: serl_hid_axes_v1`；`neutral_threshold` 默认为 0.05。此启动容差与正常介入及运动死区相互独立。
 
+`teleop_profiles` 是 real_world_rl 的站点分节（section），不是 `RobotConfig` 字段。设备层 `load_station` 若未通过 `sections=` 注册该分节就直接读取，会报 unknown-key 错误。`rwrl` 和 Python 调用方统一使用 `real_world_rl.station.load_station`（或 `load_station_with_env`）注册其校验器。现有站点 YAML 无需迁移；`rwrl teleop calibrate --use` 仍将此分节写在机器人映射中。
+
 在已安装的项目环境中，准备好工作站文件后运行：
 
 ```bash
@@ -83,7 +85,7 @@ Python 录制器默认保留现有的自动回合行为。传入 `--episode-end-
 rwrl --station local/station.yaml teleop calibrate \
   --profile rear --frame table --output profiles.yaml --use
 rwrl --station local/station.yaml --json teleop diagnose \
-  --input-only --duration-s 5 --profile rear
+  --duration-s 5 --profile rear
 ```
 
 `--use` 保存候选档案，并在审阅后在工作站中选用它。不带 `--save` 或 `--use` 时，标定只产生候选结果。如果保存档案后取消保存工作站，已保存档案仍可用，但不会自动被选中。
@@ -129,11 +131,11 @@ CLI 会话还写入私密的 `session-events-<timestamp>-<id>.jsonl`，独立于
 调试机器人运动时，在 NUC 仓库激活项目环境，使用已审阅的工作站工作区和任务预设：
 
 ```bash
-rwrl --station local/station.yaml --preset local/task.yaml teleop diagnose \
-  --motion translation --duration-s 10 --record local/diag-translation.pkl
+rwrl --station local/station.yaml --preset local/task.yaml teleop run \
+  --diagnose translation --duration-s 10 --record local/diag-translation.pkl
 ```
 
-选择 `translation`、`rotation` 或 `all`；`--mode tracker|serl` 选择原控制模式。`--gain` 默认为 0.2，相对于预设控制设置缩放输入，不是绝对速度保证。正常 `teleop run` 默认保留增益 1 和全部六轴。诊断过滤和增益进入实验契约，以区分这些数据和正常数据。`--input-only` 与 `--motion` 互斥。
+选择 `translation`、`rotation` 或 `all`；`--mode tracker|serl` 选择原控制模式。`--gain` 默认为 0.2，相对于预设控制设置缩放输入，不是绝对速度保证。正常 `teleop run` 默认保留增益 1 和全部六轴。诊断过滤和增益进入实验契约，以区分这些数据和正常数据。`teleop diagnose` 仅检查输入。机器人运动诊断使用 `teleop run --diagnose translation|rotation|all`；`--gain`（默认 0.2）和 `--duration-s`（默认 5）仅影响诊断会话。未指定 `--diagnose` 时，这两个选项均被忽略。诊断会话默认一次成功且最多一个回合；正常会话保留 20 次成功且不限制回合数。
 
 运动诊断与正常会话使用相同的 supervisor、确认、录制器、回中检查和回合保持。时长确定名义控制步数预算，不是硬性墙钟截止时间。达到预算后回合保持至 `q`，不会静默释放控制。`--events-file` 也适用于 agent 事件。
 

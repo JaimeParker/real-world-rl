@@ -57,7 +57,8 @@ def test_legacy_rotation_conflict(tmp_path):
         _single_arm_yaml_options(args)
 
 
-def test_run_builds_supervised_child_with_hold(tmp_path, capsys, monkeypatch):
+@pytest.mark.parametrize("extra", [[], ["--gain", "0.05", "--duration-s", "1"]])
+def test_run_builds_supervised_child_with_hold(tmp_path, capsys, monkeypatch, extra):
     path = station(tmp_path)
     preset = tmp_path / 'preset.yaml'
     preset.write_text(yaml.safe_dump({'real_robot': {'home_joints': [0]*7, 'gripper_in_action': False}}))
@@ -71,19 +72,23 @@ def test_run_builds_supervised_child_with_hold(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr('subprocess.run', run)
     monkeypatch.delenv('ROBOT_INFRA_HEARTBEAT_FD', raising=False)
     result = main(['--station', str(path), '--preset', str(preset), '--json', '--yes',
-                   'teleop', 'run', '--record', str(tmp_path / 'demo.pkl')])
+                   'teleop', 'run', '--record', str(tmp_path / 'demo.pkl'), *extra])
     assert result == 0
     payload = json.loads(capsys.readouterr().out)
     from pathlib import Path
     resolved = yaml.safe_load((Path(payload['report_directory']) / 'resolved-config.yaml').read_text())
     assert resolved['episode_end_behavior'] == 'hold'
+    assert 'teleop_diagnostic_axes' not in resolved
+    assert 'teleop_diagnostic_gain' not in resolved
+    assert resolved['num_successes'] == 20
+    assert resolved['max_episodes'] is None
     assert resolved['teleop_profile'] == 'rear'
     assert resolved['teleop_input']['yaw_rad'] == .4
     assert not {'stop_trace_path', 'diagnostics_path', 'session_events_path'} & resolved['real_robot'].keys()
     assert 'robot_infra.supervise' in calls[0]
     provenance = json.loads((Path(payload['report_directory']) / 'provenance.json').read_text())
     assert provenance['input_files']['profiles']['sha256']
-    assert provenance['packages']['real_world_rl'][0]['files']['cli/teleop_config.py']
+    assert provenance['packages']['real_world_rl'][0]['files']['cli/teleop_session.py']
     assert provenance['config_sha256']
 
 
@@ -131,7 +136,8 @@ def test_wrong_device_fails_without_disconnecting_borrowed_input(owned):
 
 
 @pytest.mark.parametrize('axes', ['translation', 'rotation', 'all'])
-def test_motion_diagnostic_launches_supervised_limited_session(tmp_path, capsys, monkeypatch, axes):
+@pytest.mark.parametrize('gain', [None, .1])
+def test_motion_diagnostic_launches_supervised_limited_session(tmp_path, capsys, monkeypatch, axes, gain):
     path = station(tmp_path)
     data = yaml.safe_load(path.read_text())
     data['workspace'] = {'frame': 'table', 'low': [-1]*3, 'high': [1]*3}
@@ -148,13 +154,15 @@ def test_motion_diagnostic_launches_supervised_limited_session(tmp_path, capsys,
     monkeypatch.setattr('subprocess.run', run)
     monkeypatch.delenv('ROBOT_INFRA_HEARTBEAT_FD', raising=False)
     assert main(['--station', str(path), '--preset', str(preset), '--json', '--yes',
-                 'teleop', 'diagnose', '--motion', axes, '--duration-s', '2',
-                 '--record', str(tmp_path / 'diagnostic.pkl')]) == 0
+                 'teleop', 'run', '--diagnose', axes, '--duration-s', '2',
+                 '--record', str(tmp_path / 'diagnostic.pkl'), *([] if gain is None else ['--gain', str(gain)])]) == 0
     payload = json.loads(capsys.readouterr().out)
     from pathlib import Path
     resolved = yaml.safe_load((Path(payload['report_directory']) / 'resolved-config.yaml').read_text())
     assert resolved['teleop_diagnostic_axes'] == axes
-    assert resolved['teleop_diagnostic_gain'] == .2
+    assert resolved['teleop_diagnostic_gain'] == (.2 if gain is None else gain)
+    assert resolved['num_successes'] == 1
+    assert resolved['max_episodes'] == 1
     assert resolved['max_episode_steps'] == 20
     assert resolved['episode_end_behavior'] == 'hold'
     assert not {'stop_trace_path', 'diagnostics_path', 'session_events_path'} & resolved['real_robot'].keys()
@@ -238,11 +246,12 @@ def test_recapture_one_group_preserves_others(tmp_path, monkeypatch, capsys, app
 
 def test_yaml_review_shows_exact_diff_and_backup(tmp_path, capsys):
     import stat
-    from real_world_rl.cli.teleop_config import confirm_write, atomic_save
+    from real_world_rl.cli.station_edit import confirm_write, atomic_save
     path = tmp_path / 'profile.yaml'
     previous = b'# retained in backup\nyaw: 0\n'
     path.write_bytes(previous)
-    confirm_write(SimpleNamespace(yes=True), path, {'yaw': 1}, previous)
+    from real_world_rl.cli.command import Context
+    confirm_write(Context(SimpleNamespace(yes=True)), path, {'yaw': 1}, previous)
     diff = capsys.readouterr().err
     assert '-yaw: 0' in diff and '+yaw: 1' in diff
     result = atomic_save(path, {'yaw': 1}, previous)
@@ -253,7 +262,7 @@ def test_yaml_review_shows_exact_diff_and_backup(tmp_path, capsys):
 
 
 def test_yaml_save_rejects_change_during_review(tmp_path):
-    from real_world_rl.cli.teleop_config import atomic_save
+    from real_world_rl.cli.station_edit import atomic_save
     from real_world_rl.cli.errors import CliError
     path = tmp_path / 'station.yaml'
     expected = b'value: original\n'
@@ -265,7 +274,7 @@ def test_yaml_save_rejects_change_during_review(tmp_path):
 
 
 def test_yaml_save_rejects_change_during_staging(tmp_path, monkeypatch):
-    from real_world_rl.cli.teleop_config import atomic_save
+    from real_world_rl.cli.station_edit import atomic_save
     from real_world_rl.cli.errors import CliError
     import os
     path = tmp_path / 'station.yaml'
@@ -664,3 +673,57 @@ def test_cli_explicit_unknown_profile_is_rejected(tmp_path, capsys):
     assert main(["--station", str(path), "--json", "teleop", "profiles", "show",
                  "--profile", "missing"]) == 1
     assert "not found" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('removed', [
+    ['--motion', 'translation'], ['--gain', '.2'], ['--mode', 'tracker'],
+    ['--record', 'unused.pkl'], ['--events-file', '-'], ['--input-only'],
+])
+def test_diagnose_rejects_removed_flags_before_any_device_access(capsys, monkeypatch, removed):
+    monkeypatch.setattr('real_world_rl.cli.teleop_calibrate.diagnose',
+                        lambda *args: pytest.fail('removed flags must fail during parsing'))
+    assert main(['--json', 'teleop', 'diagnose', *removed]) == 2
+    assert 'unrecognized arguments' in json.loads(capsys.readouterr().out)['error']
+
+
+def test_diagnostic_run_requires_record(capsys):
+    assert main(['--json', 'teleop', 'run', '--diagnose', 'translation']) == 2
+    assert '--record' in json.loads(capsys.readouterr().out)['required_fields']
+
+
+def test_diagnose_is_input_only(tmp_path, monkeypatch, capsys):
+    path = station(tmp_path)
+    calls = []
+
+    def collect(config, **kwargs):
+        calls.append(kwargs)
+        return [], {'report_directory': 'input-report'}
+
+    monkeypatch.setattr('real_world_rl.teleop.input_diagnostics.collect', collect)
+    monkeypatch.setattr('real_world_rl.cli.connect.open_robot',
+                        lambda *args: pytest.fail('input diagnosis must not connect the arm'))
+    monkeypatch.setattr('subprocess.run', lambda *args, **kwargs: pytest.fail('must not launch a recorder'))
+    assert main(['--station', str(path), '--json', 'teleop', 'diagnose', '--profile', 'rear']) == 0
+    assert json.loads(capsys.readouterr().out)['report_directory'] == 'input-report'
+    assert calls[0]['duration_s'] == 5.
+    assert calls[0]['rotation'] == resolve_profile(path, load_station(path).select())['input_rotation']
+
+
+@pytest.mark.parametrize('workspace,gain,duration,message', [
+    (False, '.2', '5', 'reviewed station workspace'),
+    (True, '0', '5', 'gain must be'), (True, '1.1', '5', 'gain must be'),
+    (True, '.2', '0', 'duration'), (True, '.2', '301', 'duration'),
+])
+def test_diagnostic_run_preflight_before_child(tmp_path, monkeypatch, capsys, workspace, gain, duration, message):
+    path = station(tmp_path)
+    if workspace:
+        data = yaml.safe_load(path.read_text())
+        data['workspace'] = {'frame': 'table', 'low': [-1]*3, 'high': [1]*3}
+        path.write_text(yaml.safe_dump(data))
+    monkeypatch.delenv('ROBOT_INFRA_HEARTBEAT_FD', raising=False)
+    monkeypatch.setattr('subprocess.run', lambda *a, **kw: pytest.fail('invalid diagnostics must not start'))
+    assert main(['--station', str(path), '--preset', str(tmp_path / 'unused.yaml'), '--json',
+                 'teleop', 'run', '--diagnose', 'translation', '--gain', gain, '--duration-s', duration,
+                 '--record', str(tmp_path / 'unused.pkl')]) == 2
+    assert message in json.loads(capsys.readouterr().out)['error']
+    assert not list(tmp_path.glob('*.session-*'))

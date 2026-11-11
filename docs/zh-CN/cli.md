@@ -66,8 +66,8 @@ Franka FCI 只允许一个控制连接。直连路线中，先结束 recorder/ac
 | `supervise` | 转发到 `robot_infra.supervise.supervisor` | 取决于子命令 | 取决于子命令 | 原样保留原 CLI 状态 |
 | `teleop calibrate` | 拟合并验证方向映射；见 [spacemouse-commissioning.md](spacemouse-commissioning.md) | 仅输入；可选写文件 | 保存/启用确认 | 0 / 1 / 2 |
 | `teleop profiles list/show/use` | 检查或选择具名标定档案（profile）；见 [spacemouse-commissioning.md](spacemouse-commissioning.md) | 无运动；use 写入工作站 | use 时确认保存 | 0 / 1 / 2 |
-| `teleop diagnose` | 仅输入诊断或受监督的运动诊断；见 [spacemouse-commissioning.md](spacemouse-commissioning.md) | 仅 `--motion` 涉及运动 | 涉及运动时确认 | 0 / 1 / 2 |
-| `teleop run` | 带回合保持的受监督录制；见 [spacemouse-commissioning.md](spacemouse-commissioning.md#supervised-recording-sessions) | reset 与遥操作 | 需要，或 `--yes` | 子进程状态或包装层错误 |
+| `teleop diagnose` | 仅输入诊断；见 [spacemouse-commissioning.md](spacemouse-commissioning.md) | 无机器人运动 | 无 | 0 / 1 / 2 |
+| `teleop run` | 带回合保持的受监督录制；`--diagnose translation\|rotation\|all` 启用运动诊断；见 [spacemouse-commissioning.md](spacemouse-commissioning.md#supervised-recording-sessions) | reset 与遥操作 | 需要，或 `--yes` | 子进程状态或包装层错误 |
 | `workspace show/capture/set/validate` | 检查、采样或配置约束；见 [spacemouse-commissioning.md](spacemouse-commissioning.md) | capture 读取 TCP；无运动 | 涉及保存时确认 | 0 / 1 / 2；文本模式验证失败为 5 |
 | `teleop inspect-stop` | 离线评估已保存的停止证据；见 [spacemouse-commissioning.md](spacemouse-commissioning.md#live-input-calibration-and-diagnosis) | 无硬件连接 | 无 | 0 PASS / 3 FAIL / 4 BLOCKED；其他情况为错误码 |
 
@@ -75,12 +75,13 @@ Franka FCI 只允许一个控制连接。直连路线中，先结束 recorder/ac
 
 | 转发命令 | 转换的全局选项 |
 |---|---|
-| `doctor` | `--station` → `--config`、`--robot`、`--preset`、`--mock`、`--json`、`--yes` |
 | `setup` | `--station` → `--from`（已有默认配置，**不是输出路径**）、`--mock` |
 | `daemon` | `--station` → `--config`、`--robot` |
 | `supervise` | 无；supervisor 和子命令选项均放在 `supervise` 之后 |
 
-其他包装层全局选项对这些 CLI 不生效。doctor 的 `--yes` 必须搭配 `--fix` 或 `--install-sdk`。其版本化 JSON 报告与原语 JSON 和底层 `python -m robot_infra.doctor` 的报告不同。Python doctor、setup、daemon 和监督接口见[设备层 README](robot-infra.md#3-check-with-the-doctor)。
+其他包装层全局选项对这些 CLI 不生效。
+
+Doctor 直接注册在 `rwrl` 解析器中；`rwrl doctor --help` 显示 rwrl 自己的 doctor 帮助。它共用全局选项 `--station`、`--robot`、`--preset`、`--mock`、`--json` 和 `--yes`。为兼容旧用法，`doctor` 后的 `--config PATH` 是 `--station PATH` 的别名；`--robot`、`--preset`、`--mock`、`--json` 和 `--yes` 也可放在 `doctor` 后。同一选项同时出现在命令前后时，后面的值优先。`python -m real_world_rl.cli.doctor` 保留为过渡入口，委托给 `rwrl doctor`。doctor 的 `--yes` 必须搭配 `--fix` 或 `--install-sdk`。其版本化 JSON 报告与原语 JSON 和底层 `python -m robot_infra.doctor` 的报告不同。Python doctor、setup、daemon 和监督接口见[设备层 README](robot-infra.md#3-check-with-the-doctor)。
 
 <a id="robot-host-diagnosis-and-repair"></a>
 

@@ -45,7 +45,7 @@ one non-right-angle device placement; save separate profiles.
 
 ```bash
 rwrl --station local/station.yaml teleop calibrate --profile rear --frame table --save --output profiles.yaml --use
-rwrl --station local/station.yaml teleop diagnose --input-only --profile rear --duration-s 5
+rwrl --station local/station.yaml teleop diagnose --profile rear --duration-s 5
 ```
 
 A1 passes when all labelled directions agree with intent and residuals meet the
@@ -80,9 +80,9 @@ supervisor. Reset can home the arm. At the nominal step budget it holds until q;
 `--duration-s` is not a wall-clock termination deadline.
 
 ```bash
-rwrl --station local/station.yaml --preset local/task.yaml teleop diagnose --mode tracker --motion translation --gain 0.2 --duration-s 10 --record local/check-translation.pkl
-rwrl --station local/station.yaml --preset local/task.yaml teleop diagnose --mode tracker --motion rotation --gain 0.2 --duration-s 10 --record local/check-rotation.pkl
-rwrl --station local/station.yaml --preset local/task.yaml teleop diagnose --mode tracker --motion all --gain 0.2 --duration-s 10 --record local/check-all.pkl
+rwrl --station local/station.yaml --preset local/task.yaml teleop run --mode tracker --diagnose translation --gain 0.2 --duration-s 10 --record local/check-translation.pkl
+rwrl --station local/station.yaml --preset local/task.yaml teleop run --mode tracker --diagnose rotation --gain 0.2 --duration-s 10 --record local/check-rotation.pkl
+rwrl --station local/station.yaml --preset local/task.yaml teleop run --mode tracker --diagnose all --gain 0.2 --duration-s 10 --record local/check-all.pkl
 ```
 
 Repeat with `--mode serl` and new output paths. PASS requires intended positive

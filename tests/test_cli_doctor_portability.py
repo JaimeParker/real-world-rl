@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from real_world_rl.cli import doctor, doctor_host, doctor_repair
+from real_world_rl.cli import doctor, doctor_host, doctor_repair, main
 from real_world_rl.cli.doctor_host import Host
 from real_world_rl.cli.doctor_platform import Capabilities
 from real_world_rl.cli.doctor_repair import Action, Report, execute, redact
@@ -172,7 +172,7 @@ def test_non_linux_diagnosis_returns_json_without_host_commands(
     monkeypatch.setattr(
         Host, "command", lambda *args, **kwargs: pytest.fail("no native host commands")
     )
-    assert doctor.main(["--json"]) == 0
+    assert main(["doctor", "--json"]) == 0
     result = json.loads(capsys.readouterr().out)
     assert any(
         row["id"] == "host.platform" and row["status"] == "WARN"
@@ -233,18 +233,14 @@ def test_explicit_report_directory_overrides_environment(tmp_path, monkeypatch):
 def test_unwritable_explicit_directory_returns_json_error(report, tmp_path, capsys):
     destination = tmp_path / "file-not-directory"
     destination.touch()
-    with pytest.raises(SystemExit) as error:
-        doctor.main(["--json", "--report-dir", str(destination)])
-    assert error.value.code == 2
+    assert main(["doctor", "--json", "--report-dir", str(destination)]) == 2
     result = json.loads(capsys.readouterr().out)
     assert "cannot create private doctor report" in result["error"]
     assert result["report_directory"] is None
 
 
 def test_configuration_error_returns_one_json_object(report, capsys):
-    with pytest.raises(SystemExit) as error:
-        doctor.main(["--json", "--preset", "/does/not/exist.yaml"])
-    assert error.value.code == 2
+    assert main(["doctor", "--json", "--preset", "/does/not/exist.yaml"]) == 2
     result = json.loads(capsys.readouterr().out)
     assert result["schema_version"] == 1 and result["error"]
     assert (Path(result["report_directory"]) / "error.json").is_file()

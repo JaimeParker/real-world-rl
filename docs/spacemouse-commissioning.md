@@ -183,7 +183,7 @@ is never connected by this wizard.
 rwrl --station local/station.yaml teleop calibrate \
   --profile rear --frame table --output profiles.yaml --use
 rwrl --station local/station.yaml --json teleop diagnose \
-  --input-only --duration-s 5 --profile rear
+  --duration-s 5 --profile rear
 ```
 
 `--use` saves the candidate and, after review, selects it in the station.
@@ -366,8 +366,8 @@ To commission robot motion, use the NUC repository with its project environment
 active, an already reviewed station workspace and a task preset:
 
 ```bash
-rwrl --station local/station.yaml --preset local/task.yaml teleop diagnose \
-  --motion translation --duration-s 10 --record local/diag-translation.pkl
+rwrl --station local/station.yaml --preset local/task.yaml teleop run \
+  --diagnose translation --duration-s 10 --record local/diag-translation.pkl
 ```
 
 Choose `translation`, `rotation` or `all`; `--mode tracker|serl` selects the
@@ -375,7 +375,11 @@ original control mode. `--gain` defaults to 0.2 and scales input relative to the
 preset's control settings; it is not an absolute velocity guarantee. The default
 normal `teleop run` keeps gain 1 and all six axes. Diagnostic filters and gain
 enter the experiment contract so these data are distinguishable from normal data.
-`--input-only` and `--motion` are mutually exclusive.
+`teleop diagnose` only inspects input. Robot motion diagnostics use
+`teleop run --diagnose translation|rotation|all`; `--gain` (default 0.2) and
+`--duration-s` (default 5) affect only diagnostic sessions. Without `--diagnose`,
+both options are ignored. Diagnostic sessions default to one success and at most
+one episode; normal sessions retain 20 successes and no episode-count limit.
 
 Motion diagnostics use the same supervisor, confirmation, recorder, neutral gate
 and episode holding as a normal session. Duration determines a nominal control-step

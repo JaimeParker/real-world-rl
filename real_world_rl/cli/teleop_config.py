@@ -77,8 +77,9 @@ def add_commands(commands):
 
 
 def station_document(args):
+    from real_world_rl.station import load_station
     import yaml
-    from robot_infra.discovery.autoconfig import load_station, resolve_station_config_path
+    from robot_infra.discovery.autoconfig import resolve_station_config_path
     path = resolve_station_config_path(args.station).resolve()
     raw = path.read_bytes()
     document = yaml.safe_load(raw)
@@ -89,7 +90,7 @@ def station_document(args):
         node = document["robots"][key]
     else:
         node = document.get("robot", document)
-    return path, raw, document, node, selected.config
+    return path, raw, document, node, selected
 
 
 def confirm_write(args, path, document, expected):
@@ -127,7 +128,8 @@ def execute(args):
         result.update(trace=str(Path(args.trace).resolve()), trace_sha256=hashlib.sha256(source).hexdigest())
         return result, json.dumps(result, indent=2)
     from real_world_rl.teleop.profiles import load_profiles, resolve_profile, validate_profile, AXIS_MAPPING_VERSION
-    path, raw, document, node, config = station_document(args)
+    path, raw, document, node, selected = station_document(args)
+    config = selected.config
     result = {"schema_version": 1, "station": str(path), "robot": config.name}
     if args.command == "teleop" and args.teleop_command == "run":
         return run_session(args)
@@ -143,7 +145,7 @@ def execute(args):
                 raise CliError("gain must be in (0,1] and duration in (0,300]", code=2)
             return run_session(args)
         from real_world_rl.teleop.input_diagnostics import collect
-        resolved = resolve_profile(path, config, args.profile) if config.teleop_profiles else None
+        resolved = resolve_profile(path, selected, args.profile) if selected.sections.get("teleop_profiles") else None
         if args.profile and resolved is None:
             raise CliError("--profile requires station teleop_profiles", code=2)
         _, report = collect(config, duration_s=args.duration_s, directory=args.report_dir,
@@ -151,7 +153,7 @@ def execute(args):
                             yaw_rad=resolved["profile"]["yaw_rad"] if resolved else 0.)
         result.update(report)
     elif args.teleop_command == "profiles":
-        reference = config.teleop_profiles
+        reference = selected.sections.get("teleop_profiles")
         if not reference:
             raise CliError("station has no teleop_profiles", code=2)
         file = Path(reference["file"])
@@ -160,7 +162,7 @@ def execute(args):
         if args.action == "list":
             result.update(default=reference["default"], profiles=load_profiles(file))
         else:
-            result.update(resolve_profile(path, config, args.profile))
+            result.update(resolve_profile(path, selected, args.profile))
             if args.action == "use":
                 node["teleop_profiles"] = {**reference, "default": args.profile}
                 confirm_write(args, path, document, raw)
@@ -212,7 +214,7 @@ def execute(args):
             profile["device_identity"] = acquisition["device_identity"]
         result.update(profile=args.profile, candidate=profile, saved=None)
         if args.save or args.use:
-            reference = config.teleop_profiles or {}
+            reference = selected.sections.get("teleop_profiles") or {}
             output = args.output or reference.get("file")
             if not output:
                 raise CliError("saving a first profile requires --output", code=2, required_fields=["--output"])
@@ -331,16 +333,15 @@ def run_session(args):
     from .commands import confirm
     from .connect import client_address, probe_daemon
     from .preset_edit import Preset
-    from robot_infra.discovery.autoconfig import load_station
     from real_world_rl.teleop.profiles import resolve_profile
 
     if args.preset is None:
         raise CliError("teleop run requires --preset with home and task limits", code=2, required_fields=["--preset"])
     if os.environ.get("ROBOT_INFRA_HEARTBEAT_FD"):
         raise CliError("teleop run starts its own supervisor; invoke it directly", code=2)
-    path, _, _, _, config = station_document(args)
-    selected = load_station(path).select(args.robot)
-    resolved = resolve_profile(path, config, args.profile)
+    path, _, _, _, selected = station_document(args)
+    config = selected.config
+    resolved = resolve_profile(path, selected, args.profile)
     output = Path(args.record).resolve()
     if output.suffix != ".pkl" or output.exists():
         raise CliError("--record must be a new .pkl path", code=2)

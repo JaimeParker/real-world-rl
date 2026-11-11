@@ -40,8 +40,9 @@ class RobotConnection:
 
 @contextmanager
 def open_robot(args) -> Iterator[RobotConnection]:
+    from real_world_rl.station import load_station
     from robot_infra.devices import Robot
-    from robot_infra.discovery.autoconfig import fill_from_env, load_station, resolve_station_config_path
+    from robot_infra.discovery.autoconfig import fill_from_env, resolve_station_config_path
 
     try:
         station_path = resolve_station_config_path(args.station)

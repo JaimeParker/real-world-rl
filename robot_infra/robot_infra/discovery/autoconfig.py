@@ -12,7 +12,7 @@ import types
 import typing
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 import yaml
 
@@ -130,6 +130,7 @@ class StationRobot:
     token: str | None = None
     # The yaml has a ``daemon:`` block: the robot is meant to be served (the doctor then needs grpc).
     daemon_declared: bool = field(default=False, compare=False)
+    sections: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -153,7 +154,10 @@ class Station:
             raise ValueError(f"no robot '{name}' in the station; robots: {sorted(self.robots)}") from None
 
 
-def _robot_config_from_mapping(data: Any, *, default_name: str | None = None) -> StationRobot:
+def _robot_config_from_mapping(
+    data: Any, *, default_name: str | None = None,
+    sections: Mapping[str, Callable[[Any], Any]] | None = None,
+) -> StationRobot:
     if not isinstance(data, Mapping):
         raise ValueError(f"a robot config must be a mapping, got {type(data).__name__}")
     values = dict(data)
@@ -168,6 +172,14 @@ def _robot_config_from_mapping(data: Any, *, default_name: str | None = None) ->
         raise ValueError(f"robot config has no 'type'; registered: {sorted(Robot.types())}")
     if default_name is not None and "name" not in values:
         values["name"] = default_name
+    validated_sections = {}
+    for name, validator in (sections or {}).items():
+        if name in values:
+            try:
+                validated_sections[name] = validator(values.pop(name))
+            except ValueError as error:
+                robot_name = values.get("name", "robot")
+                raise ValueError(f"robot {robot_name!r}, section {name!r}: {error}") from error
     config = Robot.types()[str(values["type"]).lower()].CONFIG.from_dict(values)
     bind = daemon.get("bind")
     token = daemon.get("token")
@@ -176,12 +188,21 @@ def _robot_config_from_mapping(data: Any, *, default_name: str | None = None) ->
         bind=DEFAULT_DAEMON_BIND if bind is None else str(bind),
         token=None if token is None else str(token),
         daemon_declared=daemon_declared,
+        sections=validated_sections,
     )
 
 
-def parse_station(data: Any) -> Station:
+def parse_station(
+    data: Any, *, sections: Mapping[str, Callable[[Any], Any]] | None = None,
+) -> Station:
     """A station from parsed yaml: one robot mapping (optionally under ``robot:``), named by its
-    ``name`` field, or ``{"robots": {name: mapping}}`` where a mapping without ``name`` takes its key."""
+    ``name`` field, or ``{"robots": {name: mapping}}`` where a mapping without ``name`` takes its key.
+
+    Like ``daemon:``, registered sections describe a robot but are not device config.
+    Their keys are removed before device parsing; validators return the values stored
+    in ``StationRobot.sections``. The device layer does not interpret their contents.
+    Unregistered unknown keys still fail device parsing.
+    """
     if isinstance(data, Mapping) and _ROBOTS_KEY in data:
         unknown = sorted(set(data) - {_ROBOTS_KEY})
         if unknown:
@@ -191,25 +212,29 @@ def parse_station(data: Any) -> Station:
             raise ValueError(f"'{_ROBOTS_KEY}' must map at least one robot name to its config")
         return Station(
             {
-                str(name): _robot_config_from_mapping(robot, default_name=str(name))
+                str(name): _robot_config_from_mapping(robot, default_name=str(name), sections=sections)
                 for name, robot in robots.items()
             },
             multi_robot=True,
         )
     if isinstance(data, Mapping) and "robot" in data:
         data = data["robot"]
-    robot = _robot_config_from_mapping(data)
+    robot = _robot_config_from_mapping(data, sections=sections)
     return Station({robot.config.name: robot})
 
 
-def load_station(path: str | Path) -> Station:
+def load_station(
+    path: str | Path, *, sections: Mapping[str, Callable[[Any], Any]] | None = None,
+) -> Station:
     """Parse a station yaml without building parts or reading the environment."""
-    return parse_station(yaml.safe_load(Path(path).read_text()))
+    return parse_station(yaml.safe_load(Path(path).read_text()), sections=sections)
 
 
-def load_station_with_env(path: str | Path) -> Station:
+def load_station_with_env(
+    path: str | Path, *, sections: Mapping[str, Callable[[Any], Any]] | None = None,
+) -> Station:
     """``load_station`` with ``fill_from_env`` applied to every robot."""
-    station = load_station(path)
+    station = load_station(path, sections=sections)
     for robot in station.robots.values():
         robot.config = fill_from_env(robot.config)
     return station

@@ -167,3 +167,82 @@ def test_bimanual_example_loads():
         "wrist_left", "wrist_right", "front",
     ]
     assert all(robot.config.teleop.backend == "gello" for robot in station.robots.values())
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_registered_sections_are_validated_stored_and_not_device_fields(nested):
+    data = {**SINGLE, "application": {"label": "  operator  "},
+            "daemon": {"bind": "localhost:50052", "token": "secret"}}
+    original = {**data}
+    calls = []
+
+    def validate(value):
+        calls.append(value)
+        return value["label"].strip()
+
+    station = parse_station({"robot": data} if nested else data,
+                            sections={"application": validate})
+    robot = station.select()
+    assert calls == [{"label": "  operator  "}]
+    assert robot.sections == {"application": "operator"}
+    assert not hasattr(robot.config, "application")
+    assert robot.bind == "localhost:50052"
+    assert robot.token == "secret"
+    assert robot.daemon_declared
+    assert data == original
+
+
+def test_section_validation_error_identifies_robot_and_section():
+    def reject(value):
+        raise ValueError("invalid label")
+
+    with pytest.raises(ValueError, match="robot 'left', section 'application': invalid label"):
+        parse_station({"robots": {"left": {"type": "franka", "application": 42}}},
+                      sections={"application": reject})
+
+
+def test_unregistered_section_and_other_unknown_keys_still_fail():
+    with pytest.raises(ValueError, match="unknown.*application"):
+        parse_station({**SINGLE, "application": {}})
+    with pytest.raises(ValueError, match="unknown.*typo"):
+        parse_station({**SINGLE, "application": {}, "typo": True},
+                      sections={"application": dict})
+
+
+def test_sections_are_per_robot_and_absent_sections_do_not_run_validators():
+    calls = []
+
+    def validate(value):
+        calls.append(value)
+        return {"value": value}
+
+    station = parse_station({"robots": {
+        "left": {"type": "franka", "application": 1},
+        "right": {"type": "franka", "application": 2},
+        "unused": {"type": "franka"},
+    }}, sections={"application": validate})
+    assert calls == [1, 2]
+    assert station.select("left").sections == {"application": {"value": 1}}
+    assert station.select("right").sections == {"application": {"value": 2}}
+    assert station.select("unused").sections == {}
+    station.select("left").sections["extra"] = True
+    assert "extra" not in station.select("right").sections
+    assert parse_station(SINGLE).select().sections == {}
+
+
+@pytest.mark.parametrize("loader", [load_station, load_station_with_env])
+def test_station_loaders_forward_sections(tmp_path, monkeypatch, loader):
+    monkeypatch.setenv("ROBOT_IP", "10.0.0.9")
+    path = write(tmp_path / "station.yaml", {**SINGLE, "robot_ip": "", "application": "value"})
+    robot = loader(path, sections={"application": str.upper}).select()
+    assert robot.sections == {"application": "VALUE"}
+    if loader is load_station_with_env:
+        assert robot.config.robot_ip == "10.0.0.9"
+    with pytest.raises(ValueError, match="unknown.*application"):
+        loader(path)
+
+
+def test_robot_config_has_no_teleop_profiles():
+    from robot_infra.devices import RobotConfig
+
+    assert not hasattr(RobotConfig(), "teleop_profiles")

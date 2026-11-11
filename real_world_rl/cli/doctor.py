@@ -46,11 +46,11 @@ def load_targets(args):
         if args.robot:
             raise ValueError("--robot requires a station configuration")
         return [], set()
+    from real_world_rl.station import load_station
     import yaml
     from robot_infra.devices import Robot
     from robot_infra.discovery.autoconfig import (
         fill_from_env,
-        load_station,
         resolve_station_config_path,
     )
 

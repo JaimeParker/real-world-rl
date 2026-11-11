@@ -511,3 +511,14 @@ def test_write_station_yaml_locations_and_backups(tmp_path):
     user = write_station_yaml("b: 1\n", "user", env={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
     assert user == tmp_path / "xdg" / "robot_infra" / "station.yaml"
     assert not list((tmp_path / "local").glob(".station.yaml.*.tmp"))
+
+
+def test_render_omits_upper_layer_profiles_and_keeps_safety_comment_adjacent():
+    from robot_infra.setup.render import TEMPLATE_PATH
+
+    draft = StationDraft.from_station(load_station(DOCS / "station.bimanual.example.yaml"))
+    assert "teleop_profiles" not in render_station_yaml(draft)
+    lines = [line for line in TEMPLATE_PATH.read_text().splitlines() if line.strip()]
+    index = next(i for i, line in enumerate(lines) if line.startswith("safety_box:"))
+    assert lines[index - 2] == "# Safety limits, enforced by the arm (and so by the daemon): servo targets are clipped,"
+    assert lines[index - 1] == "# move_to_* targets outside them are refused. null = no limit (not recommended)."

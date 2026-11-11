@@ -60,18 +60,11 @@ class RobotConfig:
     teleop: TeleopConfig | None = None
     task_frame: dict | None = None
     workspace: dict | None = None
-    teleop_profiles: dict | None = None
 
     def __post_init__(self) -> None:
         import math
         from robot_infra.control import ArmControlConfig
         from robot_infra.devices.workspace import Workspace, task_transform
-        if self.teleop_profiles is not None:
-            ref = self.teleop_profiles
-            if (not isinstance(ref, dict) or set(ref) - {"file", "default"}
-                    or not isinstance(ref.get("file"), str) or not ref["file"]
-                    or not isinstance(ref.get("default"), str) or not ref["default"]):
-                raise ValueError("teleop_profiles requires nonempty file and default names")
         task_transform(self.task_frame)
         if self.workspace is not None:
             Workspace(self.workspace, self.task_frame)

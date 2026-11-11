@@ -192,6 +192,16 @@ example with two GELLOs and three cameras is
 [`docs/station.bimanual.example.yaml`](docs/station.bimanual.example.yaml).
 `Robot.from_yaml` reads single-robot files without a `daemon:` block only.
 
+Upper-layer packages can register additional robot-mapping sections through
+`parse_station`, `load_station`, or `load_station_with_env` using
+`sections={name: validator}`. Like `daemon:`, these sections describe the robot
+without being device configuration: the loader removes each registered key before
+`RobotConfig.from_dict`, validates its value, and stores the returned value in
+`StationRobot.sections`. The device layer does not interpret section contents.
+Unregistered unknown keys still fail; single-robot and `robots:` mappings both
+support sections. The setup wizard renders device configuration, not upper-layer
+sections.
+
 **Franka Panda + Franka Hand + one RealSense**
 
 ```yaml

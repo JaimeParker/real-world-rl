@@ -8,7 +8,7 @@ import yaml
 from real_world_rl.cli import main
 from real_world_rl.teleop.profiles import AXIS_MAPPING_VERSION, resolve_profile
 from real_world_rl.training.env_building import _single_arm_yaml_options
-from robot_infra.discovery.autoconfig import load_station
+from real_world_rl.station import load_station
 
 
 def station(tmp_path):
@@ -25,7 +25,7 @@ def station(tmp_path):
 
 def test_profile_relative_path_and_training_resolution(tmp_path):
     path = station(tmp_path)
-    selected = load_station(path).select().config
+    selected = load_station(path).select()
     resolved = resolve_profile(path, selected)
     args = SimpleNamespace(teleop_device="spacemouse", teleop_options_yaml=str(path))
     assert _single_arm_yaml_options(args)["input_rotation"] == resolved["input_rotation"]
@@ -98,9 +98,9 @@ def test_profile_identity_validation_and_source_propagation(tmp_path):
     with pytest.raises(ValueError, match='vendor_id'):
         validate_device_identity({'vendor_id': True, 'product_id': 1})
     path = station(tmp_path)
-    config = load_station(path).select().config
+    selected = load_station(path).select()
     from pathlib import Path
-    file = Path(path).parent / config.teleop_profiles['file']
+    file = Path(path).parent / selected.sections['teleop_profiles']['file']
     data = yaml.safe_load(file.read_text())
     data['profiles']['rear']['device_identity'] = identity
     file.write_text(yaml.safe_dump(data))
@@ -401,7 +401,7 @@ def test_record_and_training_normalization_freeze_profile_before_serialization(t
     assert dataclasses.asdict(recorded)['teleop_input'] == dataclasses.asdict(trained)['teleop_input']
     assert trained.teleop_input['yaw_rad'] == .4
     assert trained.teleop_input['source_options']['input_rotation'] == resolve_profile(
-        path, load_station(path).select().config)['input_rotation']
+        path, load_station(path).select())['input_rotation']
 
 
 def test_recalibration_is_provenance_and_saved_rotation_is_not_reloaded(tmp_path):
@@ -566,3 +566,101 @@ def test_calibrate_creates_new_profiles_file(tmp_path, capsys):
     assert result['saved']['backup'] is None
     assert yaml.safe_load(output.read_bytes()) == {
         'schema_version': 1, 'profiles': {'front': result['candidate']}}
+
+
+@pytest.mark.parametrize("with_env", [False, True])
+def test_upper_layer_station_loader_owns_profiles_section(tmp_path, monkeypatch, with_env):
+    from real_world_rl.station import load_station_with_env
+    from robot_infra.discovery.autoconfig import load_station as load_device_station
+
+    path = station(tmp_path)
+    data = yaml.safe_load(path.read_text())
+    data["robot_ip"] = ""  # fill_from_env fills empty values only; the franka default is 172.16.0.2
+    path.write_text(yaml.safe_dump(data))
+    monkeypatch.setenv("ROBOT_IP", "10.0.0.9")
+    selected = (load_station_with_env if with_env else load_station)(path).select()
+    assert selected.sections == {"teleop_profiles": {"file": "profiles.yaml", "default": "rear"}}
+    assert not hasattr(selected.config, "teleop_profiles")
+    if with_env:
+        assert selected.config.robot_ip == "10.0.0.9"
+    with pytest.raises(ValueError, match="unknown.*teleop_profiles"):
+        load_device_station(path)
+
+
+@pytest.mark.parametrize("reference", [None, [], {}, {"file": "x"}, {"default": "x"},
+    {"file": "", "default": "x"}, {"file": "x", "default": ""},
+    {"file": 42, "default": "x"}, {"file": "x", "default": False},
+    {"file": "x", "default": "x", "typo": True}])
+def test_profiles_reference_validation_has_station_context(tmp_path, reference):
+    path = station(tmp_path)
+    data = yaml.safe_load(path.read_text())
+    data["teleop_profiles"] = reference
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(ValueError, match="robot 'left', section 'teleop_profiles'.*nonempty"):
+        load_station(path)
+
+
+def test_profiles_reference_validator_returns_independent_mapping():
+    from real_world_rl.teleop.profiles import validate_profiles_reference
+
+    reference = {"file": "profiles.yaml", "default": "rear"}
+    validated = validate_profiles_reference(reference)
+    assert validated == reference
+    assert validated is not reference
+
+
+def test_multirobot_profiles_resolve_each_robots_section(tmp_path):
+    from real_world_rl.teleop.profiles import source_options
+
+    path = station(tmp_path)
+    left = yaml.safe_load(path.read_text())
+    right = {**left, "name": "right", "teleop_profiles": {"file": "other.yaml", "default": "front"}}
+    profile = {"frame": "table", "yaw_rad": -.4, "axis_mapping_version": AXIS_MAPPING_VERSION}
+    (tmp_path / "other.yaml").write_text(yaml.safe_dump({"schema_version": 1, "profiles": {"front": profile}}))
+    path.write_text(yaml.safe_dump({"robots": {"left": left, "right": right}}))
+    loaded = load_station(path)
+    for name, expected in (("left", "rear"), ("right", "front")):
+        resolved = resolve_profile(path, loaded.select(name))
+        assert resolved["name"] == expected
+        assert source_options(path, name)["input_rotation"] == resolved["input_rotation"]
+    assert loaded.select("left").sections != loaded.select("right").sections
+
+
+def test_doctor_loads_profile_station_without_device_probes(tmp_path):
+    from real_world_rl.cli.doctor import load_targets
+
+    path = station(tmp_path)
+    targets, expected = load_targets(SimpleNamespace(config=str(path), preset=None, robot=None))
+    assert len(targets) == 1
+    assert targets[0][0] == "left"
+    assert targets[0][1].task_frame["name"] == "table"
+    assert not hasattr(targets[0][1], "teleop_profiles")
+    assert expected == set()
+
+
+def test_connect_loads_profile_station_without_passing_section_to_device(tmp_path, monkeypatch):
+    from real_world_rl.cli.connect import open_robot
+    from robot_infra.devices import Robot
+
+    path = station(tmp_path)
+    calls = []
+    fake = SimpleNamespace(connect=lambda: calls.append("connect"),
+                           disconnect=lambda: calls.append("disconnect"))
+
+    def from_config(config):
+        assert not hasattr(config, "teleop_profiles")
+        assert config.task_frame["name"] == "table"
+        return fake
+
+    monkeypatch.setattr(Robot, "from_config", from_config)
+    args = SimpleNamespace(station=str(path), robot=None, mock=False, direct=True)
+    with open_robot(args) as connection:
+        assert connection.robot is fake
+    assert calls == ["connect", "disconnect"]
+
+
+def test_cli_explicit_unknown_profile_is_rejected(tmp_path, capsys):
+    path = station(tmp_path)
+    assert main(["--station", str(path), "--json", "teleop", "profiles", "show",
+                 "--profile", "missing"]) == 1
+    assert "not found" in capsys.readouterr().out

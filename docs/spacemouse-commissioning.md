@@ -12,6 +12,13 @@ contains `schema_version: 1` and a `profiles` mapping. Each profile declares
 `neutral_threshold` defaults to 0.05. This startup tolerance is separate from
 normal intervention and movement deadzones.
 
+`teleop_profiles` is a real_world_rl station section, not a `RobotConfig`
+field. Reading it with the device-layer `load_station` without registering it
+through `sections=` raises an unknown-key error. Both `rwrl` and Python callers
+use `real_world_rl.station.load_station` (or `load_station_with_env`) to register
+its validator. Existing station YAML needs no migration; `rwrl teleop calibrate
+--use` continues to write this section in the robot mapping.
+
 From an installed project environment, with your station file available:
 
 ```bash

@@ -13,10 +13,12 @@ contains `schema_version: 1` and a `profiles` mapping. Each profile declares
 normal intervention and movement deadzones.
 
 `teleop_profiles` is a real_world_rl station section, not a `RobotConfig`
-field. Reading it with the device-layer `load_station` without registering it
-through `sections=` raises an unknown-key error. Both `rwrl` and Python callers
-use `real_world_rl.station.load_station` (or `load_station_with_env`) to register
-its validator. Existing station YAML needs no migration; `rwrl teleop calibrate
+field. Device-layer station loaders discover its validator through the installed
+real_world_rl package's `robot_infra.station_sections` entry point. If that package
+is not installed, loading fails with an unknown-key error and an installation hint.
+Explicit `sections={}` always requests strict device parsing. Both `rwrl` and
+Python callers use `real_world_rl.station.load_station` (or `load_station_with_env`)
+to register its validator. Existing station YAML needs no migration; `rwrl teleop calibrate
 --use` continues to write this section in the robot mapping.
 
 From an installed project environment, with your station file available:

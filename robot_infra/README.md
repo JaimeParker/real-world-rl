@@ -2,8 +2,10 @@
 
 `robot_infra` is the real-robot layer of [rl-garden](https://github.com/JaimeParker/rl-garden).
 It now lives inside the [real-world-rl](https://github.com/JaimeParker/real-world-rl)
-repository, as its `robot_infra/` directory (a separate, torch-free distribution; it was
-the standalone `rlgarden-robot-infra` repository, whose history is kept). To install it alone on
+repository, as its `robot_infra/` directory (a separate distribution; it was the standalone
+`rlgarden-robot-infra` repository, whose history is kept). Its CLI and device layer do not
+import torch at runtime; only `controller/` needs torch, which the distribution still declares
+as a dependency. To install it alone on
 the robot PC, clone that repository and run `pip install -e robot_infra` (or
 `pip install -e 'robot_infra[franky,grpc]'` with the extras for your hardware, see
 [Install](#install)) from its root; nothing outside `robot_infra/` is needed. The
@@ -198,6 +200,17 @@ Upper-layer packages can register additional robot-mapping sections through
 without being device configuration: the loader removes each registered key before
 `RobotConfig.from_dict`, validates its value, and stores the returned value in
 `StationRobot.sections`. The device layer does not interpret section contents.
+By default (`sections=None`), these loaders discover validators from installed
+`robot_infra.station_sections` entry points: the entry-point name is the section
+name and its loaded object is the validator. Discovery is cached per process;
+`discover_station_sections.cache_clear()` refreshes it. Load failures raise an
+error naming the section and declaring distribution. An explicit mapping replaces
+discovery; `sections={}` selects strict device parsing. This applies to
+`load_config` and `load_config_with_env` as well, including daemon config loading.
+A host with only robot_infra installed rejects an upper-layer section unless its
+declaring package is installed; the unknown-key message identifies the entry-point
+group and discovered section names. The device layer does not import an upper-layer
+package directly.
 Unregistered unknown keys still fail; single-robot and `robots:` mappings both
 support sections. The setup wizard renders device configuration, not upper-layer
 sections.
@@ -536,9 +549,12 @@ automatically (one Python environment holds one franky wheel); the doctor prints
 robot instead. `--no-deps` assumes franky's dependencies (`numpy`, `websockets`) are already
 installed, which installing the `franky` extra first takes care of.
 
-With `real-world-rl` installed in the project environment, `rwrl doctor` forwards to
-this same doctor; run it on the NUC, from the repository root, with the project
-environment active (see [rwrl](../docs/cli.md#commands)).
+With `real-world-rl` installed in the project environment, `rwrl doctor` is a separate,
+broader doctor: it checks the host, the project environment and the configured devices,
+previews targeted repairs (`--fix` applies host and software repairs), and writes its own
+versioned JSON report, which differs from this one; its device probes never repair
+(`fix=False`). Run it on the NUC with the project environment active (see
+[rwrl](../docs/cli.md#robot-host-diagnosis-and-repair)).
 
 ### 4. Serve the robot
 

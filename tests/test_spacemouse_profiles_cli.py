@@ -577,8 +577,19 @@ def test_calibrate_creates_new_profiles_file(tmp_path, capsys):
         'schema_version': 1, 'profiles': {'front': result['candidate']}}
 
 
+@pytest.fixture
+def installed_profile_section(monkeypatch):
+    from robot_infra.discovery import autoconfig
+    from real_world_rl.teleop.profiles import validate_profiles_reference
+    entry = SimpleNamespace(name="teleop_profiles", load=lambda: validate_profiles_reference)
+    monkeypatch.setattr(autoconfig, "entry_points", lambda *, group: [entry] if group == "robot_infra.station_sections" else [])
+    autoconfig.discover_station_sections.cache_clear()
+    yield
+    autoconfig.discover_station_sections.cache_clear()
+
+
 @pytest.mark.parametrize("with_env", [False, True])
-def test_upper_layer_station_loader_owns_profiles_section(tmp_path, monkeypatch, with_env):
+def test_upper_layer_station_loader_owns_profiles_section(tmp_path, monkeypatch, with_env, installed_profile_section):
     from real_world_rl.station import load_station_with_env
     from robot_infra.discovery.autoconfig import load_station as load_device_station
 
@@ -593,7 +604,8 @@ def test_upper_layer_station_loader_owns_profiles_section(tmp_path, monkeypatch,
     if with_env:
         assert selected.config.robot_ip == "10.0.0.9"
     with pytest.raises(ValueError, match="unknown.*teleop_profiles"):
-        load_device_station(path)
+        load_device_station(path, sections={})
+    assert load_device_station(path).select().sections == selected.sections
 
 
 @pytest.mark.parametrize("reference", [None, [], {}, {"file": "x"}, {"default": "x"},
@@ -727,3 +739,10 @@ def test_diagnostic_run_preflight_before_child(tmp_path, monkeypatch, capsys, wo
                  '--record', str(tmp_path / 'unused.pkl')]) == 2
     assert message in json.loads(capsys.readouterr().out)['error']
     assert not list(tmp_path.glob('*.session-*'))
+
+
+def test_upper_layer_explicit_sections_bypass_entry_point_discovery(tmp_path, monkeypatch):
+    monkeypatch.setattr("robot_infra.discovery.autoconfig.discover_station_sections",
+                        lambda: pytest.fail("explicit upper-layer loaders must not discover plugins"))
+    path = station(tmp_path)
+    assert load_station(path).select().sections["teleop_profiles"]["default"] == "rear"

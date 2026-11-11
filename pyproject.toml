@@ -54,6 +54,9 @@ real-world-rl-record = "real_world_rl.demos.__main__:main"
 real-world-rl-deploy = "real_world_rl.deploy:run_cli"
 real-world-rl-collect-reward = "real_world_rl.reward.collect_data:main"
 
+[project.entry-points."robot_infra.station_sections"]
+teleop_profiles = "real_world_rl.teleop.profiles:validate_profiles_reference"
+
 [project.entry-points."rlgarden.env_backends"]
 franka_real = "real_world_rl.envs.backends.franka_real"
 real_robot = "real_world_rl.envs.backends.real_robot"

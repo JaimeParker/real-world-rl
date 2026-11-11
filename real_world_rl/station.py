@@ -1,4 +1,8 @@
-"""Station loading with explicit real_world_rl section validators."""
+"""Station loading with explicit real_world_rl validators, independent of metadata.
+
+Internal callers pass STATION_SECTIONS explicitly. Standalone robot_infra entry
+points discover the same validators through installed station-section entry points.
+"""
 from pathlib import Path
 
 from robot_infra.discovery import autoconfig

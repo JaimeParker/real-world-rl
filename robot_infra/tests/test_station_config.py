@@ -246,3 +246,87 @@ def test_robot_config_has_no_teleop_profiles():
     from robot_infra.devices import RobotConfig
 
     assert not hasattr(RobotConfig(), "teleop_profiles")
+
+
+@pytest.fixture
+def station_section_entries(monkeypatch):
+    from robot_infra.discovery import autoconfig
+    entries = []
+    monkeypatch.setattr(autoconfig, "entry_points", lambda *, group: entries if group == "robot_infra.station_sections" else ())
+    autoconfig.discover_station_sections.cache_clear()
+    yield entries
+    autoconfig.discover_station_sections.cache_clear()
+
+
+@pytest.mark.parametrize("loader", [load_station, load_station_with_env, load_config, load_config_with_env])
+def test_default_loaders_discover_sections_and_strict_mapping_rejects(tmp_path, monkeypatch, station_section_entries, loader):
+    from types import SimpleNamespace
+    calls = []
+    def validate(value):
+        calls.append(value)
+        return str(value).upper()
+    station_section_entries.append(SimpleNamespace(name="application", load=lambda: validate))
+    monkeypatch.setenv("ROBOT_IP", "10.0.0.9")
+    path = write(tmp_path / "station.yaml", {**SINGLE, "robot_ip": "", "application": "label"})
+    loaded = loader(path)
+    config = loaded.select().config if hasattr(loaded, "select") else loaded
+    assert calls == ["label"]
+    assert not hasattr(config, "application")
+    if hasattr(loaded, "select"):
+        assert loaded.select().sections == {"application": "LABEL"}
+    if loader in (load_station_with_env, load_config_with_env):
+        assert config.robot_ip == "10.0.0.9"
+    with pytest.raises(ValueError, match="robot_infra.station_sections.*discovered sections"):
+        loader(path, sections={})
+
+
+def test_discovery_failure_names_section_and_distribution(station_section_entries):
+    from types import SimpleNamespace
+    from robot_infra.discovery.autoconfig import discover_station_sections
+    def broken():
+        raise ImportError("missing SDK")
+    station_section_entries.append(SimpleNamespace(name="application", dist=SimpleNamespace(name="provider"), load=broken))
+    with pytest.raises(ValueError, match="station section 'application' is declared by provider but cannot be loaded: missing SDK"):
+        parse_station(SINGLE)
+    # Explicit mappings bypass discovery, including a broken installed plugin.
+    assert parse_station(SINGLE, sections={}).select().sections == {}
+    discover_station_sections.cache_clear()
+
+
+def test_discovery_cache_clear_and_explicit_mapping(station_section_entries):
+    from types import SimpleNamespace
+    from robot_infra.discovery.autoconfig import discover_station_sections
+    calls = []
+    def load():
+        calls.append(True)
+        return str.upper
+    station_section_entries.append(SimpleNamespace(name="application", load=load))
+    data = {**SINGLE, "application": "name"}
+    assert parse_station(data).select().sections == {"application": "NAME"}
+    assert parse_station(data).select().sections == {"application": "NAME"}
+    assert calls == [True]
+    assert parse_station(data, sections={"application": str.lower}).select().sections == {"application": "name"}
+    assert calls == [True]
+    discover_station_sections.cache_clear()
+    parse_station(data)
+    assert calls == [True, True]
+    with pytest.raises(ValueError, match="discovered sections: \\['application'\\]"):
+        parse_station({**data, "typo": 1})
+
+
+def test_daemon_config_loading_accepts_installed_profiles(tmp_path, monkeypatch, station_section_entries):
+    from types import SimpleNamespace
+    from robot_infra.server import daemon
+    station_section_entries.append(SimpleNamespace(name="teleop_profiles", load=lambda: dict))
+    path = write(tmp_path / "station.yaml", {**SINGLE, "robot_ip": "", "daemon": {"bind": "127.0.0.1:50052"},
+                 "teleop_profiles": {"file": "profiles.yaml", "default": "rear"}})
+    monkeypatch.setenv("ROBOT_IP", "10.0.0.9")
+    args = daemon.parse_args(["--config", str(path)])
+    config = daemon.load_daemon_config(args)
+    assert config.robot_ip == "10.0.0.9"
+    assert not hasattr(config, "teleop_profiles")
+    calls = []
+    monkeypatch.setattr(daemon, "serve_robot", lambda args, config, **kwargs: calls.append((config, kwargs)) or 0)
+    assert daemon.main(["--config", str(path)]) == 0
+    assert calls[0][0].name == SINGLE["name"]
+    assert calls[0][1]["bind"] == "127.0.0.1:50052"

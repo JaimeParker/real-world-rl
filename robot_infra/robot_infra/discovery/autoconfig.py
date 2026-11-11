@@ -7,6 +7,8 @@ A station yaml is either one robot mapping (optionally nested under ``robot:``) 
 from __future__ import annotations
 
 import dataclasses
+from functools import lru_cache
+from importlib.metadata import entry_points
 import os
 import types
 import typing
@@ -29,6 +31,22 @@ _DAEMON_KEY = "daemon"
 _DAEMON_KEYS = {"bind", "token"}
 _ROBOTS_KEY = "robots"
 SETUP_COMMAND = "python -m robot_infra.setup"
+
+
+@lru_cache(maxsize=1)
+def discover_station_sections() -> dict[str, Callable]:
+    """Load installed upper-layer validators once; cache_clear() refreshes discovery."""
+    sections = {}
+    for entry in entry_points(group="robot_infra.station_sections"):
+        try:
+            sections[entry.name] = entry.load()
+        except Exception as error:
+            distribution = getattr(entry, "dist", None)
+            name = getattr(distribution, "name", None) or str(distribution)
+            raise ValueError(
+                f"station section {entry.name!r} is declared by {name} but cannot be loaded: {error}"
+            ) from error
+    return sections
 
 
 def _scalar_type(annotation: Any) -> type | None:
@@ -201,8 +219,27 @@ def parse_station(
     Like ``daemon:``, registered sections describe a robot but are not device config.
     Their keys are removed before device parsing; validators return the values stored
     in ``StationRobot.sections``. The device layer does not interpret their contents.
+    With sections=None, installed robot_infra.station_sections entry points are
+    discovered. An explicit mapping replaces discovery; {} is strict device parsing.
     Unregistered unknown keys still fail device parsing.
     """
+    sections = discover_station_sections() if sections is None else sections
+
+    def parse_robot(mapping, *, default_name=None):
+        try:
+            return _robot_config_from_mapping(mapping, default_name=default_name, sections=sections)
+        except ValueError as error:
+            # Only enrich device-config unknown keys, not validator/nested config errors.
+            config_names = [robot.CONFIG.__name__ for robot in Robot.types().values()]
+            if str(error).startswith("unknown key '") and any(
+                f" for {name};" in str(error) for name in config_names
+            ):
+                raise ValueError(
+                    f"{error}; if this is an upper-layer station section, install the package that declares it "
+                    f"(entry-point group robot_infra.station_sections); discovered sections: {sorted(sections)}"
+                ) from error
+            raise
+
     if isinstance(data, Mapping) and _ROBOTS_KEY in data:
         unknown = sorted(set(data) - {_ROBOTS_KEY})
         if unknown:
@@ -212,14 +249,14 @@ def parse_station(
             raise ValueError(f"'{_ROBOTS_KEY}' must map at least one robot name to its config")
         return Station(
             {
-                str(name): _robot_config_from_mapping(robot, default_name=str(name), sections=sections)
+                str(name): parse_robot(robot, default_name=str(name))
                 for name, robot in robots.items()
             },
             multi_robot=True,
         )
     if isinstance(data, Mapping) and "robot" in data:
         data = data["robot"]
-    robot = _robot_config_from_mapping(data, sections=sections)
+    robot = parse_robot(data)
     return Station({robot.config.name: robot})
 
 
@@ -240,13 +277,19 @@ def load_station_with_env(
     return station
 
 
-def load_config(path: str | Path, robot: str | None = None) -> RobotConfig:
+def load_config(
+    path: str | Path, robot: str | None = None, *,
+    sections: Mapping[str, Callable[[Any], Any]] | None = None,
+) -> RobotConfig:
     """Parse a robot or station yaml into one robot's config without building parts, so an
     unregistered backend is reported by the doctor instead of failing at load time. A station
     with several robots needs ``robot``."""
-    return load_station(path).select(robot).config
+    return load_station(path, sections=sections).select(robot).config
 
 
-def load_config_with_env(path: str | Path, robot: str | None = None) -> RobotConfig:
+def load_config_with_env(
+    path: str | Path, robot: str | None = None, *,
+    sections: Mapping[str, Callable[[Any], Any]] | None = None,
+) -> RobotConfig:
     """``load_config`` plus ``fill_from_env``: the one config view shared by daemon, doctor and discovery."""
-    return fill_from_env(load_config(path, robot))
+    return fill_from_env(load_config(path, robot, sections=sections))

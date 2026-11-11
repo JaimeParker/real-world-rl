@@ -181,3 +181,10 @@ def test_failed_step_prints_retry_and_stops(installer_checkout):
     assert result.returncode == 9
     assert "Upgrade pip failed" in result.stderr and "Retry" in result.stderr
     assert not any("robot_infra.doctor" in call for call in calls)
+
+
+def test_station_sections_entry_point():
+    project = load_project(ROOT / "pyproject.toml")
+    assert project["entry-points"]["robot_infra.station_sections"] == {
+        "teleop_profiles": "real_world_rl.teleop.profiles:validate_profiles_reference",
+    }

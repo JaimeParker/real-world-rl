@@ -507,7 +507,7 @@ def test_serl_rejects_explicit_current_in_franka_json():
 def test_legacy_reward_collector_rejects_serl_before_startup():
     from real_world_rl.reward.collect_data import main
 
-    with pytest.raises(ValueError, match="collect_real_robot"):
+    with pytest.raises(ValueError, match="collect_data --env-backend real_robot"):
         main(argv=["--output-dir", "unused", "--teleop-device", "spacemouse", "--spacemouse-mode", "serl"])
 
 

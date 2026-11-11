@@ -124,10 +124,14 @@ def test_max_steps_per_episode_caps_episode():
     assert policy.calls == [False, False]
 
 
-def test_device_error_prints_hint_closes_env_and_returns_2(capsys):
+def test_device_error_prints_hint_closes_env_and_returns_device_exit_code(capsys):
+    from real_world_rl.cli.errors import DEVICE_EXIT_CODE, USAGE_EXIT_CODE
+
+    assert DEVICE_EXIT_CODE == 1 and DEVICE_EXIT_CODE != USAGE_EXIT_CODE
+    assert DEVICE_ERROR_EXIT_CODE == DEVICE_EXIT_CODE
     env = _FakeEnv(fail_on_step=2)
     code = main(DeployArgs(checkpoint="unused.pt", episodes=2), env=env, policy=_FakePolicy())
-    assert code == DEVICE_ERROR_EXIT_CODE
+    assert code == DEVICE_EXIT_CODE
     assert env.closed
     err = capsys.readouterr().err
     assert "arm faulted" in err and "clear the fault in Desk" in err

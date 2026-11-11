@@ -82,7 +82,7 @@ A classifier or versioned task can supply reward and explicit outcomes. A positi
 ## If not
 
 A device fault prints `[deploy] device error: ...` and `[deploy] hint: ...` to stderr and exits
-with code 2. A mismatched action/experiment contract raises `ValueError` before reset motion;
+with code 1 (invalid arguments exit with code 2). A mismatched action/experiment contract raises `ValueError` before reset motion;
 use the recorded settings and only override allowed connection/provenance fields. A daemon that
 cannot connect after unplugging GELLO is still serving a YAML with `teleop:`. Normal or exception
 cleanup closes the environment and base provider; a forced kill still depends on the watchdog.

@@ -46,10 +46,46 @@ def test_removed_module_paths_do_not_import(module_name):
         importlib.import_module(module_name)
 
 
+def _project_scripts(text: str) -> dict[str, str]:
+    """``[project.scripts]`` table; falls back to reading the block as text on Python 3.10 without tomli."""
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        try:
+            import tomli as tomllib
+        except ModuleNotFoundError:
+            tomllib = None
+    if tomllib is not None:
+        return tomllib.loads(text)["project"]["scripts"]
+    return _project_scripts_from_text(text)
+
+
+def _project_scripts_from_text(text: str) -> dict[str, str]:
+    scripts: dict[str, str] = {}
+    in_block = False
+    for raw_line in text.splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if line.startswith("["):
+            in_block = line == "[project.scripts]"
+        elif in_block and "=" in line:
+            name, target = (part.strip() for part in line.split("=", 1))
+            scripts[name.strip("\"'")] = target.strip("\"'")
+    return scripts
+
+
+def test_project_scripts_text_fallback_reads_only_the_scripts_block():
+    text = ('[project]\nname = "x"\n\n[project.scripts]\n'
+            'tool = "pkg.cli:main"  # comment\n"other-tool" = \'pkg.other:run\'\n\n'
+            '[project.entry-points."group"]\nignored = "pkg:ignored"\n')
+    assert _project_scripts_from_text(text) == {"tool": "pkg.cli:main", "other-tool": "pkg.other:run"}
+    actual = PYPROJECT.read_text(encoding="utf-8")
+    assert _project_scripts_from_text(actual) == _project_scripts(actual)
+
+
 def test_every_console_script_target_is_callable():
-    tomllib = pytest.importorskip("tomllib")
-    scripts = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["scripts"]
+    scripts = _project_scripts(PYPROJECT.read_text(encoding="utf-8"))
     assert set(scripts) == {
+        "rwrl",
         "real-world-rl-train",
         "real-world-rl-record",
         "real-world-rl-deploy",

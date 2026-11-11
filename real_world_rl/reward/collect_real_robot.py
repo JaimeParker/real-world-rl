@@ -85,10 +85,14 @@ class LabelledFrames:
 
 def parse_collect_args(argv: Optional[Sequence[str]] = None) -> RealRobotCollectArgs:
     """``RealRobotCollectArgs`` from the command line (``sys.argv[1:]`` by default), over an
-    optional ``--config`` preset (see ``demos.record.parse_args_with_preset``)."""
+    optional ``--config`` preset (see ``demos.record.parse_args_with_preset``), with the SpaceMouse
+    input snapshot frozen as ``demos.record.parse_record_args`` does."""
     from real_world_rl.demos.record import parse_args_with_preset
+    from real_world_rl.training.env_building import resolve_teleop_input
 
-    return parse_args_with_preset(RealRobotCollectArgs, argv)
+    parsed = parse_args_with_preset(RealRobotCollectArgs, argv)
+    resolve_teleop_input(parsed)
+    return parsed
 
 
 def collect_classifier_frames(

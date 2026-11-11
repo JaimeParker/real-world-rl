@@ -143,6 +143,46 @@ def test_the_real_robot_collector_takes_no_camera_capture():
         collect_data.main(camera_capture=lambda: None, argv=["--env-backend", "real_robot"])
 
 
+def test_legacy_serl_mode_error_names_a_command_the_collector_parses(tmp_path, monkeypatch):
+    with pytest.raises(ValueError) as error:
+        collect_data.main(argv=["--output-dir", str(tmp_path), "--spacemouse-mode", "serl"])
+    assert collect_data.SERL_REAL_ROBOT_COMMAND in str(error.value)
+
+    preset = tmp_path / "preset.yaml"
+    # serl semantics need the xyz and RPY safety boxes, as in any serl preset.
+    preset.write_text(
+        "real_robot:\n  remote: robot:50051\n  safety_box: [-1, -1, -1, 1, 1, 1]\n"
+        "  safety_box_rpy_low: [0, -1, -1]\n  safety_box_rpy_high: [3, 1, 1]\n",
+        encoding="utf-8")
+    module_flag, module, *argv = collect_data.SERL_REAL_ROBOT_COMMAND.split()[1:]
+    assert (module_flag, module) == ("-m", "real_world_rl.reward.collect_data")
+    argv = [{"PRESET.yaml": str(preset), "DIR": str(tmp_path)}.get(token, token) for token in argv]
+    received = []
+    monkeypatch.setattr(collect_real_robot, "run_real_robot_collector", received.append)
+    collect_data.main(argv=argv)
+    (args,) = received
+    assert (args.env_backend, args.teleop_device, args.spacemouse_mode) == ("real_robot", "spacemouse", "serl")
+    assert args.real_robot.cartesian_semantics == "serl"
+
+
+def test_real_robot_collect_freezes_teleop_input_like_record(tmp_path, monkeypatch):
+    from real_world_rl.demos.record import parse_record_args
+
+    options = tmp_path / "spacemouse.yaml"
+    options.write_text("device_index: 2\n", encoding="utf-8")
+    teleop = ["--teleop-device", "spacemouse", "--teleop-options-yaml", str(options)]
+    received = []
+    monkeypatch.setattr(collect_real_robot, "run_real_robot_collector", received.append)
+    collect_data.main(argv=["--env-backend", "real_robot", "--output-dir", str(tmp_path), *teleop])
+    (args,) = received
+    assert args.teleop_input["source_options"] == {"device_index": 2}
+    recorded = parse_record_args(["--env-backend", "real_robot", *teleop])
+    assert args.teleop_input == recorded.teleop_input
+    options.unlink()  # frozen: the run no longer depends on the options file
+    env_building.resolve_teleop_input(args)
+    assert args.teleop_input["source_options"] == {"device_index": 2}
+
+
 # -- collection ----------------------------------------------------------------------------
 
 

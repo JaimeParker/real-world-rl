@@ -57,6 +57,11 @@ class Args:
 
 
 _ENV_BACKEND_FLAGS = ("--env-backend", "--env_backend")
+# The command the legacy path's serl-mode error points at (``PRESET.yaml``/``DIR`` are the caller's).
+SERL_REAL_ROBOT_COMMAND = (
+    "python -m real_world_rl.reward.collect_data --env-backend real_robot --config PRESET.yaml "
+    "--teleop-device spacemouse --spacemouse-mode serl --output-dir DIR"
+)
 
 
 def selects_real_robot(argv: Sequence[str]) -> bool:
@@ -82,9 +87,8 @@ def main(camera_capture=None, argv: Optional[Sequence[str]] = None) -> None:
     args = tyro.cli(Args, args=argv)
     if args.spacemouse_mode == "serl":
         raise ValueError(
-            "SpaceMouse serl mode requires the shared env configuration; use "
-            "python -m real_world_rl.reward.collect_real_robot --spacemouse-mode serl "
-            "--teleop-device spacemouse with a configured real_robot preset"
+            "SpaceMouse serl mode requires the shared env configuration of the real_robot collector; run "
+            f"{SERL_REAL_ROBOT_COMMAND} (the preset is the training run's)"
         )
 
     from pynput import keyboard

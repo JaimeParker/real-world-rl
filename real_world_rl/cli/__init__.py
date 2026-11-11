@@ -108,6 +108,10 @@ def main(argv: list[str] | None = None) -> int:
     except CliError as error:
         return _report_error(error, as_json)
     except SystemExit as error:
+        if isinstance(error.code, str):
+            # sys.exit("message"): print the message as Python would, but report a usage failure.
+            print(error.code, file=sys.stderr)
+            return USAGE_EXIT_CODE
         return int(error.code or SUCCESS_EXIT_CODE)
     except Exception as error:
         return _report_error(error, as_json)

@@ -19,6 +19,9 @@ CONTROL_PROGRAMS = {
     "real-world-rl-record",
     "real-world-rl-train",
     "real-world-rl-deploy",
+    # rwrl runs the daemon and direct connections in its own process (rwrl daemon, rwrl --direct ...).
+    "rwrl",
+    "real_world_rl.cli",
 }
 
 def process_owners(paths=(), proc: Path = Path("/proc")) -> list[str]:

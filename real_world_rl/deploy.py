@@ -37,6 +37,7 @@ from typing import Any, Literal, Optional
 
 import torch
 
+from real_world_rl.cli.errors import DEVICE_EXIT_CODE
 from real_world_rl.envs.bimanual.config import BimanualRealRobotEnvConfig
 from real_world_rl.envs.real_robot.config import RealRobotEnvConfig
 
@@ -45,7 +46,8 @@ _BIMANUAL_BACKEND = "real_robot_bimanual"
 _DEPLOY_BACKENDS = (_BACKEND, _BIMANUAL_BACKEND)
 # Inverse of rl_garden.common.effective_config.json_value's non-finite float encoding.
 _JSON_FLOAT_SENTINELS = {"Infinity": float("inf"), "-Infinity": float("-inf"), "NaN": float("nan")}
-DEVICE_ERROR_EXIT_CODE = 2
+# Kept for existing importers; the code itself lives in the shared exit-code table.
+DEVICE_ERROR_EXIT_CODE = DEVICE_EXIT_CODE
 _LOGGER = logging.getLogger(__name__)
 # Fields that define what the policy's actions and observations mean: the training run decides.
 # Everything else on RealRobotEnvConfig (robot, remote, token, home_joints, cameras, safety_box,
@@ -697,7 +699,8 @@ def _print_summary(results: list[EpisodeResult], *, extra_outcomes=()) -> None:
 
 
 def main(args: DeployArgs, *, env: Any = None, policy: Any = None) -> int:
-    """CLI wrapper: exit code 0, or 2 after printing a ``DeviceError``'s message and hint."""
+    """CLI wrapper: exit code 0, or ``DEVICE_EXIT_CODE`` (1) after printing a ``DeviceError``'s
+    message and hint; usage errors stay 2 (tyro)."""
     from robot_infra.devices.errors import DeviceError
 
     try:
@@ -706,7 +709,7 @@ def main(args: DeployArgs, *, env: Any = None, policy: Any = None) -> int:
         print(f"[deploy] device error: {error.message}", file=sys.stderr, flush=True)
         if error.hint:
             print(f"[deploy] hint: {error.hint}", file=sys.stderr, flush=True)
-        return DEVICE_ERROR_EXIT_CODE
+        return DEVICE_EXIT_CODE
     return 0
 
 

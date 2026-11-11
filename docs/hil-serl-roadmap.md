@@ -131,7 +131,7 @@ HIL-SERL, and the test now asserts `received_transitions == 0` after the preload
 **Also missing**: HIL-SERL's `examples/record_demos.py` (plain teleop
 trajectory recording, no success/failure labels, producing exactly the
 `--demo_path` pkl shape) has no `rl-garden` equivalent -- only
-`rl_garden/models/reward/success/collect_data.py` exists, and it's scoped to
+`real_world_rl/reward/collect_data.py` exists, and it's scoped to
 success/failure-labeled reward-classifier data, not general demo seeding.
 Anyone wanting to seed `--demo_dataset_paths` today has to write ad hoc
 recording code themselves.
@@ -337,7 +337,7 @@ online real-robot success classifier:
   sampling, `binary_cross_entropy_with_logits`, `RandomShiftsAug`
   (`rl_garden/encoders/augment.py`, reused as-is) for augmentation, no
   train/val split, fixed epoch count.
-- `rl_garden/models/reward/success/collect_data.py` -- ported HIL-SERL's
+- `real_world_rl/reward/collect_data.py` -- ported HIL-SERL's
   `examples/record_success_fail.py` mechanism: `pynput` global spacebar
   listener marks the most recently stepped transition a success, everything
   else defaults to failure. Camera capture is caller-supplied (see
@@ -639,7 +639,7 @@ HIL-SERL provides a full camera integration module,
 rs_capture,multi_video_capture}.py` -- a threaded `VideoCapture` wrapping
 `RSCapture` (direct `pyrealsense2` RealSense SDK integration), wired into
 `FrankaEnv.init_cameras()`/`get_im()`. `rl-garden` has no equivalent module
-anywhere. `rl_garden/envs/backends/franka_real.py`'s `make_train_env`/
+anywhere. `real_world_rl/envs/franka_real/env.py`'s `make_train_env`/
 `make_eval_env` never pass `camera_capture`, so it defaults to `None`
 throughout the real-world stack (already noted in item 3's text as a
 pre-existing condition of the whole `franka_real` backend, not something

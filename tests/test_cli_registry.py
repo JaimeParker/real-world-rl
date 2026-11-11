@@ -97,6 +97,34 @@ def test_generic_dispatch_json_and_result_exit_code(monkeypatch, capsys):
     assert "target preview" in captured.err
 
 
+@pytest.mark.parametrize("code,expected", [
+    ("Configuration error: bad preset", USAGE_EXIT_CODE),
+    (None, SUCCESS_EXIT_CODE),
+    (0, SUCCESS_EXIT_CODE),
+    (7, 7),
+])
+@pytest.mark.parametrize("as_json", [False, True])
+def test_command_system_exit_codes(monkeypatch, capsys, code, expected, as_json):
+    class ExitingCommand:
+        name = "exiting"
+        help = "raises SystemExit from run"
+
+        def register(self, parser):
+            pass
+
+        def run(self, args, ctx):
+            raise SystemExit(code)
+
+    monkeypatch.setattr("real_world_rl.cli.COMMANDS", [ExitingCommand()])
+    assert main((["--json"] if as_json else []) + ["exiting"]) == expected
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    if isinstance(code, str):
+        assert captured.err.strip() == code
+    else:
+        assert captured.err == ""
+
+
 def test_forwarded_json_is_not_redirected_or_rendered_twice(monkeypatch, capsys):
     def child(argv):
         assert argv == ["--help", "--unknown"]

@@ -150,6 +150,15 @@ step in the human demo pkl; recorder idle steps still use its hold policy.
 Keep the same SERL mode in training/deploy: its contract is `spacemouse_serl_v1`
 and tracker caps/speeds do not apply. See [both modes](../teleop.md#spacemouse).
 
+For an inclined base or operator-specific puck direction, commission a station
+task frame and named profile with the [SpaceMouse CLI workflow](../spacemouse-commissioning.md#spacemouse-profiles-and-task-frame-workspace).
+The supervised `rwrl teleop run` workflow uses those settings and holds the last
+accepted target after a label; n requests the next trajectory and q releases
+control. The ordinary recorder commands above retain their default automatic
+episode handling unless `--episode-end-behavior hold` is selected. Use the
+[acceptance checklist](../testing/spacemouse-control-session.md) before treating
+direction mapping or normal-stop behavior as verified.
+
 ## Files and compatibility
 
 A successful run produces `demos/pick-and-place.pkl`,

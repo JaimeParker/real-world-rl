@@ -14,6 +14,11 @@ from robot_infra.devices import DeviceNotFound, VersionMismatch
 from robot_infra.devices.backends.teleops import _spacemouse_hid as reader
 
 
+@pytest.fixture(autouse=True)
+def isolated_hid_claims(tmp_path, monkeypatch):
+    monkeypatch.setattr("robot_infra.devices.claims._DEFAULT_LOCK_DIR", tmp_path / "claims")
+
+
 def words(channel, *values):
     report = [channel]
     for value in values:
@@ -68,6 +73,15 @@ def test_hid_report_matches_native_axis_and_button_mapping(model):
         [-0.5, 1.0, 0.2, -0.4, 0.3, -0.6]
     )
     assert handle.sizes == [7] * 4
+
+
+def test_unverified_wireless_bt_id_is_not_supported(monkeypatch):
+    assert (0x256F, 0xC63A) not in {tuple(spec.hid_id) for spec in reader.device_specs.values()}
+    fake_hid(monkeypatch, [
+        {"vendor_id": 0x256F, "product_id": 0xC63A, "path": b"unverified"},
+    ], Handle())
+    with pytest.raises(DeviceNotFound, match="no supported SpaceMouse"):
+        reader.open()
 
 
 def test_split_reports_keep_other_axes():
@@ -205,3 +219,38 @@ def test_read_error_propagates_to_the_polling_backend():
     handle.closed = True
     with pytest.raises(OSError, match="disconnected"):
         device.read()
+
+
+def test_open_claim_is_exclusive_and_released(monkeypatch, tmp_path):
+    from robot_infra.devices.errors import DeviceBusy
+    handle = Handle([])
+    fake_hid(monkeypatch, [
+        {"vendor_id": 0x256F, "product_id": 0xC635, "path": b"exclusive-test"},
+    ], handle)
+    first = reader.open(claims_dir=tmp_path / "claims")
+    try:
+        with pytest.raises(DeviceBusy):
+            reader.open(claims_dir=tmp_path / "claims")
+    finally:
+        first.close()
+    second = reader.open(claims_dir=tmp_path / "claims")
+    second.close()
+
+
+def test_claim_opt_out_is_forwarded_by_robot_config(monkeypatch):
+    from robot_infra.devices import TeleopConfig
+    from robot_infra.devices.robots.franka import FrankaConfig, FrankaRobot
+    robot = FrankaRobot(FrankaConfig(arm_backend='fake', gripper=None, claim=False,
+                                    teleop=TeleopConfig(backend='spacemouse')))
+    assert robot.teleop._claim is False
+
+
+def test_claim_can_be_explicitly_disabled(tmp_path, monkeypatch):
+    fake_hid(monkeypatch, [
+        {'vendor_id': 0x256F, 'product_id': 0xC635, 'path': b'unclaimed'},
+    ], Handle())
+    first = reader.open(claim=False, claims_dir=tmp_path / 'claims')
+    second = reader.open(claim=False, claims_dir=tmp_path / 'claims')
+    first.close()
+    second.close()
+    assert not (tmp_path / 'claims').exists()

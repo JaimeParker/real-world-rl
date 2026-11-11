@@ -355,7 +355,7 @@ class PiperSdkArm(Arm):
         piper.MotionCtrl_2(_CTRL_MODE_CAN, _MOVE_J, self._move_speed_percent)
         piper.JointCtrl(*joint_ints)
 
-    def stop(self) -> None:
+    def _stop(self) -> None:
         """Hold position by re-sending the measured joints; piper_sdk has no stop/hold command
         (``MotionCtrl_1`` emergency stop and ``ResetPiper`` both power the motors down)."""
         self._require_connected()

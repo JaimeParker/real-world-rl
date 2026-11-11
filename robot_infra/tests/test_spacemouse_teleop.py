@@ -335,3 +335,31 @@ def test_poll_interval_defaults_to_200hz_and_rejects_negative():
     assert SpaceMouseTeleop(TeleopConfig(backend="spacemouse"))._poll_interval_s == 0.005
     with pytest.raises(ValueError, match="poll_interval_s"):
         SpaceMouseTeleop(TeleopConfig(backend="spacemouse", options={"poll_interval_s": -1}))
+
+
+def test_consumed_sample_keeps_decoded_input_metadata(hid_sdk):
+    hid_sdk.twist = (.1, .2, .3, .4, .5, .6)
+    teleop = SpaceMouseTeleop(TeleopConfig(backend='spacemouse'))
+    teleop.connect()
+    try:
+        sample = teleop.read()
+        assert sample.diagnostics['decoded_axes'] == list(hid_sdk.twist)
+        np.testing.assert_allclose(sample.action, [-.2, .1, .3, -.4, -.5, -.6])
+        assert sample.diagnostics['hid_report_count'] is None  # fake reader has no HID evidence
+        sample.diagnostics['decoded_axes'][0] = 99
+        assert teleop.latest().diagnostics['decoded_axes'][0] == .1
+    finally:
+        teleop.disconnect()
+
+
+def test_shared_axis_mapping_and_claim_opt_out(hid_sdk):
+    from robot_infra.devices.backends.teleops.spacemouse import map_spacemouse_axes
+    from robot_infra.devices.teleop import TeleopConfig
+    raw = [1, 2, 3, 4, 5, 6]
+    np.testing.assert_array_equal(map_spacemouse_axes(raw, [1, 4]), [-2, -1, 3, -4, 5, -6])
+    part = spacemouse_backend.SpaceMouseTeleop(TeleopConfig(backend='spacemouse'), claim=False)
+    part.connect()
+    try:
+        assert hid_sdk.devices[0].kwargs['claim'] is False
+    finally:
+        part.disconnect()

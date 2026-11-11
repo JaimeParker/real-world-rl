@@ -376,6 +376,44 @@ def test_servo_after_stop_restarts_tracker(arm, log):
     assert len(arm._handle.tracker.targets) == 1
 
 
+def test_tracker_restart_after_plain_stop_never_resends_old_target(arm, log):
+    old = np.array([0.4, 0.0, 0.3, 0.0, 0.0, 0.0, 1.0])
+    new = np.array([0.35, 0.05, 0.25, 0.0, 0.0, 0.0, 1.0])
+    arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    arm.servo_cartesian(old)
+    np.testing.assert_array_equal(arm.last_cartesian_target, old)
+    arm.stop()
+    assert arm.last_cartesian_target is None
+    assert arm.control_mode is ControlMode.CARTESIAN_SERVO
+    restarted = arm._live_tracker(ControlMode.CARTESIAN_SERVO)  # what the next servo call does
+    assert restarted.targets == []  # the restart itself sends nothing, least of all the old target
+    arm.servo_cartesian(new)
+    assert arm._handle.tracker is restarted
+    assert len(restarted.targets) == 1
+    np.testing.assert_allclose(restarted.targets[0].translation, new[:3])
+    np.testing.assert_array_equal(arm.last_cartesian_target, new)
+
+
+def test_stop_with_trace_clears_last_cartesian_target(arm):
+    arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    arm.servo_cartesian(np.array([0.4, 0.0, 0.3, 0.0, 0.0, 0.0, 1.0]))
+    assert arm.last_cartesian_target is not None
+    arm.stop_with_trace(post_stop_s=0)
+    assert arm.control_mode is ControlMode.IDLE
+    assert arm.last_cartesian_target is None
+
+
+def test_failed_stop_with_trace_still_clears_last_cartesian_target(arm):
+    arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    arm.servo_cartesian(np.array([0.4, 0.0, 0.3, 0.0, 0.0, 0.0, 1.0]))
+    def fail():
+        raise RuntimeError('trace stop failure')
+    arm._handle.tracker.stop = fail
+    with pytest.raises(DeviceFault, match='trace stop failure'):
+        arm.stop_with_trace(post_stop_s=0)
+    assert arm.last_cartesian_target is None
+
+
 def test_dead_tracker_raises_recoverable_fault(arm):
     arm.set_control_mode(ControlMode.JOINT_SERVO)
     arm._handle.robot.is_in_control = False  # e.g. a reflex ended the torque motion
@@ -546,3 +584,254 @@ def test_recover_failure_keeps_errors(arm):
 def test_gripper_from_config_rejects_borrowed_session(arm):
     with pytest.raises(ValueError, match="shares_arm_session: false"):
         FrankyGripper.from_config(FrankaConfig(robot_ip="10.0.0.2"), owner=arm)
+
+
+def test_tracker_stop_failure_is_recorded_without_raising(arm):
+    arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    def fail():
+        raise RuntimeError("stop timed out")
+    arm._handle.tracker.stop = fail
+    arm.stop()
+    assert any("stop timed out" in error for error in arm.health().errors)
+    assert arm._handle.tracker is None
+    # A later mode transition still reaches the existing settle/recover path.
+    arm.set_control_mode(ControlMode.JOINT_SERVO)
+    assert arm.control_mode is ControlMode.JOINT_SERVO
+
+
+def test_position_stop_join_failure_is_recorded(arm, monkeypatch):
+    arm.move_to_joints(np.zeros(7), blocking=False)
+    def fail():
+        raise RuntimeError("join lost connection")
+    monkeypatch.setattr(arm._handle.robot, "join_motion", fail)
+    arm.stop()
+    assert any("join lost connection" in error for error in arm.health().errors)
+
+
+def test_position_stop_timeout_is_recorded(arm, monkeypatch):
+    arm.move_to_joints(np.zeros(7), blocking=False)
+    monkeypatch.setattr(arm._handle.robot, "join_motion", lambda: False)
+    arm.stop()
+    assert any("did not complete" in error for error in arm.health().errors)
+
+
+def test_stop_sample_uses_sdk_time_and_unfiltered_feedback(arm):
+    from types import SimpleNamespace
+    state = arm._handle.robot.state
+    state.time = SimpleNamespace(to_sec=lambda: 12.34)
+    state.current_errors = []
+    snapshot = arm.stop_sample()
+    assert snapshot['device_time_s'] == 12.34
+    assert snapshot['joint_vel'] == state.dq.tolist()
+    assert snapshot['errors'] == []
+    assert snapshot['last_cartesian_target'] is None
+
+
+def test_stop_sample_reads_named_error_flags_not_object_truthiness(arm):
+    from types import SimpleNamespace
+    state = arm._handle.robot.state
+    state.current_errors = SimpleNamespace(joint_reflex=False, cartesian_reflex=False)
+    assert bool(state.current_errors)  # SDK object truthiness is not error status.
+    assert arm.stop_sample()['errors'] == []
+    state.current_errors.cartesian_reflex = True
+    assert arm.stop_sample()['errors'] == ['cartesian_reflex']
+
+
+def test_normal_stop_trace_uses_same_robot_and_does_not_claim_sparse_pass(arm):
+    robot = arm._handle.robot
+    arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    arm.begin_stop_trace()
+    result = arm.stop_with_trace(post_stop_s=0)
+    assert arm._handle.robot is robot
+    assert result['assessment']['status'] == 'BLOCKED'
+    assert result['trace']['stop_end_s'] >= result['trace']['stop_start_s']
+    assert result['trace']['control_mode'] == 'cartesian_servo'
+    assert result['trace']['tracker_active'] is True
+    assert arm.last_stop_trace == result
+    result['trace']['samples'].clear()
+    assert arm.last_stop_trace is not result
+
+
+def test_traced_stop_failure_raises_and_retains_evidence(arm):
+    arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    arm.begin_stop_trace()
+    def fail():
+        raise RuntimeError('trace stop failure')
+    arm._handle.tracker.stop = fail
+    with pytest.raises(DeviceFault, match='trace stop failure'):
+        arm.stop_with_trace(post_stop_s=0)
+    assert 'trace stop failure' in arm.last_stop_trace['trace']['stop_error']
+    assert arm.last_stop_trace['assessment']['status'] == 'FAIL'
+
+
+def test_emergency_stop_does_not_use_normal_trace_wait(arm, monkeypatch):
+    arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    def forbidden(*args, **kwargs):
+        raise AssertionError('emergency stop must not call normal tracing workflow')
+    monkeypatch.setattr(arm, 'stop_with_trace', forbidden)
+    arm.stop()
+
+
+def test_post_stop_observation_does_not_hold_stop_lock(arm, monkeypatch):
+    import threading
+    entered, release, emergency_done = threading.Event(), threading.Event(), threading.Event()
+    failures = []
+    arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    arm.begin_stop_trace()
+    def wait(_):
+        entered.set()
+        release.wait(2.)
+    monkeypatch.setattr('robot_infra.devices.backends.arms.franky.time.sleep', wait)
+    def normal():
+        try:
+            arm.stop_with_trace()
+        except Exception as error:
+            failures.append(error)
+    def emergency():
+        try:
+            arm.stop()
+        finally:
+            emergency_done.set()
+    thread = threading.Thread(target=normal)
+    thread.start()
+    emergency_thread = None
+    try:
+        assert entered.wait(1.)
+        emergency_thread = threading.Thread(target=emergency)
+        emergency_thread.start()
+        assert emergency_done.wait(.5)
+    finally:
+        release.set()
+        thread.join(2.)
+        if emergency_thread is not None:
+            emergency_thread.join(2.)
+    assert not failures
+
+
+def test_traced_stop_is_idle_before_observation_and_rejects_new_motion(arm, monkeypatch):
+    arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    arm.begin_stop_trace()
+    observed = []
+    def observe(seconds):
+        observed.append(seconds)
+        assert arm.control_mode is ControlMode.IDLE
+        # Exercise the actual daemon predicate with an expired action deadline.
+        import threading
+        from robot_infra.server.service import RobotService
+        service = object.__new__(RobotService)
+        service._lock = threading.RLock()
+        service.robot = types.SimpleNamespace(arm=arm)
+        service._last_action_time = service._servo_entered_time = 0.
+        service.watchdog_s = .01
+        service._watchdog_trips = 0
+        service._watchdog_check()
+        assert service._watchdog_trips == 0
+        for operation in (
+            lambda: arm.set_control_mode(ControlMode.CARTESIAN_SERVO),
+            lambda: arm.move_to_joints(np.zeros(7)),
+            lambda: arm.servo_cartesian(np.array([0, 0, 0, 0, 0, 0, 1.])),
+        ):
+            with pytest.raises(DeviceFault, match='observation in progress'):
+                operation()
+        arm.stop()  # Emergency/plain stop remains available during observation.
+    monkeypatch.setattr(franky_arm_module.time, 'sleep', observe)
+    arm.stop_with_trace(post_stop_s=.1)
+    assert observed == [.1]
+    assert arm.control_mode is ControlMode.IDLE
+    arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+
+
+def test_idle_arm_traced_stop_is_blocked(arm):
+    assert arm.control_mode is ControlMode.IDLE
+    result = arm.stop_with_trace(post_stop_s=0)
+    assert result['trace']['control_mode'] == 'idle'
+    assert result['trace']['tracker_active'] is False
+    assert result['assessment']['status'] == 'BLOCKED'
+    assert 'no active motion at stop' in result['assessment']['missing_evidence']
+
+
+def test_trace_preparation_failure_cannot_prevent_stop(arm, monkeypatch):
+    arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    tracker = arm._handle.tracker
+    stopped = []
+    original = tracker.stop
+    def stop():
+        stopped.append(True)
+        return original()
+    tracker.stop = stop
+    def unavailable():
+        assert stopped == [True]
+        raise OSError('metadata unavailable')
+    monkeypatch.setattr(arm, '_new_stop_recorder', unavailable)
+    evidence = arm.stop_with_trace(post_stop_s=0)
+    assert arm.control_mode is ControlMode.IDLE
+    assert evidence['assessment']['status'] == 'BLOCKED'
+    assert 'metadata unavailable' in evidence['trace']['sampling_errors'][0]
+
+
+def test_trace_metadata_cached_per_connection_outside_stop_lock(arm, monkeypatch):
+    from robot_infra.devices import provenance
+    calls = []
+    original = provenance.sdk_artifacts
+    def fingerprint(*args, **kwargs):
+        assert not arm._stop_lock._is_owned()
+        calls.append(True)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(provenance, 'sdk_artifacts', fingerprint)
+    arm.begin_stop_trace()
+    previous = arm._stop_recorder
+    finish = previous.finish
+    def finish_without_lock(*args, **kwargs):
+        assert not arm._stop_lock._is_owned()
+        return finish(*args, **kwargs)
+    monkeypatch.setattr(previous, 'finish', finish_without_lock)
+    arm.begin_stop_trace()
+    assert calls == [True]
+    arm.disconnect()
+    arm.connect()
+    arm.begin_stop_trace()
+    assert calls == [True, True]
+
+
+def test_slow_trace_preparation_does_not_block_plain_stop(arm, monkeypatch):
+    import threading
+    entered, release, stopped = threading.Event(), threading.Event(), threading.Event()
+    errors = []
+    arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    original = arm._new_stop_recorder
+    def slow():
+        entered.set()
+        assert release.wait(2.)
+        return original()
+    monkeypatch.setattr(arm, '_new_stop_recorder', slow)
+    def begin():
+        try:
+            arm.begin_stop_trace()
+        except BaseException as error:
+            errors.append(error)
+    thread = threading.Thread(target=begin)
+    thread.start()
+    stopper = threading.Thread(target=lambda: (arm.stop(), stopped.set()))
+    try:
+        assert entered.wait(1.)
+        stopper.start()
+        assert stopped.wait(1.)
+    finally:
+        release.set()
+        thread.join(2.)
+        if stopper.ident is not None:
+            stopper.join(2.)
+    assert not errors
+
+
+def test_recorder_mark_failure_cannot_prevent_stop(arm, monkeypatch):
+    arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    arm.begin_stop_trace()
+    def fail(**kwargs):
+        raise OSError('recorder marking failed')
+    monkeypatch.setattr(arm._stop_recorder, 'mark_stop_start', fail)
+    result = arm.stop_with_trace(post_stop_s=0)
+    assert arm.control_mode is ControlMode.IDLE
+    assert arm._handle.tracker is None
+    assert result['assessment']['status'] == 'BLOCKED'
+    assert any('recorder marking failed' in message for message in result['trace']['sampling_errors'])

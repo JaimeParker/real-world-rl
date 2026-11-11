@@ -32,6 +32,9 @@ class RealRobotEnvConfig:
     robot: Optional[dict] = None
     remote: Optional[str] = None
     token: Optional[str] = None
+    # Expected daemon geometry; local robots inherit these from their robot dict.
+    task_frame: Optional[dict] = None
+    workspace: Optional[dict] = None
     num_joints: int = 7
     # Concatenated in this order into the flat backend ``state`` vector.
     state_fields: tuple[str, ...] = STATE_FIELDS

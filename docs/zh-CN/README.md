@@ -45,6 +45,7 @@
 - [示范录制：recorder 参数与 pkl 格式](recording-demos.md)。
 - [`examples/presets/hil_single_arm.yaml`](../../examples/presets/hil_single_arm.yaml)：单臂环境预设。
 - [rwrl：工作站命令行](cli.md)
+- [SpaceMouse 调试：标定档案、任务坐标系工作区与会话](spacemouse-commissioning.md)
 - [robot_infra：设备层、配置向导、doctor 与守护进程](robot-infra.md)。
 - [真机实验](real-world-experiments.md)：持久上传、恢复、结果、局部接管、轨迹归档、任务与观测。
 - [机械臂控制配置](control-profiles.md)：工作站增益、后端能力与生效设置。

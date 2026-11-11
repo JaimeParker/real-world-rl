@@ -26,5 +26,7 @@ These pages define checks and do not claim that hardware has passed them.
 
 - [Second single-arm and gripper session](single-arm-gripper-session2.md):
   GELLO / SpaceMouse checks and evidence collection.
+- [SpaceMouse tabletop control and normal-stop acceptance](spacemouse-control-session.md):
+  signed direction calibration, both control modes, trajectory holding and stop evidence.
 - [Bimanual Franka / GELLO session](bimanual-gello-session.md) — **reference only**;
   retained for the next bimanual session and not maintained with the tutorials.

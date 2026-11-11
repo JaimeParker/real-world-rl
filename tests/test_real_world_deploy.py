@@ -383,3 +383,20 @@ def test_deploy_interrupted_episode_is_reported_and_env_closed(capsys):
     output = capsys.readouterr().out
     assert "interrupted_episodes=1" in output
     assert "completed_episodes=0" in output
+
+
+@pytest.mark.parametrize('embedded', [False, True])
+def test_deploy_inherits_workspace_and_rejects_different_cli_geometry(embedded):
+    from types import SimpleNamespace
+    frame = {'name': 'table', 'base_T_frame': [[1, 0, 0, .4], [0, 1, 0, 0],
+                                               [0, 0, 1, .2], [0, 0, 0, 1]]}
+    workspace = {'frame': 'table', 'low': [-.1]*3, 'high': [.1]*3}
+    geometry = dict(task_frame=frame, workspace=workspace)
+    trained = RealRobotEnvConfig(**({'robot': {'type': 'franka', **geometry}} if embedded else geometry))
+    args = DeployArgs(checkpoint='unused.pt', real_robot=RealRobotEnvConfig(remote='robot:50051'))
+    resolved = resolve_deploy_robot_config(args, SimpleNamespace(real_robot=trained))
+    assert resolved.workspace == workspace and resolved.task_frame == frame
+    assert resolved.remote == 'robot:50051'
+    args.real_robot.workspace = {**workspace, 'high': [.2]*3}
+    with pytest.raises(ValueError, match='workspace'):
+        resolve_deploy_robot_config(args, SimpleNamespace(real_robot=trained))

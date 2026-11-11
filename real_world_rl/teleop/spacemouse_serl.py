@@ -6,6 +6,8 @@ from typing import Any, Mapping, Optional, Sequence
 
 import numpy as np
 
+from real_world_rl.teleop.input_frame import rotate_input, diagnostic_input, input_sample_diagnostics
+
 from real_world_rl.action_contract import (
     LEGACY_ACTION_CONTRACT,
     get_env_action_contract,
@@ -40,6 +42,10 @@ class SpaceMouseSerlTeleopSource(TeleopSource):
         env_contract: Optional[Mapping[str, Any]] = None,
         device_index: int = 0,
         invert_axes: Sequence[int] = (),
+        input_rotation=None,
+        expected_device_identity=None,
+        diagnostic_axes="all",
+        diagnostic_gain=1.,
         poll_interval_s: float = 0.005,
         read_timeout_s: float = DEFAULT_READ_TIMEOUT_S,
         rng: Optional[np.random.Generator] = None,
@@ -74,6 +80,12 @@ class SpaceMouseSerlTeleopSource(TeleopSource):
             if (declared.action_mode, declared.arm_action_dim) != ("cartesian_delta", 6):
                 raise ValueError("spacemouse serl mode requires a cartesian_delta teleop part with 6 axes")
         self._part = teleop
+        from real_world_rl.teleop.input_frame import validate_input_rotation
+        self._input_rotation = validate_input_rotation(input_rotation)
+        diagnostic_input(np.zeros(6), diagnostic_axes, diagnostic_gain)
+        self._diagnostic_axes, self._diagnostic_gain = diagnostic_axes, diagnostic_gain
+        from real_world_rl.teleop.profiles import validate_device_identity
+        self._expected_device_identity = validate_device_identity(expected_device_identity)
 
     @classmethod
     def from_env(cls, env: Any, **kwargs: Any) -> "SpaceMouseSerlTeleopSource":
@@ -93,8 +105,13 @@ class SpaceMouseSerlTeleopSource(TeleopSource):
         return self._env_gripper
 
     def start(self) -> None:
-        if self._owns_part:
-            self._part.connect()
+        from real_world_rl.teleop.profiles import start_profiled_source
+        start_profiled_source(self)
+
+    def session_input(self):
+        """Consume fresh device input without advancing the motion target."""
+        sample = self._part.read(timeout_s=self._read_timeout_s)
+        return sample.action, sample.buttons
 
     def reset(self) -> None:
         from robot_infra.devices.errors import DeviceNotConnected
@@ -127,7 +144,9 @@ class SpaceMouseSerlTeleopSource(TeleopSource):
         left = bool(sample.buttons.get("button_0", False))
         right = bool(sample.buttons.get("button_1", False))
         intervened = bool(np.linalg.norm(twist) > MOTION_THRESHOLD)
-        action = twist
+        action = diagnostic_input(rotate_input(twist, self._input_rotation),
+                                  self._diagnostic_axes, self._diagnostic_gain)
+        diagnostics = input_sample_diagnostics(sample, action)
         if self.has_gripper:
             if left:
                 gripper = self._rng.uniform(-1.0, -0.9, size=(1,))
@@ -137,8 +156,9 @@ class SpaceMouseSerlTeleopSource(TeleopSource):
                 intervened = True
             else:
                 gripper = np.zeros(1)
-            action = np.concatenate((twist, gripper))
+            action = np.concatenate((action, gripper))
         return TeleopReading(
+            diagnostics=diagnostics,
             action=action, intervened=intervened,
             timestamp=float(sample.timestamp), buttons={"left": left, "right": right},
         )

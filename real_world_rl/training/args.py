@@ -84,6 +84,10 @@ class HilEnvArgs:
     ``HilSerlLearnerLoop`` read from the Args. Combine with ``RealWorldFrankaArgs``
     and an rl-garden Args class, as ``HilSerlArgs`` does."""
 
+    episode_end_behavior: Literal["auto", "hold"] = "auto"
+    neutral_threshold: float = .05
+    neutral_stable_s: float = .2
+
     # Only used when role="eval": number of deterministic episodes to run.
     eval_n_trajs: int = 10
 
@@ -137,6 +141,8 @@ class HilEnvArgs:
     # tracker: button toggles and a persistent velocity-limited target (default).
     # serl: raw twist, per-step motion/button takeover and neutral idle gripper.
     spacemouse_mode: Literal["tracker", "serl"] = "tracker"
+    teleop_diagnostic_axes: Literal["all", "translation", "rotation"] = "all"
+    teleop_diagnostic_gain: float = 1.0
     # --teleop-device bimanual: the device of each arm ("robot", "leader_arm" or "gello", as the
     # single-arm devices of the same name, built over that arm's own env).
     teleop_arm_device: Literal["robot", "leader_arm", "gello"] = "leader_arm"
@@ -148,9 +154,10 @@ class HilEnvArgs:
     # failure/rerecord, quit): the env then takes its motion from --teleop-device and intervention
     # plus events from this one (CompositeTeleopSource). "keyboard" reads this machine's keyboard
     # (pynput, needs a desktop session), "stdin" the terminal running the process; both use the
-    # keys t/h/s/f/r/Esc/q. None: --teleop-device alone. (The SpaceMouse is no longer an event
+    # keys t/h/s/f/r/Esc/q, plus n for next episode only in session/hold mode. None: --teleop-device alone. (The SpaceMouse is no longer an event
     # device: use --teleop-device spacemouse with --teleop-event-device stdin or keyboard.)
-    teleop_event_device: Optional[Literal["keyboard", "stdin"]] = None
+    teleop_event_device: Optional[Literal["keyboard", "stdin", "jsonl"]] = None
+    teleop_events_file: str = "-"
     # --teleop-device leader_cartesian/spacemouse: the persistent command target of the follower
     # (CartesianTargetTracker). It leads the measured TCP pose by at most lead_cap (the excess is
     # dropped) and advances towards the leader (the SpaceMouse: at full deflection) at most
@@ -173,6 +180,11 @@ class HilEnvArgs:
     # For bimanual: per-arm sections keyed by arm name (left: {...}) plus common keys, or a station
     # yaml with robots: {left, right}.
     teleop_options_yaml: Optional[str] = None
+    # Named SpaceMouse profile and robot selection when options YAML is a station.
+    teleop_profile: Optional[str] = None
+    # Resolved numeric input and profile provenance; reused verbatim on restore.
+    teleop_input: Optional[dict] = None
+    teleop_robot: Optional[str] = None
     # Converts FrankaRealEnv's raw quaternion state slice to a rotation
     # vector (matching the action side's own rotvec convention). Off by
     # default -- changes "state"'s observation shape (20 -> 19), so it's an

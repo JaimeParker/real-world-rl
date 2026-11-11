@@ -149,6 +149,15 @@ def compared_experiment(spec: Any) -> Any:
         compared["teleop"] = teleop
     if TELEOP_CONTROL_KEY in sources:
         compared[TELEOP_CONTROL_KEY] = sources[TELEOP_CONTROL_KEY]
+    # Older commissioning sidecars put ergonomic input rotations in this block.
+    # Their base-frame recorded actions have the same semantics after recalibration.
+    control = compared.get(TELEOP_CONTROL_KEY)
+    if isinstance(control, Mapping):
+        compared[TELEOP_CONTROL_KEY] = {key: value for key, value in control.items()
+                                      if key not in ("input_rotation", "input_rotation_semantics")}
+    spatial = compared.get("spatial_constraints")
+    if isinstance(spatial, Mapping) and "workspace" not in spatial:
+        compared.pop("spatial_constraints")
     if isinstance(spec.get("arms"), Mapping):
         compared["arms"] = {name: compared_experiment(arm) for name, arm in spec["arms"].items()}
     return compared

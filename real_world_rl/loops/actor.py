@@ -99,6 +99,28 @@ class ActorLoop:
         self._trajectory_step = 0
         self._trajectory_outcome = None
         self._snapshot_metadata = {}
+        self._episode_session = None
+
+    def configure_episode_session(self, behavior="auto", *, neutral_threshold=.05,
+                                  neutral_stable_s=.2):
+        """Opt into operator-controlled episode boundaries; auto stays compatible."""
+        from real_world_rl.teleop.session import validate_neutral_options
+        if behavior not in ("auto", "hold"):
+            raise ValueError("episode_end_behavior must be auto or hold")
+        validate_neutral_options(neutral_threshold, neutral_stable_s)
+        self._episode_session = ({"neutral_threshold": neutral_threshold,
+                                  "neutral_stable_s": neutral_stable_s}
+                                 if behavior == "hold" else None)
+
+    def _wait_episode_session(self, *, starting=False, allow_next=True):
+        if self._episode_session is None:
+            return "next"
+        from real_world_rl.teleop.session import wait_before_episode, wait_after_episode
+        options = {"control_hz": 1. / self.control_period, **self._episode_session}
+        if starting:
+            return wait_before_episode(self.env, self._session_source, **options)
+        return wait_after_episode(self.env, self._session_source,
+                                  allow_next=allow_next, **options)
 
     def _obs_to_policy_device(self, obs):
         if isinstance(obs, dict):
@@ -269,6 +291,10 @@ class ActorLoop:
     def run(self, total_steps: Optional[int] = None) -> None:
         heartbeat = Heartbeat.from_env()
         try:
+            if self._episode_session is not None:
+                from real_world_rl.teleop.session import session_backend, session_source
+                session_backend(self.env)
+                self._session_source = session_source(self.env)
             self._bind_experiment()
             self.sync_client.start()
             self.policy.eval()
@@ -279,6 +305,11 @@ class ActorLoop:
             heartbeat.begin_long_operation()
             obs, _ = self.env.reset(seed=self.seed)
             heartbeat.beat()
+            if self._wait_episode_session(starting=True) == "quit":
+                return
+            if self._episode_session is not None:
+                from real_world_rl.teleop.session import session_observe
+                obs = session_observe(self.env)
             self._begin_trajectory()
             step = 0
             while total_steps is None or step < total_steps:
@@ -300,15 +331,29 @@ class ActorLoop:
                     self._on_episode_end(info)
                     self._end_trajectory(terminated=bool(terminated), truncated=bool(truncated))
                     if operator_quit_requested(info):
+                        if self._episode_session is not None:
+                            from real_world_rl.teleop.session import notify_session_event
+                            notify_session_event(self.env, "STOPPING", "operator_quit")
                         logger.info("operator quit: stopping the actor after this episode")
                         break
-                    if total_steps is None or step + 1 < total_steps:
+                    allow_next = total_steps is None or step + 1 < total_steps
+                    if self._wait_episode_session(allow_next=allow_next) == "quit":
+                        break
+                    if allow_next:
                         heartbeat.begin_long_operation()
                         obs, _ = self.env.reset(seed=None)
                         heartbeat.beat()
+                        if self._wait_episode_session(starting=True) == "quit":
+                            break
+                        if self._episode_session is not None:
+                            obs = session_observe(self.env)
                         self._begin_trajectory()
                 else:
                     obs = next_obs
+                    if (self._episode_session is not None and total_steps is not None
+                            and step + 1 >= total_steps):
+                        self._end_trajectory(interrupted=True)
+                        self._wait_episode_session(allow_next=False)
                 step += 1
 
                 elapsed = time.perf_counter() - loop_start
@@ -316,8 +361,8 @@ class ActorLoop:
                 if sleep_for > 0:
                     time.sleep(sleep_for)
         finally:
-            heartbeat.begin_long_operation()  # draining uploads and closing the env may take a while
             _cleanup([
+                heartbeat.begin_long_operation,
                 lambda: _close(self.env),
                 lambda: _close(getattr(self, "base_provider", None)),
                 self._on_run_end,
@@ -474,7 +519,7 @@ class FWBWActorLoop:
                 if sleep_for > 0:
                     time.sleep(sleep_for)
         finally:
-            heartbeat.begin_long_operation()
-            _cleanup([lambda: _close(self.env),
+            _cleanup([heartbeat.begin_long_operation,
+                      lambda: _close(self.env),
                       *[lambda archive=archive: archive._end_trajectory(interrupted=True) for archive in archives.values()],
                       *[client.stop for client in self.sync_clients.values()]])

@@ -15,7 +15,9 @@ FORWARDED_COMMANDS = ("doctor", "setup", "daemon", "supervise")
 
 class _Parser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
-        raise CliError(message, code=2, hint="run rwrl --help")
+        prefix = "the following arguments are required: "
+        required = message[len(prefix):].split(", ") if message.startswith(prefix) else ()
+        raise CliError(message, code=2, hint="run rwrl --help", required_fields=required)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,6 +46,8 @@ def build_parser() -> argparse.ArgumentParser:
     for name in FORWARDED_COMMANDS:
         # Even --help belongs to the existing CLI, not this wrapper.
         commands.add_parser(name, add_help=False, allow_abbrev=False)
+    from .teleop_config import add_commands
+    add_commands(commands)
     return parser
 
 
@@ -52,7 +56,11 @@ def _report_error(error: Exception, as_json: bool) -> int:
     hint = str(getattr(error, "hint", "")).replace("\n", " ")
     print(f"error: {message}" + (f" (hint: {hint})" if hint else ""), file=sys.stderr)
     if as_json:
-        print(json.dumps({"error": message, "hint": hint}, allow_nan=False))
+        payload = {"error": message, "hint": hint}
+        required = getattr(error, "required_fields", ())
+        if required:
+            payload["required_fields"] = list(required)
+        print(json.dumps(payload, allow_nan=False))
     if os.environ.get("RWRL_DEBUG") == "1":
         traceback.print_exc(file=sys.stderr)
     return error.code if isinstance(error, CliError) else 1
@@ -71,12 +79,22 @@ def main(argv: list[str] | None = None) -> int:
             return forward(args, remaining)
         if remaining:
             parser.error("unrecognized arguments: " + " ".join(remaining))
-        from .commands import execute
+        if args.command in ("teleop", "workspace"):
+            from .teleop_config import execute
+        else:
+            from .commands import execute
 
         # Keep SDK chatter and confirmation text out of the JSON result stream.
         with redirect_stdout(sys.stderr) if as_json else nullcontext():
             payload, output = execute(args)
         print(json.dumps(payload, allow_nan=False) if as_json else output)
+        if args.command == "teleop" and args.teleop_command == "inspect-stop":
+            from .errors import STOP_TRACE_FAIL_EXIT_CODE, STOP_TRACE_BLOCKED_EXIT_CODE
+            return {"PASS": 0, "FAIL": STOP_TRACE_FAIL_EXIT_CODE,
+                    "BLOCKED": STOP_TRACE_BLOCKED_EXIT_CODE}[payload["status"]]
+        if args.command == "workspace" and args.action == "validate" and not payload["valid"]:
+            from .errors import WORKSPACE_INVALID_EXIT_CODE
+            return 0 if as_json else WORKSPACE_INVALID_EXIT_CODE
         return 0
     except CliError as error:
         return _report_error(error, as_json)

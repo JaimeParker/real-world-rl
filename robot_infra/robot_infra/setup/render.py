@@ -38,7 +38,7 @@ _ROBOT_INDENT = "    "
 # instead of silently dropping it.
 _ROBOT_FIELDS = {
     "name", "arm_backend", "robot_ip", "bridge_url", "realtime", "relative_dynamics_factor", "home_joints",
-    "safety_box", "joint_limits", "max_delta_per_step", "control", "claim", "gripper", "cameras", "teleop",
+    "task_frame", "workspace", "teleop_profiles", "safety_box", "joint_limits", "max_delta_per_step", "control", "claim", "gripper", "cameras", "teleop",
 }
 _GRIPPER_FIELDS = {"backend", "max_width_m", "mode", "binary_threshold", "shares_arm_session"}
 _CAMERA_FIELDS = {"name", "serial", "width", "height", "fps", "enable_depth", "backend"}

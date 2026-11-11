@@ -116,6 +116,41 @@ or use `tracker` when there is no training configuration.
 | Gripper execution | Existing env behavior. | Scaled action `<= -0.5` closes only when measured normalized width `> 0.85`; `>= 0.5` opens only when width `< 0.85`. Commands require elapsed time strictly greater than `gripper_sleep_s` (default `0.6 s`), then sleep for that interval. Zero is neutral. |
 | Terminal/keyboard | `t`/`h` ignored with a warning on state changes; labels/end/quit still work. | Same keys: `s`/`f`/`r`/Esc/`q` provide labels/end/quit. `t`/`h` do not control takeover and warn on state changes. |
 
+For an inclined robot base, `teleop_options_yaml` may supply `input_rotation`, a
+finite proper 3×3 rotation matrix `base_R_input`. Both SpaceMouse modes rotate
+translation and angular input into the robot base frame. Axis inversions and the
+tracker's per-axis deadzone precede rotation; SERL takeover still uses the raw
+six-axis norm. Each rotated three-vector is uniformly reduced only when needed
+to fit the action cube, preserving its direction. No origin translation is
+applied. The resolved matrix and profile name/file/yaw are saved in non-compared
+`teleop_input` provenance before resolved configuration is persisted. Restoring a run uses
+those numeric input options without rereading a changed profile. Recorded actions are in
+base coordinates, so operator recalibration does not invalidate old demos or resume contracts.
+Legacy safety boxes remain in the robot base frame. An optional station
+`task_frame` and `workspace` add a tabletop constraint intersected with those
+limits; input rotation alone does not move any safety boundary. Neither changes
+the robot's mounting/gravity configuration or payload model.
+
+The SpaceMouse tracker checks the task workspace before sending a requested
+target and again after speed/lead limiting. A rejected candidate hands control
+back and anchors the recorder's hold at the measured pose; button 0 can take
+over again. In training, hand-back resumes the policy through the same device
+constraints. Policy targets are clipped componentwise in the task frame; rotations beyond
+`max_angle_rad` are projected onto its SO(3) cone by scaling the reference-relative rotvec.
+SERL applies its original XYZ/RPY box clipping first, then this workspace projection.
+Measured TCP feedback outside the workspace plus its feedback margins is a latched fault.
+The margins default to `measured_margin_m: 0.003` and `measured_margin_rad: 0.03`;
+accepted targets still use `1e-9` tolerance. Device and environment constraints remain authoritative
+for both teleoperation modes and policy actions.
+
+For a named operator profile, use the [CLI calibration workflow](spacemouse-commissioning.md#spacemouse-profiles-and-task-frame-workspace).
+The composed input rotation is `base_R_task @ Rz(operator_yaw)` for both
+translation and angular vectors. The fixed HID axis map is a device convention,
+not a measured mounting transform. Do not add an extra roll correction to an
+already calibrated `base_R_task`. Absolute positions use the full task transform,
+including its origin; feedback observations and policy actions retain their
+existing base-frame contract.
+
 For SERL, configure the station's **xyz and RPY safety boxes** first. Missing
 either box is a construction error. On `real_robot`, these are `safety_box`
 (`[xmin, ymin, zmin, xmax, ymax, zmax]`), `safety_box_rpy_low` and
@@ -138,7 +173,8 @@ compared `teleop_control` contract (nondefault `invert_axes` adds that list):
 ```
 
 SERL requires one six-axis `cartesian_delta` arm and full arm/gripper selection.
-Actions stay in the base frame with the HID map `[-y, x, z, -roll, -pitch, -yaw]`;
+Actions stay in the base frame after the fixed HID map
+`[-y, x, z, -roll, -pitch, -yaw]` and any configured input rotation;
 relative frames, relative observations and `action_indices` are not supported.
 `teleop_options_yaml` may set `device_index` (default `0`), `invert_axes`
 (default `[]`), `poll_interval_s` (default `0.005`) and `read_timeout_s`

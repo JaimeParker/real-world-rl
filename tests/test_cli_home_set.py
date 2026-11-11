@@ -37,6 +37,8 @@ def call(station, preset, capsys, action, *, code=0, yes=False):
 def test_home_set_roundtrip_and_backup(station, tmp_path, capsys, wrapped):
     source = Path(__file__).resolve().parents[1] / "examples/presets/pick_and_place_fake.yaml"
     original = source.read_text(encoding="utf-8")
+    original = original.replace('    name: pick_and_place', '    name: "pick_and_place" # task label\n')
+    original = original.replace('    reset:\n', '    reset:\n      home_joints: [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2]\n')
     if not wrapped:
         original = "# bare env preset\n" + yaml.safe_dump(yaml.safe_load(original)["real_robot"], sort_keys=False)
     preset = tmp_path / "preset.yaml"
@@ -44,15 +46,17 @@ def test_home_set_roundtrip_and_backup(station, tmp_path, capsys, wrapped):
     backup = Path(str(preset) + ".bak")
     backup.write_text("stale backup")
     result = call(station, preset, capsys, "set")
+    backup = Path(result["backup"])
     assert backup.read_bytes() == original.encode("utf-8")
     loaded = yaml.safe_load(preset.read_text())
     env = loaded["real_robot"] if wrapped else loaded
     assert env["task"]["reset"]["home_joints"] == [0.0] * 7
     assert all(type(value) is float for value in env["task"]["reset"]["home_joints"])
     assert env["task"]["reset"]["xyz_jitter_m"] == [0.01, 0.01, 0.0]
-    assert "comments in " in result["warning"]
-    assert str(backup) in result["warning"]
-    assert "#" not in preset.read_text()
+    assert "warning" not in result
+    from test_yaml_edit import assert_only_key_changed
+    key = ('real_robot', 'task', 'reset', 'home_joints') if wrapped else ('task', 'reset', 'home_joints')
+    assert_only_key_changed(original, preset.read_text(), key)
     shown = call(station, preset, capsys, "show")
     assert shown["source"] == "preset task.reset.home_joints"
     assert shown["home_joints"] == [0.0] * 7
@@ -163,10 +167,11 @@ def test_home_set_needs_preset(station, capsys):
     assert "--preset" in call(station, None, capsys, "set", code=2)["error"]
 
 
-def test_home_set_prints_diff_and_comment_warning(station, tmp_path, capsys):
+def test_home_set_prints_diff_and_backup(station, tmp_path, capsys):
     preset = tmp_path / "preset.yaml"
     preset.write_text("# keep old text in backup\ntask:\n  reset:\n    home_joints: [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2]\n")
     assert main(["--station", str(station), "--preset", str(preset), "home", "set"]) == 0
     text = capsys.readouterr().out
     assert " -> [0.0000," in text
-    assert f"comments in {preset} are not preserved; previous file kept as {preset}.bak" in text
+    assert f"Previous file kept as {preset}." in text
+    assert "# keep old text in backup" in preset.read_text()

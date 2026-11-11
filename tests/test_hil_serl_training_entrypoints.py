@@ -664,7 +664,8 @@ def test_build_env_robot_teleop_device_wraps_teleop_part_source_in_order(_fake_r
     try:
         types = [type(layer) for layer in _chain(env)]
         from real_world_rl.envs.wrappers.experiment import ExperimentContractWrapper
-        assert types[:4] == [ExperimentContractWrapper, GraspPenaltyWrapper, TeleopInterventionWrapper, ImageFrameStackWrapper]
+        assert types[:3] == [ExperimentContractWrapper, GraspPenaltyWrapper, TeleopInterventionWrapper]
+        assert issubclass(types[3], ImageFrameStackWrapper)
         assert RealRobotVectorEnv in types
         assert isinstance(env.env.teleop, TeleopPartSource)
     finally:

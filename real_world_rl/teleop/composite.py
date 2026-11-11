@@ -129,6 +129,7 @@ class CompositeTeleopSource(TeleopSource):
             events={**dict(event_reading.events), **dict(motion_reading.events)},
             timestamp=motion_reading.timestamp,
             buttons=motion_reading.buttons,
+            diagnostics=getattr(motion_reading, "diagnostics", {}),
             human_action_mask=None if motion_reading.human_action_mask is None else motion_reading.human_action_mask & bool(intervened),
             override_mask=None if motion_reading.override_mask is None else motion_reading.override_mask & bool(intervened),
         )

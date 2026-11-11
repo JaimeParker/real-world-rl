@@ -3,10 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-import os
 from pathlib import Path
-import shutil
-import tempfile
 from typing import Any
 
 import yaml
@@ -47,18 +44,20 @@ class Preset:
     document: dict
     env: dict
     reset: dict
+    raw: bytes | None = None
 
     @classmethod
     def load(cls, path: str | None) -> Preset:
         if path is None:
             return cls(None, {}, {}, {})
         preset_path = Path(path)
-        document = mapping(yaml.safe_load(preset_path.read_text(encoding="utf-8")), "preset")
+        raw = preset_path.read_bytes()
+        document = mapping(yaml.safe_load(raw), "preset")
         # Training presets wrap env settings in real_robot; bare env mappings work too.
         env = mapping(document["real_robot"], "real_robot") if "real_robot" in document else document
         task = mapping({} if env.get("task") is None else env["task"], "task")
         reset = mapping({} if task.get("reset") is None else task["reset"], "task.reset")
-        return cls(preset_path, document, env, reset)
+        return cls(preset_path, document, env, reset, raw)
 
     def save_home(
         self, current: list[float], limits: list[tuple[str, Any]], *, num_joints: int
@@ -82,20 +81,9 @@ class Preset:
         if reset is None:
             reset = task["reset"] = {}
         reset["home_joints"] = updated
-        text = yaml.safe_dump(self.document, sort_keys=False, allow_unicode=True)
-        backup = Path(str(self.path) + ".bak")
-        # Render and validate first, then back up exact bytes before the atomic replacement.
-        shutil.copyfile(self.path, backup)
-        temporary = None
-        try:
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.path.parent,
-                                             prefix=f".{self.path.name}.", delete=False) as stream:
-                temporary = Path(stream.name)
-                stream.write(text)
-            shutil.copymode(self.path, temporary)
-            os.replace(temporary, self.path)
-        finally:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
-        warning = f"comments in {self.path} are not preserved; previous file kept as {backup}"
-        return {"old": old, "home_joints": updated, "backup": str(backup), "warning": warning}
+        from real_world_rl.common.yaml_edit import atomic_replace, render_changes
+        text = render_changes(self.document, self.raw)
+        saved = atomic_replace(self.path, text, self.raw)
+        self.raw = text.encode("utf-8")
+        self.reset = reset
+        return {"old": old, "home_joints": updated, "backup": saved["backup"]}

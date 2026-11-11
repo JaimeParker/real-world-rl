@@ -37,6 +37,7 @@ Flags, file formats and hardware details.
 - [Recording demos: recorder flags and the pkl format](recording-demos.md)
 - [`examples/presets/hil_single_arm.yaml`](../examples/presets/hil_single_arm.yaml): the single-arm env preset
 - [rwrl: station command line](cli.md)
+- [SpaceMouse commissioning: profiles, task-frame workspace, sessions](spacemouse-commissioning.md)
 - [robot_infra: device layer, setup wizard, doctor, daemon](../robot_infra/README.md)
 - [Real-world experiments](real-world-experiments.md): durable uploads, recovery, outcomes,
   partial takeover, trajectory archives, tasks and observations

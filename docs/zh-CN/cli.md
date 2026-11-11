@@ -4,17 +4,15 @@
 
 # rwrl：工作站命令行
 
-[中文入口](../README.zh-CN.md) · [English](../cli.md)
-
 `rwrl` 提供录制、训练和部署脚本之间使用的硬件原语：检查工作站、保存 home 姿态、回 home、操作夹爪、停止机械臂或恢复错误。人和 agent 使用同一套命令；`--json`、`--yes` 和退出码使内置原语适合非交互调用。
 
 <a id="where-to-run"></a>
 
 ## 在哪里运行
 
-安装 `real-world-rl` 包及工作站所需的 `robot_infra` 依赖后，该环境中即可使用 `rwrl`，等价于 `python -m real_world_rl.cli`。见[安装教程](tutorial/01-install.md)。硬件命令在**连接设备的机器人主机**上运行，并激活项目环境。NUC 只是可选机型，命令不依赖特定电脑；支持源码检出和已安装的包。工作站和预设的相对路径相对于当前工作目录，仓库根目录适合运行本文使用仓库相对路径的示例。每次原语调用都会连接设备，并在结束后断开，失败时也会断开。
+安装 `real-world-rl` 包及工作站所需的 `robot_infra` 依赖后，该环境中即可使用 `rwrl`，等价于 `python -m real_world_rl.cli`。见[安装教程](tutorial/01-install.md)。硬件命令在连接设备的**机器人主机**上运行，并**激活项目环境**。NUC 只是可选机型，命令不依赖特定电脑；支持源码检出和已安装的包。工作站和预设的相对路径相对于当前工作目录，源码检出便于运行仓库相对路径示例。每次原语调用都会连接设备，并在结束后断开，失败时也会断开。
 
-全局选项必须放在**命令之前**，包括将 `--preset` 放在 `home` 或 `doctor` 之前。`rwrl --help` 查看包装层帮助；`rwrl doctor --help`、`rwrl setup --help`、`rwrl daemon --help`、`rwrl supervise --help` 显示被转发 CLI 的帮助。
+全局选项必须放在**命令之前**，包括将 `--preset` 放在 `home` 或 `doctor` 之前。`rwrl --help` 查看包装层帮助；`rwrl doctor --help`、`rwrl setup --help`、`rwrl daemon --help`、`rwrl supervise --help` 显示各 CLI 的帮助。
 
 <a id="global-options"></a>
 
@@ -62,10 +60,16 @@ Franka FCI 只允许一个控制连接。直连路线中，先结束 recorder/ac
 | `gripper move F` | 设归一化宽度为有限数 `F`，满足 `0 <= F <= 1` | 夹爪运动 | 需要，或 `--yes` | 0 / 1 / 2 |
 | `stop` | 调用臂 `stop()`；成功打印 `stop: ok` | 停臂 | 无 | 0 / 1 / 2 |
 | `recover` | 调用臂 `recover()`；成功打印 `recover: ok` | 清除臂错误 | 无 | 0 / 1 / 2 |
-| `doctor` | 检查主机与已配置设备，预览针对性修复 | 读取；`--fix` 修复主机/软件，不恢复机器人或执行运动 | 整份计划确认一次，或 `--yes` | 0 / 1 / 2 |
+| `doctor` | 检查主机与已配置设备，预览针对性修复 | 读取；`--fix` 修复主机/软件，不恢复机器人或执行运动 | 整份修复计划确认一次，或 `--yes` | 0 / 1 / 2 |
 | `setup` | 转发到 `robot_infra.setup.__main__` | 发现、标定和 doctor | 向导原有提问 | 原样保留原 CLI 状态 |
 | `daemon` | 转发到 `robot_infra.server.daemon` | 预检查，为客户端运动提供硬件服务 | 无包装层提示 | 原样保留原 CLI 状态 |
 | `supervise` | 转发到 `robot_infra.supervise.supervisor` | 取决于子命令 | 取决于子命令 | 原样保留原 CLI 状态 |
+| `teleop calibrate` | 拟合并验证方向映射；见 [spacemouse-commissioning.md](spacemouse-commissioning.md) | 仅输入；可选写文件 | 保存/启用确认 | 0 / 1 / 2 |
+| `teleop profiles list/show/use` | 检查或选择具名标定档案（profile）；见 [spacemouse-commissioning.md](spacemouse-commissioning.md) | 无运动；use 写入工作站 | use 时确认保存 | 0 / 1 / 2 |
+| `teleop diagnose` | 仅输入诊断或受监督的运动诊断；见 [spacemouse-commissioning.md](spacemouse-commissioning.md) | 仅 `--motion` 涉及运动 | 涉及运动时确认 | 0 / 1 / 2 |
+| `teleop run` | 带回合保持的受监督录制；见 [spacemouse-commissioning.md](spacemouse-commissioning.md#supervised-recording-sessions) | reset 与遥操作 | 需要，或 `--yes` | 子进程状态或包装层错误 |
+| `workspace show/capture/set/validate` | 检查、采样或配置约束；见 [spacemouse-commissioning.md](spacemouse-commissioning.md) | capture 读取 TCP；无运动 | 涉及保存时确认 | 0 / 1 / 2；文本模式验证失败为 5 |
+| `teleop inspect-stop` | 离线评估已保存的停止证据；见 [spacemouse-commissioning.md](spacemouse-commissioning.md#live-input-calibration-and-diagnosis) | 无硬件连接 | 无 | 0 PASS / 3 FAIL / 4 BLOCKED；其他情况为错误码 |
 
 转发保留剩余参数、输出和返回状态，不添加原语的 JSON 外层或包装层运动提示。转发命令之后的选项属于该 CLI。包装层仅转换以下全局选项：
 
@@ -76,13 +80,13 @@ Franka FCI 只允许一个控制连接。直连路线中，先结束 recorder/ac
 | `daemon` | `--station` → `--config`、`--robot` |
 | `supervise` | 无；supervisor 和子命令选项均放在 `supervise` 之后 |
 
-其他包装层全局选项对这些 CLI 不生效。doctor 的 `--yes` 必须搭配 `--fix` 或 `--install-sdk`。doctor 使用版本化 JSON 报告，与原语 JSON 和底层 `python -m robot_infra.doctor` 的输出不同。Python doctor、setup、daemon 和监督接口见[设备层 README](robot-infra.md#3-check-with-the-doctor)。
+其他包装层全局选项对这些 CLI 不生效。doctor 的 `--yes` 必须搭配 `--fix` 或 `--install-sdk`。其版本化 JSON 报告与原语 JSON 和底层 `python -m robot_infra.doctor` 的报告不同。Python doctor、setup、daemon 和监督接口见[设备层 README](robot-infra.md#3-check-with-the-doctor)。
 
 <a id="robot-host-diagnosis-and-repair"></a>
 
 ## 机器人主机诊断与修复
 
-在机器人主机激活项目 venv 或非 base conda 环境。支持源码检出与已安装的包，不要求位于仓库根目录。全新机器应先按[安装教程](tutorial/01-install.md) 安装 Python、项目环境和项目；doctor 修复该环境，不负责引导安装 Python。主机与 USB 发现不需要工作站文件：
+在机器人主机激活项目 venv 或非 base conda 环境。支持源码检出与已安装的包，不要求位于仓库根目录。全新机器应先按[安装教程](tutorial/01-install.md) 安装 Python、环境和项目；doctor 修复该环境，不负责引导安装 Python。主机与 USB 发现不需要工作站文件：
 
 ```bash
 rwrl doctor
@@ -90,9 +94,9 @@ rwrl --station local/station.yaml --preset hil.yaml doctor
 rwrl --station local/station.yaml doctor --fix
 ```
 
-前两个命令只检查并显示修复计划。`--fix` 先显示命令、专用配置文件内容及后续操作，确认一次后执行，再重新检查。独立修复在其它项目失败后继续；依赖失败的修复会阻塞。重查发现的新问题需重新审阅计划。
+前两个命令只检查并显示修复计划，不执行修复。`--fix` 先显示命令、专用配置文件内容及后续操作，确认一次后执行已批准的计划，再重新检查。独立修复在其它项目失败后继续；依赖失败的修复会阻塞。重查发现的新问题需重新审阅计划。
 
-每项操作按主机能力选择，不以机型、发行版版本或 CPU 架构作为整体白名单。硬件 SDK 仍须提供兼容的 wheel、驱动及受支持设备；识别操作系统不等于硬件验收通过。
+每项操作按能力选择，不使用机型、发行版版本或 CPU 架构白名单。硬件 SDK 仍须提供兼容的 wheel、驱动及受支持设备；识别操作系统不等于硬件验收通过。
 
 | 主机能力 | 可用行为 |
 |---|---|
@@ -101,42 +105,42 @@ rwrl --station local/station.yaml doctor --fix
 | 原生 Linux，具备 udev、用户组工具、PAM limits 或运行中的 systemd | 仅执行相应规则、用户组、限制或有证据的服务冲突修复；其它发行版即使没有 apt 也可使用相应能力。 |
 | 容器、WSL、macOS、Windows | Python 元数据/导入诊断及项目环境中的 Python 修复；阻塞原生硬件探测和主机系统修复。 |
 
-不具备所需修复能力时，明确标为 `BLOCKED` 并给出手工操作提示；其它受支持操作可继续。非 apt 发行版的系统包安装由用户处理。缺失的同仓库项目发行包仅在存在相应源码时自动从本地安装；已安装包模式缺少该源码时，提示从可信的项目发行源安装匹配版本，不猜测源码路径，也不静默改装同名公共包。
+不具备所需修复能力时，明确给出 `BLOCKED` 原因及手工后续操作；其它独立的受支持操作可继续。非 apt 发行版的系统包安装仍由用户手工处理。缺失的同仓库项目发行包在存在已核验本地源码树时从该源码修复；已安装包模式缺少该源码时，给出 `BLOCKED` 提示，要求从可信项目包来源安装匹配发行包。doctor 不猜测源码路径，也不静默改装名称相似的公共包。
 
 检查覆盖：
 
-- 按包元数据检查 Python 依赖与版本约束。保留已满足的版本；SDK 导入损坏时重装原版本。
-- SpaceMouse 支持的 USB 产品 ID、USB/libusb 权限、系统 libusb/libudev 的实际加载及 hidraw 规则。hidraw 可读不代表 libusb 已可用。
-- 已标定 GELLO 的串口/事件权限、实际生效的用户组、指定 FTDI 适配器延迟与有证据的 brltty 冲突。未配置的串口仅作为候选，不自动选择标定。
-- RealSense USB 权限与读帧；已配置 Franka/Hand 的连接、SDK 握手、反馈和实时权限。
-- 内核实时状态。可能涉及内核更换时明确给出 **重大修改 / DOUBLE CHECK** 提示，不自动修改内核或启动项。
+- 缺失的诊断工具及项目/设备 Python 依赖，包括包元数据中的版本约束。保留已满足的包；SDK 导入损坏时修复其已安装版本。
+- SpaceMouse USB/libusb 访问及受支持产品 ID、系统 libusb/libudev 库是否可加载（缺失或损坏时使用 apt 修复），以及 hidraw 规则。仅 hidraw 节点可读不能证明 USB SDK 可访问。
+- 已调试 GELLO 的串口/事件访问、实际生效的用户组、指定 FTDI 的延迟设置及 brltty 冲突证据。未调试的串口适配器仅作为候选；doctor 不选择其标定。
+- RealSense USB 权限与读帧，以及已配置 Franka/Hand 的连接、SDK 握手、反馈和实时权限。
+- 内核实时状态；可能需要内核操作时给出手工 **重大修改 / DOUBLE CHECK** 警告。不执行内核或启动配置修改。
 
-工作站和预设决定预期设备；已识别的 SpaceMouse/RealSense 也可独立检查。配置的设备缺失为 `BLOCKED`；未配置、未识别的设备为 `SKIPPED`，不算硬件验收通过。doctor 不恢复错误、不 homing、不执行机器人运动。有 daemon、控制器或设备占用时阻塞独占探测/修复，不停止进程或接管控制权。
+工作站和预设配置决定预期设备；已识别的 SpaceMouse/RealSense USB 设备也可独立检查。配置的设备缺失为 `BLOCKED`。未配置、未识别的设备为 `SKIPPED`，不算已正常工作。doctor 从不恢复错误、回 home 或命令机器人运动。活动 daemon、控制器或设备持有者会阻塞独占探测/修复；doctor 不停止或接管其它进程。
 
-非 root 用户的系统修复逐条使用 sudo；Python 修复只用当前项目解释器，绝不 sudo pip。交互执行可请求 sudo 授权；无人值守前先在终端授权：
+非 root 用户的系统修复逐条使用 sudo；Python 修复只用当前项目解释器，绝不使用 sudo pip。交互执行可请求 sudo 授权。无人值守执行前，先在终端授权 sudo：
 
 ```bash
 sudo -v
 rwrl --station local/station.yaml --yes --json doctor --fix
 ```
 
-`--yes` 只跳过计划确认，不绕过平台、环境、占用和 sudo 检查。无 TTY 且未指定 `--yes` 时不执行修复。缺少 sudo 授权为 `BLOCKED`，不从管道读取密码。`--install-sdk` 仅按失败握手返回的服务端版本选择 Franky wheel；多个机器人要求不同版本时需分离环境，不按猜测的固件版本选择 SDK。
+`--yes` 跳过计划确认，平台、占用、环境和 sudo 检查仍然有效。无 TTY 且未指定 `--yes` 时拒绝修复。缺少 sudo 授权为 `BLOCKED`；不从管道读取密码。`doctor --install-sdk` 仅按失败握手返回的服务端版本选择受支持的 Franky 替换版本。服务端版本冲突时需分离环境；不会按猜测的固件版本选择 SDK。
 
-修复可安装缺失工具、增加用户组、写入专用 `/etc/udev/rules.d/99-rwrl-*.rules` 和当前用户的实时限制，并重载规则。覆盖前备份旧内容；检查后文件被他人修改则拒绝覆盖。重新插拔或重新登录要求保持 `PENDING_ACTION`，直到实际验证。IP、路由、固件、内核、启动配置与重启均由用户手工处理。
+修复可安装缺失的主机工具、增加用户组、写入专用 `/etc/udev/rules.d/99-rwrl-*.rules` 和当前用户的实时限制，并重载 udev 规则。托管文件的旧内容会被备份；并发修改会被拒绝。设备可能仍需拔插或重新登录，在独立验证前保持 `PENDING_ACTION`。网卡地址/路由、固件、内核、启动配置和重启均由用户手工处理。
 
-每次运行保存脱敏诊断 `before.json`、`plan.json`、`report.json`、`commands.log`，以及必要的原始配置备份和暂存文件。报告基础目录优先级为：
+每次运行保存已隐藏凭据的诊断：`before.json`、`plan.json`、`report.json` 和 `commands.log`，以及必要的精确配置备份/暂存文件。报告基础目录按以下顺序选择：
 
 1. `doctor --report-dir PATH`。
 2. `$RWRL_DOCTOR_REPORT_DIR`。
 3. 源码检出目录下可写、已被 gitignore 忽略的 `local/doctor/`。
-4. 用户状态目录：Linux 为 `${XDG_STATE_HOME:-~/.local/state}/rwrl/doctor/`；macOS 为 `~/Library/Application Support/rwrl/doctor/`；Windows 为 `%LOCALAPPDATA%/rwrl/doctor/`。
+4. 用户状态目录：Linux 为 `${XDG_STATE_HOME:-~/.local/state}/rwrl/doctor/`，macOS 为 `~/Library/Application Support/rwrl/doctor/`，Windows 为 `%LOCALAPPDATA%/rwrl/doctor/`。
 
-每次创建 `<UTC 时间戳>-<id>/` 子目录。显式指定不可写目录时报错；源码目录不可写时退回用户状态目录，不写入 `site-packages`。POSIX 目录权限为 0700、文件为 0600；Windows 应通过 ACL 保证基础目录私密。备份保留原始字节，应保护整个报告目录。`--json` 在 stdout 输出一个 schema-version-1 对象，包含 `checks`、`repairs`、`remaining_plan`、`report_directory` 及每个机器人的底层 `results`；诊断与确认提示写 stderr。参数、配置或报告创建错误退出码为 2，请求 JSON 时输出 JSON 错误对象；报告目录已创建的配置错误另保存 `error.json`。
+每次创建 `<UTC timestamp>-<id>/` 子目录。显式指定不可写目录时报错；源码目录不可写时退回用户状态目录。报告不写入 `site-packages`。POSIX 报告目录权限为 0700、文件为 0600；Windows 应通过 ACL 保证基础目录私密。备份保留原始字节，应将整个目录视为私密数据。`--json` 在 stdout 输出一个 schema-version-1 对象，包含 `checks`、`repairs`、`remaining_plan`、`report_directory` 及每个机器人的底层 `results`；诊断与提示写 stderr。参数、配置和报告创建错误以 2 退出，请求 JSON 时输出 JSON 错误对象。报告目录已创建时，配置错误还会保存 `error.json`。
 
 | Doctor 结果 | 退出码 |
 |---|---|
-| 仅有 `PASS`、`WARN`、`SKIPPED` | 0；硬件验收仍须核对实际检查覆盖 |
-| 存在 `FAIL`、`BLOCKED`、`PENDING_ACTION` | 1 |
+| 仅有 `PASS`、`WARN` 或 `SKIPPED` | 0；硬件验收前仍须核对检查覆盖 |
+| 存在 `FAIL`、`BLOCKED` 或 `PENDING_ACTION` | 1 |
 | 参数或配置无效 | 2 |
 
 高级用户可调用 `real_world_rl.cli.doctor.main(argv)`，或继续使用底层 `robot_infra.doctor` API。底层有自己的修复语义；`rwrl doctor` 的设备探测始终使用 `fix=False`。
@@ -153,7 +157,7 @@ Home 解析与 `env.reset()` 一致，顺序如下：
 
 值为 null 则继续查下一来源。全部没有 home 时报错并以 1 退出。`home show` 打印来源、home、当前关节、`home - q` 及最大绝对差值。
 
-要复现本页全部 mock 示例，在机器人主机另开一个终端，进入仓库根目录并激活项目环境。如有需要先创建 `local/`，再自行编写 `local/mock-station.yaml`，内容如下：
+要复现本页全部 mock 示例，在机器人主机另开一个终端，为这些相对路径示例进入仓库根目录，并激活项目环境。如有需要先创建 `local/`，再自行编写 `local/mock-station.yaml`，内容如下：
 
 ```yaml
 type: franka
@@ -185,17 +189,17 @@ delta (home - q, rad): [0.1000, 0.0000, 0.0000, -1.5000, 0.0000, 1.5000, 0.7000]
 max delta: 1.500000 rad
 ```
 
-`home go` 只执行 reset 的 home 阶段：阻塞关节运动后，若有夹爪且 `task.reset.gripper` 为 `open` 或 `close`，再执行该动作。`keep` 保持夹爪不变。它跳过 lift、waypoints、jitter 和 settle，不等于完整任务 reset；结果报告运动后的关节和差值。
+`home go` 只执行 reset 的 home 阶段：阻塞关节运动后，若有夹爪且 `task.reset.gripper` 为 `open` 或 `close`，再执行该动作。`keep` 保持夹爪不变。它跳过 lift、waypoints、jitter 和 settle，不是完整任务 reset；结果报告运动后的关节和差值。
 
 `home set` 必须指定已有的 `--preset PATH`。它读取实测关节，保留四位小数后写入 `task.reset.home_joints`，缺少 task/reset 映射时会创建。实测值和舍入值均检查可用的工作站/臂限制、预设 `joint_limits` 和预设 `robot.joint_limits`。越界时以 1 失败，在修改预设和备份之前停止。此命令不请求运动确认。
 
-**PyYAML 会重写预设，因此预设中的注释会丢失。** 对预设 `P`，原文件的精确字节在原子替换前保存为 `P.bak`，覆盖更旧的备份。文本输出显示旧 → 新 home，并警告注释不保留、指出备份路径。
+YAML 编辑保留被修改键之外的注释、引号、空行和键顺序。原子替换前，将原始精确字节保存到预设（或工作站/标定档案文件）旁唯一的 `P.<id>.bak`。检测到并发编辑会拒绝写入。文本输出显示旧 → 新 home，并指出备份路径。
 
 <a id="typical-workflow"></a>
 
 ## 典型流程
 
-在机器人主机、仓库根、项目环境激活时，使用与工作站同一实臂和限位相符的已有本地 `hil.yaml` 预设。先结束所有直连的 recorder/actor。
+在机器人主机的仓库根目录、项目环境激活时，使用与工作站同一实臂和限位相符的已有本地 `hil.yaml` 预设。先结束所有直连的 recorder/actor。
 
 ```bash
 rwrl status
@@ -206,7 +210,7 @@ rwrl --preset hil.yaml --yes home go
 rwrl q
 ```
 
-上面两条注释要求按工位拖动流程将臂移到期望 home，并在命令运动前退出 guiding 模式。供参考，在单独的 mock 终端使用前文自行编写的 mock 工作站 YAML 时，报告如下：
+供参考，在单独的 mock 终端使用前文自行编写的 mock 工作站 YAML 时，报告如下：
 
 ```bash
 rwrl --mock status
@@ -260,7 +264,7 @@ gripper width 0.0000 m (0.00 of max_width_m 0.080), grasped=unknown, source Fake
 | 1 | 运行时/设备失败：声明的 daemon 不可达、无 home/夹爪、home 关节值无效、越界或其他异常。 |
 | 2 | 用法/配置选择错误：未知参数、缺少工作站、多机器人工作站缺少 `--robot`、`home set` 缺少 `--preset`、`gripper move F` 无效、daemon 可达时使用 `--direct`、运动被拒绝或取消。 |
 
-错误在 stderr 打印 `error: MESSAGE`，有 hint 时追加 ` (hint: HINT)`。`--json` 还在 stdout 打印 `{"error": "MESSAGE", "hint": "HINT"}`，hint 可为空。`RWRL_DEBUG=1` 会为报告的异常额外在 stderr 打印 traceback。转发命令保留自身状态与输出规则，异常也可能由包装层处理。
+错误在 stderr 打印 `error: MESSAGE`，有 hint 时追加 ` (hint: HINT)`。`--json` 还在 stdout 打印 `{"error": "MESSAGE", "hint": "HINT"}`（hint 可为空）。`RWRL_DEBUG=1` 会为报告的异常额外在 stderr 打印 traceback。转发命令保留自身状态与输出规则，包括由包装层处理的异常。
 
 内置命令成功时，stdout 为一个 JSON 对象，包含 `command`、`path` 和该命令特有字段。以下完整 JSON 示例由 fake 臂初始关节状态推导：
 
@@ -276,4 +280,12 @@ rwrl --mock --json q
 
 ## Agent 调用约定
 
-先运行 `rwrl status` 检查连接与硬件。非交互调用内置原语时，运动使用 `--json --yes`，只读命令使用 `--json`。全局选项放在命令前，检查退出码，同时读取 stderr 的 `error: … (hint: …)` 诊断及 JSON 错误。`--json` 将 stdout 留给结果，SDK 输出、目标和提示移到 stderr。`--yes` 授权所请求的运动，因此发出前核实目标工作站、home 和工作空间。调用 doctor、setup、daemon、supervise 时遵循被转发 CLI 自身的规则。
+先运行 `rwrl status` 检查连接与硬件。非交互调用内置原语时，运动使用 `--json --yes`，只读命令使用 `--json`。全局选项放在命令前，检查退出码，同时读取 stderr 的 `error: … (hint: …)` 诊断及 JSON 错误。`--json` 将 stdout 留给结果，SDK 输出、目标和提示移到 stderr。`--yes` 授权所请求的运动，因此发出前核实目标工作站、home 和工作区。调用 doctor、setup、daemon、supervise 时遵循被转发 CLI 自身的规则。
+
+缺少必需参数时退出码为 2。使用 `--json` 时，错误除 `error` 和 `hint` 外还包含 `required_fields`（CLI 标志名或缺失子命令的目标名称）。SpaceMouse 运行时检查也会报告缺失的预设、采集输出/名称及样本文件要求。这只描述缺少的输入，不授权运动或免除确认。标定的 `NEEDS_SAMPLES` 结果则列出缺失的方向标签，表示采集尚未完成。
+
+<a id="spacemouse-commissioning"></a>
+
+## SpaceMouse 调试
+
+通过 [SpaceMouse 调试指南](spacemouse-commissioning.md) 标定 SpaceMouse 标定档案、审阅任务坐标系（task frame）工作区，并运行受监督的录制和诊断会话。

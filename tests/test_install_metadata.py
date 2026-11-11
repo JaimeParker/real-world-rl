@@ -25,7 +25,7 @@ def load_project(path: Path) -> dict:
 
 def test_root_dependencies_and_extras():
     project = load_project(ROOT / "pyproject.toml")
-    assert {"rl_garden==0.0.1", "rlgarden-robot-infra==0.0.1", "scipy>=1.10"} <= set(
+    assert {"rl_garden==0.0.1", "rlgarden-robot-infra==0.0.1", "scipy>=1.10", "ruamel.yaml>=0.18"} <= set(
         project["dependencies"]
     )
     assert project["optional-dependencies"] == {
@@ -50,6 +50,7 @@ def test_root_dependencies_and_extras():
 def test_device_jpeg_extra_and_local_versions():
     root = load_project(ROOT / "pyproject.toml")
     device = load_project(ROOT / "robot_infra" / "pyproject.toml")
+    assert not any("ruamel" in requirement for requirement in device["dependencies"])
     garden_pyproject = ROOT / "rl-garden" / "pyproject.toml"
     if not garden_pyproject.exists():
         pytest.skip("rl-garden submodule not checked out at the repository root here")

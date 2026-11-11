@@ -435,7 +435,7 @@ class AgxArm(Arm):
                 )
             time.sleep(self.POLL_S)
 
-    def stop(self) -> None:
+    def _stop(self) -> None:
         """pyAgxArm has no hold command (``electronic_emergency_stop`` is a damped descent),
         so stopping re-sends the current joint angles as the ``move_j`` target."""
         self._require_connected()

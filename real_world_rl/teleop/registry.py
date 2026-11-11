@@ -21,6 +21,7 @@ _BUILTIN_MODULES: Dict[str, str] = {
     "gello": "real_world_rl.teleop.gello",
     "leader_arm": "real_world_rl.teleop.leader_arm",
     "keyboard": "real_world_rl.teleop.keyboard",
+    "jsonl": "real_world_rl.teleop.jsonl_events",
     "stdin": "real_world_rl.teleop.stdin",
     "composite": "real_world_rl.teleop.composite",
     "leader_cartesian": "real_world_rl.teleop.leader_cartesian",

@@ -364,6 +364,9 @@ CONSOLE_SCRIPT_PARSERS: dict[str, Callable[[Sequence[str]], None]] = {
 
 def parser_for(argv: Sequence[str]) -> tuple[Callable[[Sequence[str]], None], list[str]]:
     """The parser of ``argv``'s program and the arguments it takes."""
+    if argv[0] == "rwrl":
+        from real_world_rl.cli import build_parser
+        return build_parser().parse_args, list(argv[1:])
     if argv[0] in CONSOLE_SCRIPT_PARSERS:
         return CONSOLE_SCRIPT_PARSERS[argv[0]], list(argv[1:])
     if argv[0] in _PYTHONS and len(argv) >= 3 and argv[1] == "-m" and argv[2] == "robot_infra.supervise":

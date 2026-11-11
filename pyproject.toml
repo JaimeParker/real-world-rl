@@ -14,6 +14,7 @@ dependencies = [
     "torch>=2.1",
     "numpy",
     "scipy>=1.10",
+    "ruamel.yaml>=0.18",
     "gymnasium>=0.29",
     "tyro",
     "requests",

@@ -53,6 +53,8 @@ _LOGGER = logging.getLogger(__name__)
 # In SERL semantics, safety_box also belongs to the compared pose limits.
 _CONTRACT_FIELDS = (
     "task",
+    "task_frame",
+    "workspace",
     "control",
     "preprocess",
     "depth_cameras",
@@ -319,6 +321,12 @@ def _contract_conflicts(cli: Any, trained: Any, defaults: Any, names: tuple[str,
     ]
 
 
+def _training_geometry(config):
+    station = config.robot or {}
+    return {name: getattr(config, name) if getattr(config, name) is not None else station.get(name)
+            for name in ("task_frame", "workspace")}
+
+
 def resolve_deploy_robot_config(args: DeployArgs, training_args: Any) -> RealRobotEnvConfig:
     """The deploy ``RealRobotEnvConfig``: contract fields from training, connection fields from the CLI.
 
@@ -336,6 +344,8 @@ def resolve_deploy_robot_config(args: DeployArgs, training_args: Any) -> RealRob
             "--real_robot.* CLI config as is, so action/observation contract is NOT verified"
         )
         return cli
+    # Local training configs may carry station geometry inside robot instead.
+    trained = replace(trained, **_training_geometry(trained))
     contract_fields = _CONTRACT_FIELDS
     if trained.cartesian_semantics == "serl":
         contract_fields += ("safety_box",)
@@ -365,6 +375,9 @@ def resolve_deploy_bimanual_config(args: DeployArgs, training_args: Any) -> Bima
             "--real_robot_bimanual.* CLI config as is, so action/observation contract is NOT verified"
         )
         return cli
+    trained = replace(trained, **{arm: replace(getattr(trained, arm),
+                                              **_training_geometry(getattr(trained, arm)))
+                                 for arm in _BIMANUAL_ARMS})
     conflicts = _contract_conflicts(cli, trained, BimanualRealRobotEnvConfig(), _BIMANUAL_CONTRACT_FIELDS)
     arm_defaults = RealRobotEnvConfig()
     for arm in _BIMANUAL_ARMS:

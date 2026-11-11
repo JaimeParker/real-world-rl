@@ -1,0 +1,12 @@
+planned_date,actual_start_time,item_id,item_name,expected_result,actual_observation,conclusion,run_directory,issue_id,notes
+,,A1,Input directions,Signed six-axis evidence for rear/front/arbitrary yaw,,NOT_RUN,,,Record tracker and SERL evidence separately where applicable
+,,B1,Host and physical identity,Fresh feedback and independently verified model/installation,,NOT_RUN,,,Record tracker and SERL evidence separately where applicable
+,,B2,Task workspace,Reviewed frame and base/task intersection,,NOT_RUN,,,Record tracker and SERL evidence separately where applicable
+,,C1,Translation,Correct signed directions in both modes,,NOT_RUN,,,Record tracker and SERL evidence separately where applicable
+,,C2,Rotation,Correct signed fixed-frame rotation in both modes,,NOT_RUN,,,Record tracker and SERL evidence separately where applicable
+,,C3,Combined input,Usable six-axis control without fault or measured breach,,NOT_RUN,,,Record tracker and SERL evidence separately where applicable
+,,D1,Repeated intervention,At least two interventions in one episode and policy restoration,,NOT_RUN,,,Record tracker and SERL evidence separately where applicable
+,,D2,End holding,Fixed accepted target; no extra transitions; neutral next; quota hold,,NOT_RUN,,,Record tracker and SERL evidence separately where applicable
+,,D3,Boundary handback,Candidate rejection without sending invalid target; explicit retake,,NOT_RUN,,,Record tracker and SERL evidence separately where applicable
+,,E1,Normal stop,3D <=10 mm; SO3 <=5 deg; dq <=0.02 rad/s for 0.5 s; >=2 s post,,NOT_RUN,,,Record tracker and SERL evidence separately where applicable
+,,F1,Remediation reacceptance,Evidence-based versioned change and repeated affected C-E,,NOT_RUN,,,Record tracker and SERL evidence separately where applicable

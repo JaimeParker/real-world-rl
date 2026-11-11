@@ -628,6 +628,39 @@ teleop: {'name': 'teleop', 'backend': 'fake', 'action_space': 'joint_abs', 'has_
 ```
 
 `arm.safety` is `null` when no limit is configured; `arm.home_joints` is the yaml's value (or `null`).
+The description also includes `arm.safety_capabilities`: `task_workspace_v1` for Cartesian
+workspace enforcement, `accepted_cartesian_target_v1` for accepted-target holding, and, on
+Franky, `stop_trace_v1`. Clients negotiate capabilities before using new behavior; older
+servers cannot certify support. Connected teleop descriptions carry `device_identity` (USB
+vendor/product and available serial/model); `RemoteTeleop.device_identity` exposes that same
+identity for profile verification. Before connecting, identity may be unavailable.
+
+Four RPCs supplement the existing arm commands: `arm.last_cartesian_target`,
+`arm.begin_stop_trace`, `arm.stop_with_trace` (`post_stop_s=2.1`), and
+`arm.last_stop_trace`. `last_cartesian_target` is a copy of the latest Cartesian target in the
+current control segment that passed the arm's safety limits and was handed to the backend.
+Any `stop()`, `stop_with_trace()`, control-mode switch or disconnect ends the segment, and
+the value is then `null` until the next successful `servo_cartesian`. It is never measured
+feedback. `piper_sdk` and `pyagxarm` still convert the target in the backend (millimetre or
+milli-degree rounding, quaternion to RPY), so it is not exactly what those arms received.
+`Arm.stop()` is a template: it clears the target and then calls the backend's `_stop()`.
+A backend implements `_stop()`, never `stop()`. `begin_stop_trace` starts bounded sampling
+on the existing connection;
+SDK fingerprints/static metadata are collected outside the stop/service locks and cached
+per connection. Prior sampler joins also occur outside the stop lock.
+
+`stop()` retains its ordinary Franky error semantics: failures are noted in health without
+raising. Only `stop_with_trace` raises `DeviceFault` for stop failure, retaining FAIL evidence
+in `last_stop_trace`. It sends stop before attempting to create a missing recorder; preparation
+failure produces BLOCKED evidence after direct stop. Read/stop RPCs remain available during
+post-stop observation, while control writes are refused. Slow camera acquisition in
+`robot.step` does not hold the dispatch lock needed by `arm.stop`.
+
+Stop traces record `control_mode` and `tracker_active` at stop start, and each sample's SDK
+`robot_mode`. An already IDLE/inactive arm yields BLOCKED (`no active motion at stop`), even
+if every pose is stationary. Robot-mode faults and stop failures yield FAIL; missing or
+unknown mode/coverage evidence cannot yield PASS. Sampled stop acceptance is not a
+continuous-time physical guarantee.
 
 ### 5. Use the robot from the GPU machine
 
@@ -892,8 +925,9 @@ own.
 **`Arm` is a template-method class.** The public `servo_cartesian`, `servo_joints`,
 `move_to_pose` and `move_to_joints` sanitize the input (shape, finiteness, unit quaternion),
 apply the safety limits and only then call the backend hooks `_servo_cartesian`,
-`_servo_joints`, `_move_to_pose` and `_move_to_joints`. A backend implements the hooks (plus
-`read_state`, `stop`, `recover`, `_enter_control_mode`) and never overrides the public
+`_servo_joints`, `_move_to_pose` and `_move_to_joints`. Likewise the public `stop()` clears
+`last_cartesian_target` and then calls the backend hook `_stop`. A backend implements the
+hooks (plus `read_state`, `recover`, `_enter_control_mode`) and never overrides the public
 methods, so no path to the motors skips the guard. A backend's `read_state()` must return its
 result through `self._remember_state(state)`: the step cap reuses that cached state (at most
 `MAX_DELTA_STATE_AGE_S` = 0.5 s old, else it re-reads) instead of querying the robot on every
@@ -922,8 +956,10 @@ A third-party backend that skips `_remember_state` still works but costs one ext
   `robot.send_action`, `robot.step`) and `send_action`. A `RemoteArm` has no guard of its own and
   forwards to the daemon's.
   - `servo_*`: the target is first shortened to `max_delta_per_step` from the measured state, then
-    clipped into the box / joint limits. Any change counts one `safety_clips` and the command is
-    still sent.
+    clipped into the base box / joint limits. Any accepted change counts one `safety_clips`.
+    With `workspace` configured, Cartesian targets must also satisfy its oriented position box
+    and optional SO(3) orientation radius, both before and after base-box clipping. A workspace
+    rejection raises `SafetyViolation`, increments `safety_rejects`, and sends nothing.
   - `move_to_*`: a target outside the box / joint limits raises `SafetyViolation`, counts one
     `safety_rejects`, and nothing is sent. `move_to_*` is not step-capped.
   - `SafetyViolation` is not a device fault: it is raised before the backend is touched, so it
@@ -932,14 +968,25 @@ A third-party backend that skips `_remember_state` still works but costs one ext
   - `arm.health()` reports `safety_clips` / `safety_rejects`; `robot.describe` exposes the limits
     as `arm.safety`. The checks are validated at build time: `home_joints` must lie inside
     `joint_limits`, a box must have min <= max.
-  - Limits apply to the position of `tcp_pose` only. The orientation is not limited and not step
-    capped (see [Known limitations](#known-limitations-and-needs-hardware-verification)).
+  - `safety_box` and the Cartesian step cap limit position only. A workspace may additionally
+    constrain orientation with `orientation_xyzw` (in its frame) and `max_angle_rad` (SO(3)
+    geodesic radius, avoiding Euler branch cuts). Orientation has no device-side step cap.
+    Joint commands are not checked against Cartesian workspace boundaries: these limits do not
+    certify a joint trajectory, whole-arm clearance, or collision-free motion.
+  - Target checks use `1e-9` numerical tolerance. Feedback checks use workspace keys
+    `measured_margin_m` (default `0.003 m`) and `measured_margin_rad` (default `0.03 rad`),
+    both finite and nonnegative. The environment and teleop tracker use these feedback margins;
+    they never relax target admission. A `task_frame` without a workspace is a display/sampling
+    reference and adds no spatial contract. With a workspace, both geometries are compared
+    against the daemon before reset.
 - **Watchdog.** The daemon idles a servoing arm whose client went quiet (see step 4).
 - **`DeviceClaim`.** An advisory, node-local file lock in `~/.cache/robot_infra/claims/`,
   keyed `<type>:<robot_ip | can_interface | name>`. The daemon holds it while a client is
   connected, so a second daemon on the same robot gets `DeviceBusy`. It does not protect
   against other hosts or against code that does not take the claim. Set `claim: false`
-  to opt out.
+  to opt out. The SpaceMouse reader also claims its HID endpoint by default and honors the
+  same `RobotConfig.claim` setting when built as a robot teleop part. Its supported device
+  table equals PySpaceMouse 1.0.3; unverified product `0x256f:0xc63a` is not included.
 
 ### Error model
 
@@ -956,7 +1003,7 @@ Device errors subclass `DeviceError` (a `RuntimeError`) and carry `message`, `hi
 | `device_busy` | `DeviceBusy` | another process holds the claim |
 | `device_fault` | `DeviceFault` (`recoverable: bool`) | reflex, e-stop, no feedback, wrong mode, watchdog |
 | `version_mismatch` | `VersionMismatch` | libfranka vs robot server version; the wrong distribution `hid` without trezor's `hid.device()` API |
-| `safety_violation` | `SafetyViolation` | a `move_to_*` target outside `safety_box` / `joint_limits`; message lists the offending axes, hint `change the target, or the limits in the robot yaml on the robot host` |
+| `safety_violation` | `SafetyViolation` | a Cartesian servo/move target outside `workspace` (position or orientation), or a `move_to_*` target outside `safety_box` / `joint_limits`; refused before sending, counted by `safety_rejects` |
 | `transport` | `TransportError` (a `DeviceFault`) | daemon unreachable, timeout, token mismatch |
 
 ## Testing
@@ -994,9 +1041,10 @@ Nothing below has been exercised on real hardware; the fakes cover the logic onl
   `discover()` globs, sync-read timing per baud rate, the FTDI latency timer (16 ms by default;
   1 ms is the usual Dynamixel tip, not set by the backend), and that the present position stays
   continuous when a joint crosses a turn boundary.
-- **Orientation is not limited.** `safety_box` limits the position, `max_delta_per_step` the
-  position (`xyz_m`) and joints (`joint_rad`) only. A client that servos `tcp_pose` directly can
-  command a large rotation in one step (the gym env bounds it with its own `rot_scale_rad`).
+- **Orientation step size.** A workspace can bound orientation relative to a reference;
+  `safety_box` and `max_delta_per_step` still limit only position (`xyz_m`) and joints
+  (`joint_rad`). There is no device orientation step cap. The gym env bounds its own rotation
+  increment with `rot_scale_rad` and projects policy targets into the configured workspace.
 - **Step cap baseline.** The cap is measured from the last read state (at most 0.5 s old), not
   from the previous target, so the worst distance between a target and the true position is about
   twice the cap, without accumulating.

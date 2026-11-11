@@ -190,6 +190,14 @@ class InterventionWrapper(gym.Wrapper):
         if not intervened:
             human_mask = human_mask.reshape(1, -1).to(policy_action.device)
             override_mask = torch.zeros_like(human_mask)
+        node, seen = self.env, set()
+        while node is not None and id(node) not in seen:
+            seen.add(id(node))
+            setter = getattr(type(node), "set_teleop_diagnostics", None)
+            if callable(setter):
+                setter(node, {"input": dict(getattr(reading, "diagnostics", {})), "intervened": intervened})
+                break
+            node = vars(node).get("env") if hasattr(node, "__dict__") else None
         obs, reward, terminated, truncated, info = self.env.step(action)
         # The env clips actions to [-1, 1], so these are the gripper actions it actually sent.
         self._last_gripper_action = (

@@ -78,7 +78,7 @@ def home_command(args, connection, preset: Preset) -> tuple[dict, str]:
             limits.append(("arm joint_limits", arm_limits.get("joint_limits")))
         result = preset.save_home(current, limits, num_joints=connection.arm.num_joints)
         return result, (f"task.reset.home_joints: {result['old']} -> {numbers(result['home_joints'])}\n"
-                        f"{result['warning']}")
+                        f"Previous file kept as {result['backup']}")
     home, source = resolve_home(preset, connection)
     delta, largest = delta_to(home, current)
     if args.action == "go":

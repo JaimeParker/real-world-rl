@@ -87,6 +87,7 @@ class Arm(ControllablePart, BackendRegistry, ABC):
         self._safety_rejects = 0
         self._last_state: dict[str, np.ndarray] | None = None
         self._last_state_time: float | None = None
+        self._last_cartesian_target: np.ndarray | None = None
 
     @classmethod
     def from_config(cls, config: "RobotConfig", *, name: str = "arm") -> "Arm":
@@ -151,6 +152,10 @@ class Arm(ControllablePart, BackendRegistry, ABC):
         return self._control_mode
 
     @property
+    def safety_capabilities(self) -> tuple[str, ...]:
+        return ("task_workspace_v1", "accepted_cartesian_target_v1")
+
+    @property
     def safety_limits(self) -> dict | None:
         return None if self._safety is None else self._safety.to_dict()
 
@@ -210,7 +215,17 @@ class Arm(ControllablePart, BackendRegistry, ABC):
 
     # -- command templates: sanitize -> safety guard -> backend ------------------------
 
+    @property
+    def last_cartesian_target(self) -> np.ndarray | None:
+        """The latest target of this control segment that passed ``ArmSafety`` and was handed to
+        the backend; never measured feedback. None after any ``stop()``, ``stop_with_trace()``,
+        control-mode switch or ``disconnect()``. Backends that convert the target further inside
+        ``_servo_cartesian`` (piper_sdk, pyagxarm: rounding, RPY conversion) may send a slightly
+        different value to the device."""
+        return None if self._last_cartesian_target is None else self._last_cartesian_target.copy()
+
     def servo_cartesian(self, pose: np.ndarray) -> None:
+        """Limit steps and clip the base box; reject workspace breaches and count them."""
         self._require_connected()
         pose = self._sanitize_pose(pose)
         if self._safety is not None:
@@ -219,10 +234,15 @@ class Arm(ControllablePart, BackendRegistry, ABC):
                 current = self._current_state_field("tcp_pose")
                 if current is not None:
                     pose, stepped = self._safety.limit_step_pose(pose, current)
-            pose, boxed = self._safety.clip_pose(pose)
+            try:
+                pose, boxed = self._safety.clip_pose(pose)
+            except SafetyViolation:
+                self._safety_rejects += 1
+                raise
             if stepped or boxed:
                 self._safety_clips += 1
         self._servo_cartesian(pose)
+        self._last_cartesian_target = pose.copy()
 
     def servo_joints(self, q: np.ndarray) -> None:
         self._require_connected()
@@ -320,6 +340,15 @@ class Arm(ControllablePart, BackendRegistry, ABC):
         self._enter_control_mode(mode)
         self._control_mode = mode
 
+    def stop(self) -> None:
+        """Bring the arm to rest and end the control segment: ``last_cartesian_target`` is None
+        afterwards, even when the backend stop raises."""
+        self._last_cartesian_target = None
+        self._stop()
+
+    def _disconnected(self) -> None:
+        self._last_cartesian_target = None
+
     @abstractmethod
     def read_state(self) -> dict[str, np.ndarray]: ...
 
@@ -336,7 +365,7 @@ class Arm(ControllablePart, BackendRegistry, ABC):
     def _move_to_joints(self, q: np.ndarray, blocking: bool = True) -> None: ...
 
     @abstractmethod
-    def stop(self) -> None: ...
+    def _stop(self) -> None: ...
 
     @abstractmethod
     def recover(self) -> None: ...

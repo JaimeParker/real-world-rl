@@ -210,6 +210,10 @@ def _run_actor(args) -> None:
             deterministic=args.deterministic_actor,
             seed=args.seed,
         )
+        if args.episode_end_behavior != "auto":
+            loop.configure_episode_session(args.episode_end_behavior,
+                                           neutral_threshold=args.neutral_threshold,
+                                           neutral_stable_s=args.neutral_stable_s)
         loop_owns_env = True
         loop.run()
     finally:
@@ -237,6 +241,8 @@ def _run_learner(args) -> None:
     run_name = args.exp_name or f"{args.env_id}__silri_real_world__{args.seed}__{int(time.time())}"
     checkpoint_dir = args.checkpoint_dir or os.path.join(args.log_dir, run_name, "checkpoints")
 
+    from real_world_rl.training.env_building import resolve_teleop_input
+    resolve_teleop_input(args)
     resolved_config = persist_resolved_config(
         args, training_phase="real_world", algorithm="silri", run_name=run_name, log_dir=args.log_dir
     )

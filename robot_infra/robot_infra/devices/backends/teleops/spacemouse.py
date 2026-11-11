@@ -32,13 +32,28 @@ _OPTION_KEYS = {"device_index", "deadzone", "invert_axes", "poll_interval_s"}
 _sleep = time.sleep  # module-level so tests can observe the poll cadence
 
 
+def map_spacemouse_axes(decoded, invert_axes=()):
+    """Map decoded x/y/z/roll/pitch/yaw into the shared HIL-SERL input axes."""
+    raw = np.asarray(decoded, dtype=np.float32)
+    if raw.shape != (6,) or not np.isfinite(raw).all():
+        raise ValueError("decoded SpaceMouse axes must be six finite numbers")
+    axes = list(invert_axes)
+    if any(type(axis) is not int or axis not in range(6) for axis in axes):
+        raise ValueError("invert_axes must contain integer axes 0..5")
+    result = raw[[1, 0, 2, 3, 4, 5]] * np.array([-1, 1, 1, -1, -1, -1], dtype=np.float32)
+    result[axes] *= -1
+    return result
+
+
 @Teleop.register("spacemouse")
 class SpaceMouseTeleop(Teleop):
     """Options: ``device_index`` (default 0), ``deadzone`` (default 1e-3, twist norm below which
     the puck counts as idle), ``invert_axes`` (indices 0-5 of the output twist whose sign is
     flipped), ``poll_interval_s`` (default 0.005 = 200 Hz; device poll cadence so a non-blocking
-    ``read()`` does not spin a core, may be 0 once ``read()`` is confirmed to block). The twist is the raw puck reading in the robot base frame (axis order
-    ``[-y, x, z, -roll, -pitch, -yaw]`` of the HID reader state), as in HIL-SERL."""
+    ``read()`` does not spin a core, may be 0 once ``read()`` is confirmed to block).
+    The twist uses fixed device input axes ``[-y, x, z, -roll, -pitch, -yaw]``
+    from the HID state, as in HIL-SERL. Mounting and operator orientation are
+    applied by the higher-level teleop source, not this device reader."""
 
     SDK = "hid"
     ACTION_SPACE = "cartesian_delta"
@@ -48,8 +63,9 @@ class SpaceMouseTeleop(Teleop):
     def require_sdk(cls) -> ModuleType:
         return _spacemouse_hid.require_sdk()
 
-    def __init__(self, config: TeleopConfig, **kwargs: Any) -> None:
+    def __init__(self, config: TeleopConfig, *, claim: bool = True, **kwargs: Any) -> None:
         super().__init__(config, **kwargs)
+        self._claim = claim
         options = dict(config.options)
         for key in options:
             if key not in _OPTION_KEYS:
@@ -65,11 +81,16 @@ class SpaceMouseTeleop(Teleop):
         for axis in invert_axes:
             if not 0 <= axis < self.action_dim:
                 raise ValueError(f"invert_axes entries must be in [0, {self.action_dim}), got {axis}")
-        self._axis_signs = np.ones(self.action_dim, dtype=np.float32)
-        self._axis_signs[invert_axes] = -1.0
+        self._invert_axes = invert_axes
         self._state_lock = threading.Lock()
         self._gripper = _OPEN_GRIPPER
         self._previous_buttons = [False] * _NUM_BUTTONS
+
+    @property
+    def device_identity(self) -> dict:
+        """Identity of the currently open HID device; no SDK access or polling."""
+        self._require_connected()
+        return dict(getattr(self._live_device, "identity", {}))
 
     @classmethod
     def discover(cls) -> set[str]:
@@ -91,7 +112,8 @@ class SpaceMouseTeleop(Teleop):
 
     def _open_device(self) -> Any:
         try:
-            device = _spacemouse_hid.open(device_index=self._device_index)
+            device = _spacemouse_hid.open(device_index=self._device_index,
+                                          **({"claim": False} if not self._claim else {}))
         except DeviceError as error:
             error.device = self.name
             raise
@@ -117,9 +139,8 @@ class SpaceMouseTeleop(Teleop):
     def _poll_device(self, handle: Any) -> RawReading:
         _sleep(self._poll_interval_s)
         state = handle.read()
-        twist = self._axis_signs * np.array(
-            [-state.y, state.x, state.z, -state.roll, -state.pitch, -state.yaw], dtype=np.float32
-        )
+        twist = map_spacemouse_axes(
+            [state.x, state.y, state.z, state.roll, state.pitch, state.yaw], self._invert_axes)
         pressed = [bool(b) for b in list(state.buttons)[:_NUM_BUTTONS]]
         pressed += [False] * (_NUM_BUTTONS - len(pressed))
         with self._state_lock:
@@ -134,4 +155,8 @@ class SpaceMouseTeleop(Teleop):
             buttons=dict(zip(BUTTON_NAMES, pressed)),
             events_now=dict(zip(BUTTON_NAMES, rising)),
             active=bool(np.linalg.norm(twist) > self._deadzone or any(pressed)),
+            diagnostics={"decoded_axes": [state.x, state.y, state.z, state.roll, state.pitch, state.yaw],
+                         "decoded_axis_order": ["x", "y", "z", "roll", "pitch", "yaw"],
+                         "hid_report_count": getattr(handle, "report_count", None),
+                         "hid_last_report_monotonic_s": getattr(handle, "last_report_monotonic", None)},
         )

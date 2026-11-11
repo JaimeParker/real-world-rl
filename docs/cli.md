@@ -79,6 +79,12 @@ refused confirmation; details follow the table.
 | `setup` | Forward to `robot_infra.setup.__main__` | Discovery, calibration and doctor | Native wizard questions | Native status, unchanged |
 | `daemon` | Forward to `robot_infra.server.daemon` | Preflight and serve hardware for client motion | No wrapper prompt | Native status, unchanged |
 | `supervise` | Forward to `robot_infra.supervise.supervisor` | Depends on child command | Depends on child | Native status, unchanged |
+| `teleop calibrate` | Fit and validate direction mapping; see [spacemouse-commissioning.md](spacemouse-commissioning.md) | Input only; optional file writes | Save/use confirmation | 0 / 1 / 2 |
+| `teleop profiles list/show/use` | Inspect or select a named profile; see [spacemouse-commissioning.md](spacemouse-commissioning.md) | No motion; use writes station | Save confirmation for use | 0 / 1 / 2 |
+| `teleop diagnose` | Input-only or supervised motion diagnosis; see [spacemouse-commissioning.md](spacemouse-commissioning.md) | Motion only with `--motion` | Motion confirmation when applicable | 0 / 1 / 2 |
+| `teleop run` | Supervised recording with episode holding; see [spacemouse-commissioning.md](spacemouse-commissioning.md#supervised-recording-sessions) | Reset and teleoperation | Yes, or `--yes` | Child status or wrapper error |
+| `workspace show/capture/set/validate` | Inspect, sample or configure constraints; see [spacemouse-commissioning.md](spacemouse-commissioning.md) | Capture reads TCP; no motion | Save confirmation when applicable | 0 / 1 / 2; text validation failure 5 |
+| `teleop inspect-stop` | Evaluate saved stop evidence offline; see [spacemouse-commissioning.md](spacemouse-commissioning.md#live-input-calibration-and-diagnosis) | No hardware connection | No | 0 PASS / 3 FAIL / 4 BLOCKED; errors otherwise |
 
 Forwarding preserves remaining arguments, output and return status; there is no
 primitive JSON envelope or wrapper motion prompt. Options after a forwarded
@@ -275,10 +281,10 @@ against available station/arm, preset `joint_limits` and preset
 `robot.joint_limits`. Out-of-bounds values fail with exit 1 before changing the
 preset or its backup. No motion confirmation is requested.
 
-**PyYAML rewrites the preset, so its comments are lost.** For a preset `P`,
-the exact previous file bytes are saved to `P.bak` (replacing any older backup)
-before atomic replacement. Text output shows the old → new home and warns that
-comments are not preserved, naming the backup.
+YAML edits preserve comments, quotes, blank lines and key order outside the edited
+keys. Before atomic replacement, exact previous bytes are saved to a unique
+`P.<id>.bak` beside the preset (or station/profile file). Concurrent edits are
+rejected. Text output shows the old → new home and names the backup.
 
 ## Typical workflow
 
@@ -380,3 +386,16 @@ code. Read stderr's `error: … (hint: …)` diagnostics as well as any JSON err
 to stderr. `--yes` authorizes the requested motion; verify the target station,
 home and workspace before issuing it. Apply the forwarded CLI's own rules
 when calling doctor, setup, daemon or supervise.
+
+Missing required arguments return exit code 2. With `--json`, the error includes
+`required_fields` (CLI flag names, or a missing subcommand destination) alongside
+`error` and `hint`. SpaceMouse runtime checks also report missing preset, capture
+output/name and sample-file requirements. This describes missing inputs; it does
+not authorize a motion or waive confirmation. Calibration's `NEEDS_SAMPLES`
+result instead lists missing direction labels and means acquisition is incomplete.
+
+## SpaceMouse commissioning
+
+Calibrate SpaceMouse profiles, review task-frame workspaces, and run supervised
+recording and diagnosis sessions with the
+[SpaceMouse commissioning guide](spacemouse-commissioning.md).

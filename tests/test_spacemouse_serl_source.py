@@ -61,6 +61,19 @@ def test_serl_norm_uses_all_six_axes_strictly_above_001():
     assert source.poll().intervened  # individually below threshold, jointly above
 
 
+def test_serl_rotates_translation_and_rotation_without_touching_buttons():
+    from scipy.spatial.transform import Rotation
+    rotation = Rotation.from_euler("x", 42, degrees=True).as_matrix()
+    part, source = _source(input_rotation=rotation.tolist())
+    part.twist = np.array([0, 0, .5, 0, 0, .2])
+    reading = source.poll()
+    np.testing.assert_allclose(reading.action[:3], rotation @ part.twist[:3], atol=1e-7)
+    np.testing.assert_allclose(reading.action[3:6], rotation @ part.twist[3:], atol=1e-7)
+    assert reading.intervened and reading.action[-1] == 0
+    part.twist[:] = 0
+    assert not source.poll().intervened
+
+
 def test_serl_uses_raw_axes_without_per_axis_deadzone():
     part, source = _source()
     part.twist = np.array([0.002, -0.003, 0.004, -0.005, 0.006, -0.007])
@@ -510,3 +523,28 @@ def test_serl_requires_complete_xyz_and_rpy_safety_boxes(missing):
     setattr(args.real_robot, missing, None)
     with pytest.raises(ValueError, match="serl requires"):
         env_building.hil_env_request(args, "missing-limits")
+
+
+def test_serl_diagnostic_filter_does_not_change_raw_takeover_rule():
+    part, source = _source(gripper=False, diagnostic_axes='translation', diagnostic_gain=.2)
+    part.twist = np.array([0., 0., 0., .5, 0., 0.])
+    reading = source.poll()
+    assert reading.intervened
+    np.testing.assert_array_equal(reading.action, np.zeros(6))
+
+
+def test_serl_input_evidence_uses_consumed_sample_and_survives_composite():
+    part, source = _source(gripper=False, diagnostic_axes='translation', diagnostic_gain=.2)
+    read = part.read
+    decoded = [1., 2., 3., 4., 5., 6.]
+    part.read = lambda timeout_s: dataclasses.replace(read(timeout_s), seq=17,
+        diagnostics={'decoded_axes': decoded, 'hid_report_count': 31})
+    part.twist = np.array([.5, .4, .3, .2, .1, 0.])
+    composite = CompositeTeleopSource(source, OperatorKeySource(has_gripper=False), intervention_from='motion')
+    reading = composite.poll()
+    assert reading.diagnostics['sample_seq'] == 17
+    assert reading.diagnostics['hid_report_count'] == 31
+    np.testing.assert_allclose(reading.diagnostics['base_input_after_filter'], [.1, .08, .06, 0, 0, 0])
+    assert reading.diagnostics['decoded_axes'] == decoded
+    decoded[0] = 99.
+    assert reading.diagnostics['decoded_axes'][0] == 1.

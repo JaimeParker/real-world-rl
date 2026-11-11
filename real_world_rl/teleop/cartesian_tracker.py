@@ -130,6 +130,8 @@ class CartesianTargetTracker:
         config: Optional[CartesianTrackerConfig] = None,
         *,
         safety_box: Optional[Sequence[float]] = None,
+        workspace=None,
+        task_frame=None,
     ) -> None:
         self.config = CartesianTrackerConfig() if config is None else config
         if safety_box is not None:
@@ -140,6 +142,8 @@ class CartesianTargetTracker:
                 )
             safety_box = box
         self.safety_box = safety_box
+        from robot_infra.devices.workspace import Workspace
+        self.workspace = Workspace(workspace, task_frame) if workspace is not None else None
         self._hold_pose: Optional[np.ndarray] = None
         self._command: Optional[np.ndarray] = None
         self._following = False
@@ -196,17 +200,30 @@ class CartesianTargetTracker:
         if not (math.isfinite(dt) and dt >= 0.0):
             raise MissedControlDeadline(f"invalid time since the previous command: {dt} s (clock error)")
         requested, measured = _as_pose(requested), _as_pose(measured)
+        if self.workspace is not None:
+            measured_violations = self.workspace.violations(measured, measured=True)
+            if measured_violations:
+                from robot_infra.devices.errors import SafetyViolation
+                raise SafetyViolation("measured TCP outside workspace: " + "; ".join(measured_violations))
         if dt > self.config.max_dt_s + _DEADLINE_SLACK_S:
             self.hold_at(measured)
             return TrackerUpdate(self.command, missed_deadline_s=float(dt))
         violations = workspace_violations(requested, self.safety_box)
+        if self.workspace is not None:
+            violations += tuple(self.workspace.violations(requested))
         if violations:
             self.hold_at(measured)
             return TrackerUpdate(self.command, violations)
         config = self.config
         advanced = _limited_towards(self._command, requested, config.speed_m_s * dt, config.speed_rad_s * dt)
         # The lead cap: the advanced command, pulled back to within reach of the measured pose.
-        self._command = _limited_towards(measured, advanced, config.lead_cap_m, config.lead_cap_rad)
+        candidate = _limited_towards(measured, advanced, config.lead_cap_m, config.lead_cap_rad)
+        if self.workspace is not None:
+            violations = workspace_violations(candidate, self.safety_box) + tuple(self.workspace.violations(candidate))
+            if violations:
+                self.hold_at(measured)
+                return TrackerUpdate(self.command, violations)
+        self._command = candidate
         return TrackerUpdate(self.command)
 
     def reach_for_hold(self, measured: np.ndarray) -> np.ndarray:

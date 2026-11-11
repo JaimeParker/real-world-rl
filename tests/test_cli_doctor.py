@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -13,6 +15,7 @@ import pytest
 
 from real_world_rl.cli import doctor
 from real_world_rl.cli.doctor_host import Host, process_owners
+from real_world_rl.cli.doctor_platform import Capabilities
 from real_world_rl.cli.doctor_repair import (
     Action,
     Finding,
@@ -38,6 +41,25 @@ def host(tmp_path, report):
         dev=tmp_path / "dev",
         etc=tmp_path / "etc",
     )
+
+
+@pytest.fixture
+def native_linux_platform(tmp_path, monkeypatch):
+    """A repair-capable Debian host, independent of the test runner's platform."""
+    capabilities = Capabilities(
+        system="Linux", distribution="debian", version="12", architecture="x86_64",
+        container=False, wsl=False, debian_family=True,
+        etc=tmp_path / "etc", sysfs=tmp_path / "sys", runtime=tmp_path / "run",
+    )
+    for directory in (capabilities.etc / "udev/rules.d", capabilities.etc / "security/limits.d"):
+        directory.mkdir(parents=True)
+    monkeypatch.setattr(Capabilities, "detect", classmethod(lambda cls, **kwargs: capabilities))
+    original_which = shutil.which
+    monkeypatch.setattr(
+        "real_world_rl.cli.doctor_platform.shutil.which",
+        lambda tool: f"/usr/bin/{tool}" if tool in {"apt-get", "udevadm"} else original_which(tool),
+    )
+    return capabilities
 
 
 def test_report_is_private_and_redacts_nested_credentials(report):
@@ -102,7 +124,7 @@ def test_exit_codes(status, code):
     assert exit_status([Finding("item", status, "evidence")], []) == code
 
 
-def test_repairs_continue_independent_items_but_block_dependents(report, monkeypatch):
+def test_repairs_continue_independent_items_but_block_dependents(report, monkeypatch, native_linux_platform):
     actions = [
         Action("one", "one", "fail", ["one"]),
         Action("two", "two", "dependent", ["two"], dependencies=["one"]),
@@ -124,12 +146,24 @@ def test_repairs_continue_independent_items_but_block_dependents(report, monkeyp
     [(False, [], "disabled"), (True, ["pid 12: controller"], "running")],
 )
 def test_unsupported_host_or_busy_device_blocks_mutation(
-    report, monkeypatch, allowed, busy, reason
+    report, monkeypatch, native_linux_platform, allowed, busy, reason
 ):
     monkeypatch.setattr(report, "run", lambda *a, **kw: pytest.fail("must not execute"))
     action = Action("repair", "sdk", "change", ["anything"], exclusive=True)
     execute([action], report, allowed=allowed, busy=lambda: busy, assume_yes=True)
     assert action.status == "BLOCKED" and reason in action.detail
+
+
+@pytest.mark.parametrize("container,wsl", [(True, False), (False, True)])
+def test_container_or_wsl_blocks_system_repair(report, monkeypatch, native_linux_platform, container, wsl):
+    capabilities = dataclasses.replace(native_linux_platform, container=container, wsl=wsl)
+    monkeypatch.setattr(report, "run", lambda *args, **kwargs: pytest.fail("must not repair this host"))
+    action = Action("apt:tools", "tools", "install", ["apt-get", "install", "-y", "acl"],
+                    privileged=True, capability="packages")
+    execute([action], report, allowed=True, busy=lambda: [], assume_yes=True,
+            capabilities=capabilities)
+    assert action.status == "BLOCKED"
+    assert "native Linux host outside containers and WSL" in action.detail
 
 
 def test_system_python_repair_refused(report, monkeypatch):
@@ -163,7 +197,7 @@ def test_current_interpreter_is_required_for_pip(report, monkeypatch):
     assert action.status == "BLOCKED"
 
 
-def test_sudo_missing_is_blocked_without_password_prompt(report, monkeypatch):
+def test_sudo_missing_is_blocked_without_password_prompt(report, monkeypatch, native_linux_platform):
     monkeypatch.setattr("real_world_rl.cli.doctor_repair.os.geteuid", lambda: 1000)
     monkeypatch.setattr(report, "run", lambda argv, **kw: (1, "sudo password required"))
     action = Action(
@@ -177,7 +211,7 @@ def test_sudo_missing_is_blocked_without_password_prompt(report, monkeypatch):
     assert action.status == "BLOCKED" and "sudo -v" in action.detail
 
 
-def test_file_destination_allowlist(report, monkeypatch, tmp_path):
+def test_file_destination_allowlist(report, monkeypatch, tmp_path, native_linux_platform):
     monkeypatch.setattr(report, "run", lambda argv, **kw: (0, ""))
     target = tmp_path / "unowned.conf"
     action = file_action("file", "change unrelated file", str(target), "bad")
@@ -185,7 +219,7 @@ def test_file_destination_allowlist(report, monkeypatch, tmp_path):
     assert action.status == "BLOCKED" and not target.exists()
 
 
-def test_plan_detects_intervening_file_edits(report, monkeypatch, tmp_path):
+def test_plan_detects_intervening_file_edits(report, monkeypatch, tmp_path, native_linux_platform):
     monkeypatch.setattr(report, "run", lambda argv, **kw: (0, ""))
     target = tmp_path / "concurrent"
     action = file_action("file", "change", str(target), "new")
@@ -301,11 +335,21 @@ def test_configured_but_ineffective_limits_are_pending(host):
     assert not host.actions
 
 
-def test_report_is_git_ignored(report):
+def test_report_is_git_ignored(tmp_path):
+    git = shutil.which("git")
+    if git is None:
+        pytest.skip("git is unavailable")
     root = Path(__file__).resolve().parents[1]
+    repository = tmp_path / "checkout"
+    repository.mkdir()
+    (repository / ".gitignore").write_bytes((root / ".gitignore").read_bytes())
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    subprocess.run([git, "init"], cwd=repository, env=environment, check=True,
+                   capture_output=True, text=True)
     result = subprocess.run(
-        ["git", "check-ignore", "local/doctor/example/report.json"],
-        cwd=root,
+        [git, "check-ignore", "local/doctor/example/report.json"],
+        cwd=repository,
+        env=environment,
         capture_output=True,
         text=True,
     )

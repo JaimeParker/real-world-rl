@@ -33,11 +33,15 @@ METHODS = (
     "robot.send_action",
     "robot.step",
     "arm.read_state",
+    "arm.last_cartesian_target",
     "arm.servo_cartesian",
     "arm.servo_joints",
     "arm.move_to_pose",
     "arm.move_to_joints",
     "arm.stop",
+    "arm.begin_stop_trace",
+    "arm.stop_with_trace",
+    "arm.last_stop_trace",
     "arm.recover",
     "arm.set_control_mode",
     "arm.control_mode",
@@ -94,6 +98,7 @@ class RobotService:
         self._claim: DeviceClaim | None = None
         # Serializes robot commands with the watchdog's check-and-trip.
         self._lock = threading.RLock()
+        self._normal_stop_in_progress = False
         self._last_action_time: float | None = None
         self._servo_entered_time: float | None = None
         self._watchdog_trips = 0
@@ -110,11 +115,15 @@ class RobotService:
             "robot.send_action": self._send_action,
             "robot.step": self._step,
             "arm.read_state": self._arm_read_state,
+            "arm.last_cartesian_target": self._arm_last_cartesian_target,
             "arm.servo_cartesian": self._arm_servo_cartesian,
             "arm.servo_joints": self._arm_servo_joints,
             "arm.move_to_pose": self._arm_move_to_pose,
             "arm.move_to_joints": self._arm_move_to_joints,
             "arm.stop": self._arm_stop,
+            "arm.begin_stop_trace": self._arm_begin_stop_trace,
+            "arm.stop_with_trace": self._arm_stop_with_trace,
+            "arm.last_stop_trace": self._arm_last_stop_trace,
             "arm.recover": self._arm_recover,
             "arm.set_control_mode": self._arm_set_control_mode,
             "arm.control_mode": self._arm_control_mode,
@@ -156,6 +165,12 @@ class RobotService:
             handler = self._methods[method]
         except KeyError:
             raise ValueError(f"unknown method '{method}'; available: {self.methods}") from None
+        from robot_infra.server.transport.base import is_read_only
+        if method == "arm.stop_with_trace" or is_read_only(method) or (method.startswith("teleop.") and method.endswith(".read")):
+            return handler(**(kwargs or {}))
+        with self._lock:
+            if self._normal_stop_in_progress and method != "arm.stop":
+                raise DeviceFault("normal stop observation in progress; only stop/read calls are allowed")
         return handler(**(kwargs or {}))
 
     # -- robot.* -------------------------------------------------------------
@@ -173,6 +188,7 @@ class RobotService:
                 "supported_state_fields": list(arm.SUPPORTED_STATE_FIELDS),
                 "control_mode": arm.control_mode.value,
                 "safety": arm.safety_limits,
+                "safety_capabilities": list(arm.safety_capabilities),
                 "home_joints": robot.config.home_joints,
                 "control_metadata": arm.control_metadata,
             },
@@ -199,6 +215,7 @@ class RobotService:
             "action_space": teleop.ACTION_SPACE,
             "has_gripper": teleop.HAS_GRIPPER,
             "hold_s": teleop.config.hold_s,
+            "device_identity": getattr(teleop, "device_identity", None) if teleop.is_connected else None,
         }
 
     def _connect(self) -> None:
@@ -270,6 +287,32 @@ class RobotService:
     def _arm_move_to_joints(self, q: Any, blocking: bool = True) -> None:
         with self._lock:
             self.robot.arm.move_to_joints(np.asarray(q, dtype=np.float64), blocking=blocking)
+
+    def _arm_last_cartesian_target(self):
+        with self._lock:
+            return self.robot.arm.last_cartesian_target
+
+    def _arm_begin_stop_trace(self):
+        with self._lock:
+            if "stop_trace_v1" not in self.robot.arm.safety_capabilities:
+                raise DeviceFault("arm does not support stop_trace_v1")
+        self.robot.arm.begin_stop_trace()
+
+    def _arm_last_stop_trace(self):
+        return getattr(self.robot.arm, "last_stop_trace", None)
+
+    def _arm_stop_with_trace(self, post_stop_s=2.1):
+        with self._lock:
+            if self._normal_stop_in_progress:
+                raise DeviceFault("normal stop observation already in progress")
+            if "stop_trace_v1" not in self.robot.arm.safety_capabilities:
+                raise DeviceFault("arm does not support stop_trace_v1")
+            self._normal_stop_in_progress = True
+        try:
+            return self.robot.arm.stop_with_trace(post_stop_s=post_stop_s)
+        finally:
+            with self._lock:
+                self._normal_stop_in_progress = False
 
     def _arm_stop(self) -> None:
         with self._lock:

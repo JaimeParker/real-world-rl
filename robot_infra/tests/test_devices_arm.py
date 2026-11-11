@@ -182,3 +182,62 @@ def test_near_unit_quaternion_is_normalized(arm):
     command = arm._command_array({"tcp_pose": np.array([0.4, 0.0, 0.3, *quat])}, "tcp_pose", (7,))
     np.testing.assert_allclose(command[3:], [0.0, 0.0, 0.0, 1.0])
     np.testing.assert_allclose(command[:3], [0.4, 0.0, 0.3])
+
+
+# -- last_cartesian_target lives for one control segment ------------------------------------
+
+SEGMENT_POSE = np.array([0.4, 0.0, 0.3, 0.0, 0.0, 0.0, 1.0])
+
+
+def _servoing(arm):
+    arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    arm.servo_cartesian(SEGMENT_POSE)
+    return arm
+
+
+def test_servo_records_last_cartesian_target(arm):
+    _servoing(arm)
+    np.testing.assert_array_equal(arm.last_cartesian_target, SEGMENT_POSE)
+    arm.last_cartesian_target[0] = 9.0  # a copy, not the stored target
+    np.testing.assert_array_equal(arm.last_cartesian_target, SEGMENT_POSE)
+
+
+def test_plain_stop_clears_last_cartesian_target(arm):
+    _servoing(arm).stop()
+    assert arm.last_cartesian_target is None
+    assert arm.control_mode is ControlMode.CARTESIAN_SERVO  # a plain stop keeps the mode
+    assert arm.call_log[-1] == "stop"  # the backend hook still ran
+
+
+def test_failing_backend_stop_still_clears_last_cartesian_target():
+    class FailingStopArm(FakeArm):
+        fail_stop = False
+
+        def _stop(self):
+            super()._stop()
+            if self.fail_stop:
+                raise DeviceFault("stop failed", device=self.name)
+
+    arm = FailingStopArm()
+    arm.connect()
+    _servoing(arm)
+    arm.fail_stop = True
+    with pytest.raises(DeviceFault, match="stop failed"):
+        arm.stop()
+    assert arm.last_cartesian_target is None
+
+
+@pytest.mark.parametrize("mode", [ControlMode.IDLE, ControlMode.JOINT_SERVO])
+def test_control_mode_switch_clears_last_cartesian_target(arm, mode):
+    _servoing(arm).set_control_mode(mode)
+    assert arm.last_cartesian_target is None
+
+
+def test_disconnect_clears_last_cartesian_target():
+    arm = FakeArm()
+    arm.connect()
+    _servoing(arm)
+    arm.disconnect()
+    assert arm.last_cartesian_target is None
+    arm.connect()
+    assert arm.last_cartesian_target is None  # a new session never inherits the old target

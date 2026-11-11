@@ -8,6 +8,7 @@ client can detect dropped or repeated samples."""
 from __future__ import annotations
 
 import dataclasses
+import copy
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -59,6 +60,7 @@ class TeleopSample:
     intervening: bool
     timestamp: float  # time.monotonic() of the poll that produced the sample
     seq: int
+    diagnostics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         """Wire form: msgpack-codec friendly (ndarray, bool, dict, float, int, str, None)."""
@@ -71,6 +73,7 @@ class TeleopSample:
             "intervening": self.intervening,
             "timestamp": self.timestamp,
             "seq": self.seq,
+            **({"diagnostics": copy.deepcopy(self.diagnostics)} if self.diagnostics else {}),
         }
 
     @classmethod
@@ -85,6 +88,7 @@ class TeleopSample:
             intervening=bool(data["intervening"]),
             timestamp=float(data["timestamp"]),
             seq=int(data["seq"]),
+            diagnostics=copy.deepcopy(data.get("diagnostics", {})),
         )
 
 
@@ -98,6 +102,7 @@ class RawReading:
     buttons: dict[str, bool] = field(default_factory=dict)
     events_now: dict[str, bool] = field(default_factory=dict)
     active: bool = False
+    diagnostics: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -312,6 +317,7 @@ class Teleop(Part, BackendRegistry, ABC):
                 intervening=bool(reading.active),
                 timestamp=now,
                 seq=self._seq,
+                diagnostics=copy.deepcopy(reading.diagnostics),
             )
             self._consecutive_failures = 0
             self._condition.notify_all()
@@ -338,6 +344,7 @@ class Teleop(Part, BackendRegistry, ABC):
         return dataclasses.replace(
             latest,
             action=latest.action.copy(),
+            diagnostics=copy.deepcopy(latest.diagnostics),
             buttons=dict(latest.buttons),
             events=events,
             intervening=latest.intervening or held,

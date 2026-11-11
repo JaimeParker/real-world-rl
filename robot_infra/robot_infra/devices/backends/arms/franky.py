@@ -10,6 +10,10 @@ import inspect
 import contextlib
 import importlib.metadata
 import re
+import copy
+import math
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -144,6 +148,13 @@ class FrankyArm(Arm):
         self.robot_ip = robot_ip
         self.relative_dynamics_factor = relative_dynamics_factor
         self.realtime = realtime
+        self._stop_lock = threading.RLock()
+        self._stop_recorder = None
+        self._last_stop_trace = None
+        self._trace_in_progress = False
+        self._trace_preparing = False
+        self._stop_generation = 0
+        self._stop_metadata = None
         self.home_joints = None if home_joints is None else list(home_joints)
 
     @classmethod
@@ -176,6 +187,7 @@ class FrankyArm(Arm):
             )
         except Exception as error:
             raise franky_connect_error(franky, error, self.robot_ip, self.name) from error
+        self._stop_metadata = None  # cache lifetime is this connection
         handle = _FrankyHandle(robot=robot)
         self._read_state_from(robot)
         return handle
@@ -184,6 +196,8 @@ class FrankyArm(Arm):
         try:
             self._stop_motion(handle)
         finally:
+            if self._stop_recorder is not None:
+                self._stop_recorder.finish()
             handle.robot = None
 
     # --- state ---
@@ -213,6 +227,40 @@ class FrankyArm(Arm):
             "tcp_torque": wrench[3:],
         }
 
+    def stop_sample(self) -> dict:
+        """One raw SDK snapshot for a same-connection stop sampler.
+
+        Uses SDK state directly, never the arm cache/Jacobian or a second FCI
+        connection. Callers must keep the connection alive until sampling ends.
+        """
+        self._require_connected()
+        state = self._handle.robot.state
+        pose = state.O_T_EE
+        duration = getattr(state, "time", None)
+        to_seconds = getattr(duration, "to_sec", None)
+        errors = getattr(state, "current_errors", None)
+        # SDK Errors has named boolean fields, but no Python __bool__: bool(errors)
+        # is True even for an error-free object. Do not invent a fault from it.
+        if isinstance(errors, (list, tuple)):
+            active_errors = [str(value) for value in errors]
+        elif errors is not None:
+            flags = {name: getattr(errors, name) for name in dir(errors) if not name.startswith("_")}
+            flags = {name: value for name, value in flags.items() if isinstance(value, (bool, np.bool_))}
+            active_errors = [name for name, value in flags.items() if value] if flags else None
+        else:
+            active_errors = None
+        return {
+            "device_time_s": float(to_seconds()) if callable(to_seconds) else None,
+            "tcp_pose": [*np.asarray(pose.translation, dtype=float).tolist(),
+                         *np.asarray(pose.quaternion, dtype=float).tolist()],
+            "joint_pos": np.asarray(state.q, dtype=float).tolist(),
+            "joint_vel": np.asarray(state.dq, dtype=float).tolist(),
+            "robot_mode": getattr(state.robot_mode, "name", str(state.robot_mode)),
+            "errors": active_errors,
+            "sdk_errors_repr": str(errors),
+            "last_cartesian_target": None if self.last_cartesian_target is None else self.last_cartesian_target.tolist(),
+        }
+
     # --- commands ---
 
     def _servo_cartesian(self, pose: np.ndarray) -> None:
@@ -237,7 +285,154 @@ class FrankyArm(Arm):
         with self._control_exceptions_as_faults("move_to_joints"):
             self._handle.robot.move(franky.JointMotion(target), asynchronous=not blocking)
 
-    def stop(self) -> None:
+    @property
+    def safety_capabilities(self):
+        return (*super().safety_capabilities, "stop_trace_v1")
+
+    def _new_stop_recorder(self):
+        """Collect slow static evidence without holding the motion/stop lock."""
+        from robot_infra.devices.stop_sampling import StopTraceRecorder
+        from robot_infra.devices.provenance import sdk_artifacts, portable_path
+        if self._stop_metadata is None:
+            sdk = self.require_sdk()
+            robot = self._handle.robot
+            metadata = {"sdk_version": franky_version(), "sdk_module": portable_path(getattr(sdk, "__file__", None)),
+                        "sdk_artifacts": sdk_artifacts(sdk, implementation_type=type(robot)),
+                        "server_version": getattr(robot, "server_version", None)}
+            state = robot.state
+            model = {}
+            for name in ("m_ee", "m_load", "m_total", "F_x_Cee", "F_x_Cload", "F_x_Ctotal",
+                         "I_ee", "I_load", "I_total", "F_T_EE", "EE_T_K"):
+                value = getattr(state, name, None)
+                model[name] = None if value is None else np.asarray(value).tolist()
+            metadata.update(reported_model=model, model_verified=False)
+            self._stop_metadata = metadata
+        limits = self.safety_limits or {}
+        return StopTraceRecorder(
+            self.stop_sample, pre_window_s=.75, workspace=limits.get("workspace"),
+            task_frame=limits.get("task_frame"),
+            metadata={**self._stop_metadata, "control": self.control_metadata}).start()
+
+    def begin_stop_trace(self) -> None:
+        """Enable pre-stop sampling; slow preparation never holds the stop lock."""
+        self._require_connected()
+        with self._stop_lock:
+            if self._trace_in_progress or self._trace_preparing:
+                raise DeviceFault("normal stop trace is already in progress", device=self.name)
+            self._trace_preparing = True
+            generation = self._stop_generation
+            previous = self._stop_recorder
+        recorder = None
+        try:
+            if previous is not None:
+                previous.finish()  # bounded join outside _stop_lock
+                if previous.is_running:
+                    raise DeviceFault("previous stop sample read is still blocked", device=self.name)
+            recorder = self._new_stop_recorder()
+            with self._stop_lock:
+                if generation != self._stop_generation or self._trace_in_progress:
+                    raise DeviceFault("stop occurred during trace preparation", device=self.name)
+                self._stop_recorder = recorder
+                recorder = None  # ownership transferred
+        finally:
+            if recorder is not None:
+                recorder.finish()
+            with self._stop_lock:
+                self._trace_preparing = False
+
+    @property
+    def last_stop_trace(self):
+        return copy.deepcopy(self._last_stop_trace)
+
+    def stop_with_trace(self, *, post_stop_s=2.1) -> dict:
+        """Stop first, then collect evidence. Only this path raises stop failures."""
+        if not math.isfinite(post_stop_s) or not 0 <= post_stop_s <= 30:
+            raise ValueError("post_stop_s must be in [0, 30]")
+        self._require_connected()
+        from robot_infra.devices.stop_trace import evaluate_stop_trace
+        sampling_errors = []
+        with self._stop_lock:
+            if self._trace_in_progress:
+                raise DeviceFault("normal stop trace is already in progress", device=self.name)
+            self._trace_in_progress = True
+            self._stop_generation += 1
+            recorder = self._stop_recorder
+            control_mode = self._control_mode.value
+            try:
+                tracker_active = bool(self._handle.tracker is not None and self._handle.robot.is_in_control)
+            except Exception as error:
+                tracker_active = None
+                sampling_errors.append(f"active control unavailable: {type(error).__name__}: {error}")
+            start = time.monotonic()
+            failure = None
+            if recorder is not None:
+                try:
+                    recorder.mark_stop_start(control_mode=control_mode, tracker_active=tracker_active,
+                                             monotonic_s=start)
+                except Exception as error:
+                    sampling_errors.append(f"stop-start evidence failed: {type(error).__name__}: {error}")
+            # Like stop(): the control segment ends here, even if the stop itself fails.
+            self._last_cartesian_target = None
+            try:
+                self._stop_motion(self._handle, raise_on_error=True)
+                self._control_mode = ControlMode.IDLE
+            except BaseException as error:
+                failure = error
+            stop_failure = failure
+            end = time.monotonic()
+            if recorder is not None:
+                try:
+                    recorder.mark_stop_end(failure, monotonic_s=end)
+                except Exception as error:
+                    sampling_errors.append(f"stop-end evidence failed: {type(error).__name__}: {error}")
+        try:
+            if recorder is None:
+                try:
+                    if self._trace_preparing:
+                        raise RuntimeError("pre-stop recorder preparation still in progress")
+                    recorder = self._new_stop_recorder()  # stop has already been sent
+                    recorder.mark_stop_start(control_mode=control_mode, tracker_active=tracker_active,
+                                             monotonic_s=start)
+                    recorder.mark_stop_end(stop_failure, monotonic_s=end)
+                except Exception as error:
+                    sampling_errors.append(f"trace preparation failed: {type(error).__name__}: {error}")
+            if failure is None and recorder is not None:
+                try:
+                    time.sleep(post_stop_s)
+                except BaseException as error:
+                    failure = error
+            trace = {"schema_version": 1, "samples": [], "sampling_errors": []}
+            if recorder is not None:
+                try:
+                    trace = recorder.finish()  # join outside _stop_lock
+                except Exception as error:
+                    sampling_errors.append(f"trace finish failed: {type(error).__name__}: {error}")
+            # Always retain the actual call's boundaries, even when recorder marking failed.
+            trace.update(stop_start_s=start, stop_end_s=end,
+                         control_mode=control_mode, tracker_active=tracker_active)
+            trace.setdefault("sampling_errors", []).extend(sampling_errors)
+            if failure is not None and not trace.get("stop_error"):
+                # A stop failure is FAIL evidence; observation interruptions are gaps.
+                if stop_failure is not None:
+                    trace["stop_error"] = f"{type(failure).__name__}: {failure}"
+                else:
+                    trace["sampling_errors"].append(f"post-stop observation interrupted: {failure}")
+            try:
+                assessment = evaluate_stop_trace(trace)
+            except (ValueError, TypeError, KeyError) as error:
+                assessment = {"status": "FAIL" if trace.get("stop_error") else "BLOCKED",
+                              "evaluation_error": str(error)}
+            self._last_stop_trace = {"trace": trace, "assessment": assessment}
+            with self._stop_lock:
+                self._stop_recorder = recorder if recorder is not None and recorder.is_running else None
+            if failure is not None:
+                raise failure
+            return self.last_stop_trace
+        finally:
+            with self._stop_lock:
+                self._trace_in_progress = False
+
+    def _stop(self) -> None:
         """Bring any running tracker or position motion to rest. Power and brakes are untouched."""
         self._require_connected()
         self._stop_motion(self._handle)
@@ -254,6 +449,8 @@ class FrankyArm(Arm):
         self._clear_errors()
 
     def _enter_control_mode(self, mode: ControlMode) -> None:
+        if self._trace_in_progress and mode is not ControlMode.IDLE:
+            raise DeviceFault("normal stop observation in progress", device=self.name)
         handle = self._handle
         self._stop_motion(handle)
         self._settle_and_recover(handle.robot)
@@ -383,6 +580,8 @@ class FrankyArm(Arm):
         """Return the running tracker for ``mode``, restarting it after a plain stop() and
         surfacing a reflex that killed it (franky would otherwise drop targets silently)."""
         self._require_connected()
+        if self._trace_in_progress:
+            raise DeviceFault("normal stop observation in progress", device=self.name)
         if self._control_mode is not mode:
             raise DeviceFault(
                 f"arm '{self.name}' is in {self._control_mode.value} mode, not {mode.value}",
@@ -411,20 +610,34 @@ class FrankyArm(Arm):
             self._enter_control_mode(mode)
         return handle.tracker
 
-    def _stop_motion(self, handle: _FrankyHandle) -> None:
+    def _stop_motion(self, handle: _FrankyHandle, *, raise_on_error=False) -> None:
+        with self._stop_lock:
+            self._stop_motion_unlocked(handle, raise_on_error=raise_on_error)
+
+    def _stop_motion_unlocked(self, handle: _FrankyHandle, *, raise_on_error=False) -> None:
+        # Detach before attempting stop: cleanup may retry the robot-level stop,
+        # but must not call the same failed tracker a second time.
         tracker, handle.tracker = handle.tracker, None
-        if tracker is not None:
-            try:
+        operation = "impedance tracker" if tracker is not None else "franka motion"
+        try:
+            if tracker is not None:
                 tracker.stop()
-            except Exception as error:
-                self._note_error(f"stopping the impedance tracker failed: {error}")
-        elif handle.robot is not None and handle.robot.is_in_control:
-            handle.robot.stop()
-            try:
-                handle.robot.join_motion()
-            except Exception as error:
-                if not _is_preemption(error):
-                    self._note_error(f"stopping the franka motion failed: {error}")
+            elif handle.robot is not None and handle.robot.is_in_control:
+                handle.robot.stop()
+                try:
+                    completed = handle.robot.join_motion()
+                except Exception as error:
+                    if not _is_preemption(error):
+                        raise
+                else:
+                    if completed is False:
+                        raise RuntimeError("motion join did not complete")
+        except Exception as error:
+            message = f"stopping the {operation} failed: {error}"
+            self._note_error(message)
+            if raise_on_error:
+                raise DeviceFault(message, device=self.name,
+                                  hint="verify robot state before recovery or restarting control") from error
 
     def _settle_and_recover(self, robot: Any) -> None:
         """Join the previous motion and recover so the next one can start. A real motion error
@@ -438,6 +651,8 @@ class FrankyArm(Arm):
 
     def _require_idle(self, command: str) -> None:
         self._require_connected()
+        if self._trace_in_progress:
+            raise DeviceFault("normal stop observation in progress", device=self.name)
         if self._control_mode is not ControlMode.IDLE:
             raise DeviceFault(
                 f"{command} needs the arm idle, but it is in {self._control_mode.value} mode",

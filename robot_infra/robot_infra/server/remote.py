@@ -94,6 +94,7 @@ class RemoteArm(_RemotePart, Arm):
         owner: Connection,
         control_mode: ControlMode = ControlMode.IDLE,
         safety_limits: dict | None = None,
+        safety_capabilities: tuple[str, ...] = (),
         home_joints: list[float] | None = None,
         control_metadata: dict | None = None,
     ) -> None:
@@ -105,6 +106,7 @@ class RemoteArm(_RemotePart, Arm):
         self._control_mode = control_mode
         self._remote_control_metadata = control_metadata or {"backend": "unknown", "sdk_version": "unknown", "capabilities": [], "effective": {}}
         self._remote_safety_limits = safety_limits
+        self._remote_safety_capabilities = tuple(safety_capabilities)
         self._home_joints = None if home_joints is None else list(home_joints)
 
     def configure_control(self, config) -> dict:
@@ -128,12 +130,20 @@ class RemoteArm(_RemotePart, Arm):
         return dict(self._remote_control_metadata)
 
     @property
+    def safety_capabilities(self) -> tuple[str, ...]:
+        return self._remote_safety_capabilities
+
+    @property
     def safety_limits(self) -> dict | None:
         return self._remote_safety_limits
 
     @property
     def home_joints(self) -> list[float] | None:
         return self._home_joints
+
+    @property
+    def last_cartesian_target(self):
+        return self._call("last_cartesian_target")
 
     def read_state(self) -> dict[str, np.ndarray]:
         return self._call("read_state")
@@ -150,7 +160,18 @@ class RemoteArm(_RemotePart, Arm):
     def _move_to_joints(self, q: np.ndarray, blocking: bool = True) -> None:
         self._call("move_to_joints", q=np.asarray(q), blocking=blocking)
 
-    def stop(self) -> None:
+    def begin_stop_trace(self):
+        self._call("begin_stop_trace")
+
+    def stop_with_trace(self, *, post_stop_s=2.1):
+        return self._call("stop_with_trace", post_stop_s=post_stop_s)
+
+    @property
+    def last_stop_trace(self):
+        return self._call("last_stop_trace")
+
+    def _stop(self) -> None:
+        # Arm.stop() clears only the unused local copy; the daemon's arm clears the real target.
         self._call("stop")
 
     def recover(self) -> None:
@@ -303,6 +324,12 @@ class RemoteTeleop(_RemotePart, Part):
         self._client = client
         self._method_prefix = f"teleop.{name}"
         self._latest: TeleopSample | None = None
+        self._device_identity = None
+
+    @property
+    def device_identity(self):
+        import copy
+        return copy.deepcopy(self._device_identity)
 
     @property
     def observation_features(self) -> Features:
@@ -378,6 +405,9 @@ class RemoteRobot(Robot):
             self._build_remote_parts(info, client)
             client.call("robot.connect")
             remote_connected = True
+            if self.teleop is not None:
+                teleop_info = client.call("robot.describe").get("teleop") or {}
+                self.teleop._device_identity = teleop_info.get("device_identity")
             # Publish the handle before the children borrow it: a borrowing child's connect()
             # calls owner.connect(), which would otherwise re-enter _open.
             self._handle = info
@@ -411,6 +441,7 @@ class RemoteRobot(Robot):
                 owner=self,
                 control_mode=ControlMode(arm_info["control_mode"]),
                 safety_limits=arm_info.get("safety"),
+                safety_capabilities=tuple(arm_info.get("safety_capabilities", ())),
                 home_joints=arm_info.get("home_joints"),
                 control_metadata=arm_info.get("control_metadata"),
             ),

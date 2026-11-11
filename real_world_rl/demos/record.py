@@ -30,6 +30,8 @@ The stored ``reward``/``done`` are the env's. Without a reward classifier, pass
 from __future__ import annotations
 
 import dataclasses
+import logging
+import sys
 import pickle
 import uuid
 import time
@@ -182,6 +184,10 @@ def executed_gripper_actions(executed: Any, num_grippers: int) -> Any:
 
 
 def _validate_episode_limit(args: RecordDemosArgs) -> None:
+    from real_world_rl.teleop.session import validate_neutral_options
+    if args.episode_end_behavior not in ("auto", "hold"):
+        raise ValueError("episode_end_behavior must be auto or hold")
+    validate_neutral_options(args.neutral_threshold, args.neutral_stable_s)
     if args.max_episodes is not None and args.max_episodes < 1:
         raise ValueError("--max-episodes must be positive when set")
 
@@ -278,6 +284,12 @@ def record_demos(
     _validate_episode_limit(args)
     hold = as_hold_policy(hold_action_fn)
     wrapper = intervention_wrapper_of(env)
+    if args.episode_end_behavior == "hold":
+        from real_world_rl.teleop.session import session_backend
+        session_backend(env)  # reject unsupported backends before reset can move the arm
+        if (not isinstance(wrapper.source, CompositeTeleopSource)
+                or not callable(getattr(wrapper.source.motion, "session_input", None))):
+            raise ValueError("session hold requires SpaceMouse plus an event device")
     contract = get_env_action_contract(env) or LEGACY_ACTION_CONTRACT
     num_grippers = num_grippers_of(contract)
     control_period_s = 1.0 / args.control_hz
@@ -298,6 +310,14 @@ def record_demos(
         hold.reset()
         if contract["action_mode"] == "joint_abs":
             check_leader_near_follower(env, wrapper.source, contract, args.start_tolerance_rad)
+        if args.episode_end_behavior == "hold":
+            from real_world_rl.teleop.session import wait_before_episode
+            if wait_before_episode(env, wrapper.source, control_hz=args.control_hz,
+                                   neutral_threshold=args.neutral_threshold,
+                                   neutral_stable_s=args.neutral_stable_s) == "quit":
+                break
+            from real_world_rl.teleop.session import session_observe
+            obs = session_observe(env)
         episode = _record_episode(
             env,
             obs,
@@ -314,7 +334,17 @@ def record_demos(
             on_episode(episode)
         index += 1
         if episode.operator_quit:
+            if args.episode_end_behavior == "hold":
+                from real_world_rl.teleop.session import notify_session_event
+                notify_session_event(env, "STOPPING", "operator_quit")
             break
+        if args.episode_end_behavior == "hold":
+            from real_world_rl.teleop.session import wait_after_episode
+            allow_next = num_kept < args.num_successes and (args.max_episodes is None or index < args.max_episodes)
+            if wait_after_episode(env, wrapper.source, allow_next=allow_next,
+                                  control_hz=args.control_hz, neutral_threshold=args.neutral_threshold,
+                                  neutral_stable_s=args.neutral_stable_s) == "quit":
+                break
     return kept
 
 
@@ -454,7 +484,11 @@ def parse_record_args(argv: Optional[Sequence[str]] = None) -> RecordDemosArgs:
     go there. The training run's own preset works: its top-level keys that are not recorder
     fields (algorithm hyperparameters) are skipped, nested ones are checked strictly.
     """
-    return parse_args_with_preset(RecordDemosArgs, argv)
+    from real_world_rl.training.env_building import resolve_teleop_input
+
+    parsed = parse_args_with_preset(RecordDemosArgs, argv)
+    resolve_teleop_input(parsed)
+    return parsed
 
 
 def parse_args_with_preset(args_cls: type, argv: Optional[Sequence[str]] = None) -> Any:
@@ -563,7 +597,16 @@ def run_recorder(
             if record["record_type"] == "episode_start":
                 validate_transitions_against_contract([], demo_contract_of(env), source=str(output_path), saved=record.get("action_contract"))
     except BaseException:
-        env.close()
+        try:
+            env.close()
+        except BaseException:
+            logging.getLogger(__name__).exception("environment close failed after archive initialization error")
+        archive = getattr(env, "_record_archive", None)
+        if archive is not None:
+            try:
+                archive.close()
+            except BaseException:
+                logging.getLogger(__name__).exception("archive close also failed")
         raise
     kept: list[dict] = []
     num_kept = 0
@@ -585,44 +628,61 @@ def run_recorder(
     try:
         record_demos(env, args, hold_action_fn=make_hold(env), on_episode=report)
     finally:
-        Heartbeat.from_env().begin_long_operation()  # exports and disconnect may take a while
-        # Release device control before archive scans or potentially slow pkl/PT exports.
-        # The finalization still runs if release fails, preserving committed evidence.
+        active_failure = sys.exc_info()[0] is not None
+        cleanup_failures = []
+
+        def cleanup_failure(phase, error):
+            cleanup_failures.append(error)
+            logging.getLogger(__name__).error("%s failed: %s", phase, error, exc_info=True)
+
+        try:
+            Heartbeat.from_env().begin_long_operation()
+        except BaseException as error:
+            cleanup_failure("finalization heartbeat", error)
+        # Release control before exports, even if heartbeat setup failed.
         try:
             env.close()
+        except BaseException as error:
+            cleanup_failure("environment close", error)
+        try:
+            archive = getattr(env, "_record_archive", [])
+            if archive:
+                from real_world_rl.trajectory import end_episode
+                if archive[-1]["record_type"] != "episode_end":
+                    episode_id = archive[-1]["episode_id"]
+                    from real_world_rl.metrics import EpisodeOutcomeAccumulator
+                    interrupted_outcome = EpisodeOutcomeAccumulator()
+                    for record in archive:
+                        if record["record_type"] == "transition" and record["episode_id"] == episode_id:
+                            interrupted_outcome.observe(record)
+                    archive.append(end_episode(episode_id, step_count=interrupted_outcome.steps,
+                                               outcome=interrupted_outcome.finish(interrupted=True), interrupted=True))
+                from real_world_rl.metrics import EpisodeMetrics, EpisodeOutcome
+                metrics = EpisodeMetrics()
+                for record in archive:
+                    if record["record_type"] == "episode_end":
+                        outcome = record.get("outcome")
+                        if outcome is not None:
+                            metrics.add(EpisodeOutcome(**outcome))
+                        elif record.get("interrupted"):
+                            metrics.add(EpisodeOutcome(None, False, record.get("step_count", 0), 0,
+                                                       completed=False, interrupted=True))
+                print(f"[record] outcomes={metrics.summary()}", flush=True)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                if args.export_trajectory_pt:
+                    torch.save({"schema_version": 1, "records": list(archive), "action_contract": demo_contract_of(env)}, output_path.with_suffix(".trajectory.pt"))
+            if kept:
+                save_demos(kept, output_path, demo_contract_of(env))
+                print(f"[record] saved {num_kept} episodes ({len(kept)} transitions) to {output_path}", flush=True)
+            else:
+                print("[record] no demo pkl exported; trajectory archive retained", flush=True)
+        except BaseException as error:
+            cleanup_failure("archive finalization/export", error)
         finally:
             try:
-                archive = getattr(env, "_record_archive", [])
-                if archive:
-                    from real_world_rl.trajectory import end_episode
-                    if archive[-1]["record_type"] != "episode_end":
-                        episode_id = archive[-1]["episode_id"]
-                        from real_world_rl.metrics import EpisodeOutcomeAccumulator
-                        interrupted_outcome = EpisodeOutcomeAccumulator()
-                        for record in archive:
-                            if record["record_type"] == "transition" and record["episode_id"] == episode_id:
-                                interrupted_outcome.observe(record)
-                        archive.append(end_episode(episode_id, step_count=interrupted_outcome.steps,
-                                                   outcome=interrupted_outcome.finish(interrupted=True), interrupted=True))
-                    from real_world_rl.metrics import EpisodeMetrics, EpisodeOutcome
-                    metrics = EpisodeMetrics()
-                    for record in archive:
-                        if record["record_type"] == "episode_end":
-                            outcome = record.get("outcome")
-                            if outcome is not None:
-                                metrics.add(EpisodeOutcome(**outcome))
-                            elif record.get("interrupted"):
-                                metrics.add(EpisodeOutcome(None, False, record.get("step_count", 0), 0,
-                                                           completed=False, interrupted=True))
-                    print(f"[record] outcomes={metrics.summary()}", flush=True)
-                    output_path.parent.mkdir(parents=True, exist_ok=True)
-                    if args.export_trajectory_pt:
-                        torch.save({"schema_version": 1, "records": list(archive), "action_contract": demo_contract_of(env)}, output_path.with_suffix(".trajectory.pt"))
-                if kept:
-                    save_demos(kept, output_path, demo_contract_of(env))
-                    print(f"[record] saved {num_kept} episodes ({len(kept)} transitions) to {output_path}", flush=True)
-                else:
-                    print("[record] no demo pkl exported; trajectory archive retained", flush=True)
-            finally:
                 env._record_archive.close()
+            except BaseException as error:
+                cleanup_failure("archive close", error)
+        if cleanup_failures and not active_failure:
+            raise cleanup_failures[0]
     return output_path if kept else None

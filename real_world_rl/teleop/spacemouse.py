@@ -53,6 +53,8 @@ from typing import Any, Callable, Mapping, Optional, Sequence
 
 import numpy as np
 
+from real_world_rl.teleop.input_frame import rotate_input, diagnostic_input, input_sample_diagnostics
+
 from robot_infra.devices.backends.teleops import (
     spacemouse as _spacemouse_backend,  # registers "spacemouse"
 )
@@ -118,6 +120,10 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
         device_index: int = 0,
         deadzone: float = DEFAULT_DEADZONE,
         invert_axes: Sequence[int] = (),
+        input_rotation=None,
+        expected_device_identity=None,
+        diagnostic_axes="all",
+        diagnostic_gain=1.,
         poll_interval_s: float = 0.005,
         pos_scale_m: float = 0.05,
         rot_scale_rad: float = 0.3,
@@ -127,6 +133,8 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
         target_speed_rad_s: float = 0.3,
         max_dt_s: float = 0.3,
         safety_box: Optional[Sequence[float]] = None,
+        workspace=None,
+        task_frame=None,
         read_timeout_s: float = DEFAULT_READ_TIMEOUT_S,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -159,10 +167,17 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
                 "sent gripper action, so it needs last_gripper_action_getter (the intervention "
                 "wrapper passes it)"
             )
-        self._tracker = CartesianTargetTracker(tracker_config, safety_box=safety_box)
+        self._tracker = CartesianTargetTracker(tracker_config, safety_box=safety_box,
+                                               workspace=workspace, task_frame=task_frame)
         self._pos_scale_m = float(pos_scale_m)
         self._rot_scale_rad = float(rot_scale_rad)
         self._deadzone = float(deadzone)
+        from real_world_rl.teleop.input_frame import validate_input_rotation
+        self._input_rotation = validate_input_rotation(input_rotation)
+        diagnostic_input(np.zeros(6), diagnostic_axes, diagnostic_gain)
+        self._diagnostic_axes, self._diagnostic_gain = diagnostic_axes, diagnostic_gain
+        from real_world_rl.teleop.profiles import validate_device_identity
+        self._expected_device_identity = validate_device_identity(expected_device_identity)
         self._follower_pose = follower_pose_getter
         self._last_gripper_action = last_gripper_action_getter
         self._read_timeout_s = read_timeout_s
@@ -240,13 +255,26 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
             kwargs.setdefault("pos_scale_m", pos_scale_m)
             kwargs.setdefault("rot_scale_rad", rot_scale_rad)
         kwargs.setdefault("safety_box", _safety_box_from_env(env, contract))
+        from real_world_rl.teleop.leader_cartesian import _find_in_wrapper_chain
+        from real_world_rl.envs.real_robot.env import RealRobotEnv
+        backend = _find_in_wrapper_chain(env, RealRobotEnv)
+        if backend is not None:
+            config = backend.config
+            local = config.robot or {}
+            kwargs.setdefault("workspace", config.workspace if config.workspace is not None else local.get("workspace"))
+            kwargs.setdefault("task_frame", config.task_frame if config.task_frame is not None else local.get("task_frame"))
         return cls(**kwargs)
 
     # -- source protocol -----------------------------------------------------------
 
     def start(self) -> None:
-        if self._owns_part:
-            self._part.connect()
+        from real_world_rl.teleop.profiles import start_profiled_source
+        start_profiled_source(self)
+
+    def session_input(self):
+        """Consume fresh device input without advancing the motion target."""
+        sample = self._part.read(timeout_s=self._read_timeout_s)
+        return sample.action, sample.buttons
 
     def reset(self) -> None:
         """After the env reset: handed back, the tracker holds the follower's pose, the button
@@ -306,12 +334,14 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
         if not self._tracker.initialized:
             self._tracker.reset(measured)
         takeover = self._driving and not self._previously_driving
-        intervened, arm = self._arm_action(self._twist(sample.action), measured, takeover)
+        base_input = self._twist(sample.action)
+        intervened, arm = self._arm_action(base_input, measured, takeover)
         self._previously_driving = self._driving
         parts = [arm]
         if self._env_gripper:
             parts.append(np.array([self._gripper(intervened, presses[GRIPPER_BUTTON])]))
         return TeleopReading(
+            diagnostics=input_sample_diagnostics(sample, base_input),
             action=np.concatenate(parts).astype(np.float32),
             intervened=intervened,
             timestamp=float(getattr(sample, "timestamp", 0.0)),
@@ -332,7 +362,8 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
     def _twist(self, action: Any) -> np.ndarray:
         twist = np.clip(np.asarray(action, dtype=np.float64).reshape(_CARTESIAN_ARM_DIM), -1.0, 1.0)
         twist[np.abs(twist) <= self._deadzone] = 0.0
-        return twist
+        return diagnostic_input(rotate_input(twist, self._input_rotation),
+                                self._diagnostic_axes, self._diagnostic_gain)
 
     def _arm_action(self, twist: np.ndarray, measured: np.ndarray, takeover: bool) -> tuple[bool, np.ndarray]:
         """``(intervened, arm action)``; the arm action only matters while intervened."""

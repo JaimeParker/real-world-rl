@@ -19,8 +19,8 @@ The HIL-SERL LICENSE carries this notice (copied verbatim):
    See the License for the specific language governing permissions and
    limitations under the License.
 
-Modified for robot_infra: replace easyhid with hidapi, omit callbacks and
-module-global device ownership, guard short reports, and close failed opens.
+Modified for robot_infra: replace easyhid with hidapi, omit callbacks, add optional advisory device claims,
+guard short reports, and close failed opens. The device table is unchanged from 1.0.3.
 """
 from __future__ import annotations
 
@@ -397,6 +397,10 @@ def require_sdk() -> ModuleType:
 class _HidReader:
     def __init__(self, handle: Any, spec: DeviceSpec) -> None:
         self._handle = handle
+        self._claim = None
+        self.identity = {}
+        self.report_count = 0
+        self.last_report_monotonic = None
         self._spec = spec
         self._state = State(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, [0] * len(spec.button_mapping))
         self._report_size = 1 + max(
@@ -411,6 +415,9 @@ class _HidReader:
         # update their axes only; an empty read must preserve the last state.
         report = self._handle.read(self._report_size)
         if report:
+            import time
+            self.report_count += 1
+            self.last_report_monotonic = time.monotonic()
             self._process(report)
         return self._state
 
@@ -429,11 +436,16 @@ class _HidReader:
 
     def close(self) -> None:
         handle, self._handle = self._handle, None
-        if handle is not None:
-            handle.close()
+        try:
+            if handle is not None:
+                handle.close()
+        finally:
+            if self._claim is not None:
+                self._claim.release()
+                self._claim = None
 
 
-def open(device_index: int = 0) -> _HidReader:
+def open(device_index: int = 0, *, claim: bool = True, claims_dir=None) -> _HidReader:
     """Open the indexed supported HID path, in hid.enumerate() order."""
     sdk = require_sdk()
     by_id = {tuple(spec.hid_id): spec for spec in device_specs.values()}
@@ -449,16 +461,34 @@ def open(device_index: int = 0) -> _HidReader:
                 hint=f"plug it in; {UDEV_HINT}",
             )
         info, spec = devices[device_index]
-        handle = sdk.device()
+        from robot_infra.devices.claims import DeviceClaim
+        import hashlib
+        path = info["path"]
+        key = hashlib.sha256(path if isinstance(path, bytes) else str(path).encode()).hexdigest()
+        claim = DeviceClaim("spacemouse:" + key, lock_dir=claims_dir) if claim else None
+        if claim is not None:
+            claim.acquire()
+        handle = None
         try:
+            handle = sdk.device()
             handle.open_path(info["path"])
             handle.set_nonblocking(1)
-            return _HidReader(handle, spec)
-        except Exception:
-            handle.close()
+            reader = _HidReader(handle, spec)
+            reader._claim = claim
+            reader.identity = {"vendor_id": info["vendor_id"], "product_id": info["product_id"],
+                               "serial_number": info.get("serial_number") or "", "model": spec.name}
+            return reader
+        except BaseException:
+            try:
+                if handle is not None:
+                    handle.close()
+            finally:
+                if claim is not None:
+                    claim.release()
             raise
     except (OSError, RuntimeError) as error:
-        if isinstance(error, DeviceNotFound):
+        from robot_infra.devices.errors import DeviceBusy
+        if isinstance(error, (DeviceNotFound, DeviceBusy)):
             raise
         raise DeviceNotFound(
             f"cannot open SpaceMouse #{device_index}: {error}", hint=UDEV_HINT

@@ -14,7 +14,7 @@ from robot_infra.server import RemoteRobot
 from robot_infra.server.service import RobotService
 from robot_infra.server.transport import LocalClient
 
-from real_world_rl.envs.real_robot import RealRobotEnv, RealRobotEnvConfig
+from real_world_rl.envs.real_robot import RealRobotEnv, RealRobotEnvConfig, RuntimeReportPaths
 
 ZERO_HOME = [0.0] * 7
 FRAME_HW = (24, 32)
@@ -64,8 +64,8 @@ class _Rig:
         values.update(overrides)
         return RealRobotEnvConfig(**values)
 
-    def env(self, **overrides) -> RealRobotEnv:
-        env = RealRobotEnv(self.config(**overrides), robot=self.robot)
+    def env(self, *, report_paths=None, **overrides) -> RealRobotEnv:
+        env = RealRobotEnv(self.config(**overrides), robot=self.robot, report_paths=report_paths)
         self.envs.append(env)
         return env
 
@@ -330,6 +330,57 @@ def test_config_default_constructs_and_parses_from_empty_cli():
 
     assert RealRobotEnvConfig().robot is None
     assert tyro.cli(RealRobotEnvConfig, args=[]) == RealRobotEnvConfig()
+
+
+@pytest.mark.parametrize('reports_enabled', [False, True])
+def test_config_tyro_parse_and_serialization_exclude_runtime_paths(tmp_path, monkeypatch, reports_enabled):
+    import dataclasses
+    import json
+    import tyro
+    from rl_garden.common.effective_config import json_value
+
+    destinations = {
+        'RWRL_STOP_TRACE_PATH': str(tmp_path / 'stop.json'),
+        'RWRL_DIAGNOSTICS_PATH': str(tmp_path / 'diagnostics.jsonl'),
+        'RWRL_SESSION_EVENTS_PATH': str(tmp_path / 'session.jsonl'),
+    }
+    for variable, path in destinations.items():
+        if reports_enabled:
+            monkeypatch.setenv(variable, path)
+        else:
+            monkeypatch.delenv(variable, raising=False)
+    config = tyro.cli(RealRobotEnvConfig, args=[])
+    assert config == RealRobotEnvConfig()
+    runtime_keys = {'stop_trace_path', 'diagnostics_path', 'session_events_path',
+                    'stop_trace', 'diagnostics', 'session_events', 'report_paths'}
+    assert not runtime_keys & config.__annotations__.keys()
+    assert not any(hasattr(config, name) for name in runtime_keys)
+    for serialized in (dataclasses.asdict(config), json_value(config)):
+        assert not runtime_keys & serialized.keys()
+        assert not any(path in json.dumps(serialized) for path in destinations.values())
+
+
+@pytest.mark.parametrize('reports_enabled', [False, True])
+def test_runtime_report_paths_from_environ_and_explicit_override(tmp_path, monkeypatch, reports_enabled):
+    values = {name: str(tmp_path / name) for name in ('stop_trace', 'diagnostics', 'session_events')}
+    for name, path in values.items():
+        variable = f'RWRL_{name.upper()}_PATH'
+        if reports_enabled:
+            monkeypatch.setenv(variable, path)
+        else:
+            monkeypatch.delenv(variable, raising=False)
+    expected = RuntimeReportPaths(**values) if reports_enabled else RuntimeReportPaths()
+    assert RuntimeReportPaths.from_environ() == expected
+    rig = _Rig('local')
+    try:
+        assert rig.env()._report_paths == expected
+        explicit = RuntimeReportPaths(diagnostics=str(tmp_path / 'explicit.jsonl'))
+        assert rig.env(report_paths=explicit)._report_paths == explicit
+        # An explicit empty value disables ambient destinations rather than inheriting them.
+        assert rig.env(report_paths=RuntimeReportPaths())._report_paths == RuntimeReportPaths()
+        assert not rig.robot.is_connected
+    finally:
+        rig.close()
 
 
 @pytest.mark.parametrize(
@@ -751,3 +802,638 @@ def test_teleop_part_does_not_leak_into_env_observation(teleop_rig):
     assert set(obs) == {"state", "frames"}
     assert list(obs["state"]) == list(env.config.state_fields)
     assert set(obs["frames"]) == {"wrist"}
+
+
+@pytest.mark.parametrize('mode', ['local', 'remote'])
+def test_workspace_contract_requires_matching_enforcement_before_reset(mode):
+    workspace = {'frame': 'base', 'low': [-2., -2., -2.], 'high': [2., 2., 2.]}
+    rig = _Rig(mode, workspace=workspace)
+    try:
+        env = rig.env(workspace=workspace)
+        assert 'spatial_constraints' in env.requested_experiment
+        env.reset()
+        assert 'task_workspace_v1' in env.robot.arm.safety_capabilities
+    finally:
+        rig.close()
+    rig = _Rig(mode, workspace=workspace)
+    try:
+        wrong = {**workspace, 'high': [3., 3., 3.]}
+        env = rig.env(workspace=wrong)
+        with pytest.raises(DeviceFault, match='differs'):
+            env.reset()
+        assert not env._validated
+    finally:
+        rig.close()
+
+
+def test_old_daemon_cannot_claim_workspace_support():
+    workspace = {'frame': 'base', 'low': [-2.]*3, 'high': [2.]*3}
+    rig = _Rig('remote', workspace=workspace)
+    original = rig.service._methods['robot.describe']
+    def old_describe():
+        result = original()
+        result['arm'].pop('safety_capabilities')
+        return result
+    rig.service._methods['robot.describe'] = old_describe
+    try:
+        env = rig.env(workspace=workspace)
+        with pytest.raises(DeviceFault, match='does not advertise'):
+            env.reset()
+    finally:
+        rig.close()
+
+
+@pytest.mark.parametrize('mode', ['local', 'remote'])
+@pytest.mark.parametrize('semantics', ['current', 'serl'])
+def test_measured_workspace_violation_stops_without_recovery_command(mode, semantics):
+    from robot_infra.devices.errors import SafetyViolation
+    workspace = {'frame': 'base', 'low': [-1.]*3, 'high': [1.]*3}
+    rig = _Rig(mode, workspace=workspace)
+    try:
+        options = dict(workspace=workspace, cartesian_semantics=semantics)
+        if semantics == 'serl':
+            options.update(safety_box=[-1.]*3+[1.]*3,
+                           safety_box_rpy_low=[-3.14]*3, safety_box_rpy_high=[3.14]*3)
+        env = rig.env(**options)
+        env.reset()
+        rig.arm._tcp_pose[0] = 2.
+        rig.arm._pose_target = None
+        env._last_raw['arm']['tcp_pose'][0] = 2.
+        before = list(rig.arm.call_log)
+        with pytest.raises(SafetyViolation, match='measured TCP'):
+            env.step(np.zeros(7))
+        assert rig.arm.call_log[len(before):] == ['stop']
+        with pytest.raises(SafetyViolation, match='measured TCP'):
+            env.reset()
+        assert rig.arm.call_log[len(before):] == ['stop']
+    finally:
+        rig.close()
+
+
+def test_joint_mode_refuses_cartesian_workspace_before_connect():
+    workspace = {'frame': 'base', 'low': [-1.]*3, 'high': [1.]*3}
+    rig = _Rig('local', workspace=workspace)
+    try:
+        with pytest.raises(ValueError, match='requires cartesian_delta'):
+            rig.env(workspace=workspace, action_mode='joint_delta')
+        assert not rig.robot.is_connected
+    finally:
+        rig.close()
+
+
+def test_measured_workspace_stop_failure_preserves_violation(monkeypatch):
+    from robot_infra.devices.errors import SafetyViolation
+    workspace = {'frame': 'base', 'low': [-1.]*3, 'high': [1.]*3}
+    rig = _Rig('local', workspace=workspace)
+    try:
+        env = rig.env(workspace=workspace)
+        env.reset()
+        rig.arm._tcp_pose[2] = 2.
+        rig.arm._pose_target = None
+        env._last_raw['arm']['tcp_pose'][2] = 2.
+        def fail_stop():
+            raise RuntimeError('stop failed independently')
+        with monkeypatch.context() as patch:
+            patch.setattr(rig.arm, 'stop', fail_stop)
+            with pytest.raises(SafetyViolation, match='measured TCP'):
+                env.step(np.zeros(7))
+    finally:
+        rig.close()
+
+
+def test_feedback_drift_after_send_is_detected(monkeypatch):
+    from robot_infra.devices.errors import SafetyViolation
+    workspace = {'frame': 'base', 'low': [-1.]*3, 'high': [1.]*3}
+    rig = _Rig('local', workspace=workspace)
+    try:
+        env = rig.env(workspace=workspace)
+        env.reset()
+        original = rig.robot.get_observation
+        def drifted():
+            raw = original()
+            raw['arm']['tcp_pose'][0] = 2.
+            return raw
+        monkeypatch.setattr(rig.robot, 'get_observation', drifted)
+        before = len(rig.arm.call_log)
+        with pytest.raises(SafetyViolation, match='measured TCP'):
+            env.step(np.zeros(7))
+        assert rig.arm.call_log[before:] == ['servo_cartesian', 'stop']
+    finally:
+        rig.close()
+
+
+@pytest.mark.parametrize("reason", [None, "operator_quit"])
+def test_close_exports_normal_stop_before_releasing_connection(tmp_path, monkeypatch, reason):
+    import json
+    rig = _Rig('local')
+    try:
+        path = tmp_path / 'trace.json'
+        report_paths = RuntimeReportPaths()
+        env = rig.env(report_paths=report_paths)
+        env.reset()
+        report_paths.stop_trace = str(path)
+        path = env.output_path('stop_trace')
+        trace = {'schema_version': 1, 'samples': []}
+        def stop_trace():
+            assert rig.robot.is_connected
+            return {'trace': trace, 'assessment': {'status': 'BLOCKED'}}
+        monkeypatch.setattr(rig.arm, 'stop_with_trace', stop_trace, raising=False)
+        if reason:
+            env.session_event('STOPPING', reason)
+        env.close()
+        assert not rig.robot.is_connected
+        assert json.loads(path.read_text()) == trace
+        context = json.loads(path.read_text())['metadata']['session_exit']
+        assert context['reason'] == (reason or 'normal_close')
+        assert len(context['env_config_sha256']) == 64
+        assert json.loads(path.with_name(path.stem + '.assessment.json').read_text())['status'] == 'BLOCKED'
+    finally:
+        rig.close()
+
+
+def test_exception_close_does_not_wait_for_normal_stop_trace(monkeypatch):
+    rig = _Rig('local')
+    try:
+        report_paths = RuntimeReportPaths()
+        env = rig.env(report_paths=report_paths)
+        env.reset()
+        report_paths.stop_trace = 'unused.json'
+        def forbidden():
+            raise AssertionError('fault cleanup must not perform normal observation')
+        monkeypatch.setattr(rig.arm, 'stop_with_trace', forbidden, raising=False)
+        try:
+            raise ValueError('rollout fault')
+        except ValueError:
+            env.close()
+        assert not rig.robot.is_connected
+    finally:
+        rig.close()
+
+
+def test_failed_stop_acceptance_exports_evidence_and_releases(tmp_path, monkeypatch):
+    rig = _Rig('local')
+    try:
+        report_paths = RuntimeReportPaths()
+        env = rig.env(report_paths=report_paths)
+        env.reset()
+        path = tmp_path / 'stop.json'
+        report_paths.stop_trace = str(path)
+        path = env.output_path('stop_trace')
+        monkeypatch.setattr(rig.arm, 'stop_with_trace', lambda: {
+            'trace': {'samples': []}, 'assessment': {'status': 'FAIL'}}, raising=False)
+        with pytest.raises(RuntimeError, match='acceptance failed'):
+            env.close()
+        assert path.exists()
+        assert not rig.robot.is_connected
+    finally:
+        rig.close()
+
+
+@pytest.mark.parametrize('mode', ['local', 'remote'])
+def test_control_diagnostics_distinguish_requested_limited_accepted_and_measured(mode, tmp_path):
+    import json
+    rig = _Rig(mode, max_delta_per_step={'xyz_m': .01})
+    try:
+        path = tmp_path / 'diagnostics.jsonl'
+        env = rig.env(report_paths=RuntimeReportPaths(diagnostics=str(path)), safety_box=[-.015]*3+[.015]*3,
+                      xyz_scale_m=.02)
+        path = env.output_path('diagnostics')
+        env.reset()
+        env.step(np.array([1., 0, 0, 0, 0, 0, 0]))
+        row = json.loads(path.read_text().splitlines()[-1])
+        assert row['requested_pose'][0] == pytest.approx(.02)
+        assert row['env_limited_pose'][0] == pytest.approx(.015)
+        assert row['device_accepted_pose'][0] == pytest.approx(.01)
+        assert row['measured_base_pose'][0] < row['device_accepted_pose'][0]
+        assert row['limit_reasons'] == ['env_pose_limits', 'device_limits']
+    finally:
+        rig.close()
+
+
+def test_teleop_evidence_attaches_once_to_control_row(tmp_path):
+    import json
+    rig = _Rig('local')
+    try:
+        path = tmp_path / 'diagnostics.jsonl'
+        env = rig.env(report_paths=RuntimeReportPaths(diagnostics=str(path)))
+        path = env.output_path('diagnostics')
+        env.reset()
+        data = {'input': {'sample_seq': 42, 'decoded_axes': [1, 2, 3, 4, 5, 6]}, 'intervened': True}
+        env.set_teleop_diagnostics(data)
+        data['input']['sample_seq'] = 99
+        env.step(np.zeros(7))
+        env.step(np.zeros(7))
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        assert rows[0]['teleop']['input']['sample_seq'] == 42
+        assert rows[1]['teleop'] is None
+    finally:
+        rig.close()
+
+
+@pytest.mark.parametrize('active_error', [False, True])
+def test_close_releases_even_when_watchdog_and_stream_close_fail(monkeypatch, active_error):
+    from types import SimpleNamespace
+    rig = _Rig('local')
+    try:
+        env = rig.env()
+        env.reset()
+        calls = []
+        def watchdog_close():
+            raise RuntimeError('watchdog cleanup fault')
+        def stream_close():
+            calls.append('stream')
+            raise OSError('stream cleanup fault')
+        monkeypatch.setattr(env, '_close_step_watchdog', watchdog_close)
+        env._diagnostic_stream = SimpleNamespace(close=stream_close)
+        if active_error:
+            with pytest.raises(ValueError, match='original rollout'):
+                try:
+                    raise ValueError('original rollout')
+                finally:
+                    env.close()
+        else:
+            with pytest.raises(RuntimeError, match='watchdog cleanup fault'):
+                env.close()
+        assert not rig.robot.is_connected
+        assert calls == ['stream']
+        assert env._diagnostic_stream is None
+    finally:
+        monkeypatch.undo()
+        rig.close()
+
+
+@pytest.mark.parametrize('mode', ['local', 'remote'])
+def test_hold_session_capability_rejected_before_homing(mode, monkeypatch):
+    from real_world_rl.teleop.session import session_backend
+    from robot_infra.devices.errors import DeviceFault
+    rig = _Rig(mode)
+    try:
+        env = rig.env()
+        session_backend(env)
+        monkeypatch.setattr(type(rig.arm), 'safety_capabilities', property(lambda self: ()))
+        with pytest.raises(DeviceFault, match='accepted_cartesian_target_v1'):
+            env.reset()
+        assert 'move_to_joints' not in rig.arm.call_log
+        assert 'servo_cartesian' not in rig.arm.call_log
+        assert not env.robot.is_connected
+    finally:
+        rig.close()
+
+
+def test_spacemouse_from_env_inherits_task_workspace_without_connecting():
+    from real_world_rl.teleop.spacemouse import SpaceMouseTeleopSource
+    rig = _Rig('local')
+    try:
+        frame = {'name': 'table', 'base_T_frame': np.eye(4).tolist()}
+        workspace = {'frame': 'table', 'low': [-1]*3, 'high': [1]*3}
+        env = rig.env(task_frame=frame, workspace=workspace, xyz_scale_m=.05, rot_scale_rad=.3)
+        source = SpaceMouseTeleopSource.from_env(env, last_gripper_action_getter=lambda: 1.)
+        assert source.cartesian_tracker.workspace.frame == 'table'
+        np.testing.assert_array_equal(source.cartesian_tracker.workspace.high, [1]*3)
+        assert not rig.robot.is_connected
+    finally:
+        rig.close()
+
+
+def test_session_phase_file_closes_after_device_release(tmp_path):
+    import json
+    rig = _Rig('local')
+    try:
+        path = tmp_path / 'session.jsonl'
+        env = rig.env(report_paths=RuntimeReportPaths(session_events=str(path)))
+        path = env.output_path('session_events')
+        env.require_session_hold()
+        env.reset()
+        env.session_event('ACTIVE', 'neutral_confirmed')
+        env.close()
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        assert [row['phase'] for row in rows] == ['READY', 'ACTIVE', 'STOPPING', 'CLOSED']
+        assert [row['sequence'] for row in rows] == list(range(4))
+        env.close()
+        assert len(path.read_text().splitlines()) == 4
+        assert not rig.robot.is_connected
+    finally:
+        rig.close()
+
+
+def test_session_event_write_failure_cannot_prevent_disconnect(tmp_path, monkeypatch):
+    rig = _Rig('local')
+    try:
+        env = rig.env(report_paths=RuntimeReportPaths(session_events=str(tmp_path / 'events.jsonl')))
+        env.require_session_hold()
+        env.reset()
+        def fail(*args, **kwargs):
+            raise OSError('event disk failure')
+        monkeypatch.setattr(env._session_events, 'emit', fail)
+        with pytest.raises(OSError, match='event disk failure'):
+            env.close()
+        assert not rig.robot.is_connected
+    finally:
+        monkeypatch.undo()
+        rig.close()
+
+
+@pytest.mark.parametrize('mode', ['local', 'remote'])
+def test_hold_diagnostics_do_not_advance_episode_or_invent_input(mode, tmp_path):
+    import json
+    rig = _Rig(mode)
+    try:
+        path = tmp_path / 'control.jsonl'
+        env = rig.env(report_paths=RuntimeReportPaths(diagnostics=str(path)))
+        path = env.output_path('diagnostics')
+        env.reset()
+        env.step(np.zeros(7))
+        target = env.session_hold_target()
+        before = env._elapsed_steps
+        for _ in range(2):
+            env.session_hold_tick(target)
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        assert [row['kind'] for row in rows] == ['step', 'hold', 'hold']
+        assert env._elapsed_steps == before
+        for row in rows[1:]:
+            assert row['input_action'] is None and row['teleop'] is None
+            assert row['measurement_phase'] == 'before_command'
+            assert row['step'] == before
+            np.testing.assert_array_equal(row['device_accepted_pose'], target)
+    finally:
+        rig.close()
+
+
+@pytest.mark.parametrize('logging_failure', [False, True])
+def test_command_failure_diagnostics_preserve_device_fault(tmp_path, monkeypatch, logging_failure):
+    import json
+    from types import SimpleNamespace
+    from robot_infra.devices.errors import DeviceFault
+    rig = _Rig('local')
+    try:
+        path = tmp_path / 'failed.jsonl'
+        env = rig.env(report_paths=RuntimeReportPaths(diagnostics=str(path)))
+        path = env.output_path('diagnostics')
+        env.reset()
+        if logging_failure:
+            env._diagnostic_stream.close()
+            def fail_write(value):
+                raise OSError('disk full')
+            env._diagnostic_stream = SimpleNamespace(write=fail_write, close=lambda: None)
+        def fail_send(command):
+            raise DeviceFault('original command fault')
+        monkeypatch.setattr(env, '_send_and_observe', fail_send)
+        with pytest.raises(DeviceFault, match='original command fault'):
+            env.step(np.zeros(7))
+        assert env._elapsed_steps == 0
+        if not logging_failure:
+            row = json.loads(path.read_text())
+            assert row['kind'] == 'command_failed'
+            assert row['execution_status'] == 'unknown'
+            assert row['device_accepted_pose'] is None and row['measured_base_pose'] is None
+            assert row['requested_pose'] is not None
+    finally:
+        rig.close()
+
+
+def _hold_source(events):
+    from types import SimpleNamespace
+    from real_world_rl.teleop.composite import CompositeTeleopSource
+    events = iter(events)
+    return CompositeTeleopSource(SimpleNamespace(session_input=lambda: (np.zeros(6), {})),
+                                 SimpleNamespace(poll=lambda: SimpleNamespace(events=next(events))))
+
+
+@pytest.mark.parametrize('mode', ['local', 'remote'])
+def test_episode_end_to_hold_never_stops_the_arm_and_holds_the_last_accepted_target(mode, monkeypatch):
+    """WO-17: the HOLD target is read with no arm stop after the episode's final step."""
+    from real_world_rl.teleop.session import wait_after_episode
+    rig = _Rig(mode)
+    try:
+        env = rig.env(max_episode_steps=1)
+        env.reset()
+        *_, truncated, _ = env.step(np.array([.5, 0, 0, 0, 0, 0, 0]))
+        assert truncated
+        episode_end = len(rig.arm.call_log)
+        accepted = rig.arm.last_cartesian_target
+        assert accepted is not None
+        seen = {}
+        read_target = env.session_hold_target
+        def spy_target():
+            seen['calls_before_hold'] = list(rig.arm.call_log[episode_end:])
+            return read_target()
+        monkeypatch.setattr(env, 'session_hold_target', spy_target)
+        held = []
+        tick = env.session_hold_tick
+        monkeypatch.setattr(env, 'session_hold_tick', lambda target: (held.append(target.copy()), tick(target))[1])
+        assert wait_after_episode(env, _hold_source([{}, {'operator_quit': True}]), allow_next=False,
+                                  control_hz=1000., sleep=lambda _: None) == 'quit'
+        assert seen['calls_before_hold'] == []
+        assert 'stop' not in rig.arm.call_log[episode_end:]
+        assert len(held) == 1
+        np.testing.assert_array_equal(held[0], accepted)
+    finally:
+        rig.close()
+
+
+@pytest.mark.parametrize('mode', ['local', 'remote'])
+def test_hold_after_a_plain_arm_stop_refuses_instead_of_resending_the_old_target(mode):
+    rig = _Rig(mode)
+    try:
+        env = rig.env()
+        env.reset()
+        env.step(np.array([.5, 0, 0, 0, 0, 0, 0]))
+        assert rig.arm.last_cartesian_target is not None
+        rig.arm.stop()  # e.g. a daemon/operator stop between the episode end and HOLD
+        after_stop = len(rig.arm.call_log)
+        with pytest.raises(RuntimeError, match='no accepted Cartesian target to hold'):
+            env.session_hold_target()
+        assert 'servo_cartesian' not in rig.arm.call_log[after_stop:]
+    finally:
+        rig.close()
+
+
+def test_hold_target_after_step_watchdog_trip_reports_the_trip():
+    from robot_infra.supervise import StepWatchdogTripped
+    rig = _Rig('local')
+    try:
+        env = rig.env()
+        env.reset()
+        env.step(np.array([.5, 0, 0, 0, 0, 0, 0]))
+        message = 'no env step for 0.900s (watchdog limit 0.5s); arm.stop() was called'
+
+        class TrippedWatchdog:
+            tripped, trip_message = True, message
+            def check_in(self):
+                raise StepWatchdogTripped(message)
+            def activate(self): pass
+            def deactivate(self): pass
+            def close(self): pass
+
+        rig.arm.stop()  # what the watchdog thread did when it tripped
+        env._step_watchdog = TrippedWatchdog()
+        with pytest.raises(StepWatchdogTripped, match='watchdog limit'):
+            env.session_hold_target()
+    finally:
+        rig.close()
+
+
+@pytest.mark.parametrize('with_workspace', [False, True])
+def test_hold_allows_measured_half_mm_below_base_box(with_workspace):
+    """B1: exercise the real HOLD method against a fake device, not a fake backend."""
+    workspace = {'low': [-1., -1., 0.], 'high': [1., 1., 1.]} if with_workspace else None
+    rig = _Rig('local', safety_box=[-1., -1., 0., 1., 1., 1.], workspace=workspace)
+    try:
+        env = rig.env(workspace=workspace)
+        env.reset()
+        env.step(np.zeros(7))
+        target = env.session_hold_target()
+        rig.arm._tcp_pose[2] = -.0005
+        rig.arm._pose_target = None
+        before = env._elapsed_steps
+        env.session_hold_tick(target)
+        np.testing.assert_array_equal(rig.arm.last_cartesian_target, target)
+        assert env._elapsed_steps == before
+    finally:
+        rig.close()
+
+
+@pytest.mark.parametrize('mode', ['local', 'remote'])
+@pytest.mark.parametrize('outside_m,should_fault', [(.001, False), (.004, True)])
+def test_measured_workspace_margin_distinguishes_one_and_four_mm(mode, outside_m, should_fault):
+    from robot_infra.devices.errors import SafetyViolation
+    workspace = {'low': [-1., -1., 0.], 'high': [1., 1., 1.]}
+    rig = _Rig(mode, workspace=workspace)
+    try:
+        env = rig.env(workspace=workspace)
+        env.reset()
+        rig.arm._tcp_pose[2] = -outside_m
+        rig.arm._pose_target = None
+        if should_fault:
+            with pytest.raises(SafetyViolation, match='measured TCP'):
+                env.session_hold_tick([0, 0, 0, 0, 0, 0, 1])
+            assert 'stop' in rig.arm.call_log
+        else:
+            env.session_hold_tick([0, 0, 0, 0, 0, 0, 1])
+            assert env._workspace_fault is None
+    finally:
+        rig.close()
+
+
+@pytest.mark.parametrize('mode', ['local', 'remote'])
+@pytest.mark.parametrize('semantics', ['current', 'serl'])
+def test_policy_target_projects_position_and_orientation_into_workspace(mode, semantics):
+    from scipy.spatial.transform import Rotation
+    workspace = {'low': [-.01]*3, 'high': [.01]*3,
+                 'orientation_xyzw': [0, 0, 0, 1], 'max_angle_rad': .04}
+    rig = _Rig(mode, workspace=workspace)
+    try:
+        options = dict(workspace=workspace, cartesian_semantics=semantics)
+        if semantics == 'serl':
+            options.update(safety_box=[-.015]*3+[.015]*3,
+                           safety_box_rpy_low=[0, -.02, -.03],
+                           safety_box_rpy_high=[.1, .02, .03])
+        env = rig.env(**options)
+        env.reset()
+        env.step(np.array([1., 1., 1., 1., 1., 0., 0.]))
+        target = rig.arm.last_cartesian_target
+        np.testing.assert_allclose(target[:3], [.01]*3)
+        assert Rotation.from_quat(target[3:]).magnitude() == pytest.approx(.04)
+        assert rig.arm.health().safety_rejects == 0
+    finally:
+        rig.close()
+
+
+def test_workspace_step_uses_cached_feedback_without_extra_arm_read(monkeypatch):
+    workspace = {'low': [-1.]*3, 'high': [1.]*3}
+    rig = _Rig('remote', workspace=workspace)
+    try:
+        env = rig.env(workspace=workspace)
+        env.reset()
+        calls = []
+        original = rig.robot.arm.read_state
+        monkeypatch.setattr(rig.robot.arm, 'read_state', lambda: (calls.append('read'), original())[1])
+        env.step(np.zeros(7))
+        assert calls == []  # robot.step already returns the post-command observation
+    finally:
+        rig.close()
+
+
+def test_runtime_report_paths_are_not_serialized_and_close_is_idempotent(tmp_path, monkeypatch):
+    import dataclasses
+    from rl_garden.common.effective_config import json_value
+    names = {'stop_trace_path', 'diagnostics_path', 'session_events_path'}
+    config = RealRobotEnvConfig(robot={'type': 'franka'})
+    assert not names & dataclasses.asdict(config).keys()
+    assert not names & json_value(config).keys()
+    rig = _Rig('local')
+    try:
+        report_paths = RuntimeReportPaths(diagnostics=str(tmp_path / 'control.jsonl'),
+                                          session_events=str(tmp_path / 'events.jsonl'))
+        env = rig.env(report_paths=report_paths)
+        env.require_session_hold()
+        env.reset()
+        report_paths.stop_trace = str(tmp_path / 'stop.json')
+        monkeypatch.setattr(rig.arm, 'stop_with_trace', lambda: {
+            'trace': {'samples': []}, 'assessment': {'status': 'BLOCKED'}}, raising=False)
+        env.close()
+        env.close()
+        assert not names & dataclasses.asdict(env.config).keys()
+        assert not names & json_value(env.config).keys()
+        assert env.output_path('stop_trace').exists()
+        assert len([p for p in tmp_path.glob('stop-*.json') if not p.name.endswith('.assessment.json')]) == 1
+        assert not (tmp_path / 'control.jsonl').exists()
+        another = RealRobotEnv(config, robot=rig.robot, report_paths=report_paths)
+        assert another.output_path('stop_trace') != env.output_path('stop_trace')
+    finally:
+        rig.close()
+
+
+def test_frame_alone_is_display_only_and_workspace_compares_frame():
+    frame = {'name': 'table', 'base_T_frame': np.eye(4).tolist()}
+    rig = _Rig('remote')
+    try:
+        env = rig.env(task_frame=frame)
+        assert 'spatial_constraints' not in env.requested_experiment
+        env.reset()
+    finally:
+        rig.close()
+    workspace = {'frame': 'base', 'low': [-1]*3, 'high': [1]*3}
+    rig = _Rig('remote', workspace=workspace, task_frame=frame)
+    try:
+        different = {'name': 'table', 'base_T_frame': np.eye(4).tolist()}
+        different['base_T_frame'][0][3] = .1
+        env = rig.env(workspace=workspace, task_frame=different)
+        with pytest.raises(DeviceFault, match='differs'):
+            env.reset()
+    finally:
+        rig.close()
+
+
+def test_operator_quit_is_not_followed_by_duplicate_stopping_event(tmp_path):
+    import json
+    rig = _Rig('local')
+    try:
+        env = rig.env(report_paths=RuntimeReportPaths(session_events=str(tmp_path / 'events.jsonl')))
+        env.require_session_hold()
+        env.reset()
+        env.session_event('STOPPING', 'operator_quit')
+        env.close()
+        rows = [json.loads(line) for line in env.output_path('session_events').read_text().splitlines()]
+        assert [row['reason'] for row in rows if row['phase'] == 'STOPPING'] == ['operator_quit']
+    finally:
+        rig.close()
+
+
+def test_active_exception_event_records_type(tmp_path):
+    import json
+    rig = _Rig('local')
+    try:
+        env = rig.env(report_paths=RuntimeReportPaths(session_events=str(tmp_path / 'events.jsonl')))
+        env.require_session_hold()
+        env.reset()
+        try:
+            raise LookupError('rollout')
+        except LookupError:
+            env.close()
+        rows = [json.loads(line) for line in env.output_path('session_events').read_text().splitlines()]
+        assert rows[-1]['phase'] == 'FAULT'
+        assert rows[-1]['reason'] == 'active_exception:LookupError'
+        assert rows[-2]['reason'] == 'active_exception:LookupError'
+    finally:
+        rig.close()

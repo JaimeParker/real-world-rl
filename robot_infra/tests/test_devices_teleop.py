@@ -283,3 +283,16 @@ def test_discover_and_registry():
     assert "fake" in Teleop.backends()
     assert Teleop.backend("fake") is FakeTeleop
     assert FakeTeleop.discover() == {"fake"}
+
+
+def test_teleop_sample_optional_diagnostics_roundtrip_without_legacy_wire_change():
+    import numpy as np
+    from robot_infra.devices.teleop import TeleopSample
+    sample = TeleopSample(np.zeros(6), 'cartesian_delta', None, {}, {}, False, 1., 1)
+    assert 'diagnostics' not in sample.to_dict()
+    assert TeleopSample.from_dict(sample.to_dict()).diagnostics == {}
+    sample.diagnostics = {'decoded_axes': [1, 2, 3, 4, 5, 6]}
+    encoded = sample.to_dict()
+    restored = TeleopSample.from_dict(encoded)
+    encoded['diagnostics']['decoded_axes'][0] = 99
+    assert restored.diagnostics['decoded_axes'][0] == 1

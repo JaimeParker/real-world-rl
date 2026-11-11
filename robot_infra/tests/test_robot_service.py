@@ -75,6 +75,7 @@ def test_describe(services):
         ],
         "control_mode": "idle",
         "safety": None,
+        "safety_capabilities": ["task_workspace_v1", "accepted_cartesian_target_v1"],
         "home_joints": [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785],
     }
     assert description["gripper"] == {"max_width_m": 0.08, "mode": "binary", "binary_threshold": 0.5}
@@ -264,6 +265,7 @@ def test_teleop_methods_describe_and_health(services):
         "action_space": "cartesian_delta",
         "has_gripper": True,
         "hold_s": 0.25,
+        "device_identity": None,
     }
     service.dispatch("robot.connect", {})
     sample = service.dispatch("teleop.teleop.read", {"timeout_s": 1.0})
@@ -310,3 +312,41 @@ def test_teleop_read_does_not_feed_the_watchdog(services):
         service.dispatch("teleop.teleop.read", {"timeout_s": 1.0})
     assert service.watchdog_trips == 1
     assert service.dispatch("arm.control_mode", {}) == "idle"
+
+
+def test_dispatch_stop_does_not_wait_for_step_camera_handler(connected, monkeypatch):
+    import threading
+    entered, release, stopped = threading.Event(), threading.Event(), threading.Event()
+    errors = []
+    camera = connected.robot.cameras['wrist']
+    original = camera.get_observation
+    def slow_camera():
+        entered.set()
+        assert release.wait(2.)
+        return original()
+    monkeypatch.setattr(camera, 'get_observation', slow_camera)
+    def step():
+        try:
+            connected.dispatch('robot.step', {'action': {'arm': {'joint_pos': [0.]*7}}})
+        except BaseException as error:
+            errors.append(error)
+    def stop():
+        try:
+            connected.dispatch('arm.stop')
+            stopped.set()
+        except BaseException as error:
+            errors.append(error)
+    connected.dispatch('arm.set_control_mode', {'mode': 'joint_servo'})
+    step_thread = threading.Thread(target=step)
+    stop_thread = threading.Thread(target=stop)
+    step_thread.start()
+    try:
+        assert entered.wait(1.)
+        stop_thread.start()
+        assert stopped.wait(1.)  # completion while the camera is still blocked
+    finally:
+        release.set()
+        step_thread.join(2.)
+        if stop_thread.ident is not None:
+            stop_thread.join(2.)
+    assert not errors

@@ -16,6 +16,8 @@ READ_ONLY_METHODS = frozenset(
         "robot.health",
         "robot.get_observation",
         "arm.read_state",
+        "arm.last_cartesian_target",
+        "arm.last_stop_trace",
         "arm.control_mode",
         "arm.health",
         "arm.preflight",

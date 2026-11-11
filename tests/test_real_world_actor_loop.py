@@ -176,3 +176,191 @@ def test_actor_loop_beats_the_supervisor_heartbeat_per_step_and_announces_resets
     assert messages.count(LONG_OPERATION_BYTE) == env.reset_calls + 1
     assert messages.count(BEAT_BYTE) == 4 + env.reset_calls
     assert messages[0] == LONG_OPERATION_BYTE[0]  # the first reset is announced before it runs
+
+
+def test_actor_holding_waits_for_next_without_adding_transitions():
+    from types import SimpleNamespace
+    import numpy as np
+    from real_world_rl.teleop.composite import CompositeTeleopSource
+
+    class SessionEnv(_FakeEnv):
+        def __init__(self):
+            super().__init__(terminate_every=1)
+            events = iter([{}, {}, {'next_episode': True}, {}, {}, {'operator_quit': True}])
+            self.source = CompositeTeleopSource(
+                SimpleNamespace(session_input=lambda: (np.zeros(6), {})),
+                SimpleNamespace(poll=lambda: SimpleNamespace(events=next(events))))
+            self.hold_ticks = []
+
+        def session_hold_target(self):
+            return np.array([self.reset_calls, 0, 0, 0, 0, 0, 1.])
+
+        session_start_target = session_hold_target
+
+        def session_observe(self):
+            return torch.full((1, 4), 42.)
+
+        def session_hold_tick(self, target):
+            self.hold_ticks.append((self.step_calls, self.reset_calls, target.copy()))
+
+    env = SessionEnv()
+    sync = _FakeSyncClient()
+    loop = ActorLoop(env, _FakePolicy(), sync, control_hz=1_000_000.)
+    loop.configure_episode_session('hold', neutral_stable_s=0.)
+    loop.run(total_steps=2)
+    assert env.step_calls == 2
+    assert env.reset_calls == 2
+    assert len(sync.pushed) == 2
+    assert [(step, reset) for step, reset, _ in env.hold_ticks] == [(0, 1), (1, 1), (1, 1), (1, 2), (2, 2)]
+    assert sync.stopped
+
+
+def test_actor_hold_rejects_unsupported_environment_before_reset():
+    env = _FakeEnv()
+    sync = _FakeSyncClient()
+    loop = ActorLoop(env, _FakePolicy(), sync)
+    loop.configure_episode_session('hold')
+    with pytest.raises(ValueError, match='Cartesian env'):
+        loop.run(total_steps=1)
+    assert env.reset_calls == 0
+    assert env.step_calls == 0
+    assert sync.stopped
+
+
+def test_actor_step_budget_holds_without_reset_or_an_extra_step():
+    from types import SimpleNamespace
+    import numpy as np
+    from real_world_rl.teleop.composite import CompositeTeleopSource
+
+    class BudgetEnv(_FakeEnv):
+        def __init__(self):
+            super().__init__()
+            self.ticks = 0
+            events = iter([{}, {'next_episode': True}, {'operator_quit': True}])
+            self.source = CompositeTeleopSource(
+                SimpleNamespace(session_input=lambda: (np.zeros(6), {})),
+                SimpleNamespace(poll=lambda: SimpleNamespace(events=next(events))))
+
+        def session_start_target(self):
+            return np.array([0, 0, 0, 0, 0, 0, 1.])
+
+        session_hold_target = session_start_target
+
+        def session_observe(self):
+            return torch.full((1, 4), 42.)
+
+        def session_hold_tick(self, target):
+            self.ticks += 1
+
+    env = BudgetEnv()
+    sync = _FakeSyncClient()
+    loop = ActorLoop(env, _FakePolicy(), sync, control_hz=1_000_000.)
+    loop.configure_episode_session('hold', neutral_stable_s=0.)
+    loop.run(total_steps=1)
+    assert env.step_calls == env.reset_calls == len(sync.pushed) == 1
+    assert env.ticks == 2  # startup gate, then ignored next at budget
+
+
+def test_two_interventions_restore_policy_in_one_archived_episode(tmp_path):
+    from types import SimpleNamespace
+    from test_teleop_intervention_wrapper import _FakeEnv as DeviceEnv, _FakeTeleop, _sample
+    from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
+    from real_world_rl.trajectory import DurableArchive
+
+    device = DeviceEnv()
+    wrapped = TeleopInterventionWrapper(device, teleop=_FakeTeleop([
+        _sample(True, 5.), _sample(False), _sample(True, 7.), _sample(False), _sample(False)]))
+    class Policy(_FakePolicy):
+        def predict(self, obs, deterministic=False):
+            self.predict_calls += 1
+            return torch.ones(1, 7)
+    class Sync(_FakeSyncClient):
+        def __init__(self):
+            super().__init__()
+            self.run_id, self._actor_id, self.session_id = 'run', 'actor', 'session'
+            self._sequence = 0
+            self.experiment_hash = 'unknown'
+            self._outbox = SimpleNamespace(path=tmp_path / 'outbox.sqlite3')
+            self.archive = DurableArchive(tmp_path / 'trajectory.sqlite3')
+        def bind_experiment(self, digest, contract):
+            self.experiment_hash = digest
+        def _new_message_id(self):
+            self._sequence += 1
+            return str(self._sequence)
+        def push_record(self, record):
+            self.archive.append(record)
+        def push_transition(self, transition):
+            self.archive.append(transition)
+        def transport_metrics(self):
+            return {}
+    sync, policy = Sync(), Policy()
+    try:
+        ActorLoop(wrapped, policy, sync, control_hz=1_000_000.).run(total_steps=5)
+        rows = list(sync.archive)
+        transitions = [row for row in rows if row['record_type'] == 'transition']
+        assert len({row['episode_id'] for row in rows}) == 1
+        assert [row['record_type'] for row in rows] == ['episode_start'] + ['transition']*5 + ['episode_end']
+        assert [row['step_index'] for row in transitions] == list(range(5))
+        assert [bool(torch.as_tensor(row['human_action_mask']).any()) for row in transitions] == [True, False, True, False, False]
+        for action, expected in zip(device.step_actions, [5., 1., 7., 1., 1.]):
+            torch.testing.assert_close(action, torch.full((1, 7), expected))
+        assert device.reset_calls == 1
+        assert policy.predict_calls == 5
+    finally:
+        sync.archive.close()
+
+
+@pytest.mark.parametrize('rollout_fault', [False, True])
+def test_cleanup_heartbeat_failure_still_closes_actor(monkeypatch, rollout_fault):
+    from types import SimpleNamespace
+    from robot_infra.supervise import Heartbeat
+    env = _FakeEnv()
+    closed = []
+    env.close = lambda: closed.append(True)
+    if rollout_fault:
+        def fail_step(action):
+            raise ValueError('original rollout')
+        env.step = fail_step
+    calls = []
+    def announce():
+        calls.append(True)
+        if len(calls) > 1:
+            raise RuntimeError('cleanup heartbeat')
+    monkeypatch.setattr(Heartbeat, 'from_env', lambda: SimpleNamespace(begin_long_operation=announce, beat=lambda: None))
+    sync = _FakeSyncClient()
+    with pytest.raises(ValueError if rollout_fault else RuntimeError,
+                       match='original rollout' if rollout_fault else 'cleanup heartbeat'):
+        ActorLoop(env, _FakePolicy(), sync, control_hz=1_000_000.).run(total_steps=1)
+    assert closed == [True]
+    assert sync.stopped
+
+
+def test_actor_policy_and_transition_use_post_gate_observation():
+    from types import SimpleNamespace
+    import numpy as np
+    from real_world_rl.teleop.composite import CompositeTeleopSource
+    class SessionEnv(_FakeEnv):
+        def __init__(self):
+            super().__init__(terminate_every=1)
+            events = iter([{}, {'operator_quit': True}])
+            self.source = CompositeTeleopSource(
+                SimpleNamespace(session_input=lambda: (np.zeros(6), {})),
+                SimpleNamespace(poll=lambda: SimpleNamespace(events=next(events))))
+            self.gated = False
+        def session_start_target(self):
+            return np.array([0, 0, 0, 0, 0, 0, 1.])
+        session_hold_target = session_start_target
+        def session_hold_tick(self, target):
+            self.gated = True
+        def session_observe(self):
+            assert self.gated
+            return torch.full((1, 4), 42.)
+    class Policy(_FakePolicy):
+        def predict(self, obs, deterministic=False):
+            torch.testing.assert_close(obs, torch.full((1, 4), 42.))
+            return super().predict(obs, deterministic)
+    sync = _FakeSyncClient()
+    loop = ActorLoop(SessionEnv(), Policy(), sync, control_hz=1e6)
+    loop.configure_episode_session('hold', neutral_stable_s=0.)
+    loop.run(total_steps=1)
+    torch.testing.assert_close(sync.pushed[0]['obs'], torch.full((1, 4), 42.))

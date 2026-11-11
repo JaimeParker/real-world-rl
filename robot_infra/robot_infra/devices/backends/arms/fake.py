@@ -98,7 +98,7 @@ class FakeArm(Arm):
             self._joint_pos = self._joint_target.copy()
             self._joint_vel = np.zeros(self.num_joints)
 
-    def stop(self) -> None:
+    def _stop(self) -> None:
         self.call_log.append("stop")
         self._joint_target = None
         self._pose_target = None

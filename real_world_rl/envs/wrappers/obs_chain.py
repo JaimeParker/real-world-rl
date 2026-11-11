@@ -10,6 +10,7 @@ from typing import Optional, Sequence, Union
 
 import gymnasium as gym
 
+from rl_garden.envs.wrappers.frame_stack import ImageFrameStackWrapper
 from real_world_rl.envs.bimanual.config import BimanualRealRobotEnvConfig
 from real_world_rl.envs.real_robot.config import RealRobotEnvConfig
 from real_world_rl.envs.wrappers.rotvec_obs import QuatSlices, as_quat_slice_list
@@ -18,6 +19,14 @@ _LOGGER = logging.getLogger(__name__)
 _TCP_POSE_FIELD = "tcp_pose"
 _TCP_POSE_QUAT_OFFSET = 3
 _QUAT_DIM = 4
+
+
+class SessionImageFrameStackWrapper(ImageFrameStackWrapper):
+    """Refill stacked images from a fresh observation after the session gate."""
+
+    def session_observe(self):
+        from real_world_rl.teleop.session import session_observe
+        return self._reset_frames(session_observe(self.env), env_idx=None)
 
 
 def tcp_pose_quat_slice(config: RealRobotEnvConfig) -> Optional[tuple[int, int]]:
@@ -67,7 +76,6 @@ def apply_obs_chain(
     ``image_keys`` empty means every non-``state`` observation key is a camera. ``quat_slice`` is
     one ``(start, end)`` pair or one per arm; ``None`` or empty means there is no quaternion.
     """
-    from rl_garden.envs.wrappers.frame_stack import ImageFrameStackWrapper
     from real_world_rl.envs.wrappers.rotvec_obs import RotvecObsWrapper
 
     if frame_stack > 1:
@@ -77,7 +85,7 @@ def apply_obs_chain(
         stack_keys = tuple(image_keys) or tuple(
             k for k in env.single_observation_space.spaces if k != "state"
         )
-        env = ImageFrameStackWrapper(env, frame_stack=frame_stack, image_keys=stack_keys)
+        env = SessionImageFrameStackWrapper(env, frame_stack=frame_stack, image_keys=stack_keys)
 
     if convert_obs_rotation:
         if quat_slice is None or not as_quat_slice_list(quat_slice):

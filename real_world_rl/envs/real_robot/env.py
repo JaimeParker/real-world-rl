@@ -12,6 +12,7 @@ The opt-in SERL branch sleeps after each pose send and before observing instead.
 from __future__ import annotations
 
 import logging
+import sys
 import time
 from typing import Any, Optional
 
@@ -23,6 +24,7 @@ from gymnasium.vector.utils import batch_space
 
 from real_world_rl.envs.real_robot.config import RealRobotEnvConfig
 from real_world_rl.envs.real_robot.preprocess import CameraPreprocessConfig, preprocess_frame
+from real_world_rl.envs.real_robot.runtime import RuntimeReportPaths
 from real_world_rl.tasks import build_task
 
 _CARTESIAN_ACTION_DIM = 6
@@ -61,14 +63,31 @@ def _build_robot(config: RealRobotEnvConfig):
 class RealRobotEnv(gym.Env):
     metadata = {"render_modes": ["rgb_array"]}
 
-    def __init__(self, config: RealRobotEnvConfig, *, robot: Any = None) -> None:
+    def __init__(
+        self, config: RealRobotEnvConfig, *, robot: Any = None,
+        report_paths: Optional[RuntimeReportPaths] = None,
+    ) -> None:
         config.require_robot_source()
         self.config = config
+        self._report_paths = RuntimeReportPaths.from_environ() if report_paths is None else report_paths
         self.robot = robot if robot is not None else _build_robot(config)
         self.task_runtime = build_task(config.task, ("arm",))
         self.task_description: str = "" if config.task.name == "none" else config.task.name
         self._expected_control_metadata = None
         self._control_metadata = {}
+        self._spatial_contract = self._requested_spatial_contract()
+        self._measured_workspace = None
+        self._workspace_fault = None
+        self._diagnostic_stream = None
+        self._output_paths = {}
+        self._closed = False
+        self._session_events = None
+        self._session_events_closed = False
+        self._session_stop_reason = None
+        self._pending_teleop_diagnostics = None
+        self._diagnostic_reset_index = -1
+        if "workspace" in self._spatial_contract and config.action_mode != "cartesian_delta":
+            raise ValueError("task workspace requires cartesian_delta; joint trajectories lack TCP path enforcement")
         self.render_mode = "rgb_array"
 
         self._frame_sizes = {cam: self._frame_size(cam) for cam in config.capture_cameras}
@@ -132,6 +151,13 @@ class RealRobotEnv(gym.Env):
             )
         return camera_configs[cam].height, camera_configs[cam].width
 
+    def _requested_spatial_contract(self):
+        from robot_infra.devices.workspace import spatial_contract
+        local = self.config.robot or {}
+        frame = self.config.task_frame if self.config.task_frame is not None else local.get("task_frame")
+        workspace = self.config.workspace if self.config.workspace is not None else local.get("workspace")
+        return spatial_contract(workspace, frame)
+
     # -- connection ----------------------------------------------------------------
 
     def _connect_and_validate(self) -> None:
@@ -142,7 +168,10 @@ class RealRobotEnv(gym.Env):
         try:
             self._validate_robot()
         except BaseException:
-            self.robot.disconnect()
+            try:
+                self.robot.disconnect()
+            except BaseException:
+                logger.exception("disconnect failed after robot validation error")
             raise
         self._validated = True
 
@@ -155,6 +184,8 @@ class RealRobotEnv(gym.Env):
             return DeviceFault(message, hint=hint, device=robot.name)
 
         arm = robot.arm
+        if getattr(self, "_session_hold_required", False):
+            self._validate_session_hold(arm)
         if arm.num_joints != config.num_joints:
             raise fault(
                 f"robot arm has {arm.num_joints} joints, env config expects {config.num_joints}",
@@ -183,7 +214,22 @@ class RealRobotEnv(gym.Env):
         for camera in config.depth_cameras:
             if not getattr(robot.cameras[camera].config, "enable_depth", False):
                 raise ValueError(f"camera {camera} depth is requested but disabled on the station")
+        if self._report_paths.stop_trace and "stop_trace_v1" not in getattr(arm, "safety_capabilities", ()):
+            raise fault("robot does not support stop_trace_v1", "upgrade the daemon/backend for stop evidence")
         self._merge_device_safety(arm, fault)
+        if self._report_paths.diagnostics:
+            # Resolve optional geometry imports before reset/home, not on the first
+            # timed control step (which may otherwise pay a large import cost).
+            import importlib
+            importlib.import_module("scipy.spatial.transform")
+            if config.action_mode != "cartesian_delta" or "accepted_cartesian_target_v1" not in getattr(arm, "safety_capabilities", ()):
+                raise fault("Cartesian target diagnostics are unsupported", "use a current Cartesian backend/daemon")
+            if self._diagnostic_stream is None:
+                import os
+                path = self.output_path("diagnostics")
+                path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                self._diagnostic_stream = os.fdopen(descriptor, "w")
         # joint_abs maps each action onto an absolute target, so consecutive actions can jump
         # across the whole joint range; only the device-layer step limit bounds that.
         if config.action_mode == "joint_abs" and not (self._device_max_delta or {}).get("joint_rad"):
@@ -197,6 +243,19 @@ class RealRobotEnv(gym.Env):
     def _merge_device_safety(self, arm, fault) -> None:
         """Inherit the device layer's box/joint limits; an env limit looser than it is a fault."""
         device = getattr(arm, "safety_limits", None)  # None: no limits, or a daemon predating them
+        from robot_infra.devices.workspace import spatial_contract
+        actual = spatial_contract((device or {}).get("workspace"), (device or {}).get("task_frame"))
+        expected_workspace = self._spatial_contract.get("workspace")
+        if expected_workspace is not None:
+            if "task_workspace_v1" not in getattr(arm, "safety_capabilities", ()):
+                raise fault("robot does not advertise task_workspace_v1 enforcement",
+                            "upgrade the daemon before using a task workspace")
+        if actual != self._spatial_contract:
+            raise fault("configured workspace differs from the robot's enforced workspace",
+                        "set real_robot.workspace/task_frame to match the station; do not weaken limits")
+        if actual.get("workspace") is not None:
+            from robot_infra.devices.workspace import Workspace
+            self._measured_workspace = Workspace(device["workspace"], device.get("task_frame"))
         if device is None:
             return
         self._device_max_delta = device.get("max_delta_per_step")
@@ -290,10 +349,38 @@ class RealRobotEnv(gym.Env):
             self._step_watchdog.close()
             self._step_watchdog = None
 
+    def _check_workspace_feedback(self, pose=None):
+        """Latch measured violations and stop; never command a return to the box."""
+        from robot_infra.devices.errors import SafetyViolation
+        if self._workspace_fault is not None:
+            raise self._workspace_fault
+        if self._measured_workspace is None:
+            return
+        if pose is None:
+            pose = self.robot.arm.read_state()["tcp_pose"]
+        try:
+            violations = self._measured_workspace.violations(pose, measured=True)
+        except ValueError as error:
+            violations = [str(error)]
+        if not violations:
+            return
+        fault = SafetyViolation("measured TCP outside workspace or invalid: " + "; ".join(violations),
+                                device=self.robot.name,
+                                hint="inspect feedback and robot state; no automatic return/reset is allowed")
+        self._workspace_fault = fault
+        self._deactivate_step_watchdog()
+        try:
+            self.robot.arm.stop()
+        except Exception:
+            logger.exception("arm stop also failed after measured workspace violation")
+        raise fault
+
     def _reset_begin(self):
+        self._closed = False
         from robot_infra.devices.arm import ControlMode
         self._deactivate_step_watchdog()
         self._connect_and_validate()
+        self._check_workspace_feedback()
         self.robot.arm.set_control_mode(ControlMode.IDLE)
         self.robot.arm.configure_control(self.config.control or {})
         from real_world_rl.action_contract import json_normalize
@@ -310,9 +397,13 @@ class RealRobotEnv(gym.Env):
         self.robot.arm.set_control_mode(ControlMode.CARTESIAN_SERVO if self.config.action_mode == "cartesian_delta" else ControlMode.JOINT_SERVO)
         raw = self.robot.get_observation()
         self._elapsed_steps = 0
+        self._diagnostic_reset_index += 1
+        self._pending_teleop_diagnostics = None
         self._last_send_time = None
         self._refresh_safety_clips()
         obs = self._observe(raw)
+        if self._report_paths.stop_trace:
+            self.robot.arm.begin_stop_trace()
         self._activate_step_watchdog()
         return obs, {"control_metadata": self._control_metadata}
 
@@ -330,6 +421,8 @@ class RealRobotEnv(gym.Env):
         return obs, {}
 
     def step(self, action):
+        if self._last_raw is not None:
+            self._check_workspace_feedback(self._last_raw["arm"].get("tcp_pose"))
         if self.config.cartesian_semantics == "serl":
             return self._step_serl(action)
         if self._last_raw is None:
@@ -340,6 +433,7 @@ class RealRobotEnv(gym.Env):
             raise ValueError(f"expected action shape {self.action_space.shape}, got {action.shape}")
         if not np.isfinite(action).all():
             raise ValueError("action must contain finite numbers")
+        input_action = action.copy()
         action = np.clip(action, -1.0, 1.0)
 
         command: dict[str, Any] = {"arm": self._arm_command(action)}
@@ -351,7 +445,14 @@ class RealRobotEnv(gym.Env):
             if remaining > 0:
                 time.sleep(remaining)
         self._last_send_time = time.monotonic()
-        raw = self._send_and_observe(command)
+        try:
+            raw = self._send_and_observe(command)
+        except Exception as error:
+            self._record_command_failure(input_action, getattr(self, "_diagnostic_requested_pose", None),
+                                         command["arm"].get("tcp_pose"), error)
+            raise
+        if self._diagnostic_stream is not None:
+            self._record_control_diagnostic(input_action, self._diagnostic_requested_pose, command["arm"]["tcp_pose"], raw)
         self._check_in_step_watchdog()  # a send that blocked past watchdog_s raises here
 
         self._elapsed_steps += 1
@@ -386,6 +487,7 @@ class RealRobotEnv(gym.Env):
             raise ValueError(f"expected action shape {self.action_space.shape}, got {action.shape}")
         if not np.isfinite(action).all():
             raise ValueError("action must contain finite numbers")
+        input_action = action.copy()
         action = np.clip(action, self.action_space.low, self.action_space.high)
         config = self.config
         pose = target_pose(self._last_raw["arm"]["tcp_pose"], action,
@@ -402,13 +504,22 @@ class RealRobotEnv(gym.Env):
                 self.robot.gripper.command_binary(command, force=True)
                 self._last_gripper_act = time.monotonic()
                 time.sleep(config.gripper_sleep_s)
+        requested_pose = pose.copy()
         box = self._effective_safety_box
         pose = clip_safety_box(pose, box[:3], box[3:],
                                config.safety_box_rpy_low, config.safety_box_rpy_high)
+        if self._measured_workspace is not None:
+            pose = self._measured_workspace.clip_pose(pose)
         # Keep the device's own pose box and per-step safety caps in the send path.
-        self.robot.send_action({"arm": {"tcp_pose": pose}})
+        try:
+            self.robot.send_action({"arm": {"tcp_pose": pose}})
+        except Exception as error:
+            self._record_command_failure(input_action, requested_pose, pose, error)
+            raise
         time.sleep(max(0.0, self._period_s - (time.monotonic() - start)))
         raw = self.robot.get_observation()
+        if self._diagnostic_stream is not None:
+            self._record_control_diagnostic(input_action, requested_pose, pose, raw)
         self._check_in_step_watchdog()
 
         self._elapsed_steps += 1
@@ -429,6 +540,66 @@ class RealRobotEnv(gym.Env):
         }
         return obs, 0.0, False, bool(truncated), info
 
+    def set_teleop_diagnostics(self, data):
+        if self._report_paths.diagnostics:
+            import copy
+            self._pending_teleop_diagnostics = copy.deepcopy(data)
+
+    def _record_command_failure(self, action, requested, limited, error):
+        """Preserve attempted targets without another query or claiming execution."""
+        if self._diagnostic_stream is None:
+            return
+        try:
+            import json
+            row = {"schema_version": 1, "kind": "command_failed", "monotonic_s": time.monotonic(),
+                   "execution_status": "unknown", "error_type": type(error).__name__, "error": str(error),
+                   "input_action": np.asarray(action).tolist(),
+                   "requested_pose": None if requested is None else np.asarray(requested).tolist(),
+                   "env_limited_pose": None if limited is None else np.asarray(limited).tolist(),
+                   "device_accepted_pose": None, "measured_base_pose": None,
+                   "step": self._elapsed_steps, "reset_index": self._diagnostic_reset_index,
+                   "teleop": self._pending_teleop_diagnostics}
+            self._diagnostic_stream.write(json.dumps(row, allow_nan=False) + "\n")
+            self._diagnostic_stream.flush()
+        except Exception:
+            logger.exception("command failure evidence could not be written; preserving device error")
+        finally:
+            self._pending_teleop_diagnostics = None
+
+    def _record_control_diagnostic(self, input_action, requested, limited, raw, *, kind="step", accepted=None):
+        import json
+        from scipy.spatial.transform import Rotation
+        from robot_infra.devices.workspace import quaternion_matrix
+        if accepted is None:
+            accepted = self.robot.arm.last_cartesian_target
+        measured = np.asarray(raw["arm"]["tcp_pose"], dtype=float)
+        task_pose = None
+        frame = self.config.task_frame or (self.config.robot or {}).get("task_frame")
+        transform = frame.get("base_T_frame") if frame else None
+        if transform is not None:
+            transform = np.asarray(transform)
+            rotation = transform[:3, :3].T
+            task_pose = np.concatenate([rotation @ (measured[:3] - transform[:3, 3]),
+                                       Rotation.from_matrix(rotation @ quaternion_matrix(measured[3:])).as_quat()]).tolist()
+        reasons = []
+        if not np.allclose(requested, limited, atol=1e-9, rtol=0):
+            reasons.append("env_pose_limits")
+        if accepted is not None and not np.allclose(limited, accepted, atol=1e-9, rtol=0):
+            reasons.append("device_limits")
+        row = {"schema_version": 1, "monotonic_s": time.monotonic(),
+               "kind": kind, "measurement_phase": "before_command" if kind == "hold" else "after_command",
+               "input_action": None if input_action is None else np.asarray(input_action).tolist(),
+               "requested_pose": np.asarray(requested).tolist(),
+               "env_limited_pose": np.asarray(limited).tolist(),
+               "device_accepted_pose": None if accepted is None else np.asarray(accepted).tolist(),
+               "measured_base_pose": measured.tolist(), "measured_task_pose": task_pose,
+               "limit_reasons": reasons, "step": self._elapsed_steps,
+               "reset_index": self._diagnostic_reset_index,
+               "teleop": self._pending_teleop_diagnostics if kind == "step" else None}
+        self._pending_teleop_diagnostics = None
+        self._diagnostic_stream.write(json.dumps(row, allow_nan=False) + "\n")
+        self._diagnostic_stream.flush()
+
     def _refresh_safety_clips(self) -> None:
         """Cumulative device-layer clip count; None when the robot cannot report it."""
         from robot_infra.devices.errors import DeviceError
@@ -446,13 +617,18 @@ class RealRobotEnv(gym.Env):
 
             pose = np.asarray(arm_state["tcp_pose"], dtype=np.float64)
             xyz = pose[:3] + action[:3] * config.xyz_scale_m
+            requested_xyz = xyz.copy()
             if self._effective_safety_box is not None:
                 box = self._effective_safety_box
                 xyz = np.clip(xyz, box[:3], box[3:])
             rotation = Rotation.from_rotvec(action[3:6] * config.rot_scale_rad) * Rotation.from_quat(
                 pose[3:7]
             )
-            return {"tcp_pose": np.concatenate([xyz, rotation.as_quat()])}
+            self._diagnostic_requested_pose = np.concatenate([requested_xyz, rotation.as_quat()])
+            target = np.concatenate([xyz, rotation.as_quat()])
+            if self._measured_workspace is not None:
+                target = self._measured_workspace.clip_pose(target)
+            return {"tcp_pose": target}
 
         num_joints = config.num_joints
         if config.action_mode == "joint_delta":
@@ -467,6 +643,8 @@ class RealRobotEnv(gym.Env):
         return {"joint_pos": q}
 
     def _observe(self, raw: dict) -> dict:
+        if self._measured_workspace is not None:
+            self._check_workspace_feedback(raw["arm"]["tcp_pose"])
         self._last_raw = raw
         state = {}
         for field in self.config.state_fields:
@@ -534,7 +712,8 @@ class RealRobotEnv(gym.Env):
                 "cameras": self.config.cameras, "depth_cameras": self.config.depth_cameras,
                 "image_size": self.config.image_size,
                 "preprocess": {name: dataclasses.asdict(value) for name, value in self.config.preprocess.items()},
-                **self._serl_experiment()}
+                **self._serl_experiment(),
+                **({"spatial_constraints": self._spatial_contract} if self._spatial_contract else {})}
 
     def _serl_experiment(self) -> dict:
         if self.config.cartesian_semantics != "serl":
@@ -575,12 +754,179 @@ class RealRobotEnv(gym.Env):
             return None
         return next(iter(self._last_obs["frames"].values()))
 
+    def require_session_hold(self):
+        """Declare the opt-in before reset; defer remote capability checks to connect."""
+        if self.config.action_mode != "cartesian_delta":
+            raise ValueError("session hold currently requires cartesian_delta")
+        first = not getattr(self, "_session_hold_required", False)
+        self._session_hold_required = True
+        if first:
+            self.session_event("READY", "awaiting_reset")
+        if self._validated:
+            self._validate_session_hold(self.robot.arm)
+
+    def output_path(self, name):
+        from real_world_rl.common.json_io import unique_output_path
+        if name not in self._output_paths:
+            self._output_paths[name] = unique_output_path(getattr(self._report_paths, name))
+        return self._output_paths[name]
+
+    def session_observe(self):
+        """Fresh post-gate observation, without a step or reset."""
+        return self._observe(self.robot.get_observation())
+
+    def session_event(self, phase, reason):
+        if phase == "STOPPING":
+            if self._session_stop_reason is not None:
+                return
+            self._session_stop_reason = reason
+        if self._report_paths.session_events:
+            if self._session_events is None:
+                from real_world_rl.teleop.session_events import SessionEvents
+                self._session_events = SessionEvents(self.output_path("session_events"))
+            self._session_events.emit(phase, reason=reason,
+                                      episode_index=self._diagnostic_reset_index)
+
+    @staticmethod
+    def _validate_session_hold(arm):
+        from robot_infra.devices.errors import DeviceFault
+        if "accepted_cartesian_target_v1" not in getattr(arm, "safety_capabilities", ()):
+            raise DeviceFault("session hold requires accepted_cartesian_target_v1",
+                              hint="upgrade the backend/daemon before starting a hold session")
+
+    def session_start_target(self):
+        if self.config.action_mode != "cartesian_delta":
+            raise ValueError("session hold currently requires cartesian_delta")
+        return np.asarray(self.robot.arm.read_state()["tcp_pose"], dtype=np.float64).copy()
+
+    def session_hold_target(self):
+        """The episode's last accepted target. Nothing between the final step and this read
+        stops the arm; any stop ends the control segment and leaves no target to hold."""
+        if self.config.action_mode != "cartesian_delta":
+            raise ValueError("session hold currently requires cartesian_delta")
+        # A step-watchdog trip already stopped the arm (and cleared the target): report the trip.
+        self._check_in_step_watchdog()
+        target = self.robot.arm.last_cartesian_target
+        if target is None:
+            raise RuntimeError("no accepted Cartesian target to hold")
+        return np.asarray(target, dtype=np.float64).copy()
+
+    def session_hold_tick(self, target):
+        """Refresh a fixed accepted target without stepping a terminated episode."""
+        self._check_in_step_watchdog()
+        health = self.robot.arm.health()
+        if not health.ok:
+            raise RuntimeError(f"cannot hold an unhealthy arm: {health}")
+        raw = self.robot.arm.read_state()
+        self._check_workspace_feedback(raw["tcp_pose"])
+        from robot_infra.devices.safety import ArmSafety
+        limits = self.robot.arm.safety_limits
+        if limits:
+            ArmSafety.from_dict(limits).require_pose_inside(target)
+        self.robot.arm.servo_cartesian(target)
+        accepted = self.robot.arm.last_cartesian_target
+        if accepted is None or not np.allclose(accepted, target, atol=1e-9, rtol=0):
+            raise RuntimeError("holding target was changed by device limits")
+        if self._diagnostic_stream is not None:
+            self._record_control_diagnostic(None, target, target, {"arm": raw}, kind="hold", accepted=accepted)
+        self._check_in_step_watchdog()
+        return raw
+
     def close(self) -> None:
-        self._close_step_watchdog()
-        if self.robot.is_connected:
-            self.robot.disconnect()
-        self._validated = False
-        self._last_raw = None
+        if self._closed:
+            return
+        self._closed = True
+        active_exception = sys.exc_info()[0]
+        active_failure = active_exception is not None
+        exception_type = active_exception.__name__ if active_failure else None
+        failure = None
+        evidence = None
+        try:
+            if self._session_events is not None and not self._session_events_closed:
+                self.session_event("STOPPING", f"active_exception:{exception_type}" if active_failure else "normal_close")
+        except BaseException as error:
+            failure = error
+        try:
+            self._close_step_watchdog()
+        except BaseException as error:
+            if failure is None:
+                failure = error
+            else:
+                logger.exception("watchdog close also failed")
+        try:
+            if (self.robot.is_connected and self._report_paths.stop_trace and self._validated
+                    and not active_failure and failure is None):
+                try:
+                    evidence = self.robot.arm.stop_with_trace()
+                except BaseException as error:
+                    failure = error
+                    try:
+                        evidence = self.robot.arm.last_stop_trace
+                    except Exception:
+                        logger.exception("cannot retrieve failed stop trace")
+        finally:
+            try:
+                if self.robot.is_connected:
+                    self.robot.disconnect()
+            except BaseException as error:
+                if failure is None:
+                    failure = error
+                else:
+                    logger.exception("disconnect also failed after stop failure")
+            self._validated = False
+            self._last_raw = None
+        if evidence is not None:
+            try:
+                import dataclasses
+                from real_world_rl.common.provenance import digest_document
+                metadata = evidence["trace"].setdefault("metadata", {})
+                metadata["session_exit"] = {
+                    "reason": self._session_stop_reason or "normal_close",
+                    "episode_index": self._diagnostic_reset_index,
+                    "active_exception": exception_type,
+                    "env_config_sha256": digest_document(dataclasses.asdict(self.config)),
+                    "scope": "environment close context; does not establish successful physical stop",
+                }
+                from real_world_rl.common.json_io import write_json
+                target = self.output_path("stop_trace")
+                target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                write_json(target, evidence["trace"])
+                write_json(target.with_name(target.stem + ".assessment.json"), evidence["assessment"])
+                if evidence["assessment"].get("status") == "FAIL" and failure is None:
+                    failure = RuntimeError(f"normal stop acceptance failed; evidence: {target}")
+                elif evidence["assessment"].get("status") == "BLOCKED":
+                    logger.warning("normal stop evidence is incomplete: %s", target)
+            except Exception as error:
+                if failure is None:
+                    failure = error
+                else:
+                    logger.exception("stop evidence export also failed")
+        if self._diagnostic_stream is not None:
+            stream = self._diagnostic_stream
+            self._diagnostic_stream = None
+            try:
+                stream.close()
+            except BaseException as error:
+                if failure is None:
+                    failure = error
+                else:
+                    logger.exception("diagnostic stream close also failed")
+        try:
+            if self._session_events is not None and not self._session_events_closed:
+                self.session_event("FAULT" if active_failure or failure else "CLOSED",
+                                   f"active_exception:{exception_type}" if active_failure else
+                                   "cleanup_failure" if failure else "control_released")
+                self._session_events_closed = True
+        except BaseException as error:
+            if failure is None:
+                failure = error
+            else:
+                logger.exception("session event export also failed")
+        if failure is not None:
+            if active_failure:
+                logger.error("cleanup failed while preserving active rollout error: %s", failure)
+            else:
+                raise failure
 
 
 class RealRobotVectorEnv(gym.Env):
@@ -668,6 +1014,9 @@ class RealRobotVectorEnv(gym.Env):
             torch.tensor([truncated], dtype=torch.bool),
             info,
         )
+
+    def session_observe(self):
+        return self._to_torch(self.env.session_observe())
 
     def render(self):
         return self.env.render()

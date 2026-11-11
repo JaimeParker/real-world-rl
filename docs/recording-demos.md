@@ -13,6 +13,22 @@ observations and actions must match its env (the pkl's contract sidecar is check
 [Tutorial 04](tutorial/04-record-demos.md) walks through the first recording session, and
 [tutorial 06](tutorial/06-intervening.md) is the operator's page (keys, onset, what is recorded).
 
+For SpaceMouse on a commissioned `real_robot` station, the supervised
+[`rwrl teleop run` workflow](spacemouse-commissioning.md#supervised-recording-sessions) adds explicit
+episode-end holding. A label seals the trajectory; puck motion then has no
+effect until `n` requests a new episode and the puck is stably neutral. `q`
+releases control, including after the episode budget is reached. Repeated
+takeover/hand-back inside a trajectory remains supported and does not invoke
+this neutral gate. After the gate, recording and actor loops acquire a fresh observation;
+the first archived frame and policy input are from after neutral confirmation, with image
+stack histories refilled from that fresh frame. The Python recorder's default remains `episode_end_behavior:
+auto`; select `hold` explicitly when using it directly.
+
+Use the [SpaceMouse acceptance checklist](testing/spacemouse-control-session.md)
+and its record template for direction, workspace, holding and normal-stop
+verification in both modes. Successful demonstrations alone do not establish
+hardware acceptance or normal-stop stability.
+
 ## Commands
 
 GELLO served by the robot daemon, `joint_delta` follower (the tutorial's setting for every stage),

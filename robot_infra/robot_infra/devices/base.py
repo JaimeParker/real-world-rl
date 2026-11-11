@@ -62,14 +62,17 @@ class Connection(ABC):
 
     @final
     def disconnect(self) -> None:
-        if self.owner is not None:
-            if self._borrowing:
-                self._closing()
-                self._borrowing = False
-            return
-        handle, self._handle = self._handle, None
-        if handle is not None:
-            self._release(handle)
+        try:
+            if self.owner is not None:
+                if self._borrowing:
+                    self._closing()
+                    self._borrowing = False
+                return
+            handle, self._handle = self._handle, None
+            if handle is not None:
+                self._release(handle)
+        finally:
+            self._disconnected()
 
     @property
     def is_connected(self) -> bool:
@@ -88,6 +91,9 @@ class Connection(ABC):
 
     def _closing(self) -> None:
         pass
+
+    def _disconnected(self) -> None:
+        """Runs at the end of every ``disconnect()``, also when releasing failed."""
 
     def _require_connected(self) -> None:
         if not self.is_connected:

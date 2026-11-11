@@ -482,6 +482,28 @@ def test_options_yaml_configures_the_device_but_not_the_tracker(tmp_path):
     }
 
 
+@pytest.mark.parametrize('mode', ['tracker', 'serl'])
+@pytest.mark.parametrize('validation', ['teleop_wrapper_kwargs', 'resolve_teleop_input'])
+def test_failed_options_validation_leaves_teleop_input_unfrozen(tmp_path, mode, validation):
+    options = tmp_path / 'spacemouse.yaml'
+    options.write_text('device_index: 1\nlead_cap_m: 0.1\n', encoding='utf-8')
+    args = HilSerlArgs(teleop_device='spacemouse', spacemouse_mode=mode,
+                       teleop_options_yaml=str(options))
+    with pytest.raises(ValueError, match='lead_cap_m'):
+        getattr(env_building, validation)(args)
+    assert args.teleop_input is None
+
+    options.write_text('device_index: 2\n', encoding='utf-8')
+    assert env_building._single_arm_yaml_options(args) == {'device_index': 2}
+    env_building.teleop_wrapper_kwargs(args)
+    assert args.teleop_input is None  # successful reads also leave freezing to explicit resolution
+    env_building.resolve_teleop_input(args)
+    assert args.teleop_input['source_options'] == {'device_index': 2}
+    options.unlink()
+    env_building.resolve_teleop_input(args)  # restored numeric options need no YAML
+    assert args.teleop_input['source_options'] == {'device_index': 2}
+
+
 def test_the_spacemouse_is_no_longer_an_event_device():
     (field,) = [field for field in dataclasses.fields(HilSerlArgs) if field.name == "teleop_event_device"]
     assert "spacemouse" not in str(field.type) and "stdin" in str(field.type)
@@ -683,3 +705,15 @@ def test_spacemouse_twist_keeps_the_raw_twist_motion_intervention_and_old_button
     finally:
         source.close()
     assert hid_sdk.devices[0].closed
+
+
+def test_task_workspace_hands_back_and_button_can_retake():
+    session = _Session(workspace={'frame': 'base', 'low': [0, -1, 0], 'high': [.512, 1, 1]})
+    session.take_over()
+    session.part.twist = FORWARD_X
+    assert [session.poll().intervened for _ in range(3)] == [True, True, False]
+    np.testing.assert_allclose(session.tracker.hold_pose, session.follower.pose)
+    session.part.twist = np.zeros(6)
+    assert not session.poll().intervened
+    session.part.press(0)
+    assert session.poll().intervened

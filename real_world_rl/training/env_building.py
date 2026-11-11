@@ -253,6 +253,8 @@ def _load_teleop_options_yaml(path: Optional[str]) -> tuple[str, dict]:
         return _FLAT_OPTIONS, {}
     if not isinstance(data, dict):
         raise ValueError(f"--teleop-options-yaml {path} must hold a mapping, got {type(data).__name__}")
+    if isinstance(data.get("robot"), dict):
+        data = data["robot"]
     robots = data.get("robots")
     if isinstance(robots, dict):
         if not robots:
@@ -281,12 +283,28 @@ def _station_teleop_options(path: Optional[str], robot_name: str, robot: Any) ->
     return options
 
 
-def _single_arm_yaml_options(args) -> dict:
-    """``--teleop-options-yaml`` kwargs for a single-arm ``--teleop-device``."""
+def _single_arm_yaml_options(args, *, provenance=None) -> dict:
+    """Read single-arm source options without changing the args or freezing input."""
+    cached = getattr(args, "teleop_input", None)
+    if args.teleop_device == "spacemouse" and cached is not None:
+        import copy
+        return copy.deepcopy(cached["source_options"])
     path = args.teleop_options_yaml
     form, data = _load_teleop_options_yaml(path)
     if form == _FLAT_OPTIONS:
+        if getattr(args, "teleop_profile", None) is not None:
+            raise ValueError("teleop_profile requires a station options YAML")
+        if args.teleop_device == "spacemouse" and data and provenance is not None:
+            from real_world_rl.common.provenance import portable_path
+            provenance["options_file"] = portable_path(path)
         return data
+    if args.teleop_device == "spacemouse":
+        from real_world_rl.teleop.profiles import source_options
+        from real_world_rl.common.provenance import portable_path
+        if provenance is not None:
+            provenance["options_file"] = portable_path(path)
+        return source_options(path, getattr(args, "teleop_robot", None),
+                              getattr(args, "teleop_profile", None), provenance=provenance)
     if args.teleop_device != _STATION_TELEOP_DEVICE:
         raise ValueError(
             f"--teleop-options-yaml {path} is a robot_infra station yaml: its teleop: options "
@@ -348,22 +366,28 @@ def _bimanual_yaml_options(args) -> tuple[dict, dict]:
     return {arm: _station_teleop_options(path, arm, robots[arm]) for arm in arm_names}, {}
 
 
-def motion_teleop_kwargs(args) -> dict:
+def motion_teleop_kwargs(args, *, source_options=None) -> dict:
     """Source arguments for ``--teleop-device``: the ones derived from the args (empty for devices
     configured by their defaults), then ``--teleop-options-yaml`` on top. ``bimanual`` takes
     ``bimanual_teleop_kwargs``."""
     serl = _serl_mode(args)
+    diagnostics = {}
+    axes, gain = getattr(args, "teleop_diagnostic_axes", "all"), getattr(args, "teleop_diagnostic_gain", 1.)
+    if axes != "all" or gain != 1.:
+        if args.teleop_device != "spacemouse":
+            raise ValueError("input diagnostics require SpaceMouse")
+        diagnostics = {"diagnostic_axes": axes, "diagnostic_gain": gain}
     _reject_single_arm_teleop_on_bimanual(args)
     if serl:
         from real_world_rl.teleop.spacemouse_serl import TRACKER_OPTIONS
 
-        options = _single_arm_yaml_options(args)
+        options = _single_arm_yaml_options(args) if source_options is None else source_options
         forbidden = sorted(set(options) & (TRACKER_OPTIONS | {"mode"}))
         if forbidden:
             raise ValueError(f"spacemouse serl mode does not accept tracker or mode keys in teleop_options_yaml: {forbidden}")
         if args.teleop_selected_parts:
             raise ValueError("spacemouse serl mode requires all arm and gripper action parts; omit teleop_selected_parts")
-        return {"mode": "serl", **options}
+        return {"mode": "serl", **options, **diagnostics}
     if args.teleop_device == _BIMANUAL_TELEOP_DEVICE:
         return bimanual_teleop_kwargs(args)
     if args.teleop_device == "robot":
@@ -376,7 +400,7 @@ def motion_teleop_kwargs(args) -> dict:
         derived = cartesian_tracker_kwargs(args)
     else:
         derived = {}
-    options = _single_arm_yaml_options(args)
+    options = _single_arm_yaml_options(args) if source_options is None else source_options
     overridden = sorted(set(options) & set(_TRACKER_FLAGS)) if args.teleop_device in _CARTESIAN_TRACKER_TELEOP_DEVICES else []
     if overridden:
         flags = ", ".join(f"{key} -> {_TRACKER_FLAGS[key]}" for key in overridden)
@@ -384,7 +408,7 @@ def motion_teleop_kwargs(args) -> dict:
             f"--teleop-options-yaml {args.teleop_options_yaml} sets the command tracker ({overridden}), "
             f"which the experiment contract records from the flags; use the flags instead ({flags})"
         )
-    return {**derived, **options}
+    return {**derived, **options, **diagnostics}
 
 
 # leader_cartesian/spacemouse source kwarg -> the flag that sets it (the experiment's
@@ -409,29 +433,37 @@ def cartesian_tracker_kwargs(args) -> dict:
 
 
 def teleop_control_spec(args) -> Optional[dict]:
-    """The ``teleop_control`` experiment block of a run whose teleop source drives the follower
-    through a ``CartesianTargetTracker`` (``--teleop-device leader_cartesian`` or
-    ``spacemouse``), else None. Derived from the flags alone (``--teleop-options-yaml`` may not
-    override them), so the learner (no teleop device) records the same block as the actor and the
-    demo recorder. Native SpaceMouse SERL has its own versioned block, including
-    nondefault axis inversions from the shared source options."""
+    """Compared control semantics from flags and resolved source options.
+
+    Operator input rotation belongs to source provenance. Recorded actions are
+    already in base coordinates, so recalibration does not change their meaning.
+    Diagnostic filtering remains an explicit control semantic.
+    """
     if _serl_mode(args):
         options = motion_teleop_kwargs(args)
         spec = {"version": "spacemouse_serl_v1", "mode": "serl",
                 "motion_threshold": 0.001, "gripper": "serl_buttons"}
         if options.get("invert_axes"):
             spec["invert_axes"] = list(options["invert_axes"])
+        from real_world_rl.teleop.input_frame import input_frame_contract
+        spec.update({key: value for key, value in input_frame_contract(options).items()
+                     if key not in ("input_rotation", "input_rotation_semantics")})
         return spec
     if args.teleop_device not in _CARTESIAN_TRACKER_TELEOP_DEVICES:
         return None
     from real_world_rl.teleop.cartesian_tracker import CartesianTrackerConfig
 
-    return CartesianTrackerConfig(
+    spec = CartesianTrackerConfig(
         lead_cap_m=args.teleop_lead_cap_m,
         lead_cap_rad=args.teleop_lead_cap_rad,
         speed_m_s=args.teleop_target_speed_m_s,
         speed_rad_s=args.teleop_target_speed_rad_s,
     ).describe()
+    if args.teleop_device == "spacemouse":
+        from real_world_rl.teleop.input_frame import input_frame_contract
+        spec.update({key: value for key, value in input_frame_contract(motion_teleop_kwargs(args)).items()
+                     if key not in ("input_rotation", "input_rotation_semantics")})
+    return spec
 
 
 def teleop_wrapper_kwargs(args) -> dict:
@@ -450,6 +482,8 @@ def teleop_wrapper_kwargs(args) -> dict:
         "device": "composite",
         "motion": args.teleop_device,
         "events": args.teleop_event_device,
+        **({"events_kwargs": {"path": args.teleop_events_file}}
+           if args.teleop_event_device == "jsonl" else {}),
         "intervention_from": "motion" if _serl_mode(args) else "events",
         "motion_kwargs": motion_teleop_kwargs(args),
         **part_options,
@@ -635,7 +669,24 @@ def reward_sources_spec(args, task=None):
     teleop_control = teleop_control_spec(args)
     if teleop_control is not None:
         spec["teleop_control"] = teleop_control
+    if getattr(args, "teleop_input", None) is not None:
+        spec["teleop_input"] = args.teleop_input
     return spec
+
+
+def resolve_teleop_input(args):
+    """Explicitly freeze a validated numeric input snapshot before config persistence."""
+    if getattr(args, "teleop_device", None) != "spacemouse":
+        return
+    if getattr(args, "teleop_input", None) is not None:
+        motion_teleop_kwargs(args)  # validate restored options without rereading files
+        return
+    provenance = {}
+    options = _single_arm_yaml_options(args, provenance=provenance)
+    motion_teleop_kwargs(args, source_options=options)
+    if options or provenance:
+        import copy
+        args.teleop_input = {**provenance, "source_options": copy.deepcopy(options)}
 
 
 def build_offline_experiment_env(env, config, observation, saved_contract=None):

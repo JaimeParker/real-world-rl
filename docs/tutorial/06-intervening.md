@@ -74,6 +74,14 @@ physical stop accessible during a run. See [rwrl](../cli.md#connection-ownership
 5. Use keyboard **`s`/`f`/`r`/Esc/`q`** for outcomes and quit. In the recorder label
    success while button-0 takeover remains active.
 
+With the opt-in `episode_end_behavior: hold` workflow, a trajectory label freezes
+the last accepted target and ignores puck motion. Press n to request a new
+trajectory, then release all axes/buttons until neutral (default max absolute
+axis 0.05 for 0.2 seconds). This gate applies between trajectories, not at each
+takeover. At the episode quota, n is disabled and q still exits. Within a
+trajectory, repeated human/policy handovers continue normally. SERL keeps its
+motion-based takeover threshold; the neutral threshold does not replace it.
+
 During [evaluation](07-hil-training.md#evaluate), leave action control with the
 policy to measure autonomous success. An assisted success counts in
 `task_success_rate`, while the primary `success_rate` is

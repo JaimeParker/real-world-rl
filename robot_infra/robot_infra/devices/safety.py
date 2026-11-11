@@ -1,5 +1,6 @@
 """Device-side safety limits for an arm: a base-frame TCP position box, joint limits and
-per-step motion caps. Pure numpy, no SDK dependency."""
+per-step motion caps, and an optional task-frame position/orientation workspace.
+Pure numpy, no SDK dependency."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -25,8 +26,14 @@ class ArmSafety:
     joint_limits: np.ndarray | None = None
     max_delta_xyz_m: float | None = None
     max_delta_joint_rad: float | None = None
+    task_frame: dict | None = None
+    workspace: dict | None = None
 
     def __post_init__(self) -> None:
+        from robot_infra.devices.workspace import Workspace, task_transform
+        task_transform(self.task_frame)
+        object.__setattr__(self, "_workspace_geometry",
+                           None if self.workspace is None else Workspace(self.workspace, self.task_frame))
         if self.safety_box is not None:
             box = np.asarray(self.safety_box, dtype=np.float64)
             if box.shape != (6,) or not np.isfinite(box).all() or np.any(box[:3] > box[3:]):
@@ -46,6 +53,7 @@ class ArmSafety:
     def from_config(cls, config: "RobotConfig") -> "ArmSafety | None":
         max_delta = config.max_delta_per_step or {}
         safety = cls(
+            task_frame=config.task_frame, workspace=config.workspace,
             safety_box=config.safety_box,
             joint_limits=config.joint_limits,
             max_delta_xyz_m=max_delta.get("xyz_m"),
@@ -56,7 +64,8 @@ class ArmSafety:
     @property
     def is_unlimited(self) -> bool:
         return (
-            self.safety_box is None
+            self.workspace is None
+            and self.safety_box is None
             and self.joint_limits is None
             and self.max_delta_xyz_m is None
             and self.max_delta_joint_rad is None
@@ -69,6 +78,8 @@ class ArmSafety:
             if value is not None
         }
         return {
+            **({"task_frame": self.task_frame} if self.task_frame is not None else {}),
+            **({"workspace": self.workspace} if self.workspace is not None else {}),
             "safety_box": None if self.safety_box is None else self.safety_box.tolist(),
             "joint_limits": None if self.joint_limits is None else self.joint_limits.tolist(),
             "max_delta_per_step": max_delta or None,
@@ -78,6 +89,7 @@ class ArmSafety:
     def from_dict(cls, data: Mapping[str, Any]) -> "ArmSafety":
         max_delta = data.get("max_delta_per_step") or {}
         return cls(
+            task_frame=data.get("task_frame"), workspace=data.get("workspace"),
             safety_box=data.get("safety_box"),
             joint_limits=data.get("joint_limits"),
             max_delta_xyz_m=max_delta.get("xyz_m"),
@@ -87,13 +99,20 @@ class ArmSafety:
     # -- clipping (servo) ----------------------------------------------------------
 
     def clip_pose(self, pose: np.ndarray) -> tuple[np.ndarray, bool]:
-        """Clip the position into the box; the orientation is left untouched."""
+        """Clip the base position box, rejecting workspace position/orientation breaches.
+
+        Workspace checks apply before and after clipping, with target tolerance 1e-9.
+        Orientation is never changed by the device layer.
+        """
+        self.require_workspace_inside(pose)
         if self.safety_box is None:
             return pose, False
         xyz = np.clip(pose[:3], self.safety_box[:3], self.safety_box[3:])
         if np.array_equal(xyz, pose[:3]):
             return pose, False
-        return np.concatenate([xyz, pose[3:]]), True
+        result = np.concatenate([xyz, pose[3:]])
+        self.require_workspace_inside(result)
+        return result, True
 
     def clip_joints(self, q: np.ndarray) -> tuple[np.ndarray, bool]:
         if self.joint_limits is None:
@@ -124,9 +143,19 @@ class ArmSafety:
             return q, False
         return limited, True
 
-    # -- rejection (move) ----------------------------------------------------------
+    # -- rejection (Cartesian workspace: servo and move; base box: move) ----------------------------------------------------------
+
+    def require_workspace_inside(self, pose: np.ndarray, *, device: str = "") -> None:
+        """Reject target position/orientation breaches; measured margins do not apply."""
+        if self.workspace is None:
+            return
+        violations = self._workspace_geometry.violations(pose)
+        if violations:
+            raise SafetyViolation("target outside workspace: " + "; ".join(violations),
+                                  hint=_LIMITS_HINT, device=device)
 
     def require_pose_inside(self, pose: np.ndarray, *, device: str = "") -> None:
+        self.require_workspace_inside(pose, device=device)
         if self.safety_box is None:
             return
         low, high = self.safety_box[:3], self.safety_box[3:]

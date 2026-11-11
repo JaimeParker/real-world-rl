@@ -1082,3 +1082,83 @@ def test_finalization_failure_still_releases_devices_and_preserves_archive(tmp_p
         assert list(archive)[-1]["outcome"]["task_success"] is True
     finally:
         archive.close()
+
+
+@pytest.mark.parametrize('rollout_failure', [False, True])
+def test_recorder_cleanup_preserves_first_failure_and_closes_archive(tmp_path, monkeypatch, rollout_failure):
+    import real_world_rl.demos.record as recorder
+    from real_world_rl.trajectory import DurableArchive
+    env = RecordingEnv('joint_abs')
+    wrapped = _wrap(env, [SYNC, _reading(Q1, events=('success',), episode_end=True)])
+    monkeypatch.setattr(env_building, 'build_hil_env', lambda args, **kwargs: wrapped)
+    if rollout_failure:
+        def fail_record(*args, **kwargs):
+            raise ValueError('primary rollout failure')
+        monkeypatch.setattr(recorder, 'record_demos', fail_record)
+    def fail_close():
+        raise RuntimeError('release failure')
+    monkeypatch.setattr(wrapped, 'close', fail_close)
+    closed = []
+    original_close = DurableArchive.close
+    def close_archive(self):
+        closed.append(True)
+        original_close(self)
+        raise OSError('archive close failure')
+    monkeypatch.setattr(DurableArchive, 'close', close_archive)
+    expected = ValueError if rollout_failure else RuntimeError
+    with pytest.raises(expected, match='primary rollout failure' if rollout_failure else 'release failure'):
+        run_recorder(_args(output_path=str(tmp_path / 'demos.pkl')))
+    assert closed
+
+
+def test_recorder_heartbeat_cleanup_failure_still_releases_and_exports(tmp_path, monkeypatch):
+    import real_world_rl.demos.record as recorder
+    env = RecordingEnv('joint_abs')
+    wrapped = _wrap(env, [SYNC, _reading(Q1, events=('success',), episode_end=True)])
+    monkeypatch.setattr(env_building, 'build_hil_env', lambda args, **kwargs: wrapped)
+    original = recorder.Heartbeat.begin_long_operation
+    def fail_finalization(self, *args, **kwargs):
+        # The test replaces only finalization, after record_demos completes.
+        raise RuntimeError('finalization heartbeat failure')
+    real_record = recorder.record_demos
+    def record(*args, **kwargs):
+        result = real_record(*args, **kwargs)
+        monkeypatch.setattr(recorder.Heartbeat, 'begin_long_operation', fail_finalization)
+        return result
+    monkeypatch.setattr(recorder, 'record_demos', record)
+    output = tmp_path / 'demo.pkl'
+    try:
+        with pytest.raises(RuntimeError, match='finalization heartbeat failure'):
+            run_recorder(_args(output_path=str(output)))
+        assert env.close_calls == 1
+        assert output.exists()
+    finally:
+        monkeypatch.setattr(recorder.Heartbeat, 'begin_long_operation', original)
+
+
+def test_recorder_first_frame_is_observed_after_neutral_gate(monkeypatch):
+    from types import SimpleNamespace
+    from real_world_rl.demos.record import RecordedEpisode
+    class SessionEnv(RecordingEnv):
+        def __init__(self):
+            super().__init__(action_mode='joint_delta')
+            self.frame = 0
+        def session_hold_tick(self, target):
+            raise AssertionError('mock gate owns the wait')
+        def session_observe(self):
+            return {'state': torch.full((1, 4), float(self.frame))}
+    env = SessionEnv()
+    source = CompositeTeleopSource(SimpleNamespace(session_input=lambda: None), SimpleNamespace())
+    monkeypatch.setattr(record, 'intervention_wrapper_of', lambda _: SimpleNamespace(source=source))
+    def gate(*args, **kwargs):
+        env.frame = 42
+        return 'next'
+    monkeypatch.setattr('real_world_rl.teleop.session.wait_before_episode', gate)
+    observed = []
+    def episode(env, obs, *args, index, **kwargs):
+        observed.append(obs['state'].clone())
+        return RecordedEpisode(index, 1, True, operator_quit=True)
+    monkeypatch.setattr(record, '_record_episode', episode)
+    record_demos(env, _args(episode_end_behavior='hold'), hold_action_fn=lambda _: torch.zeros(8))
+    torch.testing.assert_close(observed[0], torch.full((1, 4), 42.))
+    env._record_archive.close()

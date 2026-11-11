@@ -66,7 +66,7 @@ real-world-rl/                   repository real-world-rl (top level)
     pyproject.toml
     robot_infra/                 devices, discovery, doctor, daemon, RemoteRobot
     tests/
-  docs/                          README.md (index), tutorial/ (00-overview ... 08-deploy), bimanual.md, teleop.md, gello.md, recording-demos.md, residual.md, silri.md, hil-serl-roadmap.md
+  docs/                          README.md (index), tutorial/ (00-overview ... 08-deploy), bimanual.md, teleop.md, spacemouse-commissioning.md, gello.md, recording-demos.md, residual.md, silri.md, hil-serl-roadmap.md
   examples/                      train_real_world.py, deploy_real_robot.py, teleop demo and recording scripts; presets/hil_single_arm.yaml
   configs/                       RLinf config
   tests/

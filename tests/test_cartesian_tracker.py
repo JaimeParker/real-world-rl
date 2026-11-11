@@ -276,3 +276,72 @@ def test_config_defaults_and_contract_block():
 def test_safety_box_is_validated(box):
     with pytest.raises(ValueError, match="safety_box"):
         CartesianTargetTracker(safety_box=box)
+
+
+def test_task_workspace_rejection_holds_measured_and_requires_takeover():
+    transform = np.eye(4)
+    transform[:3, :3] = Rotation.from_euler('x', 40, degrees=True).as_matrix()
+    transform[:3, 3] = [.5, 0, .3]
+    tracker = CartesianTargetTracker(workspace={'frame': 'table', 'low': [-.1]*3, 'high': [.1]*3},
+        task_frame={'name': 'table', 'base_T_frame': transform.tolist()})
+    measured = np.r_[transform[:3, 3], [0, 0, 0, 1]]
+    tracker.reset(measured)
+    tracker.take_over()
+    requested = measured.copy()
+    requested[:3] += transform[:3, :3] @ [0, 0, .11]
+    result = tracker.advance(requested, measured, .02)
+    assert result.workspace_violations
+    assert not tracker.following
+    np.testing.assert_array_equal(tracker.command, measured)
+    tracker.take_over()
+    assert not tracker.advance(measured, measured, .02).workspace_violations
+
+
+def test_task_workspace_measured_violation_is_fault_not_recovery():
+    from robot_infra.devices.errors import SafetyViolation
+    tracker = CartesianTargetTracker(workspace={'frame': 'base', 'low': [-1]*3, 'high': [1]*3})
+    pose = np.array([0, 0, 0, 0, 0, 0, 1.])
+    tracker.reset(pose)
+    tracker.take_over()
+    measured = pose.copy()
+    measured[2] = 2
+    with pytest.raises(SafetyViolation, match='measured TCP'):
+        tracker.advance(pose, measured, .02)
+    np.testing.assert_array_equal(tracker.command, pose)
+
+
+def test_base_box_only_does_not_reject_lead_capped_candidate_below_face():
+    """B2: HEAD checks requested against the base box, not the candidate."""
+    from real_world_rl.teleop.cartesian_tracker import _limited_towards
+    tracker = CartesianTargetTracker(CartesianTrackerConfig(speed_m_s=1.),
+                                     safety_box=[-1, -1, 0, 1, 1, 1])
+    start = np.array([0, 0, 0, 0, 0, 0, 1.])
+    measured = start.copy()
+    measured[2] = -.0005
+    requested = start.copy()
+    requested[0] = .3
+    tracker.reset(start)
+    tracker.take_over()
+    advanced = _limited_towards(start, requested, .1, .03)
+    expected = _limited_towards(measured, advanced, .05, .3)
+    assert expected[2] < 0
+    update = tracker.advance(requested, measured, .1)
+    assert not update.held
+    assert tracker.following
+    np.testing.assert_array_equal(update.command, expected)
+
+
+@pytest.mark.parametrize('outside,raises', [(.001, False), (.004, True)])
+def test_tracker_measured_workspace_margin(outside, raises):
+    from robot_infra.devices.errors import SafetyViolation
+    tracker = CartesianTargetTracker(workspace={'low': [-1, -1, 0], 'high': [1]*3})
+    pose = np.array([0, 0, 0, 0, 0, 0, 1.])
+    tracker.reset(pose)
+    tracker.take_over()
+    measured = pose.copy()
+    measured[2] = -outside
+    if raises:
+        with pytest.raises(SafetyViolation, match='measured TCP'):
+            tracker.advance(pose, measured, .01)
+    else:
+        assert not tracker.advance(pose, measured, .01).held

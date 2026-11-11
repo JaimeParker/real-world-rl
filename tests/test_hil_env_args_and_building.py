@@ -62,10 +62,19 @@ HIL_SERL_OWN_DEFAULTS = {
     "memory_efficient_buffer": False,
     "teleop_device": "pico",
     "spacemouse_mode": "tracker",
+    "teleop_diagnostic_axes": "all",
+    "teleop_diagnostic_gain": 1.0,
     "teleop_arm_device": "leader_arm",
     "robot_teleop_action_mode": None,
     "robot_teleop_has_gripper": True,
+    "episode_end_behavior": "auto",
+    "neutral_threshold": .05,
+    "neutral_stable_s": .2,
     "teleop_event_device": None,
+    "teleop_events_file": "-",
+    "teleop_profile": None,
+    "teleop_input": None,
+    "teleop_robot": None,
     "teleop_onset": "ramp",
     "teleop_arm_tolerance_rad": 0.1,
     "teleop_ramp_step_rad": 0.05,
@@ -124,12 +133,21 @@ def test_hil_env_args_holds_exactly_the_env_teleop_classifier_and_demo_fields():
         "memory_efficient_buffer",
         "teleop_device",
         "spacemouse_mode",
+        "teleop_diagnostic_axes",
+        "teleop_diagnostic_gain",
         "teleop_selected_parts",
         "teleop_idle_behavior",
         "teleop_arm_device",
         "robot_teleop_action_mode",
         "robot_teleop_has_gripper",
+        "episode_end_behavior",
+        "neutral_threshold",
+        "neutral_stable_s",
         "teleop_event_device",
+        "teleop_events_file",
+        "teleop_profile",
+        "teleop_input",
+        "teleop_robot",
         "teleop_onset",
         "teleop_arm_tolerance_rad",
         "teleop_ramp_step_rad",
@@ -614,7 +632,7 @@ def test_single_arm_devices_refuse_station_yamls_they_cannot_use(tmp_path):
         env_building.teleop_wrapper_kwargs(
             _onset_args(teleop_device="gello", teleop_options_yaml=str(STATION_BIMANUAL_YAML))
         )
-    with pytest.raises(ValueError, match="not --teleop-device spacemouse"):
+    with pytest.raises(ValueError, match="must configure a spacemouse teleop"):
         env_building.teleop_wrapper_kwargs(
             HilSerlArgs(teleop_device="spacemouse", teleop_options_yaml=str(_single_robot_station(tmp_path)))
         )

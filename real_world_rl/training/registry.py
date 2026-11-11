@@ -12,7 +12,10 @@ class RealWorldAlgorithmRegistry(BaseAlgorithmRegistry):
     ) -> tuple[object, dict[str, object]]:
         """Finalize SpaceMouse semantics before preflight or run config serialization."""
         normalized, derived = super()._normalize_runtime(parsed, sources)
+        from real_world_rl.training.env_building import resolve_teleop_input
+
         if getattr(normalized, "spacemouse_mode", "tracker") == "tracker":
+            resolve_teleop_input(normalized)
             return normalized, derived
 
         from real_world_rl.training.env_building import resolve_spacemouse_mode
@@ -34,6 +37,7 @@ class RealWorldAlgorithmRegistry(BaseAlgorithmRegistry):
             reason = "SpaceMouse serl mode selects SERL Cartesian semantics"
             derived[path] = {"before": before, "after": after, "reason": reason}
             sources[path] = FieldSource(kind="runtime-derived", detail=reason)
+        resolve_teleop_input(normalized)
         return normalized, derived
 
 

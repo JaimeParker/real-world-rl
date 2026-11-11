@@ -228,3 +228,42 @@ def test_server_package_exports_remote_teleop():
     from robot_infra.server.remote import RemoteTeleop as Original
 
     assert RemoteTeleop is Original
+
+
+def test_stop_trace_rpc_methods_are_not_retryable_commands():
+    from robot_infra.server.transport.base import is_read_only
+    assert is_read_only('arm.last_stop_trace')
+    assert not is_read_only('arm.begin_stop_trace')
+    assert not is_read_only('arm.stop_with_trace')
+
+
+def test_remote_stop_trace_roundtrip_and_observation_exclusion(connected, service, monkeypatch):
+    import threading
+    arm = service.robot.arm
+    monkeypatch.setattr(type(arm), 'safety_capabilities', property(lambda self: ('stop_trace_v1',)))
+    calls = []
+    entered, release = threading.Event(), threading.Event()
+    evidence = {'trace': {'schema_version': 1, 'samples': []}, 'assessment': {'status': 'BLOCKED'}}
+    monkeypatch.setattr(arm, 'begin_stop_trace', lambda: calls.append('begin'), raising=False)
+    monkeypatch.setattr(type(arm), 'last_stop_trace', property(lambda self: evidence), raising=False)
+    def observed_stop(*, post_stop_s):
+        arm.stop()
+        entered.set()
+        release.wait(2.)
+        return evidence
+    monkeypatch.setattr(arm, 'stop_with_trace', observed_stop, raising=False)
+    connected.arm.begin_stop_trace()
+    results = []
+    thread = threading.Thread(target=lambda: results.append(connected.arm.stop_with_trace(post_stop_s=0)))
+    thread.start()
+    try:
+        assert entered.wait(1.)
+        with pytest.raises(DeviceFault, match='normal stop observation'):
+            connected.arm.servo_joints(np.zeros(7))
+        connected.arm.stop()
+        assert connected.arm.last_stop_trace == evidence
+    finally:
+        release.set()
+        thread.join(2.)
+    assert calls == ['begin']
+    assert results == [evidence]

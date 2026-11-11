@@ -211,7 +211,7 @@ class SerlHttpArm(Arm):
         self._handle.post("/jointreset", slow=True)
         self._impedance_running = True
 
-    def stop(self) -> None:
+    def _stop(self) -> None:
         # The impedance controller holds the last equilibrium pose; power stays on.
         pass
 

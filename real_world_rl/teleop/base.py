@@ -44,6 +44,7 @@ class TeleopReading:
     human_action_mask: Any = None
     override_mask: Any = None
     buttons: Mapping[str, bool] = field(default_factory=dict)
+    diagnostics: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         action = np.asarray(self.action, dtype=np.float32)

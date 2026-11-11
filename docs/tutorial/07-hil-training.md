@@ -13,6 +13,16 @@ The actor is the single hardware process on the **NUC**, connecting directly to
 franky. Run the learner on the GPU machine (or on the same NUC), and start it
 first. Read [06 Intervening](06-intervening.md) before starting hardware.
 
+When using a calibrated SpaceMouse station, provide matching effective
+task-frame/workspace and profile settings to recording, actor and learner.
+Profile file paths may differ between machines, but their numeric transforms
+must agree; changing only a profile name does not change the numerical contract.
+The learner resolves these settings without opening HID. Select
+`episode_end_behavior: hold` explicitly for manually advanced actor episodes;
+it does not insert neutral gates between interventions. See the
+[SpaceMouse CLI guide](../spacemouse-commissioning.md#spacemouse-profiles-and-task-frame-workspace)
+and [physical acceptance checks](../testing/spacemouse-control-session.md).
+
 All commands run from the **repository root**, with the machine's
 **project environment active**. Set the following variables in **both the learner and NUC
 shells**. The example uses `127.0.0.1` for a learner on the same machine; for a

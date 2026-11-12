@@ -231,7 +231,7 @@ Install the packaged vendor rules once. On the NUC, repository root, any shell
 (no project environment required), with sudo permission:
 
 ```bash
-sudo cp robot_infra/setup/99-spacemouse.rules /etc/udev/rules.d/
+sudo cp real_world_rl/setup/99-spacemouse.rules /etc/udev/rules.d/
 sudo usermod -aG plugdev "$USER"
 sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw
 ```
@@ -243,7 +243,7 @@ works on the NUC from any directory, **with the project environment active** and
 sudo permission; follow it with the same group/reload commands above:
 
 ```bash
-sudo cp "$(python -c 'import robot_infra.setup, os; print(os.path.dirname(robot_infra.setup.__file__))')/99-spacemouse.rules" /etc/udev/rules.d/
+sudo cp "$(python -c 'import real_world_rl.setup, os; print(os.path.dirname(real_world_rl.setup.__file__))')/99-spacemouse.rules" /etc/udev/rules.d/
 ```
 
 An open/permission failure points to this rule file and its installation commands.
@@ -681,7 +681,7 @@ right:
   joint_signs: [...]
 ```
 
-or, with `--teleop-arm-device gello`, the robot_infra station yaml itself
+or, with `--teleop-arm-device gello`, the station yaml itself
 (`robots: {left: ..., right: ...}`, as `rwrl setup` writes it): each robot's
 `teleop.options` (and `hold_s`) become that arm's kwargs, matched by robot name to the env's
 `arm_names`. A single-robot station or robot yaml works the same way for `--teleop-device gello`
@@ -770,8 +770,8 @@ twist is in physical units (as the Pico's), see how the demo scripts normalize i
 
 ## EETwist TeleOp Interface (Pico)
 
-`PicoTeleopSource` wraps `EETwistTeleOpWrapper` in `robot_infra/teleop/utils/telo_op_control_twist.py`
-(in the in-repo `robot_infra` device layer). Its only device is `pico`; the wrapper receives device data
+`PicoTeleopSource` wraps `EETwistTeleOpWrapper` in `real_world_rl/legacy/teleop/utils/telo_op_control_twist.py`
+(legacy code kept in `real_world_rl/legacy/`). Its only device is `pico`; the wrapper receives device data
 from a ZeroMQ `SUB` socket. The Pico server is expected to publish JSON arrays to:
 
 ```python

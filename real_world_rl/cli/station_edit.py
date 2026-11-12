@@ -3,7 +3,7 @@
 def station_document(args):
     from real_world_rl.station import load_station
     import yaml
-    from robot_infra.discovery.autoconfig import resolve_station_config_path
+    from real_world_rl.discovery.autoconfig import resolve_station_config_path
     path = resolve_station_config_path(args.station).resolve()
     raw = path.read_bytes()
     document = yaml.safe_load(raw)

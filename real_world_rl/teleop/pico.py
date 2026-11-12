@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from robot_infra.teleop.utils.telo_op_control_twist import EETwistTeleOpWrapper
+from real_world_rl.legacy.teleop.utils.telo_op_control_twist import EETwistTeleOpWrapper
 
 from real_world_rl.teleop.base import (
     TeleopReading,

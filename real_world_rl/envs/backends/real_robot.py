@@ -1,4 +1,4 @@
-"""Generic robot_infra real-robot env backend — registered as ``"real_robot"``.
+"""Generic device-layer real-robot env backend — registered as ``"real_robot"``.
 
 ``req.backend_config`` is a ``RealRobotEnvConfig``. Like ``franka_real``, this backend
 ignores ``req.num_envs``/``req.num_eval_envs`` (a real robot is a batch of exactly one).

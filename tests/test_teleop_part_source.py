@@ -1,4 +1,4 @@
-"""TeleopPartSource + TeleopInterventionWrapper(device="robot") over robot_infra fake devices:
+"""TeleopPartSource + TeleopInterventionWrapper(device="robot") over device-layer fake devices:
 a fake franka with a scripted fake teleop part, both local and through RemoteRobot + LocalClient."""
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ import numpy as np
 import pytest
 import torch
 
-import robot_infra.devices.backends  # noqa: F401  (registers the fake backends)
-import robot_infra.devices.claims as claims
-from robot_infra.devices import CameraConfig, DeviceFault, GripperConfig
-from robot_infra.devices.robots.franka import FrankaConfig, FrankaRobot
-from robot_infra.devices.teleop import TeleopConfig
-from robot_infra.server import RemoteRobot
-from robot_infra.server.service import RobotService
-from robot_infra.server.transport import LocalClient
+import real_world_rl.devices.backends  # noqa: F401  (registers the fake backends)
+import real_world_rl.devices.claims as claims
+from real_world_rl.devices import CameraConfig, DeviceFault, GripperConfig
+from real_world_rl.devices.robots.franka import FrankaConfig, FrankaRobot
+from real_world_rl.devices.teleop import TeleopConfig
+from real_world_rl.server import RemoteRobot
+from real_world_rl.server.service import RobotService
+from real_world_rl.server.transport import LocalClient
 
 from real_world_rl.envs.real_robot import RealRobotEnv, RealRobotEnvConfig, RealRobotVectorEnv
 from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper

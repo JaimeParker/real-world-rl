@@ -1,4 +1,4 @@
-"""robot_infra.supervise: the supervisor process, the child heartbeat and the in-process StepWatchdog.
+"""real_world_rl.supervise: the supervisor process, the child heartbeat and the in-process StepWatchdog.
 
 Supervisor tests run the real ``rwrl supervise`` (``python -m real_world_rl.cli supervise``) on tiny child scripts, with
 timeouts on the 0.2 s scale.
@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-import robot_infra
-from robot_infra.supervise import (
+import real_world_rl
+from real_world_rl.supervise import (
     HEARTBEAT_FD_ENV,
     Heartbeat,
     StepWatchdog,
@@ -27,19 +27,19 @@ from robot_infra.supervise import (
     SupervisorLost,
     capture_heartbeats,
 )
-import robot_infra.supervise.supervisor as supervisor_module
-from robot_infra.supervise.supervisor import ESCALATED_EXIT_CODE, HeartbeatMonitor, SupervisorOptions, parse_args
+import real_world_rl.supervise.supervisor as supervisor_module
+from real_world_rl.supervise.supervisor import ESCALATED_EXIT_CODE, HeartbeatMonitor, SupervisorOptions, parse_args
 
-pytestmark = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="robot_infra.supervise is Linux only")
+pytestmark = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="real_world_rl.supervise is Linux only")
 
-# The repository root, which holds both robot_infra and real_world_rl.
-_ROBOT_INFRA_ROOT = Path(robot_infra.__file__).resolve().parents[1]
+# The repository root, which holds the real_world_rl package.
+_REPOSITORY_ROOT = Path(real_world_rl.__file__).resolve().parents[1]
 _RUN_TIMEOUT_S = 30
 _FAST = ["--heartbeat-timeout-s", "0.2", "--grace-s", "0.2", "--kill-s", "0.2", "--startup-s", "5"]
 
 _BEATING_CHILD = """
     import sys, time
-    from robot_infra.supervise import Heartbeat
+    from real_world_rl.supervise import Heartbeat
     heartbeat = Heartbeat.from_env()
     assert heartbeat.enabled
     heartbeat.begin_long_operation()
@@ -52,7 +52,7 @@ _BEATING_CHILD = """
 
 _SILENT_STUBBORN_CHILD = """
     import signal, time
-    from robot_infra.supervise import Heartbeat
+    from real_world_rl.supervise import Heartbeat
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     Heartbeat.from_env().beat()
@@ -61,7 +61,7 @@ _SILENT_STUBBORN_CHILD = """
 
 _SILENT_GRACEFUL_CHILD = """
     import time
-    from robot_infra.supervise import Heartbeat
+    from real_world_rl.supervise import Heartbeat
     Heartbeat.from_env().beat()
     try:
         time.sleep(30)
@@ -76,7 +76,7 @@ _HUNG_AT_STARTUP_CHILD = """
 
 _OPERATOR_STOP_CHILD = """
     import signal, sys, time
-    from robot_infra.supervise import Heartbeat
+    from real_world_rl.supervise import Heartbeat
     heartbeat = Heartbeat.from_env()
     stop_requested = []
     signal.signal(signal.SIGINT, lambda *_: stop_requested.append(True))
@@ -95,7 +95,7 @@ _OPERATOR_STOP_CHILD = """
 
 def _child_env() -> dict[str, str]:
     env = {key: value for key, value in os.environ.items() if key != HEARTBEAT_FD_ENV}
-    env["PYTHONPATH"] = os.pathsep.join(p for p in (str(_ROBOT_INFRA_ROOT), env.get("PYTHONPATH", "")) if p)
+    env["PYTHONPATH"] = os.pathsep.join(p for p in (str(_REPOSITORY_ROOT), env.get("PYTHONPATH", "")) if p)
     return env
 
 

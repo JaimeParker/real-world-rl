@@ -72,7 +72,7 @@ def spacemouse_device_table(station_dir=None, options=None):
     device layer uses: ``_spacemouse_hid.load_device_specs(station_dir, options)`` (without a
     station, the site table in ``./local`` or the user config directory). It needs no HID
     SDK; a failure to load raises."""
-    from robot_infra.devices.backends.teleops import _spacemouse_hid
+    from real_world_rl.devices.backends.teleops import _spacemouse_hid
 
     return _spacemouse_hid.load_device_specs(station_dir, options)
 
@@ -111,7 +111,7 @@ class Host:
                 "usb.spacemouse.table",
                 "FAIL",
                 f"cannot load the SpaceMouse device table: {error}",
-                "fix the reported spacemouse-devices.yaml entry, or repair the robot_infra installation",
+                "fix the reported spacemouse-devices.yaml entry, or repair the real-world-rl installation",
             )
         self.usb = self.discover_usb()
         self.ports: list[str] = []
@@ -144,7 +144,7 @@ class Host:
 
     def describes_multi_axis_hid(self, usb_path):
         """Whether a hidraw interface of this USB device has a multi-axis controller descriptor."""
-        from robot_infra.devices.backends.teleops._spacemouse_hid import (
+        from real_world_rl.devices.backends.teleops._spacemouse_hid import (
             describes_multi_axis_controller,
         )
 
@@ -183,7 +183,7 @@ class Host:
             )
             unknown_spacemouse = False
             if table is not None and not kind:
-                from robot_infra.devices.backends.teleops._spacemouse_hid import (
+                from real_world_rl.devices.backends.teleops._spacemouse_hid import (
                     LOGITECH_VENDOR_ID,
                     is_unknown_spacemouse,
                 )
@@ -385,7 +385,7 @@ class Host:
         # Set only when the device table loaded, so the device layer is importable here.
         unknown = [device for device in self.usb if device.get("unknown_spacemouse")]
         if unknown:
-            from robot_infra.devices.backends.teleops._spacemouse_hid import (
+            from real_world_rl.devices.backends.teleops._spacemouse_hid import (
                 DEVICE_TABLE_FILENAME,
                 unknown_device_message,
             )
@@ -395,7 +395,7 @@ class Host:
                 "WARN",
                 unknown_device_message(int(device["vid"], 16), int(device["pid"], 16)),
                 f'product "{device["product"]}"; the site table is local/{DEVICE_TABLE_FILENAME} '
-                f"(next to local/station.yaml) or ~/.config/robot_infra/{DEVICE_TABLE_FILENAME}",
+                f"(next to local/station.yaml) or ~/.config/rwrl/{DEVICE_TABLE_FILENAME}",
             )
         for kind in ("spacemouse", "realsense"):
             if kind not in self.expected:

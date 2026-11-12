@@ -22,7 +22,7 @@ from _leader_teleop_fakes import (
 from _residual_fakes import DictEnv, FakeSyncClient, RecordingProvider, residual_agent
 from gymnasium import spaces
 from rl_garden.algorithms.rlpd_hybrid import RLPDHybrid, _discrete_labels_from_actions
-from robot_infra.devices.backends.teleops.gello import gripper_width_from_raw
+from real_world_rl.devices.backends.teleops.gello import gripper_width_from_raw
 
 from real_world_rl.algorithms.residual import ResidualRLPDHybrid
 from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
@@ -473,9 +473,9 @@ def bimanual_leaders(tmp_path, monkeypatch):
     ``joint_delta``, each with a scripted fake leader part: the left operator leaves the policy
     ``POLICY_STEPS`` steps, then takes over towards ``FAR_LEADER`` with the trigger squeezed; the
     right operator never intervenes but also squeezes the trigger."""
-    import robot_infra.devices.claims as claims
+    import real_world_rl.devices.claims as claims
     from _bimanual_fakes import bimanual_config, fake_franka
-    from robot_infra.devices.teleop import TeleopConfig
+    from real_world_rl.devices.teleop import TeleopConfig
 
     from real_world_rl.envs.bimanual import BimanualRealRobotEnv, BimanualRealRobotVectorEnv
 

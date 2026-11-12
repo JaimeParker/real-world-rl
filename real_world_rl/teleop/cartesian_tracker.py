@@ -142,7 +142,7 @@ class CartesianTargetTracker:
                 )
             safety_box = box
         self.safety_box = safety_box
-        from robot_infra.devices.workspace import Workspace
+        from real_world_rl.devices.workspace import Workspace
         self.workspace = Workspace(workspace, task_frame) if workspace is not None else None
         self._hold_pose: Optional[np.ndarray] = None
         self._command: Optional[np.ndarray] = None
@@ -203,7 +203,7 @@ class CartesianTargetTracker:
         if self.workspace is not None:
             measured_violations = self.workspace.violations(measured, measured=True)
             if measured_violations:
-                from robot_infra.devices.errors import SafetyViolation
+                from real_world_rl.devices.errors import SafetyViolation
                 raise SafetyViolation("measured TCP outside workspace: " + "; ".join(measured_violations))
         if dt > self.config.max_dt_s + _DEADLINE_SLACK_S:
             self.hold_at(measured)

@@ -5,10 +5,10 @@ import numpy as np
 import pytest
 import yaml
 
-from robot_infra.devices import CameraConfig, ControlMode, GripperConfig, Robot
-from robot_infra.devices.backends.grippers.fake import FakeGripper
-from robot_infra.devices.robots.franka import FrankaConfig, FrankaRobot
-from robot_infra.devices.robots.piper import PiperRobot
+from real_world_rl.devices import CameraConfig, ControlMode, GripperConfig, Robot
+from real_world_rl.devices.backends.grippers.fake import FakeGripper
+from real_world_rl.devices.robots.franka import FrankaConfig, FrankaRobot
+from real_world_rl.devices.robots.piper import PiperRobot
 
 
 def franka_config(**kwargs) -> FrankaConfig:
@@ -133,7 +133,7 @@ def test_type_registry():
 
 
 def test_unknown_camera_key_names_key_and_config():
-    from robot_infra.devices import RobotConfig
+    from real_world_rl.devices import RobotConfig
 
     with pytest.raises(ValueError, match="unknown key 'fpss' for CameraConfig"):
         RobotConfig.from_dict({"cameras": [{"name": "wrist", "fpss": 30}]})
@@ -144,8 +144,8 @@ def piper_with_teleop(**teleop) -> dict:
 
 
 def test_teleop_config_parses_and_is_the_last_child():
-    from robot_infra.devices import TeleopConfig
-    from robot_infra.devices.backends.teleops.fake import FakeTeleop
+    from real_world_rl.devices import TeleopConfig
+    from real_world_rl.devices.backends.teleops.fake import FakeTeleop
 
     robot = Robot.from_dict(piper_with_teleop(name="sm", hold_s=0.2, options={"on_end": "idle"}))
     assert isinstance(robot.config.teleop, TeleopConfig) and robot.config.teleop.hold_s == 0.2
@@ -169,8 +169,8 @@ def test_teleop_yaml_round_trip(tmp_path):
 
 
 def test_teleop_disconnects_before_the_arm(monkeypatch):
-    from robot_infra.devices.backends.arms.fake import FakeArm
-    from robot_infra.devices.backends.teleops.fake import FakeTeleop
+    from real_world_rl.devices.backends.arms.fake import FakeArm
+    from real_world_rl.devices.backends.teleops.fake import FakeTeleop
 
     order: list[str] = []
     arm_release = FakeArm._release

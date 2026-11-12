@@ -13,7 +13,7 @@ import torch
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
 
-import robot_infra.devices.claims as claims
+import real_world_rl.devices.claims as claims
 
 from real_world_rl.action_contract import demo_contract_of, read_contract_sidecar
 from real_world_rl.envs.real_robot import RealRobotEnv, RealRobotEnvConfig
@@ -777,7 +777,7 @@ def test_deploy_restores_classifier_image_keys_so_frame_stacking_matches_trainin
 
 @pytest.mark.parametrize("device_step_limit", [False, True])
 def test_deploy_joint_abs_requires_device_joint_step_limit(_claim_dir, device_step_limit):
-    from robot_infra.devices.errors import DeviceFault
+    from real_world_rl.devices.errors import DeviceFault
     from rl_garden.training.online.entrypoints.rlpd import RLPDArgs
     from real_world_rl.deploy import DeployArgs, build_deploy_env
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping, Optional, Sequence
 
-from robot_infra.devices.teleop import Teleop, TeleopConfig
+from real_world_rl.devices.teleop import Teleop, TeleopConfig
 
 from real_world_rl.action_contract import (
     LEGACY_ACTION_CONTRACT,
@@ -28,7 +28,7 @@ _BACKEND = "gello"
 def _gello_teleop_class() -> type:
     """The device layer's ``gello`` teleop backend (its Dynamixel SDK import is lazy)."""
     if _BACKEND not in Teleop.backends():
-        import robot_infra.devices.backends.teleops.gello  # noqa: F401  (registers "gello")
+        import real_world_rl.devices.backends.teleops.gello  # noqa: F401  (registers "gello")
     return Teleop.backend(_BACKEND)
 
 
@@ -43,7 +43,7 @@ class GelloTeleopSource(ToggleableTeleopSource):
     ``gripper_closed_rad``, ``gripper_binarize_threshold``, ``intervention``, ``event_device``,
     ``event_keys``, ``poll_interval_s``) go to the backend unchanged; the optional ones are only
     sent when given, so the backend's defaults apply otherwise. ``python -m
-    robot_infra.devices.backends.teleops.gello_calibrate`` prints them for a unit.
+    real_world_rl.devices.backends.teleops.gello_calibrate`` prints them for a unit.
 
     The SDK is imported when ``start()`` opens the device (the intervention wrapper calls it), so
     building the source works without it. ``close()`` disconnects the device.

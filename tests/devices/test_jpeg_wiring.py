@@ -7,17 +7,17 @@ import time
 import numpy as np
 import pytest
 
-import robot_infra.devices.claims as claims
-from robot_infra.devices import CameraConfig, Frame, GripperConfig
-from robot_infra.devices.backends.cameras.fake import FakeCamera
-from robot_infra.devices.base import Health
-from robot_infra.devices.errors import SdkMissing
-from robot_infra.devices.robots.franka import FrankaConfig, FrankaRobot
-from robot_infra.server import RemoteRobot
-from robot_infra.server.codec import pack, unpack
-from robot_infra.server.remote import _rebuild
-from robot_infra.server.service import RobotService
-from robot_infra.server.transport import LocalClient
+import real_world_rl.devices.claims as claims
+from real_world_rl.devices import CameraConfig, Frame, GripperConfig
+from real_world_rl.devices.backends.cameras.fake import FakeCamera
+from real_world_rl.devices.base import Health
+from real_world_rl.devices.errors import SdkMissing
+from real_world_rl.devices.robots.franka import FrankaConfig, FrankaRobot
+from real_world_rl.server import RemoteRobot
+from real_world_rl.server.codec import pack, unpack
+from real_world_rl.server.remote import _rebuild
+from real_world_rl.server.service import RobotService
+from real_world_rl.server.transport import LocalClient
 
 pytest.importorskip("PIL")
 
@@ -146,8 +146,8 @@ def test_describe_and_remote_camera_report_encoding(make_service, quality, expec
 
 def test_grpc_loopback_decodes_jpeg(make_service):
     pytest.importorskip("grpc")
-    from robot_infra.devices import Robot
-    from robot_infra.server.transport import GrpcTransport
+    from real_world_rl.devices import Robot
+    from real_world_rl.server.transport import GrpcTransport
 
     service = make_service(jpeg_quality=90)
     transport = GrpcTransport()

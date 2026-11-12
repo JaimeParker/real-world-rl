@@ -113,7 +113,7 @@ def preset_station_checks(args) -> list[tuple[str, str, str, str]]:
         return []
     import yaml
     from real_world_rl.station import load_station
-    from robot_infra.discovery.autoconfig import resolve_station_config_path
+    from real_world_rl.discovery.autoconfig import resolve_station_config_path
 
     reference = preset_robot_reference(yaml.safe_load(Path(preset_path).read_text(encoding="utf-8")))
     if not reference or not isinstance(reference, (dict, str)):

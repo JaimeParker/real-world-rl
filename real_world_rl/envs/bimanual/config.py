@@ -1,6 +1,6 @@
 """Config for the two-arm real-robot env: one ``RealRobotEnvConfig`` per arm.
 
-Pure dataclass (no robot_infra/scipy/torch imports), nestable in CLI args like
+Pure dataclass (no device-layer/scipy/torch imports), nestable in CLI args like
 ``RealRobotEnvConfig``: ``--real_robot_bimanual.left.remote HOST:PORT``.
 """
 from __future__ import annotations

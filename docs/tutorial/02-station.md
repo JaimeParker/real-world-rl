@@ -3,7 +3,7 @@
 `rwrl setup` is an interactive wizard. Run it on the robot PC with the arm, the
 cameras and the GELLO plugged in and powered. It probes the hardware, asks a few questions,
 calibrates the GELLO inline, writes one annotated `station.yaml`, runs the doctor on it and prints
-the next commands. The questions are in `robot_infra/setup/wizard.py`; every one has a flag
+the next commands. The questions are in `real_world_rl/setup/wizard.py`; every one has a flag
 (`rwrl setup --help`). All commands on this page run on the NUC,
 from the repository root, with the project environment active.
 
@@ -48,7 +48,7 @@ Answer notes:
   replaces this setting. The target key contract is in [00](00-overview.md#operator-keys). `toggle` is for an evdev
   pedal or keyboard on the robot PC ([gello.md](../gello.md#6-hil-training)).
 - **Without `--output` or `--scope`** it asks last where to write
-  (`write the station to (local = ./local/station.yaml, user = ~/.config/robot_infra/station.yaml, or a path) [local]:`).
+  (`write the station to (local = ./local/station.yaml, user = ~/.config/rwrl/station.yaml, or a path) [local]:`).
   An existing file is first copied to `station.yaml.bak.<UTC timestamp>`.
 - **GELLO gripper.** A new GELLO gripper channel gets `gripper_binarize_threshold: 0.5`: the stored
   gripper action is exactly `+1` (open) or `-1` (closed), the clean labels the discrete gripper heads
@@ -85,16 +85,18 @@ rwrl --station local/station.yaml teleop calibrate --backend gello --use
 ## Where the file lands
 
 The wizard writes `./local/station.yaml` (relative to the directory you run it in; `local/` is
-git-ignored) by default (`--scope local`), or `~/.config/robot_infra/station.yaml` with
+git-ignored) by default (`--scope local`), or `~/.config/rwrl/station.yaml` with
 `--scope user`, or any path with `--output`. The daemon, the doctor and discovery find the file
 without `--station`, taking the first of:
 
-1. `$ROBOT_INFRA_CONFIG`
+1. `$RWRL_STATION`
 2. `./local/station.yaml`
-3. `$XDG_CONFIG_HOME/robot_infra/station.yaml` (default `~/.config/robot_infra/station.yaml`)
+3. `$XDG_CONFIG_HOME/rwrl/station.yaml` (default `~/.config/rwrl/station.yaml`)
 
 `--station <yaml>` always wins. Run all later `rwrl` commands from the same directory, or set
-`ROBOT_INFRA_CONFIG`.
+`RWRL_STATION`. A station from before 0.1.0, named by `$ROBOT_INFRA_CONFIG` or kept in
+`~/.config/robot_infra/`, is still found for one release; `rwrl doctor` prints the command that
+moves it.
 
 ## Multiple arms
 

@@ -4,10 +4,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import robot_infra.devices.teleop as teleop_module
-from robot_infra.devices import DeviceFault, DeviceNotConnected, Teleop, TeleopConfig, TeleopSample
-from robot_infra.devices.backends.teleops.fake import FakeTeleop
-from robot_infra.devices.teleop import EVENT_KEYS, TeleopHealth
+import real_world_rl.devices.teleop as teleop_module
+from real_world_rl.devices import DeviceFault, DeviceNotConnected, Teleop, TeleopConfig, TeleopSample
+from real_world_rl.devices.backends.teleops.fake import FakeTeleop
+from real_world_rl.devices.teleop import EVENT_KEYS, TeleopHealth
 
 
 def twist(x: float) -> list[float]:
@@ -287,7 +287,7 @@ def test_discover_and_registry():
 
 def test_teleop_sample_optional_diagnostics_roundtrip_without_legacy_wire_change():
     import numpy as np
-    from robot_infra.devices.teleop import TeleopSample
+    from real_world_rl.devices.teleop import TeleopSample
     sample = TeleopSample(np.zeros(6), 'cartesian_delta', None, {}, {}, False, 1., 1)
     assert 'diagnostics' not in sample.to_dict()
     assert TeleopSample.from_dict(sample.to_dict()).diagnostics == {}

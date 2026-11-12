@@ -11,14 +11,14 @@ section 3) and continues through BC, ACT, HIL training and deployment, see the
 [tutorial](tutorial/00-overview.md).
 
 The hardware design comes from GELLO (MIT license, Philipp Wu,
-https://github.com/wuphilipp/gello_software). `robot_infra`'s `gello` teleop backend is a
+https://github.com/wuphilipp/gello_software). The device layer's `gello` teleop backend is a
 re-implementation on the ROBOTIS `dynamixel_sdk`; no GELLO code is used.
 
 Which path to use:
 
 | Follower stack | Action mode | Teleop device | GELLO plugged into |
 | --- | --- | --- | --- |
-| `real_robot` (robot_infra, franky) | `joint_delta` (the tutorial's, for every stage) or `joint_abs`; demos, base policy and HIL runs must share one | `--teleop-device leader_arm` (the robot daemon serves the GELLO as the robot's `teleop:` part) | the robot PC |
+| `real_robot` (device layer, franky) | `joint_delta` (the tutorial's, for every stage) or `joint_abs`; demos, base policy and HIL runs must share one | `--teleop-device leader_arm` (the robot daemon serves the GELLO as the robot's `teleop:` part) | the robot PC |
 | `real_robot` | same | `--teleop-device gello` (`GelloTeleopSource`, opened locally) | the actor's machine |
 | `franka_real` (SERL HTTP bridge, cartesian only) | `cartesian_delta` | `--teleop-device leader_cartesian` (Panda forward kinematics) | the robot host, through a stub-robot daemon |
 
@@ -95,8 +95,7 @@ from the station's `joint_limits`, so once the station has a GELLO `teleop:` sec
 `rwrl --station robot.yaml teleop calibrate --backend gello` alone recalibrates it. `--use` writes
 the calibrated options into the station's `teleop.options` after a reviewed diff (dropping the
 gripper keys for a leader without a gripper channel) instead of the paste below. Without a station
-file, `rwrl gello-calibrate` takes the same leader flags, with `--port` and `--joint-ids`
-required; it is a deprecated alias of the `teleop calibrate` form.
+file, pass `--port` and `--joint-ids` to `rwrl teleop calibrate --backend gello`.
 
 1. **Sign check.** For each joint the CLI asks you to move that joint in the robot's positive
    direction and press Enter, shows the observed sign and takes it unless you answer `n`. A joint

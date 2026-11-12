@@ -1,6 +1,6 @@
-"""Config for the generic robot_infra-backed real-robot env.
+"""Config for the generic device-layer real-robot env.
 
-Pure dataclass (no robot_infra/scipy/torch imports) so it can be nested in CLI
+Pure dataclass (no device-layer/scipy/torch imports) so it can be nested in CLI
 args and inspected without any robot dependency installed.
 """
 from __future__ import annotations
@@ -26,8 +26,8 @@ _SAFETY_BOX_LENGTH = 6
 
 @dataclass
 class RealRobotEnvConfig:
-    # Exactly one of: a local robot_infra RobotConfig dict (must carry "type"),
-    # or the address of a robot_infra daemon. Checked by ``require_robot_source``
+    # Exactly one of: a local device-layer RobotConfig dict (must carry "type"),
+    # or the address of a robot daemon. Checked by ``require_robot_source``
     # when the env is built, so the default-constructed config (CLI group) stays valid.
     robot: Optional[dict] = None
     remote: Optional[str] = None
@@ -63,7 +63,7 @@ class RealRobotEnvConfig:
     gripper_in_action: bool = True
     max_episode_steps: Optional[int] = None
     reset_settle_s: float = 0.5
-    # In-process step watchdog (robot_infra.supervise.StepWatchdog): after a reset, a gap of more
+    # In-process step watchdog (real_world_rl.supervise.StepWatchdog): after a reset, a gap of more
     # than this many seconds between env steps calls arm.stop() once and the next step raises.
     # None = off. Must exceed one control period. Not part of the experiment contract.
     watchdog_s: Optional[float] = None
@@ -184,5 +184,5 @@ class RealRobotEnvConfig:
         if (self.robot is None) == (self.remote is None):
             raise ValueError(
                 "set exactly one of `robot` (local RobotConfig dict) or `remote` "
-                "(robot_infra daemon address)"
+                "(robot daemon address)"
             )

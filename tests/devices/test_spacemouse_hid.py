@@ -11,13 +11,13 @@ import types
 
 import pytest
 
-from robot_infra.devices import DeviceNotFound, VersionMismatch
-from robot_infra.devices.backends.teleops import _spacemouse_hid as reader
+from real_world_rl.devices import DeviceNotFound, VersionMismatch
+from real_world_rl.devices.backends.teleops import _spacemouse_hid as reader
 
 
 @pytest.fixture(autouse=True)
 def isolated_hid_claims(tmp_path, monkeypatch):
-    monkeypatch.setattr("robot_infra.devices.claims._DEFAULT_LOCK_DIR", tmp_path / "claims")
+    monkeypatch.setattr("real_world_rl.devices.claims._DEFAULT_LOCK_DIR", tmp_path / "claims")
 
 
 @pytest.fixture(autouse=True)
@@ -184,7 +184,9 @@ def test_device_table_lookup_order(tmp_path):
         return reader.resolve_device_table_path(station_dir, options, cwd=cwd, env=env)
 
     assert lookup() is None and lookup(station) is None
-    user = write_table(tmp_path / "config/robot_infra")
+    legacy = write_table(tmp_path / "config/robot_infra")
+    assert lookup() == legacy  # the pre-0.1.0 user directory is still read, last
+    user = write_table(tmp_path / "config/rwrl")
     assert lookup() == user
     local = write_table(cwd / "local")
     assert lookup() == local  # the local scope comes first, as for station.yaml
@@ -202,7 +204,7 @@ def test_device_table_lookup_order(tmp_path):
 
 
 def test_a_local_entry_with_a_builtin_hid_id_overrides_it_and_others_are_added(tmp_path):
-    from robot_infra.devices.provenance import portable_path
+    from real_world_rl.devices.provenance import portable_path
 
     path = write_table(tmp_path, """\
 schema_version: 1
@@ -325,7 +327,7 @@ def test_a_local_entry_may_reuse_a_builtin_name_with_that_entrys_hid_id(tmp_path
 def test_load_station_resolves_the_spacemouse_device_table_against_the_station_directory(tmp_path):
     import yaml
 
-    from robot_infra.discovery.autoconfig import load_station
+    from real_world_rl.discovery.autoconfig import load_station
 
     station = tmp_path / "site/station.yaml"
     station.parent.mkdir()
@@ -475,8 +477,8 @@ def test_sdk_import_is_lazy_and_missing_hidapi_hint_is_exact():
 sys.modules["hid"] = None
 sys.modules["pyspacemouse"] = None
 sys.modules["easyhid"] = None
-from robot_infra.devices.backends.teleops import _spacemouse_hid as reader
-from robot_infra.devices import SdkMissing
+from real_world_rl.devices.backends.teleops import _spacemouse_hid as reader
+from real_world_rl.devices import SdkMissing
 try:
     reader.open()
 except SdkMissing as error:
@@ -498,7 +500,7 @@ def test_wrong_hid_distribution_is_reported(monkeypatch):
 
 
 def test_udev_rule_is_packaged():
-    rules = files("robot_infra.setup").joinpath("99-spacemouse.rules").read_text()
+    rules = files("real_world_rl.setup").joinpath("99-spacemouse.rules").read_text()
     assert rules.splitlines() == [
         'SUBSYSTEM=="hidraw", ATTRS{idVendor}=="256f", MODE="0664", GROUP="plugdev"',
         'SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", MODE="0664", GROUP="plugdev"',
@@ -541,7 +543,7 @@ def test_read_error_propagates_to_the_polling_backend():
 
 
 def test_open_claim_is_exclusive_and_released(monkeypatch, tmp_path):
-    from robot_infra.devices.errors import DeviceBusy
+    from real_world_rl.devices.errors import DeviceBusy
     handle = Handle([])
     fake_hid(monkeypatch, [
         {"vendor_id": 0x256F, "product_id": 0xC635, "path": b"exclusive-test"},
@@ -557,8 +559,8 @@ def test_open_claim_is_exclusive_and_released(monkeypatch, tmp_path):
 
 
 def test_claim_opt_out_is_forwarded_by_robot_config(monkeypatch):
-    from robot_infra.devices import TeleopConfig
-    from robot_infra.devices.robots.franka import FrankaConfig, FrankaRobot
+    from real_world_rl.devices import TeleopConfig
+    from real_world_rl.devices.robots.franka import FrankaConfig, FrankaRobot
     robot = FrankaRobot(FrankaConfig(arm_backend='fake', gripper=None, claim=False,
                                     teleop=TeleopConfig(backend='spacemouse')))
     assert robot.teleop._claim is False

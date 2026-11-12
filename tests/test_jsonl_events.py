@@ -3,7 +3,7 @@ import os
 import pytest
 
 from real_world_rl.teleop.jsonl_events import JsonlEventSource
-from robot_infra.devices.errors import DeviceFault
+from real_world_rl.devices.errors import DeviceFault
 
 
 def test_appended_events_preserve_repeated_takeover(tmp_path):

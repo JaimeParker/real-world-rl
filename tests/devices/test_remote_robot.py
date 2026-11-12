@@ -4,8 +4,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import robot_infra.devices.claims as claims
-from robot_infra.devices import (
+import real_world_rl.devices.claims as claims
+from real_world_rl.devices import (
     Arm,
     CameraConfig,
     ControlMode,
@@ -14,12 +14,12 @@ from robot_infra.devices import (
     GripperConfig,
     Robot,
 )
-from robot_infra.devices.robots.franka import FrankaConfig, FrankaRobot
-from robot_infra.doctor.checks import CheckResult
-from robot_infra.server import RemoteRobot, RemoteRobotConfig
-from robot_infra.server.remote import RemoteCamera
-from robot_infra.server.service import RobotService
-from robot_infra.server.transport import LocalClient
+from real_world_rl.devices.robots.franka import FrankaConfig, FrankaRobot
+from real_world_rl.doctor.checks import CheckResult
+from real_world_rl.server import RemoteRobot, RemoteRobotConfig
+from real_world_rl.server.remote import RemoteCamera
+from real_world_rl.server.service import RobotService
+from real_world_rl.server.transport import LocalClient
 
 
 @pytest.fixture
@@ -175,7 +175,7 @@ TELEOP_SCRIPT = [
 
 @pytest.fixture
 def teleop_remote(tmp_path, monkeypatch):
-    from robot_infra.devices import TeleopConfig
+    from real_world_rl.devices import TeleopConfig
 
     monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
     robot = FrankaRobot(
@@ -194,8 +194,8 @@ def teleop_remote(tmp_path, monkeypatch):
 
 
 def test_remote_teleop_round_trip(teleop_remote):
-    from robot_infra.devices import TeleopSample
-    from robot_infra.server.remote import RemoteTeleop
+    from real_world_rl.devices import TeleopSample
+    from real_world_rl.server.remote import RemoteTeleop
 
     teleop = teleop_remote.teleop
     assert isinstance(teleop, RemoteTeleop) and teleop.is_connected
@@ -224,14 +224,14 @@ def test_remote_without_teleop_has_none(connected):
 
 
 def test_server_package_exports_remote_teleop():
-    from robot_infra.server import RemoteTeleop
-    from robot_infra.server.remote import RemoteTeleop as Original
+    from real_world_rl.server import RemoteTeleop
+    from real_world_rl.server.remote import RemoteTeleop as Original
 
     assert RemoteTeleop is Original
 
 
 def test_stop_trace_rpc_methods_are_not_retryable_commands():
-    from robot_infra.server.transport.base import is_read_only
+    from real_world_rl.server.transport.base import is_read_only
     assert is_read_only('arm.last_stop_trace')
     assert not is_read_only('arm.begin_stop_trace')
     assert not is_read_only('arm.stop_with_trace')

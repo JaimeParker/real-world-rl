@@ -1,4 +1,4 @@
-# Env preset for one Franka arm with a gripper and a wrist camera, served by the robot_infra
+# Env preset for one Franka arm with a gripper and a wrist camera, served by the robot
 # daemon (docs/tutorial/). Every command of the tutorial takes it with --config: the recorder,
 # real_world_bc, hil_serl, residual_hil_serl, silri and the classifier data collector.
 # Copy it (cp examples/presets/hil_single_arm.yaml hil.yaml) and edit the copy:

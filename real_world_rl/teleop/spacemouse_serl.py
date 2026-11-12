@@ -67,8 +67,8 @@ class SpaceMouseSerlTeleopSource(TeleopSource):
         self._owns_part = teleop is None
         self._previous_event_toggle = False
         if teleop is None:
-            from robot_infra.devices.backends.teleops import spacemouse  # noqa: F401
-            from robot_infra.devices.teleop import Teleop, TeleopConfig
+            from real_world_rl.devices.backends.teleops import spacemouse  # noqa: F401
+            from real_world_rl.devices.teleop import Teleop, TeleopConfig
 
             teleop = Teleop.backend("spacemouse")(TeleopConfig(
                 name="spacemouse", backend="spacemouse", options={
@@ -116,7 +116,7 @@ class SpaceMouseSerlTeleopSource(TeleopSource):
         return sample.action, sample.buttons
 
     def reset(self) -> None:
-        from robot_infra.devices.errors import DeviceNotConnected
+        from real_world_rl.devices.errors import DeviceNotConnected
 
         self._previous_event_toggle = False
         try:

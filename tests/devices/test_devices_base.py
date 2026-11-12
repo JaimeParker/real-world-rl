@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from robot_infra.devices import (
+from real_world_rl.devices import (
     BackendRegistry,
     Connection,
     ControllablePart,

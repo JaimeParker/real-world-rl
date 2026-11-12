@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import yaml
 from _leader_teleop_fakes import FakeGelloTeleop
-from robot_infra.devices.teleop import EVENT_KEYS, Teleop, TeleopSample
+from real_world_rl.devices.teleop import EVENT_KEYS, Teleop, TeleopSample
 
 from real_world_rl.cli import connect, main
 from real_world_rl.cli.teleop_read import sample_record, text_line
@@ -56,8 +56,8 @@ GELLO_TELEOP = {"name": "leader", "backend": "gello",
 
 @pytest.fixture
 def arm_never_opened(monkeypatch):
-    from robot_infra.devices.backends.arms.fake import FakeArm
-    from robot_infra.devices.backends.grippers.fake import FakeGripper
+    from real_world_rl.devices.backends.arms.fake import FakeArm
+    from real_world_rl.devices.backends.grippers.fake import FakeGripper
 
     def refuse(self):
         raise AssertionError("teleop read must not open the arm or the gripper on the direct route")
@@ -162,11 +162,11 @@ def test_non_positive_rates_are_usage_errors(tmp_path, capsys, leader, flag, val
 
 @pytest.fixture
 def daemon(tmp_path, monkeypatch):
-    from robot_infra.devices import Robot
-    from robot_infra.discovery.autoconfig import load_station
-    from robot_infra.server import remote
-    from robot_infra.server.service import RobotService
-    from robot_infra.server.transport.local import LocalClient
+    from real_world_rl.devices import Robot
+    from real_world_rl.discovery.autoconfig import load_station
+    from real_world_rl.server import remote
+    from real_world_rl.server.service import RobotService
+    from real_world_rl.server.transport.local import LocalClient
 
     teleop = {"name": "leader", "backend": "fake",
               "options": {"action_space": "joint_abs", "num_joints": 7, "has_gripper": True, "script": SCRIPT}}

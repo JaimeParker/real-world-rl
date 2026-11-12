@@ -72,7 +72,7 @@ def test_source_checkout_backend_request_in_fresh_process():
 
     root = Path(__file__).resolve().parents[1]
     environment = dict(os.environ, PYTHONDONTWRITEBYTECODE="1",
-                       PYTHONPATH=os.pathsep.join(str(root / name) for name in (".", "rl-garden", "robot_infra")))
+                       PYTHONPATH=os.pathsep.join(str(root / name) for name in (".", "rl-garden")))
     subprocess.run([sys.executable, "-c", """
 from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
 from real_world_rl.training.env_building import hil_env_request

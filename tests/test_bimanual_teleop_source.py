@@ -10,8 +10,8 @@ import torch
 from _bimanual_fakes import ARMS, bimanual_config, fake_franka
 from _teleop_fakes import TwoArmContractEnv
 
-import robot_infra.devices.claims as claims
-from robot_infra.devices.teleop import TeleopConfig
+import real_world_rl.devices.claims as claims
+from real_world_rl.devices.teleop import TeleopConfig
 
 from real_world_rl.envs.bimanual import BimanualRealRobotEnv, BimanualRealRobotVectorEnv
 from real_world_rl.envs.wrappers.intervention import (

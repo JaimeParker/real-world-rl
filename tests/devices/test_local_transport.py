@@ -6,11 +6,11 @@ import time
 import numpy as np
 import pytest
 
-import robot_infra.devices.claims as claims
-from robot_infra.devices import CameraConfig, DeviceFault, GripperConfig
-from robot_infra.devices.robots.franka import FrankaConfig, FrankaRobot
-from robot_infra.server.service import RobotService
-from robot_infra.server.transport import LocalClient, LocalTransport, TransportError, is_read_only
+import real_world_rl.devices.claims as claims
+from real_world_rl.devices import CameraConfig, DeviceFault, GripperConfig
+from real_world_rl.devices.robots.franka import FrankaConfig, FrankaRobot
+from real_world_rl.server.service import RobotService
+from real_world_rl.server.transport import LocalClient, LocalTransport, TransportError, is_read_only
 
 
 @pytest.fixture

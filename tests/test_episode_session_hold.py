@@ -5,7 +5,7 @@ import pytest
 
 from real_world_rl.teleop.composite import CompositeTeleopSource
 from real_world_rl.teleop.session import wait_after_episode
-from robot_infra.supervise import capture_heartbeats
+from real_world_rl.supervise import capture_heartbeats
 
 
 class Backend:
@@ -153,7 +153,7 @@ def test_actor_episode_end_reaches_hold_target_without_stopping_the_arm(tmp_path
     """WO-17: ActorLoop's episode-end path never stops the arm before the HOLD target is read,
     so the device's last accepted target (cleared by any stop) is what HOLD re-sends."""
     import torch
-    import robot_infra.devices.claims as claims
+    import real_world_rl.devices.claims as claims
     from real_world_rl.loops.actor import ActorLoop
     from test_real_robot_env import _Rig
     from test_real_world_actor_loop import _FakePolicy, _FakeSyncClient

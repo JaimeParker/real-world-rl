@@ -16,7 +16,7 @@ dependencies are deliberately kept out of the env itself and out of the
 run it as a library (``main(camera_capture=...)``) with a cell-specific
 capture callable to actually record images.
 
-With ``--env-backend real_robot`` on the command line the collector runs on a robot_infra robot
+With ``--env-backend real_robot`` on the command line the collector runs on a device-layer robot
 instead (``real_world_rl.reward.collect_real_robot``): the HIL actor's env and flags
 (``--teleop-device leader_arm --teleop-event-device keyboard``, ``--real-robot.*``, ``--obs.*``,
 ``--config``), cameras from the robot config, and frames labelled with the ``s``/``f`` events

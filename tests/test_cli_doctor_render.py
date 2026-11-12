@@ -9,12 +9,12 @@ from types import SimpleNamespace
 
 import pytest
 
-import robot_infra.server.daemon as daemon
+import real_world_rl.server.daemon as daemon
 from real_world_rl.cli import doctor, main
 from real_world_rl.cli.doctor_repair import Action
-from robot_infra.cli.render import strip_ansi
-from robot_infra.doctor import cli as device_doctor
-from robot_infra.doctor.checks import CheckResult
+from real_world_rl.cli.render import strip_ansi
+from real_world_rl.doctor import cli as device_doctor
+from real_world_rl.doctor.checks import CheckResult
 
 
 class Terminal(io.StringIO):
@@ -42,7 +42,7 @@ def no_station(tmp_path, monkeypatch):
     """No station file anywhere the doctor looks, so --mock checks the host only."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    monkeypatch.delenv("ROBOT_INFRA_CONFIG", raising=False)
+    monkeypatch.delenv("RWRL_STATION", raising=False)
 
 
 def inject(monkeypatch, rows, actions=()):

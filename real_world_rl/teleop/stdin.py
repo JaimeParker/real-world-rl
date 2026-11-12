@@ -92,7 +92,7 @@ class StdinTeleopSource(OperatorKeySource):
 
     def _check_alive(self) -> None:
         if self._failure is not None:
-            from robot_infra.devices.errors import DeviceFault
+            from real_world_rl.devices.errors import DeviceFault
 
             raise DeviceFault(
                 f"the terminal key reader stopped: {self._failure}",

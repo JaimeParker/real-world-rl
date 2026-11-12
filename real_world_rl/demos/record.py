@@ -42,7 +42,7 @@ from typing import Any, Callable, Mapping, Optional, Sequence
 import numpy as np
 import torch
 
-from robot_infra.supervise import Heartbeat
+from real_world_rl.supervise import Heartbeat
 from rl_garden.common.cli_args import ObservationArgs
 from rl_garden.common.env_args import EnvBackendArgs, EnvRunArgs
 

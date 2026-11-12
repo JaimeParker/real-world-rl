@@ -10,18 +10,18 @@ import types
 import pytest
 import yaml
 
-from robot_infra.devices import DeviceNotFound, GripperConfig, TeleopConfig, VersionMismatch
-from robot_infra.devices.backends.arms.fake import FakeArm
-from robot_infra.devices.backends.arms.franky import (
+from real_world_rl.devices import DeviceNotFound, GripperConfig, TeleopConfig, VersionMismatch
+from real_world_rl.devices.backends.arms.fake import FakeArm
+from real_world_rl.devices.backends.arms.franky import (
     franky_connect_error,
     parse_libfranka_mismatch,
 )
-from robot_infra.devices.backends.grippers.fake import FakeGripper
-from robot_infra.devices.robots.franka import FrankaConfig
-from robot_infra.discovery import enumerate as probes
-from robot_infra.discovery.autoconfig import load_station
-from robot_infra.doctor import cli, deps
-from robot_infra.doctor.checks import LIBFRANKA_SERVER_VERSION, exit_code, run_doctor
+from real_world_rl.devices.backends.grippers.fake import FakeGripper
+from real_world_rl.devices.robots.franka import FrankaConfig
+from real_world_rl.discovery import enumerate as probes
+from real_world_rl.discovery.autoconfig import load_station
+from real_world_rl.doctor import cli, deps
+from real_world_rl.doctor.checks import LIBFRANKA_SERVER_VERSION, exit_code, run_doctor
 
 MISMATCH_MESSAGE = (
     "libfranka/robot firmware mismatch: libfranka: Incompatible library version (server version: 10, "
@@ -32,7 +32,7 @@ INSTALL_ARGV_10 = deps.franky_wheel_install_argv(10)
 
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch, tmp_path):
-    import robot_infra.devices.claims as claims
+    import real_world_rl.devices.claims as claims
 
     monkeypatch.setattr(probes, "ping", lambda ip, timeout_s=1.0: True)
     monkeypatch.setattr(probes, "tcp_open", lambda ip, port, timeout_s=0.5: False)
@@ -220,7 +220,7 @@ def test_unreachable_hint_lists_the_bring_up_steps():
 
 
 def test_franky_ping_failure_gets_the_bring_up_hint(monkeypatch):
-    from robot_infra.doctor import checks
+    from real_world_rl.doctor import checks
 
     monkeypatch.setattr(probes, "ping", lambda ip, timeout_s=1.0: False)
     named = dict(checks._os_checks(FrankaConfig(robot_ip="10.0.0.2", gripper=None)))
@@ -311,7 +311,7 @@ def test_install_sdk_yes_installs_and_reruns_the_doctor(tmp_path, monkeypatch, c
     path = write_config(tmp_path)
     pip = FakeSubprocess(monkeypatch)
     prompt = Prompt(monkeypatch, "y")
-    assert cli.main(["--config", path, "--install-sdk"]) == 0
+    assert cli.main(["--station", path, "--install-sdk"]) == 0
     out = capsys.readouterr().out
     assert prompt.prompts == ["Install now? [y/N] "]
     assert "robot server version 10 detected" in out
@@ -329,7 +329,7 @@ def test_install_sdk_declined_installs_nothing(tmp_path, monkeypatch, capsys, ar
     path = write_config(tmp_path)
     pip = FakeSubprocess(monkeypatch)
     Prompt(monkeypatch, answer)
-    assert cli.main(["--config", path, "--install-sdk"]) == 1
+    assert cli.main(["--station", path, "--install-sdk"]) == 1
     assert pip.calls == [] and "not installed" in capsys.readouterr().out
 
 
@@ -341,7 +341,7 @@ def test_install_sdk_end_of_input_counts_as_no(tmp_path, monkeypatch, capsys, ar
         raise EOFError
 
     monkeypatch.setattr("builtins.input", closed_stdin)
-    assert cli.main(["--config", path, "--install-sdk"]) == 1
+    assert cli.main(["--station", path, "--install-sdk"]) == 1
     assert pip.calls == []
     capsys.readouterr()
 
@@ -350,7 +350,7 @@ def test_install_sdk_with_yes_flag_skips_the_prompt(tmp_path, monkeypatch, capsy
     path = write_config(tmp_path)
     pip = FakeSubprocess(monkeypatch, returncodes=[0, 1])
     Prompt(monkeypatch, None)
-    assert cli.main(["--config", path, "--install-sdk", "--yes"]) == 1  # the fresh doctor run still fails
+    assert cli.main(["--station", path, "--install-sdk", "--yes"]) == 1  # the fresh doctor run still fails
     assert pip.calls[0] == INSTALL_ARGV_10 and len(pip.calls) == 2
     capsys.readouterr()
 
@@ -358,7 +358,7 @@ def test_install_sdk_with_yes_flag_skips_the_prompt(tmp_path, monkeypatch, capsy
 def test_install_sdk_pip_failure_skips_the_rerun(tmp_path, monkeypatch, capsys, arm_mismatch):
     path = write_config(tmp_path)
     pip = FakeSubprocess(monkeypatch, returncodes=[2])
-    assert cli.main(["--config", path, "--install-sdk", "--yes"]) == 1
+    assert cli.main(["--station", path, "--install-sdk", "--yes"]) == 1
     assert len(pip.calls) == 1 and "pip exited with code 2" in capsys.readouterr().err
 
 
@@ -366,7 +366,7 @@ def test_install_sdk_json_reports_the_command_without_prompting(tmp_path, monkey
     path = write_config(tmp_path)
     pip = FakeSubprocess(monkeypatch)
     Prompt(monkeypatch, None)
-    assert cli.main(["--config", path, "--install-sdk", "--json"]) == 1
+    assert cli.main(["--station", path, "--install-sdk", "--json"]) == 1
     payload = json.loads(capsys.readouterr().out)
     assert pip.calls == []
     assert payload["status"] == "FAIL" and payload["schema_version"] == 1
@@ -383,7 +383,7 @@ def test_install_sdk_without_mismatch_installs_nothing(tmp_path, monkeypatch, ca
     path = write_config(tmp_path)
     pip = FakeSubprocess(monkeypatch)
     Prompt(monkeypatch, None)
-    assert cli.main(["--config", path, "--mock", "--install-sdk"]) == 0
+    assert cli.main(["--station", path, "--mock", "--install-sdk"]) == 0
     assert pip.calls == [] and "nothing to install" in capsys.readouterr().out
 
 
@@ -409,7 +409,7 @@ def test_install_sdk_refuses_robots_with_different_server_versions(tmp_path, mon
     monkeypatch.setattr(cli, "run_doctor", run_doctor_tagging_arm)
     pip = FakeSubprocess(monkeypatch)
     Prompt(monkeypatch, None)
-    assert cli.main(["--config", str(path), "--install-sdk", "--yes"]) == 1
+    assert cli.main(["--station", str(path), "--install-sdk", "--yes"]) == 1
     out = capsys.readouterr().out
     assert pip.calls == [] and "different robot server versions [9, 10]" in out
     assert "by-robot-server-version/10/" in out and "by-robot-server-version/9/" in out
@@ -420,7 +420,7 @@ def test_yes_without_install_sdk_still_runs_preflight(tmp_path, monkeypatch, cap
     checked = []
     monkeypatch.setattr(cli, "doctor_station", lambda *a, **kw: checked.append((a, kw)) or {})
     monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("--yes must not prompt"))
-    assert cli.main(["--config", path, "--yes"]) == 0
+    assert cli.main(["--station", path, "--yes"]) == 0
     assert len(checked) == 1 and checked[0][1]["fix"] is False
     assert "overall:" in capsys.readouterr().out
 

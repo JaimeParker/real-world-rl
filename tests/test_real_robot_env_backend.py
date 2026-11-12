@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import torch
 
-import robot_infra.devices.claims as claims
+import real_world_rl.devices.claims as claims
 from rl_garden.envs.backend_registry import EnvRequest, _validate_env_observation_contract
 from rl_garden.observations.config import ObservationConfig
 from rl_garden.observations.schema import ObservationContractError

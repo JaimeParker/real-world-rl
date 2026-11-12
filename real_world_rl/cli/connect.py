@@ -53,7 +53,7 @@ FOLLOWER_NEEDS_DAEMON_HINT = ("follower comparison needs the daemon route "
 
 def _selected_robot(args):
     from real_world_rl.station import load_station
-    from robot_infra.discovery.autoconfig import resolve_station_config_path
+    from real_world_rl.discovery.autoconfig import resolve_station_config_path
 
     try:
         station_path = resolve_station_config_path(args.station)
@@ -81,19 +81,19 @@ def _daemon_address(args, selected) -> str | None:
 
 
 def _remote_robot(address: str, selected):
-    from robot_infra.server.remote import RemoteRobot, RemoteRobotConfig
+    from real_world_rl.server.remote import RemoteRobot, RemoteRobotConfig
 
     return RemoteRobot(RemoteRobotConfig(address=address, token=selected.token))
 
 
 def _direct_robot(args, selected):
     """An unconnected robot built from the station; ``--mock`` swaps in the fake backends."""
-    from robot_infra.devices import Robot
-    from robot_infra.discovery.autoconfig import fill_from_env
+    from real_world_rl.devices import Robot
+    from real_world_rl.discovery.autoconfig import fill_from_env
 
     config = selected.config
     if args.mock:
-        from robot_infra.doctor.checks import mocked_config
+        from real_world_rl.doctor.checks import mocked_config
 
         config = mocked_config(config)
     return Robot.from_config(fill_from_env(config)), config

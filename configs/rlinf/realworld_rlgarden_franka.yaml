@@ -1,4 +1,4 @@
-# RLinf `env` block driving real_world_rl's RealRobotEnv (a robot_infra daemon-served
+# RLinf `env` block driving real_world_rl's RealRobotEnv (a daemon-served
 # Franka) through Gymnasium registration. Structure copied from RLinf's
 # examples/embodiment/config/env/realworld_peg_insertion.yaml.
 #
@@ -12,7 +12,7 @@
 #   - actor.model.action_dim = 7 (cartesian_delta: xyz + rotvec + gripper).
 #
 # Hazards:
-#   - real_world_rl (and rl_garden, robot_infra) must be importable in the Ray env-worker
+#   - real_world_rl (and rl_garden) must be importable in the Ray env-worker
 #     process on the env node (pip install -e, or PYTHONPATH exported before `ray start`):
 #     gym.make imports `real_world_rl.integrations.rlinf.register`, which registers the id.
 #   - RLinf's load_tasks() runs RealWorldEnv.realworld_setup(), which KILLS any roscore /
@@ -54,7 +54,7 @@ override_cfg:
   reward: none
   # RealRobotEnvConfig fields (real_world_rl/envs/real_robot/config.py).
   real_robot:
-    remote: "ROBOT_PC_IP:50051"  # robot_infra daemon (rwrl daemon ...)
+    remote: "ROBOT_PC_IP:50051"  # robot daemon (rwrl daemon ...)
     num_joints: 7
     state_fields: [tcp_pose, tcp_vel, gripper_pos]
     cameras: [wrist]

@@ -12,8 +12,8 @@ import numpy as np
 import pytest
 import yaml
 
-import robot_infra.devices.claims as claims
-from robot_infra.devices import (
+import real_world_rl.devices.claims as claims
+from real_world_rl.devices import (
     DeviceFault,
     DeviceNotFound,
     Robot,
@@ -22,8 +22,8 @@ from robot_infra.devices import (
     TeleopConfig,
     TeleopSample,
 )
-from robot_infra.devices.backends.teleops import gello as gello_backend
-from robot_infra.devices.backends.teleops.gello import (
+from real_world_rl.devices.backends.teleops import gello as gello_backend
+from real_world_rl.devices.backends.teleops.gello import (
     GelloTeleop,
     gripper_width_from_raw,
     joint_positions_from_raw,
@@ -31,13 +31,13 @@ from robot_infra.devices.backends.teleops.gello import (
     ticks_to_rad,
     wrap_to_center,
 )
-from robot_infra.devices.robots.franka import FrankaConfig, FrankaRobot
-from robot_infra.devices.robots.piper import PiperConfig
-from robot_infra.doctor import checks
-from robot_infra.server import RemoteRobot
-from robot_infra.server.remote import RemoteTeleop
-from robot_infra.server.service import RobotService
-from robot_infra.server.transport import LocalClient
+from real_world_rl.devices.robots.franka import FrankaConfig, FrankaRobot
+from real_world_rl.devices.robots.piper import PiperConfig
+from real_world_rl.doctor import checks
+from real_world_rl.server import RemoteRobot
+from real_world_rl.server.remote import RemoteTeleop
+from real_world_rl.server.service import RobotService
+from real_world_rl.server.transport import LocalClient
 
 DOCS = Path(__file__).resolve().parents[2] / "examples" / "stations"
 COMM_SUCCESS = 0

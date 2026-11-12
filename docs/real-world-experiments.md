@@ -134,7 +134,7 @@ the reason is printed on stderr. When the child exits, anything left in its proc
 killed. If the supervisor dies, the kernel sends the child SIGINT, and the child's next
 heartbeat raises `SupervisorLost`. Linux only.
 
-The recorder and the actor heartbeat through `robot_infra.supervise.Heartbeat`: one beat per
+The recorder and the actor heartbeat through `real_world_rl.supervise.Heartbeat`: one beat per
 step and after every reset, and a long-operation message before every reset. Without the
 supervisor the calls do nothing. Choose `--startup-s` longer than everything before the first
 reset, for the actor including `--sync-startup-timeout`.

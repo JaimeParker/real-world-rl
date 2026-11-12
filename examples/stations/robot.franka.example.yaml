@@ -46,7 +46,7 @@ cameras:                      # default: no cameras
 #       - {action: [0, 0, 0, 0, 0, 0], gripper: 0.0, events: {episode_end: true}}
 # GELLO leader arm (extra `gello`; `gello-events` for event_device). joint_abs, 7 joints + gripper.
 # Print this block for your unit with:
-#   rwrl gello-calibrate --port <port> \
+#   rwrl teleop calibrate --backend gello --port <port> \
 #     --joint-ids 1 2 3 4 5 6 7 --gripper-id 8 --joint-limits-yaml robot.yaml
 # teleop:
 #   name: gello

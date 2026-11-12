@@ -1,5 +1,5 @@
 """Setup wizard end to end under ``--mock`` with scripted answers: one and two arms, flags and
-``--non-interactive``, ``--from`` round trips, ``--only``, backups, rendering and the doctor."""
+``--non-interactive``, ``--station`` round trips, ``--only``, backups, rendering and the doctor."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -9,21 +9,21 @@ import numpy as np
 import pytest
 import yaml
 
-import robot_infra.devices.claims as claims
-from robot_infra.devices import ArmSafety, CameraConfig, DeviceNotFound
-from robot_infra.devices.backends.teleops import gello as gello_backend
-from robot_infra.devices.robots.franka import FrankaConfig
-from robot_infra.discovery.autoconfig import STATION_CONFIG_ENV, load_station
-from robot_infra.doctor.cli import doctor_station, station_exit_code
-from robot_infra.setup import probes
-from robot_infra.setup.command import main, next_steps_text
-from robot_infra.setup.render import (
+import real_world_rl.devices.claims as claims
+from real_world_rl.devices import ArmSafety, CameraConfig, DeviceNotFound
+from real_world_rl.devices.backends.teleops import gello as gello_backend
+from real_world_rl.devices.robots.franka import FrankaConfig
+from real_world_rl.discovery.autoconfig import STATION_CONFIG_ENV, load_station
+from real_world_rl.doctor.cli import doctor_station, station_exit_code
+from real_world_rl.setup import probes
+from real_world_rl.setup.command import main, next_steps_text
+from real_world_rl.setup.render import (
     check_rendered_station,
     render_station_yaml,
     write_station_yaml,
     yaml_value,
 )
-from robot_infra.setup.wizard import (
+from real_world_rl.setup.wizard import (
     GELLO_OPTION_ORDER,
     NEW_GELLO_GRIPPER_BINARIZE_THRESHOLD,
     PANDA_JOINT_LIMITS,
@@ -246,7 +246,7 @@ def test_non_interactive_calibration_is_rejected():
 
 
 def test_only_needs_from():
-    with pytest.raises(WizardError, match="pass --from"):
+    with pytest.raises(WizardError, match="pass --station"):
         run_wizard(probes.mock_station_probe(), Answers(only="cameras"), never_asked, print)
 
 
@@ -316,7 +316,7 @@ def test_from_keeps_hand_edited_limits_and_fills_missing_ones(tmp_path):
         text = text.replace(old, new)
     out.write_text(text)
     again = tmp_path / "again.yaml"
-    code, output = run(["--mock", "--non-interactive", "--from", out, "--output", again], never_asked)
+    code, output = run(["--mock", "--non-interactive", "--station", out, "--output", again], never_asked)
     assert code == 0, output
     config = load_station(again).select().config
     assert config.safety_box == [0.2, -0.4, 0.1, 0.6, 0.4, 0.5]
@@ -327,7 +327,7 @@ def test_from_keeps_hand_edited_limits_and_fills_missing_ones(tmp_path):
         text = "\n".join(f"{key}: null" if line.startswith(f"{key}:") else line for line in text.splitlines())
     out.write_text(text + "\n")
     assert load_station(out).select().config.safety_box is None
-    code, output = run(["--mock", "--non-interactive", "--from", out, "--output", again], never_asked)
+    code, output = run(["--mock", "--non-interactive", "--station", out, "--output", again], never_asked)
     assert code == 0, output
     config = load_station(again).select().config
     assert config.safety_box == list(SUGGESTED_SAFETY_BOX)
@@ -404,13 +404,13 @@ def test_from_round_trip_is_byte_identical_and_backs_up(tmp_path, arms):
     code, output = run(["--mock", "--output", out], Operator({"number of arms": arms}))
     assert code == 0, output
     original = out.read_text()
-    code, output = run(["--mock", "--non-interactive", "--from", out], never_asked)
+    code, output = run(["--mock", "--non-interactive", "--station", out], never_asked)
     assert code == 0, output
     assert out.read_text() == original
     backups = list(tmp_path.glob("station.yaml.bak.*"))
     assert len(backups) == 1 and backups[0].read_text() == original
     copy = tmp_path / "copy.yaml"
-    assert run(["--mock", "--non-interactive", "--from", out, "--output", copy], never_asked)[0] == 0
+    assert run(["--mock", "--non-interactive", "--station", out, "--output", copy], never_asked)[0] == 0
     assert copy.read_text() == original
 
 
@@ -418,7 +418,7 @@ def test_from_round_trip_keeps_an_uncalibrated_gello(tmp_path):
     out = tmp_path / "station.yaml"
     assert run([*FLAGGED_ONE_ARM, "--output", out], never_asked)[0] == 0
     original = out.read_text()
-    assert run(["--mock", "--non-interactive", "--from", out, "--output", tmp_path / "again.yaml"], never_asked)[0] == 0
+    assert run(["--mock", "--non-interactive", "--station", out, "--output", tmp_path / "again.yaml"], never_asked)[0] == 0
     assert (tmp_path / "again.yaml").read_text() == original
 
 
@@ -440,7 +440,7 @@ def test_from_keeps_an_existing_gellos_continuous_gripper(tmp_path, only, key_wr
     assert load_station(out).select().config.teleop.options.get("gripper_binarize_threshold") is None
 
     again = tmp_path / "again.yaml"
-    code, output = run(["--mock", "--non-interactive", "--from", out, *only, "--output", again], never_asked)
+    code, output = run(["--mock", "--non-interactive", "--station", out, *only, "--output", again], never_asked)
     assert code == 0, output
     assert load_station(again).select().config.teleop.options["gripper_binarize_threshold"] is None
 
@@ -450,7 +450,7 @@ def test_only_cameras_reruns_one_section_and_keeps_the_rest(tmp_path):
     assert run(["--mock", "--output", out])[0] == 0
     before = load_station(out).select()
     again = tmp_path / "again.yaml"
-    argv = ["--mock", "--non-interactive", "--from", out, "--only", "cameras", "--cameras", "2=side", "--output", again]
+    argv = ["--mock", "--non-interactive", "--station", out, "--only", "cameras", "--cameras", "2=side", "--output", again]
     code, output = run(argv, never_asked)
     assert code == 0, output
     after = load_station(again).select()
@@ -463,7 +463,7 @@ def test_only_teleop_can_recalibrate_interactively(tmp_path):
     out = tmp_path / "station.yaml"
     assert run([*FLAGGED_ONE_ARM, "--output", out], never_asked)[0] == 0
     again = tmp_path / "again.yaml"
-    code, output = run(["--mock", "--from", out, "--only", "teleop", "--calibrate", "--output", again])
+    code, output = run(["--mock", "--station", out, "--only", "teleop", "--calibrate", "--output", again])
     assert code == 0, output
     assert "TODO calibrate" not in again.read_text()
     options = load_station(again).select().config.teleop.options
@@ -473,7 +473,7 @@ def test_only_teleop_can_recalibrate_interactively(tmp_path):
 def test_from_rejects_a_non_franka_station(tmp_path, capsys):
     piper = tmp_path / "piper.yaml"
     piper.write_text(yaml.safe_dump({"type": "piper", "arm_backend": "fake"}))
-    code, output = run(["--mock", "--non-interactive", "--from", piper, "--output", tmp_path / "s.yaml"], never_asked)
+    code, output = run(["--mock", "--non-interactive", "--station", piper, "--output", tmp_path / "s.yaml"], never_asked)
     error = capsys.readouterr().err
     assert "error:" not in output
     assert code == 2 and "edit this one by hand" in error
@@ -521,12 +521,12 @@ def test_write_station_yaml_locations_and_backups(tmp_path):
     assert (tmp_path / "local" / "station.yaml.bak.20261103T120000Z.1").read_text() == "a: 2\n"
     assert "backed up" in echoed[0]
     user = write_station_yaml("b: 1\n", "user", env={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
-    assert user == tmp_path / "xdg" / "robot_infra" / "station.yaml"
+    assert user == tmp_path / "xdg" / "rwrl" / "station.yaml"
     assert not list((tmp_path / "local").glob(".station.yaml.*.tmp"))
 
 
 def test_render_omits_upper_layer_profiles_and_keeps_safety_comment_adjacent():
-    from robot_infra.setup.render import TEMPLATE_PATH
+    from real_world_rl.setup.render import TEMPLATE_PATH
 
     draft = StationDraft.from_station(load_station(DOCS / "station.bimanual.example.yaml"))
     assert "teleop_profiles" not in render_station_yaml(draft)
@@ -573,10 +573,10 @@ def test_from_keeps_a_camera_stream_unless_the_flag_is_given(tmp_path):
     flags = ["--camera-resolution", "1280x720", "--camera-fps", "15", "--camera-depth", "yes"]
     assert run([*FLAGGED_ONE_ARM, *flags, "--output", first], never_asked)[0] == 0
     again = ["--mock", "--non-interactive", "--only", "cameras"]
-    code, output = run([*again, "--from", first, "--output", second], never_asked)
+    code, output = run([*again, "--station", first, "--output", second], never_asked)
     assert code == 0, output
     assert stream(load_station(second).select().config.cameras[0]) == (1280, 720, 15, True)
-    code, output = run([*again, "--from", second, "--camera-fps", "60", "--output", third], never_asked)
+    code, output = run([*again, "--station", second, "--camera-fps", "60", "--output", third], never_asked)
     assert code == 0, output
     assert stream(load_station(third).select().config.cameras[0]) == (1280, 720, 60, True)
 

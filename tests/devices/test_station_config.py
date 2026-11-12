@@ -6,8 +6,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from robot_infra.devices.robots.franka import FrankaConfig
-from robot_infra.discovery.autoconfig import (
+from real_world_rl.common.station_paths import LEGACY_STATION_CONFIG_ENV, legacy_station_locations
+from real_world_rl.devices.robots.franka import FrankaConfig
+from real_world_rl.discovery.autoconfig import (
     DEFAULT_DAEMON_BIND,
     STATION_CONFIG_ENV,
     default_station_config_dir,
@@ -58,7 +59,9 @@ def test_env_var_wins_over_the_files_even_when_missing(tmp_path):
 def test_local_station_comes_before_the_user_station(tmp_path):
     env = {"XDG_CONFIG_HOME": str(tmp_path / "xdg"), STATION_CONFIG_ENV: ""}
     cwd = tmp_path / "work"
-    user = write(tmp_path / "xdg" / "robot_infra" / "station.yaml", SINGLE)
+    legacy = write(tmp_path / "xdg" / "robot_infra" / "station.yaml", SINGLE)
+    assert resolve_station_config_path(env=env, cwd=cwd) == legacy
+    user = write(tmp_path / "xdg" / "rwrl" / "station.yaml", SINGLE)
     assert resolve_station_config_path(env=env, cwd=cwd) == user
     local = write(cwd / "local" / "station.yaml", SINGLE)
     assert resolve_station_config_path(env=env, cwd=cwd) == local
@@ -66,8 +69,8 @@ def test_local_station_comes_before_the_user_station(tmp_path):
 
 def test_station_dirs(tmp_path):
     assert default_station_config_dir("local", cwd=tmp_path) == tmp_path / "local"
-    assert default_station_config_dir("user", env={"XDG_CONFIG_HOME": "/x"}) == Path("/x/robot_infra")
-    assert default_station_config_dir("user", env={"HOME": str(tmp_path)}) == tmp_path / ".config" / "robot_infra"
+    assert default_station_config_dir("user", env={"XDG_CONFIG_HOME": "/x"}) == Path("/x/rwrl")
+    assert default_station_config_dir("user", env={"HOME": str(tmp_path)}) == tmp_path / ".config" / "rwrl"
     with pytest.raises(ValueError, match="scope"):
         default_station_config_dir("system", cwd=tmp_path)
 
@@ -79,8 +82,29 @@ def test_nothing_found_names_every_location_and_the_wizard(tmp_path):
     message = str(info.value)
     assert f"${STATION_CONFIG_ENV}" in message
     assert str(tmp_path / "local" / "station.yaml") in message
+    assert f"${LEGACY_STATION_CONFIG_ENV}" in message
+    assert str(tmp_path / "xdg" / "rwrl" / "station.yaml") in message
     assert str(tmp_path / "xdg" / "robot_infra" / "station.yaml") in message
     assert "Pass --station <yaml>, or run `rwrl setup` to write one" in message
+
+
+def test_legacy_env_var_is_read_after_the_new_one(tmp_path):
+    legacy = {LEGACY_STATION_CONFIG_ENV: str(tmp_path / "old.yaml")}
+    assert resolve_station_config_path(env=legacy, cwd=tmp_path) == tmp_path / "old.yaml"
+    both = {**legacy, STATION_CONFIG_ENV: str(tmp_path / "new.yaml")}
+    assert resolve_station_config_path(env=both, cwd=tmp_path) == tmp_path / "new.yaml"
+
+
+def test_legacy_station_locations_name_each_pre_0_1_0_name(tmp_path):
+    env = {"XDG_CONFIG_HOME": str(tmp_path / "xdg")}
+    assert legacy_station_locations(env=env) == []
+    write(tmp_path / "xdg" / "robot_infra" / "station.yaml", SINGLE)
+    found = legacy_station_locations(env={**env, LEGACY_STATION_CONFIG_ENV: "old.yaml"})
+    assert [key for key, _, _ in found] == ["station_env", "user_config_dir"]
+    assert f"export {STATION_CONFIG_ENV}=" in found[0][2]
+    assert str(tmp_path / "xdg" / "rwrl") in found[1][2]
+    ignored = legacy_station_locations(env={**env, LEGACY_STATION_CONFIG_ENV: "old.yaml", STATION_CONFIG_ENV: "new.yaml"})
+    assert "ignored" in ignored[0][1]
 
 
 # -- loading --------------------------------------------------------------------------------
@@ -243,7 +267,7 @@ def test_station_loaders_forward_sections(tmp_path, monkeypatch, loader):
 
 
 def test_robot_config_has_no_teleop_profiles():
-    from robot_infra.devices import RobotConfig
+    from real_world_rl.devices import RobotConfig
 
     assert not hasattr(RobotConfig(), "teleop_profiles")
 
@@ -263,8 +287,8 @@ def test_unknown_key_error_lists_the_registered_sections():
         parse_station({**data, "typo": 1}, sections={"application": str.upper})
 
 
-@pytest.mark.parametrize("module_name", ["robot_infra.server.daemon", "robot_infra.doctor.cli",
-                                         "robot_infra.setup.command", "robot_infra.discovery.report"])
+@pytest.mark.parametrize("module_name", ["real_world_rl.server.daemon", "real_world_rl.doctor.cli",
+                                         "real_world_rl.setup.command", "real_world_rl.discovery.report"])
 def test_device_entry_points_load_upper_layer_sections(tmp_path, module_name):
     """The daemon, the device doctor, setup and discover load stations through
     real_world_rl.station, so a teleop_profiles section never needs an installed entry point."""
@@ -276,16 +300,16 @@ def test_device_entry_points_load_upper_layer_sections(tmp_path, module_name):
 
 
 def test_daemon_config_loading_accepts_station_profiles(tmp_path, monkeypatch):
-    from robot_infra.server import daemon
+    from real_world_rl.server import daemon
     path = write(tmp_path / "station.yaml", {**SINGLE, "robot_ip": "", "daemon": {"bind": "127.0.0.1:50052"},
                  "teleop_profiles": {"file": "profiles.yaml", "default": "rear"}})
     monkeypatch.setenv("ROBOT_IP", "10.0.0.9")
-    args = daemon.parse_args(["--config", str(path)])
+    args = daemon.parse_args(["--station", str(path)])
     config = daemon.load_daemon_config(args)
     assert config.robot_ip == "10.0.0.9"
     assert not hasattr(config, "teleop_profiles")
     calls = []
     monkeypatch.setattr(daemon, "serve_robot", lambda args, config, **kwargs: calls.append((config, kwargs)) or 0)
-    assert daemon.main(["--config", str(path)]) == 0
+    assert daemon.main(["--station", str(path)]) == 0
     assert calls[0][0].name == SINGLE["name"]
     assert calls[0][1]["bind"] == "127.0.0.1:50052"

@@ -14,7 +14,7 @@ from _bimanual_fakes import ARM_STATE_DIM, bimanual_config
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
 
-import robot_infra.devices.claims as claims
+import real_world_rl.devices.claims as claims
 from rl_garden.observations.config import ObservationConfig
 
 import real_world_rl.envs.backends.real_robot_bimanual  # noqa: F401  (registers the backend)

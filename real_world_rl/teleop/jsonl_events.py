@@ -47,7 +47,7 @@ class JsonlEventSource(OperatorKeySource):
             raise ValueError("JSONL events require a file or pipe, not a terminal")
 
     def poll(self):
-        from robot_infra.devices.errors import DeviceFault
+        from real_world_rl.devices.errors import DeviceFault
         if self._fd is None:
             raise RuntimeError("JSONL event source has not started")
         if b"\n" not in self._buffer and select.select([self._fd], [], [], 0)[0]:

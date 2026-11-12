@@ -701,7 +701,7 @@ def _print_summary(results: list[EpisodeResult], *, extra_outcomes=()) -> None:
 def main(args: DeployArgs, *, env: Any = None, policy: Any = None) -> int:
     """CLI wrapper: exit code 0, or ``DEVICE_EXIT_CODE`` (1) after printing a ``DeviceError``'s
     message and hint; usage errors stay 2 (tyro)."""
-    from robot_infra.devices.errors import DeviceError
+    from real_world_rl.devices.errors import DeviceError
 
     try:
         run_deploy(args, env=env, policy=policy)

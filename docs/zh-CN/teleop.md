@@ -141,7 +141,7 @@ source .venv/bin/activate
 一次性安装随包提供的厂商规则。在 NUC 的仓库根目录、任意 shell（无需项目环境）、具有 sudo 权限时运行：
 
 ```bash
-sudo cp robot_infra/robot_infra/setup/99-spacemouse.rules /etc/udev/rules.d/
+sudo cp real_world_rl/setup/99-spacemouse.rules /etc/udev/rules.d/
 sudo usermod -aG plugdev "$USER"
 sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw
 ```
@@ -149,7 +149,7 @@ sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hi
 该文件涵盖厂商 `256f`（3Dconnexion）和 `046d`（旧 Logitech），使用 `MODE="0664", GROUP="plugdev"`。注销并重新登录，再拔插 SpaceMouse。若仓库不可用，以下替代复制命令可在 NUC 任意目录运行，要求**项目环境已激活**且有 sudo 权限；随后执行上述相同的加组/重载命令：
 
 ```bash
-sudo cp "$(python -c 'import robot_infra.setup, os; print(os.path.dirname(robot_infra.setup.__file__))')/99-spacemouse.rules" /etc/udev/rules.d/
+sudo cp "$(python -c 'import real_world_rl.setup, os; print(os.path.dirname(real_world_rl.setup.__file__))')/99-spacemouse.rules" /etc/udev/rules.d/
 ```
 
 打开/权限失败会指向此规则文件及安装命令。doctor 将 `hid` SDK 与 `/dev/hidraw*` 访问分别检查；Docker 内还需将 HID 节点传入容器。旧 `SpaceMouseExpert` 和 `real` extra 保留各自的 `pyspacemouse` API。

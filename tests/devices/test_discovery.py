@@ -4,14 +4,14 @@ from __future__ import annotations
 import pytest
 import yaml
 
-import robot_infra.discovery.report as discovery_cli
-from robot_infra.devices import CameraConfig
-from robot_infra.devices.backends.cameras.fake import FakeCamera
-from robot_infra.devices.backends.cameras.realsense import RealSenseCamera
-from robot_infra.devices.robots.franka import FrankaConfig
-from robot_infra.devices.robots.piper import PiperConfig
-from robot_infra.discovery import enumerate as enum
-from robot_infra.discovery.autoconfig import fill_from_env
+import real_world_rl.discovery.report as discovery_cli
+from real_world_rl.devices import CameraConfig
+from real_world_rl.devices.backends.cameras.fake import FakeCamera
+from real_world_rl.devices.backends.cameras.realsense import RealSenseCamera
+from real_world_rl.devices.robots.franka import FrankaConfig
+from real_world_rl.devices.robots.piper import PiperConfig
+from real_world_rl.discovery import enumerate as enum
+from real_world_rl.discovery.autoconfig import fill_from_env
 
 
 @pytest.fixture
@@ -31,14 +31,14 @@ def test_cli_without_config_probes_every_robot_of_the_station(tmp_path, monkeypa
     }
     path = tmp_path / "station.yaml"
     path.write_text(yaml.safe_dump({"robots": robots}))
-    monkeypatch.setenv("ROBOT_INFRA_CONFIG", str(path))
+    monkeypatch.setenv("RWRL_STATION", str(path))
     assert discovery_cli.main([]) == 0
     assert probed_hosts == [["10.0.0.1", "10.0.0.2"]]
     assert "hosts:" in capsys.readouterr().out
 
 
 def test_cli_without_config_or_station_probes_no_hosts(tmp_path, monkeypatch, probed_hosts):
-    monkeypatch.delenv("ROBOT_INFRA_CONFIG", raising=False)
+    monkeypatch.delenv("RWRL_STATION", raising=False)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.chdir(tmp_path)
     assert discovery_cli.main([]) == 0
@@ -48,7 +48,7 @@ def test_cli_without_config_or_station_probes_no_hosts(tmp_path, monkeypatch, pr
 def test_cli_with_a_single_robot_config(tmp_path, probed_hosts):
     path = tmp_path / "robot.yaml"
     path.write_text(yaml.safe_dump({"type": "franka", "arm_backend": "fake", "robot_ip": "10.0.0.7"}))
-    assert discovery_cli.main(["--config", str(path)]) == 0
+    assert discovery_cli.main(["--station", str(path)]) == 0
     assert probed_hosts == [["10.0.0.7"]]
 
 
@@ -114,7 +114,7 @@ def test_unknown_hid_devices_are_formatted_as_warnings_only_when_present():
 
 
 def test_discover_all_matches_hid_devices_against_the_given_table(monkeypatch):
-    from robot_infra.devices.backends.teleops import _spacemouse_hid
+    from real_world_rl.devices.backends.teleops import _spacemouse_hid
 
     monkeypatch.setattr(enum, "list_can_interfaces", lambda: {})
     table = _spacemouse_hid.builtin_device_table()
@@ -134,7 +134,7 @@ def test_cli_matches_hid_devices_against_the_station_device_table(tmp_path, monk
     path.write_text(yaml.safe_dump({"type": "franka", "arm_backend": "fake", "teleop": {"backend": "spacemouse"}}))
     (tmp_path / "spacemouse-devices.yaml").write_text(
         "schema_version: 1\ndevices:\n  BT: {hid_id: [0x256F, 0xC63A], layout: SpaceMouse Wireless}\n")
-    assert discovery_cli.main(["--config", str(path)]) == 0
+    assert discovery_cli.main(["--station", str(path)]) == 0
     assert (0x256F, 0xC63A) in received[0].specs and received[0].path == (tmp_path / "spacemouse-devices.yaml").resolve()
 
 

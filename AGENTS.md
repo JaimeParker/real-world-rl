@@ -6,8 +6,9 @@ Operating guide for coding agents working on `real-world-rl`. Read
 ## Layout
 
 - This repository is the top level for real-robot work. `real_world_rl/`
-  is the real-robot RL package; `robot_infra/` is the torch-free device layer,
-  in the same distribution. `robot_infra` never imports `rl_garden`, torch or the
+  is the real-robot RL package; its torch-free device layer is
+  `real_world_rl/{devices,server,discovery,setup,supervise,doctor}` (`legacy/` holds the old
+  controllers and teleop, kept for evaluation). The device layer never imports `rl_garden`, torch or the
   learning subpackages of `real_world_rl` (envs, loops, training, policies,
   algorithms, buffers, demos, reward, deploy); its daemon, setup, discover and
   device doctor load stations through `real_world_rl.station`

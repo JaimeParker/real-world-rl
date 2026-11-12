@@ -71,7 +71,7 @@ Status: open (docs).
 ## B. Not planned
 
 - **GELLO torque-follow** (the leader tracking the follower): needs Dynamixel current control in
-  robot_infra and an operator-safety review; the `ramp` and `arm` onsets cover the takeover
+  the device layer and an operator-safety review; the `ramp` and `arm` onsets cover the takeover
   ([gello.md](gello.md#9-future-work-leader-tracking-wp8)). Re-evaluate after the GELLO latency has
   been measured on hardware.
 - **Handing back by letting go of the leader**: there is no grip sensor, and a pause would hand back

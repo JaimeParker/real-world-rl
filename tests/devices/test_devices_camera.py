@@ -6,9 +6,9 @@ import threading
 import numpy as np
 import pytest
 
-from robot_infra.devices import Camera, CameraConfig, DeviceFault
-from robot_infra.devices.backends.cameras.fake import FakeCamera
-from robot_infra.devices.camera import Frame
+from real_world_rl.devices import Camera, CameraConfig, DeviceFault
+from real_world_rl.devices.backends.cameras.fake import FakeCamera
+from real_world_rl.devices.camera import Frame
 
 
 def config(**kwargs) -> CameraConfig:

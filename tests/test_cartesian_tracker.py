@@ -298,7 +298,7 @@ def test_task_workspace_rejection_holds_measured_and_requires_takeover():
 
 
 def test_task_workspace_measured_violation_is_fault_not_recovery():
-    from robot_infra.devices.errors import SafetyViolation
+    from real_world_rl.devices.errors import SafetyViolation
     tracker = CartesianTargetTracker(workspace={'frame': 'base', 'low': [-1]*3, 'high': [1]*3})
     pose = np.array([0, 0, 0, 0, 0, 0, 1.])
     tracker.reset(pose)
@@ -333,7 +333,7 @@ def test_base_box_only_does_not_reject_lead_capped_candidate_below_face():
 
 @pytest.mark.parametrize('outside,raises', [(.001, False), (.004, True)])
 def test_tracker_measured_workspace_margin(outside, raises):
-    from robot_infra.devices.errors import SafetyViolation
+    from real_world_rl.devices.errors import SafetyViolation
     tracker = CartesianTargetTracker(workspace={'low': [-1, -1, 0], 'high': [1]*3})
     pose = np.array([0, 0, 0, 0, 0, 0, 1.])
     tracker.reset(pose)

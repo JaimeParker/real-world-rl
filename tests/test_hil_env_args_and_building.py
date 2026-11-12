@@ -645,9 +645,9 @@ def test_single_arm_devices_refuse_station_yamls_they_cannot_use(tmp_path):
 @pytest.fixture
 def bimanual_backend_env(tmp_path, monkeypatch):
     """A two-arm vector env over fake Frankas, each with a scripted fake leader part."""
-    import robot_infra.devices.claims as claims
+    import real_world_rl.devices.claims as claims
     from _bimanual_fakes import bimanual_config, fake_franka
-    from robot_infra.devices.teleop import TeleopConfig
+    from real_world_rl.devices.teleop import TeleopConfig
 
     from real_world_rl.envs.bimanual import BimanualRealRobotEnv, BimanualRealRobotVectorEnv
 

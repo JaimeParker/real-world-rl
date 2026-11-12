@@ -12,9 +12,8 @@ This package imports `rl_garden` as a normal dependency (algorithms,
 buffers, policies, the `EnvBackend`/`BasePolicy` contracts) and registers
 `franka_real` through rl-garden's `rlgarden.env_backends` entry-point group
 — no file inside the `rl_garden` package itself needs editing to add it.
-Hardware/communication code lives in this repository in the torch-free package
-`robot_infra/` ([device-layer guide](docs/devices/README.md)), part of the same
-distribution; the learning side (torch, rl-garden) is the `learning` extra, so a robot PC that
+Hardware/communication code lives in this repository in the torch-free device layer of
+`real_world_rl` ([device-layer guide](docs/devices/README.md)); the learning side (torch, rl-garden) is the `learning` extra, so a robot PC that
 only serves the daemon installs `pip install -e '.[franky,grpc]'`. `franka_real`'s own coupling
 to the device layer is HTTP/JSON only (`FrankaBridgeClient`), no shared Python types.
 
@@ -49,7 +48,7 @@ configured xyz/RPY safety boxes ([mode guide](docs/teleop.md#spacemouse)).
 
 ```
 real-world-rl/                   repository real-world-rl (top level)
-  pyproject.toml                 distribution real-world-rl (packages real_world_rl and robot_infra; rl_garden in the learning extra)
+  pyproject.toml                 distribution real-world-rl (package real_world_rl; rl_garden in the learning extra)
   rl-garden/                     git submodule: rl-garden, pinned to the tested commit
   real_world_rl/                 package real_world_rl
     loops/                       actor/learner/sync: base classes (actor, learner, sync) and one module per method (serl, hil_serl, residual, silri)
@@ -61,15 +60,20 @@ real-world-rl/                   repository real-world-rl (top level)
     demos/ reward/               demo recording, reward-classifier data collection
     deploy.py                    eval-only deployment of a checkpoint
     common/ integrations/        small shared helpers; external integrations (integrations/rlinf)
-  robot_infra/                   package robot_infra (torch-free device layer): devices, discovery, doctor, daemon, RemoteRobot, setup, supervise
+    devices/ server/             torch-free device layer: devices and backends; the robot daemon and RemoteRobot
+    discovery/ doctor/           hardware discovery and station loading; device checks
+    setup/ supervise/            station setup wizard; process supervisor and heartbeat
+    cli/                         the rwrl command
+    legacy/                      legacy controllers, ROS1 Franka bridge and old teleop, kept for evaluation (no rwrl command)
   docs/                          README.md (index), tutorial/ (00-overview ... 08-deploy), devices/ (device-layer guide), bimanual.md, teleop.md, spacemouse-commissioning.md, gello.md, recording-demos.md, residual.md, silri.md, hil-serl-roadmap.md
   examples/                      train_real_world.py, deploy_real_robot.py, teleop demo and recording scripts; presets/hil_single_arm.yaml; stations/ (example station yamls)
   configs/                       RLinf config
-  tests/                         tests/devices/ covers robot_infra
+  tests/                         tests/devices/ covers the device layer
 ```
 
-`robot_infra/` is the device layer (it was the separate `rlgarden-robot-infra` repository, then a
-second distribution here; its history is preserved). It does not import `rl_garden` or the
+The device layer (`real_world_rl/{devices,server,discovery,setup,supervise,doctor}`) was the
+`robot_infra` package, before that the separate `rlgarden-robot-infra` repository; its history is
+preserved. It does not import `rl_garden` or the
 learning side of `real_world_rl`; its commands (`setup`, `daemon`, `supervise`, `discover`) run
 as `rwrl` subcommands.
 
@@ -147,7 +151,7 @@ arm: station setup, demo recording, BC and ACT, HIL-SERL / residual / SiLRI, and
 arms are in [docs/bimanual.md](docs/bimanual.md#two-arms-the-tutorial-steps). This section is the
 reference.
 
-Everything below drives a `real_robot` env (any `robot_infra` robot). `franka_real` (the HTTP
+Everything below drives a `real_robot` env (any device-layer robot). `franka_real` (the HTTP
 bridge) is always cartesian 7-D and is not covered here. Install this package
 (`pip install -e ./rl-garden -e '.[learning]'`) so that the `real_robot` backend is registered through the
 `rlgarden.env_backends` entry point; without it `--env-backend real_robot` fails with
@@ -380,7 +384,7 @@ a warning (`... has no action-contract metadata (<name>.contract.json missing) .
 One machine, no hardware (verified in the project container; the training runs are short and
 the policy is untrained). Robot PC side, with a fake-backend `robot.yaml` of type `franka`
 (`arm_backend: fake`, `gripper: {backend: fake}`, a fake camera named `wrist`, joint limits and
-`max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.1}` as in the robot_infra example yaml, and the
+`max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.1}` as in the example station yamls, and the
 fake teleop above):
 
 ```bash

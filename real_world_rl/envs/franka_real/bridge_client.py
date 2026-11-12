@@ -1,10 +1,10 @@
-"""HTTP client for the ``robot_infra`` Franka bridge (the transitional
+"""HTTP client for the legacy Franka bridge (the transitional
 ROS/``serl_franka_controllers`` bridge -- see
 ``docs/superpowers/specs/2026-07-09-real-robot-rl-design.md``).
 
 Endpoint paths, HTTP verbs, and JSON field names match SERL's own
 ``franka_server.py`` (``3rd_party/serl/serl_robot_infra/robot_servers/``)
-exactly, since ``robot_infra/controller/real/franka_bridge.py`` is a close
+exactly, since ``real_world_rl/legacy/controller/real/franka_bridge.py`` is a close
 port of that file -- this client is not a new protocol, it's the same one.
 
 Kept as a small, injectable object (rather than inlining ``requests`` calls

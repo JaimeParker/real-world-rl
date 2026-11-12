@@ -61,7 +61,7 @@ def _health_failure(teleop) -> str | None:
 
 
 def read(args, ctx):
-    from robot_infra.devices.errors import DeviceError
+    from real_world_rl.devices.errors import DeviceError
     from .connect import open_teleop
 
     if args.rate_hz <= 0:

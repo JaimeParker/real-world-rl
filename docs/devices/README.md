@@ -1,10 +1,11 @@
-# robot_infra: the device layer
+# The device layer
 
-`robot_infra` is the real-robot layer of [rl-garden](https://github.com/JaimeParker/rl-garden).
-It is a package of the [real-world-rl](https://github.com/JaimeParker/real-world-rl)
-distribution, at the repository root next to `real_world_rl/` (it was the standalone
-`rlgarden-robot-infra` repository, whose history is kept). The device layer, its commands
-and the daemon do not import torch; only the legacy `controller/` needs torch. A robot PC that
+The device layer is the real-robot layer of [rl-garden](https://github.com/JaimeParker/rl-garden).
+It lives in the `real_world_rl` package of the [real-world-rl](https://github.com/JaimeParker/real-world-rl)
+distribution: `real_world_rl/devices/`, `server/`, `discovery/`, `setup/`, `supervise/` and
+`doctor/` (it was the `robot_infra` package, before that the standalone `rlgarden-robot-infra`
+repository, whose history is kept). The device layer, its commands
+and the daemon do not import torch; only the legacy `real_world_rl/legacy/controller/` needs torch. A robot PC that
 only serves the daemon installs the core with its hardware extras, without the `rl-garden/`
 submodule or torch: from the repository root, `bash scripts/install.sh --daemon-only`, or
 `pip install -e '.[franky,grpc]'` in an environment of your own (see [Install](#install)).
@@ -22,21 +23,18 @@ It provides:
 
 The gym environment for real-world RL lives in
 [real-world-rl](https://github.com/JaimeParker/real-world-rl), which imports
-this package. `robot_infra` itself does not depend on `rl_garden`.
+this package. The device layer itself does not depend on `rl_garden`.
 
 ## Device commands in rwrl
 
-The device layer's native commands, `setup`, `daemon`, `supervise`, `discover` and
-`gello-calibrate`, are `rwrl` subcommands; there is no separate binary and no
-`python -m robot_infra.*` entry point. `rwrl doctor` runs the device checks of this layer
+The device layer's native commands, `setup`, `daemon`, `supervise` and `discover`, are
+`rwrl` subcommands; there is no separate binary and no `python -m` entry point. `rwrl doctor` runs the device checks of this layer
 for every station robot, together with its host and project checks
 ([cli.md](../cli.md#robot-host-diagnosis-and-repair)); the device doctor itself is a
-library (`robot_infra.doctor`). The command protocol and parser do not import torch.
-Station input is `--station PATH`. Daemon and discover retain
-`--config PATH`, and setup retains `--from PATH`, as temporary aliases marked
-"(alias, will be removed)" in help. Setup uses that file as defaults, not as
+library (`real_world_rl.doctor`). The command protocol and parser do not import torch.
+Station input is `--station PATH`. Setup uses that file as defaults, not as
 its output path; station lookup defaults are unchanged. Errors use stderr,
-and exit-code constants live in `robot_infra.cli.errors`.
+and exit-code constants live in `real_world_rl.cli.errors`.
 
 On the robot PC, from the repository root with the project environment active:
 
@@ -54,13 +52,12 @@ or configuration errors. Setup interruption returns 130; supervisor launch
 failure returns 127 and stop escalation returns 1, otherwise child status is
 preserved.
 
-Commands without JSON output (`setup`, `daemon`, `supervise`,
-`gello-calibrate`) reject the global `--json` option with usage exit code 2.
+Commands without JSON output (`setup`, `daemon`, `supervise`) reject the global `--json` option with usage exit code 2.
 `doctor` and `discover` support `--json`; `rwrl --json discover` prints
 `schema_version: 1` and the lists `cameras`, `teleops`, `can_interfaces`,
 `hosts`, `hid_devices` and `unknown_hid` (see [Plug in and discover](#2-plug-in-and-discover)).
 `supervise` retains its `-- <child command...>` boundary; child flags are passed
-to the child unchanged. `gello-calibrate` prints a teleop YAML block;
+to the child unchanged. `teleop calibrate --backend gello` prints a teleop YAML block;
 `setup --only teleop --calibrate` runs the same calibration in the wizard and
 writes station YAML.
 
@@ -123,9 +120,13 @@ a servo step cap `max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}` (`--max-de
 The daemon, the doctor and discovery find the station yaml without `--station`. They take the
 first of:
 
-1. `$ROBOT_INFRA_CONFIG`
+1. `$RWRL_STATION`
 2. `./local/station.yaml` (relative to the current directory; the wizard's default, `--scope local`; `local/` is git-ignored)
-3. `$XDG_CONFIG_HOME/robot_infra/station.yaml`, default `~/.config/robot_infra/station.yaml` (`--scope user`)
+3. `$XDG_CONFIG_HOME/rwrl/station.yaml`, default `~/.config/rwrl/station.yaml` (`--scope user`)
+
+For one release the pre-0.1.0 names are still read after their replacements: `$ROBOT_INFRA_CONFIG`
+after `$RWRL_STATION`, and `~/.config/robot_infra/station.yaml` after the user location; `rwrl doctor`
+reports either as a `WARN` with the migration command.
 
 `--station <yaml>` still wins over all three.
 
@@ -178,13 +179,13 @@ system `libhidapi` lookup through easyhid; the wheel's ELF/system-library
 requirements still need a clean-machine check. Installation and device operation
 are **not yet verified on hardware**.
 
-The rules file ships as `robot_infra.setup/99-spacemouse.rules`, permitting vendor
+The rules file ships as `real_world_rl.setup/99-spacemouse.rules`, permitting vendor
 `256f` and `046d` hidraw devices with `MODE="0664", GROUP="plugdev"`. Install it
 once on the NUC, repository root, any shell (no project environment required),
 with sudo permission:
 
 ```bash
-sudo cp robot_infra/setup/99-spacemouse.rules /etc/udev/rules.d/
+sudo cp real_world_rl/setup/99-spacemouse.rules /etc/udev/rules.d/
 sudo usermod -aG plugdev "$USER"
 sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw
 ```
@@ -194,7 +195,7 @@ NUC from any directory, **project environment active**, with sudo permission,
 copy the packaged file below, then run the same group/reload commands:
 
 ```bash
-sudo cp "$(python -c 'import robot_infra.setup, os; print(os.path.dirname(robot_infra.setup.__file__))')/99-spacemouse.rules" /etc/udev/rules.d/
+sudo cp "$(python -c 'import real_world_rl.setup, os; print(os.path.dirname(real_world_rl.setup.__file__))')/99-spacemouse.rules" /etc/udev/rules.d/
 ```
 
 See [SpaceMouse installation](../teleop.md#spacemouse-installation-and-linux-permissions)
@@ -344,7 +345,7 @@ Notes:
 Build a robot without touching hardware to check the file:
 
 ```python
-from robot_infra.devices import Robot
+from real_world_rl.devices import Robot
 
 robot = Robot.from_yaml("robot.yaml")   # builds parts; does not connect
 print(robot.describe_text())
@@ -424,7 +425,7 @@ rwrl doctor --station robot.yaml [--robot NAME] [--mock] [--fix] [--json] [--ins
 project checks, and reports each one as a `<robot>.<check>` row (for example `arm.handshake`)
 with `PASS`, `FAIL`, `WARN` or `SKIPPED`; see [cli.md](../cli.md#robot-host-diagnosis-and-repair)
 for its report, flags and exit codes. The `[layer/5]` listings in this section show the
-device checks as the device doctor library (`robot_infra.doctor.cli`) formats them, which is
+device checks as the device doctor library (`real_world_rl.doctor.cli`) formats them, which is
 also what the `rwrl daemon` preflight prints.
 
 Without `--station` the doctor checks the [station file](#setup-wizard). A station with several
@@ -754,8 +755,8 @@ pip install -e '.[grpc]'
 ```
 
 ```python
-import robot_infra.server  # registers robot type "remote"
-from robot_infra.devices import ControlMode, Robot
+import real_world_rl.server  # registers robot type "remote"
+from real_world_rl.devices import ControlMode, Robot
 
 robot = Robot.from_dict({"type": "remote", "address": "robot-pc:50051", "token": "T"})
 robot.connect()                       # builds arm/gripper/cameras from the daemon's describe
@@ -768,7 +769,7 @@ robot.arm.set_control_mode(ControlMode.IDLE)
 robot.disconnect()
 ```
 
-Without `import robot_infra.server`, `Robot.from_dict` raises
+Without `import real_world_rl.server`, `Robot.from_dict` raises
 `unknown robot type 'remote'; registered: ['franka', 'piper']`.
 
 - Actions are nested per part, and the arm key depends on the control mode: `tcp_pose`
@@ -783,9 +784,9 @@ Without `import robot_infra.server`, `Robot.from_dict` raises
 - For single-machine use without gRPC, wrap a local robot in-process:
 
   ```python
-  from robot_infra.devices import Robot
-  from robot_infra.server import RemoteRobot, RobotService
-  from robot_infra.server.transport import LocalClient
+  from real_world_rl.devices import Robot
+  from real_world_rl.server import RemoteRobot, RobotService
+  from real_world_rl.server.transport import LocalClient
 
   service = RobotService(Robot.from_yaml("robot.yaml"), watchdog_s=0.5)
   robot = RemoteRobot.from_client(LocalClient(service))   # same API as above, incl. watchdog
@@ -801,7 +802,7 @@ Without `import robot_infra.server`, `Robot.from_dict` raises
 
   ```python
   import numpy as np
-  from robot_infra.devices import SafetyViolation
+  from real_world_rl.devices import SafetyViolation
 
   robot.arm.set_control_mode(ControlMode.JOINT_SERVO)
   robot.arm.servo_joints(np.full(7, 5.0))      # no error: clipped on the daemon, safety_clips += 1
@@ -825,7 +826,7 @@ On the robot PC, you can drive the device layer directly:
 
 ```python
 import numpy as np
-from robot_infra.devices import ControlMode, Robot
+from real_world_rl.devices import ControlMode, Robot
 
 robot = Robot.from_yaml("robot.yaml")
 robot.connect()
@@ -858,7 +859,7 @@ use `rwrl supervise` and `rwrl record`. Without a daemon, the robot process driv
 | `--long-op-s` | `60.0` | silence allowed after the child announces a long operation (an env reset) |
 | `--log` | none | jsonl: pid, escalations with monotonic timestamps, exit code/signal |
 
-The child runs in its own session and receives the write end of a pipe in `ROBOT_INFRA_HEARTBEAT_FD`. `robot_infra.supervise.Heartbeat.from_env()` is the child side: `beat()` once per step, `begin_long_operation()` before a reset. Without the variable it does nothing. Ctrl-C, SIGTERM or a closed terminal reach only the supervisor, which forwards SIGINT and waits for the child; it exits with the child's code, non-zero after an escalation. If the supervisor dies, the child gets SIGINT and its next heartbeat raises `SupervisorLost`. Linux only (prctl, process groups).
+The child runs in its own session and receives the write end of a pipe in `RWRL_HEARTBEAT_FD`. `real_world_rl.supervise.Heartbeat.from_env()` is the child side: `beat()` once per step, `begin_long_operation()` before a reset. Without the variable it does nothing. Ctrl-C, SIGTERM or a closed terminal reach only the supervisor, which forwards SIGINT and waits for the child; it exits with the child's code, non-zero after an escalation. If the supervisor dies, the child gets SIGINT and its next heartbeat raises `SupervisorLost`. Linux only (prctl, process groups).
 
 The supervisor's only lever is the kill. libfranka then drops the control connection and the robot stops at the firmware level, in `Reflex`. Clear it in Desk or with `rwrl --station robot.yaml recover` (it calls the arm's `recover()`); `rwrl doctor --fix` repairs only the host and software and never recovers the arm. A controlled out-of-process `stop()` exists only on the daemon route (`--watchdog-s`). The in-process first layer is `StepWatchdog`, enabled with `real_robot.watchdog_s` (see `docs/real-world-experiments.md`).
 
@@ -943,7 +944,7 @@ runs these steps inline and writes the result into the station yaml. Standalone,
 the block to paste:
 
 ```bash
-rwrl gello-calibrate \
+rwrl teleop calibrate --backend gello \
     --port /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_XXXX-if00-port0 \
     --joint-ids 1 2 3 4 5 6 7 --gripper-id 8 \
     --calibration-pose 0 0 0 -1.57 0 1.57 0 --joint-limits-yaml robot.yaml
@@ -981,7 +982,7 @@ Connection (ABC)                 connect()/disconnect() lifecycle, owner borrowi
             └── Robot  [type registry]  config -> arm (+ gripper) (+ cameras group)
                 ├── FrankaRobot "franka"   (FrankaConfig)
                 ├── PiperRobot  "piper"    (PiperConfig)
-                └── RemoteRobot "remote"   (RemoteRobotConfig; registered by importing robot_infra.server)
+                └── RemoteRobot "remote"   (RemoteRobotConfig; registered by importing real_world_rl.server)
 
 Robot PC:   Robot ── RobotService (method table, watchdog, DeviceClaim) ── GrpcTransport
 GPU side:   RemoteRobot ── GrpcClient (msgpack over gRPC, token metadata, read-only retry)
@@ -1157,11 +1158,11 @@ These modules predate the device layer and are kept for existing users. Planned 
 
 - **`controller/`**: pure-torch Cartesian impedance and pose controllers (`core/`, `adapters/`),
   wrapped for ManiSkill in `controller/simulator/maniskill/` (extra `sim`). They serve
-  GPU-batched simulation, not real hardware. See [`robot_infra/controller/README.md`](../../robot_infra/controller/README.md).
+  GPU-batched simulation, not real hardware. See [`real_world_rl/legacy/controller/README.md`](../../real_world_rl/legacy/controller/README.md).
 - **`controller/real/franka_bridge.py`** and **`gripper_server.py`**: a Flask/HTTP forwarder to
   the ROS1 `serl_franka_controllers` impedance controller and the Franka Hand. The `serl_http`
   backend is their client. Run the bridge on the ROS machine with
-  `python -m robot_infra.controller.real.franka_bridge --robot_ip <ip> --port 5000` (extra
+  `python -m real_world_rl.legacy.controller.real.franka_bridge --robot_ip <ip> --port 5000` (extra
   `legacy-bridge`; ROS1 is installed separately, see the module docstring).
 - **`teleop/`**: the pre-device-layer teleop (`teleop/spacemouse/` on the old `pyspacemouse`
   `read_all()` API, extra `legacy-bridge`; `teleop/utils/` twist teleop for Pico over ZeroMQ;

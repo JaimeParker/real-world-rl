@@ -182,7 +182,7 @@ class LeaderArmPartSource(TeleopPartSource, ToggleableTeleopSource):
         )
 
     def _read_leader(self) -> Tuple[Any, Any]:
-        from robot_infra.devices.errors import DeviceFault
+        from real_world_rl.devices.errors import DeviceFault
 
         teleop = self._resolve()
         if teleop is None:
@@ -247,7 +247,7 @@ class LeaderArmPartSource(TeleopPartSource, ToggleableTeleopSource):
     def _check_declaration(self, teleop: Any) -> None:
         if teleop is self._verified:
             return
-        from robot_infra.devices.errors import DeviceFault
+        from real_world_rl.devices.errors import DeviceFault
 
         actual = teleop_contract_of(teleop)
         if not _same_leader(self._contract, actual):

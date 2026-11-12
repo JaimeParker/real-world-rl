@@ -37,7 +37,7 @@ _FRANKA_REAL_QUAT_SLICE = (3, 7)
 _CARTESIAN_ARM_DIM = 6
 _BIMANUAL_BACKEND = "real_robot_bimanual"
 # Backends whose env cannot stack frames itself (apply_obs_chain stacks them, as deploy does).
-_ROBOT_INFRA_BACKENDS = ("real_robot", _BIMANUAL_BACKEND)
+_DEVICE_LAYER_BACKENDS = ("real_robot", _BIMANUAL_BACKEND)
 # Teleop devices that drive one arm (the robot's teleop part, a single leader arm or a single
 # cartesian device); --teleop-device bimanual drives the arms of a real_robot_bimanual env.
 _SINGLE_ARM_TELEOP_DEVICES = (
@@ -85,7 +85,7 @@ def hil_env_request(args, run_name: str):
     resolve_control_frequency(args)
 
     env_request = make_env_request(args, run_name)
-    if args.env_backend in _ROBOT_INFRA_BACKENDS:
+    if args.env_backend in _DEVICE_LAYER_BACKENDS:
         # The backend cannot stack frames; apply_obs_chain stacks them (as deploy does).
         env_request.observation = dataclasses.replace(env_request.observation, frame_stack=1)
     return env_request
@@ -229,9 +229,9 @@ def teleop_options_from_yaml(path: Optional[str]) -> dict:
     The file is one of:
 
     - a mapping of source kwargs, returned as is (per-arm sections keyed by arm name included);
-    - a robot_infra robot or single-robot station yaml (a ``teleop:`` section): its ``teleop``
+    - a device-layer robot or single-robot station yaml (a ``teleop:`` section): its ``teleop``
       ``options`` plus ``hold_s``, the kwargs of a local GELLO (``--teleop-device gello``);
-    - a robot_infra station yaml with ``robots:``: ``{robot name: its teleop options}``.
+    - a station yaml with ``robots:``: ``{robot name: its teleop options}``.
     """
     form, data = _load_teleop_options_yaml(path)
     if form == _STATION:
@@ -311,7 +311,7 @@ def _single_arm_yaml_options(args, *, provenance=None) -> dict:
                               getattr(args, "teleop_profile", None), provenance=provenance)
     if args.teleop_device != _STATION_TELEOP_DEVICE:
         raise ValueError(
-            f"--teleop-options-yaml {path} is a robot_infra station yaml: its teleop: options "
+            f"--teleop-options-yaml {path} is a station yaml: its teleop: options "
             f"configure a local GELLO (--teleop-device {_STATION_TELEOP_DEVICE}), not "
             f"--teleop-device {args.teleop_device}"
         )
@@ -350,7 +350,7 @@ def _bimanual_yaml_options(args) -> tuple[dict, dict]:
         return per_arm, {key: value for key, value in data.items() if key not in arm_names}
     if args.teleop_arm_device != _STATION_TELEOP_DEVICE:
         raise ValueError(
-            f"--teleop-options-yaml {path} is a robot_infra station yaml: its teleop: options "
+            f"--teleop-options-yaml {path} is a station yaml: its teleop: options "
             f"configure local GELLOs (--teleop-arm-device {_STATION_TELEOP_DEVICE}); with "
             f"--teleop-arm-device {args.teleop_arm_device} each arm's daemon reads its own"
         )
@@ -698,7 +698,7 @@ def _without_device_table(options, provenance) -> dict:
     """The SpaceMouse source options without the machine-local ``device_table`` path; a local
     table in effect is recorded as ``provenance["device_table"]`` (portable file, sha256 and
     entries), which is provenance only: decoding tables never enter ``teleop_control``."""
-    from robot_infra.devices.backends.teleops._spacemouse_hid import DEVICE_TABLE_OPTION, load_device_specs
+    from real_world_rl.devices.backends.teleops._spacemouse_hid import DEVICE_TABLE_OPTION, load_device_specs
 
     described = load_device_specs(options=options).provenance()
     if described is not None:
@@ -712,7 +712,7 @@ def _frozen_device_table_file(teleop_input) -> Optional[str]:
     recorded = (teleop_input.get("device_table") or {}).get("file")
     if not recorded:
         return None
-    from robot_infra.devices.provenance import resolve_portable_path
+    from real_world_rl.devices.provenance import resolve_portable_path
 
     path = resolve_portable_path(recorded).resolve()
     return str(path) if path.is_file() else None

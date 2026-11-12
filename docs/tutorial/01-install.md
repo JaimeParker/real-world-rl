@@ -130,7 +130,7 @@ explain the common wrong-page case.
 
 The **project environment** is the Python environment (venv or conda) where this
 step installs the two local projects: rl-garden and real-world-rl (whose
-distribution carries both `real_world_rl` and the device layer `robot_infra`).
+distribution carries `real_world_rl`, which includes the device layer).
 `scripts/install.sh` creates `.venv` by default; the manual route can use any
 activated venv or conda environment.
 
@@ -188,7 +188,7 @@ python3.10 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
 python -m pip install -e ./rl-garden -e '.[learning,franka-gello,test]'
-python -c 'import rl_garden, robot_infra, real_world_rl'
+python -c 'import rl_garden, real_world_rl'
 rwrl doctor --mock
 ```
 

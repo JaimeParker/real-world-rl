@@ -8,15 +8,15 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from robot_infra.devices import Arm, ControlMode, DeviceFault, DeviceNotFound, Gripper, SdkMissing
-from robot_infra.devices.backends.arms import piper_sdk as arm_module
-from robot_infra.devices.backends.arms._rotations import rpy_to_quat_xyzw
-from robot_infra.devices.backends.arms.piper_sdk import PiperSdkArm
-from robot_infra.devices.backends.grippers import piper_sdk as gripper_module  # noqa: F401
-from robot_infra.devices.backends.grippers.piper_sdk import PiperSdkGripper
-from robot_infra.devices.gripper import GripperMode
-from robot_infra.devices.robot import GripperConfig
-from robot_infra.discovery.enumerate import CanInfo
+from real_world_rl.devices import Arm, ControlMode, DeviceFault, DeviceNotFound, Gripper, SdkMissing
+from real_world_rl.devices.backends.arms import piper_sdk as arm_module
+from real_world_rl.devices.backends.arms._rotations import rpy_to_quat_xyzw
+from real_world_rl.devices.backends.arms.piper_sdk import PiperSdkArm
+from real_world_rl.devices.backends.grippers import piper_sdk as gripper_module  # noqa: F401
+from real_world_rl.devices.backends.grippers.piper_sdk import PiperSdkGripper
+from real_world_rl.devices.gripper import GripperMode
+from real_world_rl.devices.robot import GripperConfig
+from real_world_rl.discovery.enumerate import CanInfo
 
 MILLI_DEG_PER_RAD = 1000 * 180 / np.pi
 
@@ -167,7 +167,7 @@ def test_observation_features_exclude_tcp_vel():
 
 
 def test_from_config_uses_piper_config():
-    from robot_infra.devices.robots.piper import PiperConfig
+    from real_world_rl.devices.robots.piper import PiperConfig
 
     config = PiperConfig(can_interface="can3", bitrate=500_000)
     arm = PiperSdkArm.from_config(config)
@@ -535,7 +535,7 @@ def gripper(arm):
 
 
 def test_gripper_requires_owner_in_from_config():
-    from robot_infra.devices.robots.piper import PiperConfig
+    from real_world_rl.devices.robots.piper import PiperConfig
 
     config = PiperConfig(
         gripper=GripperConfig(backend="piper_sdk", shares_arm_session=False)
@@ -545,7 +545,7 @@ def test_gripper_requires_owner_in_from_config():
 
 
 def test_gripper_from_config_with_owner(arm):
-    from robot_infra.devices.robots.piper import PiperConfig
+    from real_world_rl.devices.robots.piper import PiperConfig
 
     config = PiperConfig(
         gripper=GripperConfig(
@@ -623,7 +623,7 @@ def test_gripper_zero_without_nonzero_command_is_fine(gripper, arm):
 
 
 def test_gripper_move_before_connect_is_error():
-    from robot_infra.devices import DeviceNotConnected
+    from real_world_rl.devices import DeviceNotConnected
 
     with pytest.raises(DeviceNotConnected):
         PiperSdkGripper(owner=PiperSdkArm()).move(0.5)

@@ -3,7 +3,7 @@ import copy
 import numpy as np
 import pytest
 
-from robot_infra.devices.stop_trace import StopThresholds, evaluate_stop_trace
+from real_world_rl.devices.stop_trace import StopThresholds, evaluate_stop_trace
 
 
 def trace():

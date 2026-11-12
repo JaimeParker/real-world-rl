@@ -117,13 +117,13 @@ if $learning; then
   run_step 'Install rl-garden, this project and extras' "$venv_python" -m pip install \
     -e ./rl-garden -e ".[${install_extras}]"
   run_step 'Import installed projects' "$venv_python" -c \
-    'import rl_garden, robot_infra, real_world_rl; print("Imports OK:", rl_garden.__file__, robot_infra.__file__, real_world_rl.__file__)'
+    'import rl_garden, real_world_rl; print("Imports OK:", rl_garden.__file__, real_world_rl.__file__)'
 else
   project=.
   [[ -n $extras ]] && project=".[${extras}]"
   run_step 'Install this project and extras' "$venv_python" -m pip install -e "$project"
   run_step 'Import installed projects' "$venv_python" -c \
-    'import robot_infra, real_world_rl; print("Imports OK:", robot_infra.__file__, real_world_rl.__file__)'
+    'import real_world_rl.server, real_world_rl; print("Imports OK:", real_world_rl.__file__)'
 fi
 
 if $run_doctor; then

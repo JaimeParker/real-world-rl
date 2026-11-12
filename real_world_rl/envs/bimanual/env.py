@@ -1,6 +1,6 @@
 """BimanualRealRobotEnv: two ``RealRobotEnv`` arms driven as one numpy gym.Env.
 
-Each arm is its own ``RealRobotEnv`` (a local robot_infra robot or a daemon), built from
+Each arm is its own ``RealRobotEnv`` (a local device-layer robot or a daemon), built from
 ``BimanualRealRobotEnvConfig.arm_env_config``. The action follows the action-contract layout
 (``real_world_rl.action_contract``): ``[arm_0 block, arm_1 block, gripper_0, gripper_1]``
 in ``arm_names`` order, without the gripper dims when ``gripper_in_action`` is false. The

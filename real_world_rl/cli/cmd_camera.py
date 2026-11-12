@@ -245,7 +245,7 @@ class CameraCommand:
                           help=f"wait at most S seconds for a frame (default {DEFAULT_GRAB_TIMEOUT_S:g})")
 
     def run(self, args, ctx):
-        from robot_infra.devices.errors import DeviceFault
+        from real_world_rl.devices.errors import DeviceFault
 
         if args.action == "show":
             if args.frames < 0:
@@ -259,7 +259,7 @@ class CameraCommand:
             from PIL import Image
         except ImportError as error:
             raise CliError("camera grab needs Pillow to write PNG files", hint="pip install pillow") from error
-        from robot_infra.discovery.autoconfig import resolve_station_config_path
+        from real_world_rl.discovery.autoconfig import resolve_station_config_path
 
         refuse_existing_targets(Path(args.output), grab_targets(Path(args.output), args.name))
         station_path = resolve_station_config_path(args.station)

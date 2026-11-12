@@ -4,9 +4,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from robot_infra.devices import DeviceNotConnected, Gripper, GripperMode, PartGroup
-from robot_infra.devices.backends.arms.fake import FakeArm
-from robot_infra.devices.backends.grippers.fake import FakeGripper
+from real_world_rl.devices import DeviceNotConnected, Gripper, GripperMode, PartGroup
+from real_world_rl.devices.backends.arms.fake import FakeArm
+from real_world_rl.devices.backends.grippers.fake import FakeGripper
 
 
 def connected(**kwargs) -> FakeGripper:

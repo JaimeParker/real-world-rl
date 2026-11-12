@@ -21,7 +21,7 @@ from _leader_teleop_fakes import (
 )
 from _teleop_fakes import ContractEnv, TwoArmContractEnv
 
-import robot_infra.devices.claims as claims
+import real_world_rl.devices.claims as claims
 
 from real_world_rl.action_contract import (
     contract_sidecar_path,

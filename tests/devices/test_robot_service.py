@@ -6,10 +6,10 @@ import time
 import numpy as np
 import pytest
 
-import robot_infra.devices.claims as claims
-from robot_infra.devices import CameraConfig, DeviceBusy, DeviceFault, DeviceNotFound, GripperConfig
-from robot_infra.devices.robots.franka import FrankaConfig, FrankaRobot
-from robot_infra.server.service import METHODS, RobotService
+import real_world_rl.devices.claims as claims
+from real_world_rl.devices import CameraConfig, DeviceBusy, DeviceFault, DeviceNotFound, GripperConfig
+from real_world_rl.devices.robots.franka import FrankaConfig, FrankaRobot
+from real_world_rl.server.service import METHODS, RobotService
 
 
 def franka_robot(**kwargs) -> FrankaRobot:
@@ -250,7 +250,7 @@ TELEOP_SCRIPT = [
 
 
 def teleop_robot(**teleop) -> FrankaRobot:
-    from robot_infra.devices import TeleopConfig
+    from real_world_rl.devices import TeleopConfig
 
     config = TeleopConfig(backend="fake", options={"script": TELEOP_SCRIPT}, **teleop)
     return franka_robot(teleop=config)
@@ -284,7 +284,7 @@ def test_teleop_methods_describe_and_health(services):
 
 @pytest.mark.parametrize("requested, expected", [(1e9, 2.0), (None, 2.0), (-5.0, 0.0), (0.25, 0.25)])
 def test_teleop_read_timeout_is_clamped(services, monkeypatch, requested, expected):
-    from robot_infra.server.service import TELEOP_READ_MAX_TIMEOUT_S
+    from real_world_rl.server.service import TELEOP_READ_MAX_TIMEOUT_S
 
     assert TELEOP_READ_MAX_TIMEOUT_S == 2.0
     service = services(teleop_robot())

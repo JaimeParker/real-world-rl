@@ -9,8 +9,8 @@ import types
 
 import numpy as np
 from _teleop_fakes import ContractEnv
-from robot_infra.devices.backends.teleops.fake import FakeTeleop
-from robot_infra.devices.teleop import TeleopConfig
+from real_world_rl.devices.backends.teleops.fake import FakeTeleop
+from real_world_rl.devices.teleop import TeleopConfig
 
 JOINT_LIMITS = [[-2.0, 2.0]] * 7
 JOINT_SCALE_RAD = 0.05

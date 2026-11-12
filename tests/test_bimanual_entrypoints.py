@@ -9,12 +9,12 @@ from __future__ import annotations
 import json
 
 import pytest
-import robot_infra.devices.claims as claims
+import real_world_rl.devices.claims as claims
 import torch
 from _bimanual_fakes import ARM_STATE_DIM, ARMS, bimanual_config, fake_franka
 from rl_garden.common.checkpoint import load_checkpoint_file
 from rl_garden.observations import ObservationConfig
-from robot_infra.devices.teleop import TeleopConfig
+from real_world_rl.devices.teleop import TeleopConfig
 
 import real_world_rl.envs.backends.real_robot_bimanual  # noqa: F401  (registers the backend)
 from real_world_rl.action_contract import demo_contract_of

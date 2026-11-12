@@ -243,7 +243,7 @@ def test_no_control_process_is_killed(tmp_path):
 
 
 def test_spacemouse_rules_cover_libusb_and_hidraw_and_all_supported_products(host):
-    from robot_infra.devices.backends.teleops._spacemouse_hid import BUILTIN_DEVICE_SPECS
+    from real_world_rl.devices.backends.teleops._spacemouse_hid import BUILTIN_DEVICE_SPECS
 
     host.rules("usb.spacemouse", "spacemouse", [])
     action = next(a for a in host.actions if a.target)
@@ -290,7 +290,7 @@ def site_host(site, report):
 
 
 def test_spacemouse_rules_include_the_products_of_the_local_table(isolated_site, report):
-    from robot_infra.devices.backends.teleops._spacemouse_hid import BUILTIN_DEVICE_SPECS
+    from real_world_rl.devices.backends.teleops._spacemouse_hid import BUILTIN_DEVICE_SPECS
 
     write_site_table(isolated_site)
     host = site_host(isolated_site, report)
@@ -353,7 +353,7 @@ def test_an_invalid_local_table_fails_and_blocks_the_spacemouse_rules(isolated_s
 
 
 def test_station_device_table_reaches_the_host_udev_rules(isolated_site, report, monkeypatch, capsys):
-    monkeypatch.delenv("ROBOT_INFRA_CONFIG", raising=False)
+    monkeypatch.delenv("RWRL_STATION", raising=False)
     site = isolated_site / "site"
     site.mkdir()
     station = site / "left-station.yaml"
@@ -380,7 +380,7 @@ def test_station_device_table_reaches_the_host_udev_rules(isolated_site, report,
 
 
 def test_spacemouse_table_inputs_follow_the_selected_robot(isolated_site, monkeypatch):
-    monkeypatch.delenv("ROBOT_INFRA_CONFIG", raising=False)
+    monkeypatch.delenv("RWRL_STATION", raising=False)
     station = isolated_site / "station.yaml"
     station.write_text(yaml.safe_dump({"robots": {
         "left": {"type": "franka", "arm_backend": "fake", "teleop": {"backend": "fake"}},
@@ -583,7 +583,7 @@ def test_extra_markers_are_resolved_before_pip_invocation(host, monkeypatch):
 
 
 def test_franky_conflicting_server_versions_never_generate_install(host, monkeypatch):
-    from robot_infra.devices import RobotConfig
+    from real_world_rl.devices import RobotConfig
 
     configs = [
         (
@@ -641,7 +641,7 @@ def test_device_fix_hints_name_rwrl_commands(hint, expected):
 
 
 def test_device_rows_report_rwrl_hints(host, monkeypatch):
-    from robot_infra.devices import RobotConfig
+    from real_world_rl.devices import RobotConfig
 
     config = RobotConfig.from_dict(
         {"type": "franka", "arm_backend": "fake", "name": "left", "gripper": None}
@@ -710,7 +710,7 @@ def test_network_inspection_cannot_change_addresses(host, monkeypatch):
 def test_probe_preserves_franka_fields_and_forces_read_only_claim(monkeypatch, capsys):
     import io
 
-    from robot_infra.doctor import checks
+    from real_world_rl.doctor import checks
 
     from real_world_rl.cli import doctor_probe
 
@@ -791,7 +791,7 @@ def test_registered_doctor_json_is_single_line(report, monkeypatch, capsys):
     assert "SDK diagnostic chatter" in captured.err
 
 
-def test_global_station_and_legacy_config_are_equivalent(report, tmp_path, monkeypatch, capsys):
+def test_global_and_trailing_station_are_equivalent(report, tmp_path, monkeypatch, capsys):
     path = tmp_path / "station.yaml"
     path.write_text("type: franka\nname: sample\narm_backend: fake\ngripper: null\n")
     targets = []
@@ -806,18 +806,11 @@ def test_global_station_and_legacy_config_are_equivalent(report, tmp_path, monke
     monkeypatch.setattr(doctor, "inspect", inspect)
     assert main(["--station", str(path), "--json", "doctor"]) == 0
     first = json.loads(capsys.readouterr().out)
-    assert main(["doctor", "--config", str(path), "--json"]) == 0
+    assert main(["doctor", "--station", str(path), "--json"]) == 0
     second = json.loads(capsys.readouterr().out)
     assert targets[0] == targets[1]
     assert first["checks"] == second["checks"]
     assert first["results"] == second["results"]
-
-
-def test_doctor_compatibility_entry_delegates(monkeypatch):
-    calls = []
-    monkeypatch.setattr("real_world_rl.cli.main", lambda argv: calls.append(argv) or 1)
-    assert doctor.main(["--config", "station.yaml", "--json"]) == 1
-    assert calls == [["doctor", "--config", "station.yaml", "--json"]]
 
 
 def test_doctor_parser_owns_help_and_preserves_trailing_globals(capsys):
@@ -826,23 +819,23 @@ def test_doctor_parser_owns_help_and_preserves_trailing_globals(capsys):
 
     parser = build_parser()
     args = parser.parse_args(["--station", "first", "--robot", "left", "--mock", "--json",
-                              "doctor", "--config", "second", "--robot", "right", "--fix"])
+                              "doctor", "--station", "second", "--robot", "right", "--fix"])
     assert args._command is DOCTOR
     assert (args.station, args.robot, args.mock, args.json, args.fix) == ("second", "right", True, True, True)
     assert not getattr(DOCTOR, "accepts_remaining", False)
-    from robot_infra.cli import DeviceCommand
+    from real_world_rl.cli.device_commands import DeviceCommand
     assert not isinstance(DOCTOR, DeviceCommand)
     script = """
 import importlib.abc
 import sys
 class NoDeviceDoctor(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname == 'robot_infra.doctor' or fullname.startswith('robot_infra.doctor.'):
+        if fullname == 'real_world_rl.doctor' or fullname.startswith('real_world_rl.doctor.'):
             raise AssertionError('device doctor import: ' + fullname)
 sys.meta_path.insert(0, NoDeviceDoctor())
 from real_world_rl.cli import main
 assert main(['doctor', '--help']) == 0
-assert 'robot_infra.doctor.cli' not in sys.modules
+assert 'real_world_rl.doctor.cli' not in sys.modules
 """
     result = subprocess.run([sys.executable, "-c", script], cwd=Path(__file__).resolve().parents[1],
                             env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
@@ -903,7 +896,7 @@ PRESET_STATION = {
 
 
 def station_config(**fields):
-    from robot_infra.devices import Robot
+    from real_world_rl.devices import Robot
 
     return Robot.from_dict({**PRESET_STATION, **fields}).config
 
@@ -1012,3 +1005,16 @@ def test_doctor_inline_preset_robot_needs_one_station_robot(report, tmp_path, mo
     code, checks = run_doctor_with_preset(tmp_path, monkeypatch, capsys, dict(PRESET_STATION), station=station)
     assert code == 0
     assert [(row["id"], row["status"]) for row in checks] == [("preset.robot", "SKIPPED")]
+
+
+def test_pre_0_1_0_station_names_are_reported_as_warnings(host, tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    doctor.inspect_legacy_station_names(host)
+    assert not [f for f in host.findings if f.id.startswith("configuration.legacy.")]
+    monkeypatch.setenv("ROBOT_INFRA_CONFIG", str(tmp_path / "station.yaml"))
+    (tmp_path / "xdg" / "robot_infra").mkdir(parents=True)
+    (tmp_path / "xdg" / "robot_infra" / "station.yaml").write_text("type: franka\n")
+    doctor.inspect_legacy_station_names(host)
+    legacy = [(f.id, f.status) for f in host.findings if f.id.startswith("configuration.legacy.")]
+    assert legacy == [("configuration.legacy.station_env", "WARN"), ("configuration.legacy.user_config_dir", "WARN")]
+    assert doctor.station_configured(SimpleNamespace(config=None))

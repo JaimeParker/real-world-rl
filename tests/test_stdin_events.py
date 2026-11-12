@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import torch
 from _teleop_fakes import ContractEnv
-from robot_infra.devices import DeviceFault
+from real_world_rl.devices import DeviceFault
 
 from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
 from real_world_rl.teleop import make_teleop_source

@@ -1,8 +1,7 @@
 """Doctor command registration; host and repair work stays in implementation libraries."""
-import argparse
 from pathlib import Path
 
-from robot_infra.cli.command import doctor_envelope
+from .command import doctor_envelope
 
 from .errors import CliError, USAGE_EXIT_CODE
 
@@ -17,9 +16,6 @@ class DoctorCommand:
     }
 
     def register(self, parser):
-        # Legacy spelling, mapped directly onto the shared global station value.
-        parser.add_argument("--config", dest="station", metavar="PATH", default=argparse.SUPPRESS,
-                            help="--station (alias, will be removed)")
         parser.add_argument("--fix", action="store_true")
         parser.add_argument(
             "--install-sdk", action="store_true",

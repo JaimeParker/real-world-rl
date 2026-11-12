@@ -8,7 +8,7 @@ import pytest
 import torch
 from _leader_teleop_fakes import make_pynput
 from _teleop_fakes import ContractEnv, FakeEnv
-from robot_infra.devices import DeviceFault, SdkMissing
+from real_world_rl.devices import DeviceFault, SdkMissing
 
 from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
 from real_world_rl.teleop import make_teleop_source

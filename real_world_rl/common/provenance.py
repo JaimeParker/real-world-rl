@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 import platform
 
-from robot_infra.devices.provenance import portable_path
+from real_world_rl.devices.provenance import portable_path
 
 
 def digest_document(value):
@@ -32,7 +32,7 @@ def source_fingerprint(root):
 
 def runtime_provenance(*, config=None, files=None):
     packages = {}
-    for name in ('real_world_rl', 'robot_infra', 'rl_garden'):
+    for name in ('real_world_rl', 'rl_garden'):
         spec = importlib.util.find_spec(name)
         roots = list(spec.submodule_search_locations or ()) if spec else []
         packages[name] = ([source_fingerprint(root) for root in roots] if roots else

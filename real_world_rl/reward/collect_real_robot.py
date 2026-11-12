@@ -1,4 +1,4 @@
-"""Reward-classifier data collection on the ``real_robot`` backend (a robot_infra robot, served
+"""Reward-classifier data collection on the ``real_robot`` backend (a device-layer robot, served
 locally or by its daemon), the path ``collect_data`` takes for ``--env-backend real_robot``.
 
 The env is the HIL actor's (``build_hil_env(args, role="actor")``): the operator drives the robot

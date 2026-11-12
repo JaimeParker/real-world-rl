@@ -2,7 +2,7 @@ import hashlib
 import sys
 from types import ModuleType, SimpleNamespace
 
-from robot_infra.devices.provenance import sdk_artifacts
+from real_world_rl.devices.provenance import sdk_artifacts
 
 
 def test_sdk_fingerprints_facade_and_loaded_implementation(tmp_path, monkeypatch):

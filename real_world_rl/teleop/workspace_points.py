@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import numpy as np
-from robot_infra.devices.workspace import task_transform, quaternion_matrix
+from real_world_rl.devices.workspace import task_transform, quaternion_matrix
 
 
 def point_set(document, task_frame):

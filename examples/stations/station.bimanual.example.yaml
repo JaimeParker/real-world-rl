@@ -1,6 +1,6 @@
-# robot_infra station config, written by `rwrl setup`.
+# rwrl station config, written by `rwrl setup`.
 # The daemon, the doctor and discovery find it without --station (first match wins):
-#   $ROBOT_INFRA_CONFIG, ./local/station.yaml, ~/.config/robot_infra/station.yaml
+#   $RWRL_STATION, ./local/station.yaml, ~/.config/rwrl/station.yaml
 # Edit it by hand, or regenerate it with `rwrl setup --station <this file>`
 # (add `--only cameras|teleop|daemon` to redo one section). Check it with
 # `rwrl doctor`, serve it with `rwrl daemon`.

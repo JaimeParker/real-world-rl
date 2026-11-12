@@ -4,8 +4,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from robot_infra.devices import Arm, ControlMode, DeviceFault, DeviceNotConnected
-from robot_infra.devices.backends.arms.fake import FakeArm
+from real_world_rl.devices import Arm, ControlMode, DeviceFault, DeviceNotConnected
+from real_world_rl.devices.backends.arms.fake import FakeArm
 
 
 @pytest.fixture

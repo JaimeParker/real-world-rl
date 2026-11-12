@@ -8,8 +8,8 @@ from collections.abc import Mapping
 
 import yaml
 
-from robot_infra.devices.workspace import task_transform
-from robot_infra.discovery.autoconfig import StationRobot
+from real_world_rl.devices.workspace import task_transform
+from real_world_rl.discovery.autoconfig import StationRobot
 from real_world_rl.teleop.calibration import input_rotation
 
 AXIS_MAPPING_VERSION = "serl_hid_axes_v1"
@@ -56,7 +56,7 @@ def verify_device_identity(expected, actual):
 
 def start_profiled_source(source):
     """Connect only owned input, verify identity, and unwind on mismatch."""
-    from robot_infra.devices.errors import DeviceFault
+    from real_world_rl.devices.errors import DeviceFault
     if source._owns_part:
         source._part.connect()
     try:

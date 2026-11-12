@@ -28,7 +28,7 @@ Use `rwrl --help` for wrapper help; `rwrl doctor --help`, `rwrl setup --help`,
 
 | Option | Default and meaning |
 |---|---|
-| `--station PATH` | Resolve explicit path → `$ROBOT_INFRA_CONFIG` → `local/station.yaml` → `~/.config/robot_infra/station.yaml`. The last location follows `$XDG_CONFIG_HOME` when set. Explicit and environment paths are used as given; the last two are searched for the first existing file. |
+| `--station PATH` | Resolve explicit path → `$RWRL_STATION` → `local/station.yaml` → `~/.config/rwrl/station.yaml`. The user location follows `$XDG_CONFIG_HOME` when set. Explicit and environment paths are used as given; the files are searched for the first existing one. For one release the pre-0.1.0 names are still read after their replacements: `$ROBOT_INFRA_CONFIG` after `$RWRL_STATION`, and `~/.config/robot_infra/station.yaml` last; `rwrl doctor` reports either as a `WARN` with the migration command. |
 | `--robot NAME` | Unset: select the single robot; a multi-robot station requires a name for primitives. |
 | `--preset PATH` | Unset: use station home. For `home`, load an existing env preset, either a bare mapping or settings under `real_robot`. Required by `home set`; `doctor` also uses it to identify expected devices and to compare its robot with the station. |
 | `--direct` | Off: follow the station's daemon declaration. Force direct access only when its daemon port is unreachable. |
@@ -36,8 +36,8 @@ Use `rwrl --help` for wrapper help; `rwrl doctor --help`, `rwrl setup --help`,
 | `--json` | Off: built-in primitives emit one JSON result on stdout; diagnostics and motion target/prompt text go to stderr. |
 | `--yes` | Off: skip the built-in motion confirmation or doctor repair-plan confirmation. Preconditions still apply. |
 
-Commands without JSON output (`setup`, `daemon`, `supervise`, `gello-calibrate`
-and the learning commands) reject `--json` with usage exit code 2; see below.
+Commands without JSON output (`setup`, `daemon`, `supervise` and the learning
+commands) reject `--json` with usage exit code 2; see below.
 
 ## Learning commands
 
@@ -114,17 +114,15 @@ refused confirmation; details follow the table.
 | `teleop inspect-stop` | Evaluate saved stop evidence offline; see [spacemouse-commissioning.md](spacemouse-commissioning.md#live-input-calibration-and-diagnosis) | No hardware connection | No | 0 PASS / 3 FAIL / 4 BLOCKED; errors otherwise |
 | `archive inspect ARCHIVE` | Read a recorder SQLite archive read-only: outcomes, mask counts, hold drift, take-over jump and residual per human_action_mask segment, printed as indented JSON. `--csv PATH` and `--measurements PATH` write new step and measurement CSVs; `--drift-window-s` (default 10) sets the hold-drift window; each `--stop-time-s T` (repeatable) adds a settle evaluation using `--settle-speed-mm-s` (default 2) and `--settle-hold-s` (default 0.5). `--json` prints the same fields on one line, non-finite numbers as `null`, plus `status` (`REPORT`, `PASS`, `FAIL` or `BLOCKED`). No station is loaded: `--station`, `--robot`, `--preset`, `--direct`, `--mock` and `--yes` are usage errors. `python examples/inspect_teleop_archive.py` remains an alias with the same arguments and output, but its exit code ignores the settle status | No hardware connection | No | 0 without `--stop-time-s`; with it 0 PASS / 3 FAIL / 4 BLOCKED (a stop time without a spanning TCP episode); 2 for usage or an unreadable archive |
 
-`setup`, `daemon`, `supervise`, `discover` and `gello-calibrate` are native
-commands provided by `robot_infra`; they have no command or `python -m`
-entry point of their own.
-Station input is `--station PATH`; daemon and discover keep
-`--config PATH`, and setup keeps `--from PATH`, as temporary aliases marked
-"(alias, will be removed)" in help. For setup, station input supplies existing
+`setup`, `daemon`, `supervise` and `discover` are native commands of the
+device layer (`real_world_rl.cli.device_commands`); they have no command or
+`python -m` entry point of their own.
+Station input is `--station PATH`. For setup, station input supplies existing
 defaults, **not the output path**. A command-local value overrides the root
 `--station` value; the station lookup order is unchanged.
 `--mock` and `--robot` retain their
 applicable device meanings. Other unrelated globals do not configure these
-commands. `setup`, `daemon`, `supervise` and `gello-calibrate` have no JSON
+commands. `setup`, `daemon` and `supervise` have no JSON
 output: `--json` is a usage error (exit 2), rather than silently producing text.
 Supervisor child arguments after `--` belong to the child.
 
@@ -142,23 +140,19 @@ arms: `--camera-resolution WIDTHxHEIGHT` (for example `1280x720`),
 unset, new cameras keep the camera defaults and cameras kept from `--station`
 keep their values. They add no wizard question.
 
-`rwrl gello-calibrate` is an alias of `rwrl teleop calibrate --backend gello`
-and will be removed; it keeps the device command's flags (`--port` and
-`--joint-ids` required, no station defaults). Both print the GELLO `teleop:` YAML block.
+`rwrl teleop calibrate --backend gello` prints the GELLO `teleop:` YAML block.
 `setup --only teleop --calibrate` runs that calibration inside the wizard and
 writes the station YAML.
 `rwrl doctor` is the host and project diagnostic described below; it runs the
-device-layer checks (`robot_infra.doctor`) for each station robot.
+device-layer checks (`real_world_rl.doctor`) for each station robot.
 
 Doctor is registered directly in the `rwrl` parser; `rwrl doctor --help` displays
 rwrl's own doctor help. It shares the global `--station`, `--robot`, `--preset`,
-`--mock`, `--json` and `--yes` options. For compatibility, `--config PATH` after
-`doctor` aliases `--station PATH`, and `--robot`, `--preset`, `--mock`, `--json`
-and `--yes` are also accepted after `doctor`; `--station` is accepted there too.
+`--mock`, `--json` and `--yes` options; `--station`, `--robot`, `--preset`,
+`--mock`, `--json` and `--yes` are also accepted after `doctor`.
 A trailing value takes precedence
 when the same option is supplied before and after the command.
-`python -m real_world_rl.cli.doctor` remains a transitional entry point that
-delegates to `rwrl doctor`. `--yes` skips confirmation while
+`--yes` skips confirmation while
 all preflight checks still run, including when no repair is requested.
 The JSON report has `schema_version: 1`, `status` (`PASS` or `FAIL`),
 `checks` and `repairs`.
@@ -228,7 +222,7 @@ configured devices are `BLOCKED`. Unconfigured, unidentified devices are
 robot motion. An active daemon, controller, or device owner blocks exclusive
 probes/repairs; doctor does not stop or take over another process.
 Only processes that hold a hardware connection count as owners: the daemon,
-recorder, actor and deploy entrypoints, `setup`, `gello-calibrate`, the
+recorder, actor and deploy entrypoints, `setup`, the
 connecting primitives (`status`, `q`, `tcp`, `home`, `gripper`, `camera`,
 `stop`, `recover`), `teleop run/read/calibrate/diagnose`, `workspace capture`
 and the learning commands. Offline `rwrl` commands (`--help`, `workspace
@@ -303,8 +297,7 @@ Configuration errors also save `error.json` when a report directory was created.
 | Any `FAIL`, `BLOCKED` or `PENDING_ACTION` | 1 |
 | Invalid arguments or configuration | 2 |
 
-Advanced users can call `real_world_rl.cli.doctor.main(argv)` or retain the
-lower-level `robot_infra.doctor` API. The latter has its own repair semantics;
+Advanced users can call the lower-level `real_world_rl.doctor` API. The latter has its own repair semantics;
 `rwrl doctor` always runs its device probes with `fix=False`.
 
 
@@ -337,7 +330,7 @@ home_joints: [0.1, 0.0, 0.0, -1.5, 0.0, 1.5, 0.7]
 Select this file in that terminal before running the mock commands:
 
 ```bash
-export ROBOT_INFRA_CONFIG=local/mock-station.yaml
+export RWRL_STATION=local/mock-station.yaml
 ```
 
 Run all subsequent mock examples in that same terminal. This configuration
@@ -448,7 +441,7 @@ Errors print `error: MESSAGE` on stderr, adding ` (hint: HINT)` when a hint
 exists. `--json` also prints `{"error": "MESSAGE", "hint": "HINT"}` on stdout
 (the hint can be empty). `RWRL_DEBUG=1` additionally prints a traceback to stderr
 for reported exceptions. Both binaries use the exit-code constants in
-`robot_infra.cli.errors`.
+`real_world_rl.cli.errors`.
 Native device command errors also use stderr. Supervisor child statuses are
 preserved; failure to launch returns 127, stop escalation returns 1, and setup
 interruption returns 130. Stop-trace results retain 3/4 and text workspace

@@ -8,8 +8,8 @@ import types
 import numpy as np
 import pytest
 
-import robot_infra.devices.backends.arms.franky as franky_arm_module
-from robot_infra.devices import (
+import real_world_rl.devices.backends.arms.franky as franky_arm_module
+from real_world_rl.devices import (
     Arm,
     ControlMode,
     DeviceFault,
@@ -19,9 +19,9 @@ from robot_infra.devices import (
     SdkMissing,
     VersionMismatch,
 )
-from robot_infra.devices.backends.arms.franky import FrankyArm
-from robot_infra.devices.backends.grippers.franky import FrankyGripper
-from robot_infra.devices.robots.franka import FrankaConfig
+from real_world_rl.devices.backends.arms.franky import FrankyArm
+from real_world_rl.devices.backends.grippers.franky import FrankyGripper
+from real_world_rl.devices.robots.franka import FrankaConfig
 
 QUAT_Z90_XYZW = np.array([0.0, 0.0, np.sqrt(0.5), np.sqrt(0.5)])
 JACOBIAN = np.arange(42, dtype=np.float64).reshape(6, 7) / 100.0
@@ -681,7 +681,7 @@ def test_post_stop_observation_does_not_hold_stop_lock(arm, monkeypatch):
     def wait(_):
         entered.set()
         release.wait(2.)
-    monkeypatch.setattr('robot_infra.devices.backends.arms.franky.time.sleep', wait)
+    monkeypatch.setattr('real_world_rl.devices.backends.arms.franky.time.sleep', wait)
     def normal():
         try:
             arm.stop_with_trace()
@@ -717,7 +717,7 @@ def test_traced_stop_is_idle_before_observation_and_rejects_new_motion(arm, monk
         assert arm.control_mode is ControlMode.IDLE
         # Exercise the actual daemon predicate with an expired action deadline.
         import threading
-        from robot_infra.server.service import RobotService
+        from real_world_rl.server.service import RobotService
         service = object.__new__(RobotService)
         service._lock = threading.RLock()
         service.robot = types.SimpleNamespace(arm=arm)
@@ -770,7 +770,7 @@ def test_trace_preparation_failure_cannot_prevent_stop(arm, monkeypatch):
 
 
 def test_trace_metadata_cached_per_connection_outside_stop_lock(arm, monkeypatch):
-    from robot_infra.devices import provenance
+    from real_world_rl.devices import provenance
     calls = []
     original = provenance.sdk_artifacts
     def fingerprint(*args, **kwargs):

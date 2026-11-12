@@ -73,7 +73,7 @@ def test_home_set_creates_missing_layers(station, tmp_path, capsys, document):
 
 
 def test_home_set_rounds_measured_q(station, tmp_path, capsys, monkeypatch):
-    from robot_infra.devices.backends.arms.fake import FakeArm
+    from real_world_rl.devices.backends.arms.fake import FakeArm
 
     read = FakeArm.read_state
     measured = [0.123456, -0.234567, 0.00001, 0.345678, -0.456789, 0.567891, 0.678912]
@@ -139,7 +139,7 @@ def test_home_precedence(station, tmp_path, capsys, document, expected, source):
 
 @pytest.mark.parametrize("gripper", ["open", "close", "keep"])
 def test_home_go_only_home_phase(station, tmp_path, capsys, monkeypatch, gripper):
-    from robot_infra.devices import Robot
+    from real_world_rl.devices import Robot
 
     built = []
     original = Robot.from_config

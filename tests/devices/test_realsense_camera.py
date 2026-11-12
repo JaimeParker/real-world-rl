@@ -8,9 +8,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from robot_infra.devices import Camera, CameraConfig, DeviceFault
-from robot_infra.devices.backends.cameras.realsense import RealSenseCamera
-from robot_infra.devices.errors import DeviceNotFound
+from real_world_rl.devices import Camera, CameraConfig, DeviceFault
+from real_world_rl.devices.backends.cameras.realsense import RealSenseCamera
+from real_world_rl.devices.errors import DeviceNotFound
 
 WIDTH, HEIGHT, FPS = 8, 6, 60
 DEPTH_SCALE = 0.001

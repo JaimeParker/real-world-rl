@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import os
 import re
 import shlex
 import io
 import sys
 from pathlib import Path
 
-from robot_infra.cli.command import affirmative
-from robot_infra.cli.render import (
+from real_world_rl.cli.command import affirmative
+from real_world_rl.cli.render import (
     BOLD,
     BOLD_GREEN,
     BOLD_RED,
@@ -21,6 +20,13 @@ from robot_infra.cli.render import (
     paint,
     status_style,
     supports_color,
+)
+
+from real_world_rl.common.station_paths import (
+    STATION_FILENAME,
+    legacy_station_locations,
+    station_lookup_dirs,
+    station_path_from_env,
 )
 
 from .command import Result
@@ -90,14 +96,19 @@ def needs_attention(findings, actions, *, color: bool) -> str:
 
 
 def station_configured(args) -> bool:
-    """A station is given (``--station``, ``$ROBOT_INFRA_CONFIG``) or found in a station scope."""
-    config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    """A station is given (``--station``, ``$RWRL_STATION`` or the legacy ``$ROBOT_INFRA_CONFIG``)
+    or found in a station lookup directory."""
     return bool(
         args.config
-        or os.environ.get("ROBOT_INFRA_CONFIG")
-        or (Path.cwd() / "local/station.yaml").is_file()
-        or (config_home / "robot_infra/station.yaml").is_file()
+        or station_path_from_env() is not None
+        or any((directory / STATION_FILENAME).is_file() for directory in station_lookup_dirs())
     )
+
+
+def inspect_legacy_station_names(host: Host) -> None:
+    """WARN for each pre-0.1.0 station name still in use; both are still read for one release."""
+    for key, message, hint in legacy_station_locations():
+        host.add("configuration.legacy." + key, "WARN", message, hint)
 
 
 def spacemouse_table_inputs(args):
@@ -109,7 +120,7 @@ def spacemouse_table_inputs(args):
         return None, None
     try:
         from real_world_rl.station import load_station
-        from robot_infra.discovery.autoconfig import resolve_station_config_path
+        from real_world_rl.discovery.autoconfig import resolve_station_config_path
 
         path = resolve_station_config_path(args.config)
         station = load_station(path)
@@ -131,8 +142,8 @@ def load_targets(args):
         return [], set()
     from real_world_rl.station import load_station
     import yaml
-    from robot_infra.devices import Robot
-    from robot_infra.discovery.autoconfig import (
+    from real_world_rl.devices import Robot
+    from real_world_rl.discovery.autoconfig import (
         fill_from_env,
         resolve_station_config_path,
     )
@@ -143,7 +154,7 @@ def load_targets(args):
     try:
         path = resolve_station_config_path(args.config)
     except FileNotFoundError:
-        if args.config or os.environ.get("ROBOT_INFRA_CONFIG"):
+        if args.config or station_path_from_env() is not None:
             raise
     if path is not None:
         station = load_station(path)
@@ -223,10 +234,11 @@ def inspect(args, host: Host):
         )
         targets, extra, preset_checks = [], set(), []
     host.inspect_system(mock=args.mock)
+    inspect_legacy_station_names(host)
     host.expected.update(extra)
     for name, config, path, daemon, bind in targets:
         if not args.mock:
-            from robot_infra.doctor.deps import required_extras
+            from real_world_rl.doctor.deps import required_extras
 
             host.expected.update(required_extras(config, serves_daemon=daemon))
     if not args.mock:
@@ -327,7 +339,7 @@ def inspect(args, host: Host):
                 "use separate project environments; doctor will not select one robot's SDK",
             )
         else:
-            from robot_infra.doctor.deps import franky_wheel_install_argv
+            from real_world_rl.doctor.deps import franky_wheel_install_argv
 
             version = next(iter(versions))
             host.propose(
@@ -568,13 +580,3 @@ def run(ctx, usage_error):
             file=output,
         )
     return Result(result, output.getvalue().removesuffix("\n"), code, ensure_ascii=False)
-
-
-def main(argv=None):
-    """Transitional Python/module entry point; delegate to the unified rwrl doctor."""
-    from . import main as rwrl_main
-    return rwrl_main(["doctor", *(sys.argv[1:] if argv is None else argv)])
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

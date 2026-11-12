@@ -25,7 +25,7 @@ def options(**changes):
 def test_registry_contract_and_parser_commands():
     names = [command.name for command in COMMANDS]
     assert names == ["status", "q", "tcp", "stop", "recover", "home", "gripper", "camera",
-                     "doctor", "setup", "daemon", "supervise", "discover", "gello-calibrate", "teleop", "workspace",
+                     "doctor", "setup", "daemon", "supervise", "discover", "teleop", "workspace",
                      "archive", "train", "record", "deploy", "collect-reward"]
     assert len(names) == len(set(names))
     parser = build_parser()
@@ -129,11 +129,10 @@ def test_command_system_exit_codes(monkeypatch, capsys, code, expected, as_json)
     ("setup", []),
     ("daemon", []),
     ("supervise", ["--", "python", "child.py"]),
-    ("gello-calibrate", ["--port", "/dev/example", "--joint-ids", "1"]),
 ])
 def test_native_commands_without_json_fail_before_run(monkeypatch, capsys, name, argv):
     from importlib import import_module
-    from robot_infra.cli import COMMANDS as device_commands
+    from real_world_rl.cli.device_commands import COMMANDS as device_commands
 
     command = next(command for command in device_commands if command.name == name)
     calls = []
@@ -148,20 +147,17 @@ def test_native_commands_without_json_fail_before_run(monkeypatch, capsys, name,
 
 
 @pytest.mark.parametrize("name,argv", [
-    ("setup", ["--from", "S", "--mock"]),
-    ("daemon", ["--config", "S", "--robot", "R"]),
+    ("setup", ["--station", "S", "--mock"]),
+    ("daemon", ["--station", "S", "--robot", "R"]),
     ("supervise", ["--grace-s", "1", "--", "python", "--json"]),
-    ("discover", ["--config", "S"]),
-    ("gello-calibrate", ["--port", "/dev/example", "--joint-ids", "1"]),
+    ("discover", ["--station", "S"]),
 ])
 def test_native_registry_dispatch_preserves_implementation_arguments(monkeypatch, capsys, name, argv):
     from importlib import import_module
-    from robot_infra.cli import COMMANDS as device_commands
+    from real_world_rl.cli.device_commands import COMMANDS as device_commands
 
     command = next(command for command in device_commands if command.name == name)
-    registered = next(item for item in COMMANDS if item.name == name)
-    # rwrl keeps gello-calibrate as an alias that wraps the device command unchanged.
-    assert (registered.target if name == "gello-calibrate" else registered) is command
+    assert next(item for item in COMMANDS if item.name == name) is command
     implementation = import_module(command.module)
     expected = vars(implementation.build_parser().parse_args(argv))
     calls = []
@@ -196,7 +192,7 @@ def test_commands_own_exit_codes(monkeypatch, capsys, tmp_path, command, status,
     if command == "teleop":
         trace = tmp_path / "trace.json"
         trace.write_text("{}")
-        monkeypatch.setattr("robot_infra.devices.stop_trace.evaluate_stop_trace",
+        monkeypatch.setattr("real_world_rl.devices.stop_trace.evaluate_stop_trace",
                             lambda *args: {"status": status})
         argv = ["teleop", "inspect-stop", "--trace", str(trace)]
         key = "status"
@@ -224,7 +220,7 @@ def test_exit_code_table():
 def test_context_station_is_lazy_cached_and_connection_factory_is_injectable(monkeypatch):
     calls = []
     station = object()
-    monkeypatch.setattr("robot_infra.discovery.autoconfig.resolve_station_config_path", lambda value: value)
+    monkeypatch.setattr("real_world_rl.discovery.autoconfig.resolve_station_config_path", lambda value: value)
     monkeypatch.setattr("real_world_rl.station.load_station", lambda path: calls.append(path) or station)
     from real_world_rl.station import load_station
     from real_world_rl.cli import connect as connection_module
@@ -268,14 +264,13 @@ def test_save_confirmation_uses_context_without_rebinding(monkeypatch, capsys, t
 
 
 def test_device_commands_are_shared_and_rwrl_owns_the_doctor():
-    from robot_infra.cli import COMMANDS as device_commands
+    from real_world_rl.cli.device_commands import COMMANDS as device_commands
     from real_world_rl.cli.cmd_doctor import DOCTOR
     native = {command.name: command for command in device_commands}
     composed = {command.name: command for command in COMMANDS}
     assert "doctor" not in native and composed["doctor"] is DOCTOR
     for name, command in native.items():
-        # rwrl may wrap a device command in a deprecated alias; the implementation stays shared.
-        assert composed[name] is command or getattr(composed[name], "target", None) is command
+        assert composed[name] is command
 
 
 def test_rwrl_context_injects_upper_layer_station_loader(monkeypatch):
@@ -283,7 +278,7 @@ def test_rwrl_context_injects_upper_layer_station_loader(monkeypatch):
     station = object()
     calls = []
     monkeypatch.setattr(real_world_rl.station, "load_station", lambda path: calls.append(path) or station)
-    monkeypatch.setattr("robot_infra.discovery.autoconfig.resolve_station_config_path", lambda value: value)
+    monkeypatch.setattr("real_world_rl.discovery.autoconfig.resolve_station_config_path", lambda value: value)
 
     class StationCommand:
         name = "station-test"
@@ -302,14 +297,10 @@ def test_rwrl_context_injects_upper_layer_station_loader(monkeypatch):
     assert calls == ["station.yaml"]
 
 
-def test_protocol_and_errors_are_reexports():
+def test_protocol_and_errors_are_defined_in_rwrl():
     from real_world_rl.cli import command, errors
-    from robot_infra.cli import command as shared_command, errors as shared_errors
-    assert command.Context is shared_command.Context
-    assert command.Result is shared_command.Result
-    assert command.Command is shared_command.Command
-    assert command.confirm is shared_command.confirm
-    assert command.render is shared_command.render
-    assert errors.CliError is shared_errors.CliError
+    for name in ("Context", "Result", "Command", "confirm", "render"):
+        assert getattr(command, name).__module__ == "real_world_rl.cli.command", name
+    assert errors.CliError.__module__ == "real_world_rl.cli.errors"
     assert (errors.ABORTED_EXIT_CODE, errors.ESCALATED_EXIT_CODE,
             errors.LAUNCH_FAILURE_EXIT_CODE) == (130, 1, 127)

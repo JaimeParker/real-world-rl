@@ -34,7 +34,7 @@ from typing import Any, Optional
 
 import torch
 
-from robot_infra.supervise import Heartbeat
+from real_world_rl.supervise import Heartbeat
 
 from rl_garden.policies.base import BasePolicy
 from real_world_rl.loops.sync import ActorSyncClient

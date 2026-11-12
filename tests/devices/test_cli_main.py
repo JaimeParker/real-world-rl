@@ -7,22 +7,21 @@ import sys
 
 import pytest
 
-from robot_infra.cli import COMMANDS
-from robot_infra.cli.command import Context
-from robot_infra.cli.main import build_parser
+from real_world_rl.cli.device_commands import COMMANDS
+from real_world_rl.cli.command import Context
+from real_world_rl.cli.registry import build_parser
 from real_world_rl.cli import main
 
 
 ARGUMENTS = {
     'setup': ['--mock', '--non-interactive'],
-    'daemon': ['--config', 'station.yaml', '--robot', 'left', '--no-preflight'],
+    'daemon': ['--station', 'station.yaml', '--robot', 'left', '--no-preflight'],
     'supervise': ['--grace-s', '1', '--', 'python', '-c', 'pass', '--json'],
-    'discover': ['--config', 'station.yaml'],
-    'gello-calibrate': ['--port', '/dev/example', '--joint-ids', *map(str, range(1, 8))],
+    'discover': ['--station', 'station.yaml'],
 }
 
 
-def test_rwrl_help_lists_the_five_native_commands(capsys):
+def test_rwrl_help_lists_the_four_native_commands(capsys):
     assert main(['--help']) == 0
     help_text = capsys.readouterr().out
     assert [command.name for command in COMMANDS] == list(ARGUMENTS)
@@ -54,8 +53,6 @@ def test_module_main_and_rwrl_reach_same_run(monkeypatch, command, capsys):
     calls = []
 
     def run(args, ctx, **kwargs):
-        if command.name == 'gello-calibrate':
-            module.validate_args(args, module.build_parser())
         calls.append((vars(args).copy(), ctx))
         print('native output')
         return 17
@@ -73,7 +70,7 @@ def test_module_main_and_rwrl_reach_same_run(monkeypatch, command, capsys):
     assert capsys.readouterr().out.splitlines() == ['native output', 'native output']
 
 
-@pytest.mark.parametrize('name', ['setup', 'daemon', 'supervise', 'gello-calibrate'])
+@pytest.mark.parametrize('name', ['setup', 'daemon', 'supervise'])
 def test_unsupported_json_is_usage_error_before_run(monkeypatch, capsys, name):
     command = next(command for command in COMMANDS if command.name == name)
     module = import_module(command.module)
@@ -88,14 +85,14 @@ DISCOVERY_KEYS = {'schema_version', 'cameras', 'teleops', 'can_interfaces', 'hos
 
 
 def stub_discovery(monkeypatch, report):
-    from robot_infra.discovery import report as discovery_cli
+    from real_world_rl.discovery import report as discovery_cli
 
     monkeypatch.setattr(discovery_cli, '_station_path', lambda explicit: None)
     monkeypatch.setattr(discovery_cli, 'discover_all', lambda host_ips, spacemouse_table=None: report)
 
 
 def found_hardware():
-    from robot_infra.discovery.enumerate import CanInfo, DiscoveryReport, HostInfo
+    from real_world_rl.discovery.enumerate import CanInfo, DiscoveryReport, HostInfo
 
     return DiscoveryReport(
         cameras={'realsense': {'B2', 'A1'}}, teleops={'gello': {'/dev/ttyUSB0'}, 'spacemouse': set()},
@@ -125,7 +122,7 @@ def test_discover_json_lists_every_category(monkeypatch, capsys):
 
 
 def test_discover_json_gives_empty_lists_when_nothing_is_found(monkeypatch, capsys):
-    from robot_infra.discovery.enumerate import DiscoveryReport
+    from real_world_rl.discovery.enumerate import DiscoveryReport
 
     stub_discovery(monkeypatch, DiscoveryReport())
     assert main(['--json', 'discover']) == 0
@@ -142,7 +139,7 @@ def test_discover_text_output_is_unchanged(monkeypatch, capsys):
 
 
 def test_context_defaults_to_device_loader_and_accepts_connection_factory(monkeypatch):
-    from robot_infra.discovery import autoconfig
+    from real_world_rl.discovery import autoconfig
     calls = []
     station = object()
     monkeypatch.setattr(autoconfig, 'resolve_station_config_path', lambda path: path)
@@ -162,11 +159,11 @@ def test_native_command_help_is_light(name):
 import importlib.abc
 import runpy
 import sys
+DEVICE_LAYER = [['real_world_rl', name] for name in ('devices', 'server', 'discovery', 'setup', 'supervise', 'doctor', 'legacy')]
 class NoHeavyImports(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
         if (fullname.split('.')[0] in {'torch', 'rl_garden', 'numpy', 'yaml'}
-                or (fullname.startswith('robot_infra.') and fullname != 'robot_infra.cli'
-                    and not fullname.startswith('robot_infra.cli.'))):
+                or fullname.split('.')[:2] in DEVICE_LAYER):
             raise AssertionError('heavy import: ' + fullname)
 sys.meta_path.insert(0, NoHeavyImports())
 sys.argv = ['rwrl', *sys.argv[1:], '--help']

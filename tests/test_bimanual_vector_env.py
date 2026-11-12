@@ -10,7 +10,7 @@ import pytest
 import torch
 from _bimanual_fakes import ARM_STATE_DIM, ARMS, bimanual_config, camera_name
 
-import robot_infra.devices.claims as claims
+import real_world_rl.devices.claims as claims
 from rl_garden.envs.backend_registry import EnvRequest, _validate_env_observation_contract
 from rl_garden.observations.config import ObservationConfig
 from rl_garden.observations.schema import ObservationContractError

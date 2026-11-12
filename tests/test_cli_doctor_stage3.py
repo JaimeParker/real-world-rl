@@ -7,8 +7,8 @@ import pytest
 
 from real_world_rl.cli import doctor, main
 from real_world_rl.cli.doctor_repair import Action
-from robot_infra.doctor import cli as device_doctor
-from robot_infra.doctor.checks import CheckResult
+from real_world_rl.doctor import cli as device_doctor
+from real_world_rl.doctor.checks import CheckResult
 
 
 @pytest.fixture
@@ -95,12 +95,10 @@ def test_yes_without_repairs_still_checks_and_preserves_failure(
     assert json.loads(capsys.readouterr().out)['status'] == 'FAIL'
 
 
-def test_rwrl_doctor_station_alias_and_help():
+def test_rwrl_doctor_takes_only_the_station_flag():
     from real_world_rl.cli import build_parser
 
     parser = build_parser()
-    canonical = parser.parse_args(['doctor', '--station', 'station.yaml'])
-    alias = parser.parse_args(['doctor', '--config', 'station.yaml'])
-    assert vars(canonical) == vars(alias)
-    action = next(action for action in alias._parser._actions if '--config' in action.option_strings)
-    assert '(alias, will be removed)' in action.help
+    args = parser.parse_args(['doctor', '--station', 'station.yaml'])
+    assert args.station == 'station.yaml'
+    assert not any('--config' in action.option_strings for action in args._parser._actions)

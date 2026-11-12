@@ -1,6 +1,6 @@
 """RLinf contract for ``RLGardenReal-v0``: built exactly as RLinf's ``RealWorldEnv._create_env``
 builds it (``gym.make(id, override_cfg=..., worker_info=..., robot_info=..., env_idx=...,
-env_cfg=...)``), over robot_infra fake devices."""
+env_cfg=...)``), over device-layer fake devices."""
 from __future__ import annotations
 
 import copy
@@ -13,8 +13,8 @@ import pytest
 import torch
 import yaml
 
-import robot_infra.devices.backends  # noqa: F401  (registers the fake backends)
-import robot_infra.devices.claims as claims
+import real_world_rl.devices.backends  # noqa: F401  (registers the fake backends)
+import real_world_rl.devices.claims as claims
 
 from real_world_rl.envs.real_robot import RealRobotEnvConfig
 from real_world_rl.integrations.rlinf import register as rlinf_register

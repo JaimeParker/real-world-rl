@@ -3,8 +3,8 @@ from __future__ import annotations
 import torch
 import pytest
 
-from robot_infra.controller.adapters import DeltaPoseCommandAdapter, TwistCommandAdapter
-from robot_infra.controller.core import (
+from real_world_rl.legacy.controller.adapters import DeltaPoseCommandAdapter, TwistCommandAdapter
+from real_world_rl.legacy.controller.core import (
     ImpedanceCommand,
     ImpedanceConfig,
     ImpedanceControllerState,

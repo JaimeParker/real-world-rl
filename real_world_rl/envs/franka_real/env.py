@@ -1,4 +1,4 @@
-"""FrankaRealEnv: gym.Env talking to robot_infra's Franka bridge over HTTP.
+"""FrankaRealEnv: gym.Env talking to the legacy Franka bridge over HTTP.
 
 Action/observation conventions are copied directly from SERL: a 7D action
 (delta EE position xyz + delta rotation as axis-angle (3) + gripper), and a

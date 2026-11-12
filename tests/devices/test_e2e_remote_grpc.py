@@ -8,13 +8,13 @@ import pytest
 
 pytest.importorskip("grpc")
 
-import robot_infra.devices.claims as claims
-from robot_infra.devices import CameraConfig, DeviceBusy, DeviceFault, GripperConfig, Robot
-from robot_infra.devices.arm import ControlMode
-from robot_infra.devices.robots.franka import FrankaConfig, FrankaRobot
-from robot_infra.server import RemoteRobot
-from robot_infra.server.service import RobotService
-from robot_infra.server.transport import GrpcTransport, TransportError
+import real_world_rl.devices.claims as claims
+from real_world_rl.devices import CameraConfig, DeviceBusy, DeviceFault, GripperConfig, Robot
+from real_world_rl.devices.arm import ControlMode
+from real_world_rl.devices.robots.franka import FrankaConfig, FrankaRobot
+from real_world_rl.server import RemoteRobot
+from real_world_rl.server.service import RobotService
+from real_world_rl.server.transport import GrpcTransport, TransportError
 
 ACTION = {"arm": {"joint_pos": np.ones(7)}, "gripper": {"gripper": [0.9]}}
 
@@ -178,7 +178,7 @@ def test_device_claim_over_the_wire(daemon):
 
 
 def test_teleop_over_the_wire(daemon):
-    from robot_infra.devices import TeleopConfig, TeleopSample
+    from real_world_rl.devices import TeleopConfig, TeleopSample
 
     script = [
         {"action": [0.1, 0.2, 0.3, 0.0, 0.0, 0.0], "active": True, "buttons": {"right": True}},

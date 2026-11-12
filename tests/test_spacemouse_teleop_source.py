@@ -18,8 +18,8 @@ import torch
 from _teleop_fakes import HOME_TCP, CartesianPoseEnv, ContractEnv, FakeEnv, make_hid
 from scipy.spatial.transform import Rotation
 
-from robot_infra.devices import DeviceFault, SdkMissing
-from robot_infra.devices.teleop import EVENT_KEYS, TeleopSample
+from real_world_rl.devices import DeviceFault, SdkMissing
+from real_world_rl.devices.teleop import EVENT_KEYS, TeleopSample
 
 from real_world_rl.demos.record import RecordDemosArgs, record_demos
 from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
@@ -751,7 +751,7 @@ def test_teleop_input_keeps_the_device_table_path_out_of_source_options(isolated
 
     import yaml
 
-    from robot_infra.devices.provenance import portable_path
+    from real_world_rl.devices.provenance import portable_path
 
     from real_world_rl.action_contract import compared_experiment
 

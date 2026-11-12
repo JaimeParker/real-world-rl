@@ -11,11 +11,11 @@ import pytest
 
 pytest.importorskip("grpc")
 
-import robot_infra.devices.claims as claims
-from robot_infra.devices import CameraConfig, DeviceFault, GripperConfig
-from robot_infra.devices.robots.franka import FrankaConfig, FrankaRobot
-from robot_infra.server.service import RobotService
-from robot_infra.server.transport import GrpcClient, GrpcTransport, TransportError
+import real_world_rl.devices.claims as claims
+from real_world_rl.devices import CameraConfig, DeviceFault, GripperConfig
+from real_world_rl.devices.robots.franka import FrankaConfig, FrankaRobot
+from real_world_rl.server.service import RobotService
+from real_world_rl.server.transport import GrpcClient, GrpcTransport, TransportError
 
 
 def make_service(width: int = 32, height: int = 24) -> RobotService:
@@ -168,7 +168,7 @@ def test_read_only_call_retried_after_reconnect(service, served, clients, caplog
     restart = threading.Timer(0.3, lambda: served(service, port=port))
     restart.start()
     try:
-        with caplog.at_level(logging.WARNING, logger="robot_infra.transport.grpc"):
+        with caplog.at_level(logging.WARNING, logger="real_world_rl.server.transport.grpc"):
             health = client.call("robot.health")
     finally:
         restart.join()
@@ -183,7 +183,7 @@ def test_command_never_retried_after_disconnect(service, served, clients, caplog
     client.open()
     client.call("robot.connect")
     transport.stop(grace_s=0.1)
-    with caplog.at_level(logging.WARNING, logger="robot_infra.transport.grpc"):
+    with caplog.at_level(logging.WARNING, logger="real_world_rl.server.transport.grpc"):
         with pytest.raises(TransportError, match="lost connection") as info:
             client.call("arm.stop")
     assert "never retried" in info.value.hint

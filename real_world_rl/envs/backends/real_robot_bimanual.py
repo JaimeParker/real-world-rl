@@ -1,4 +1,4 @@
-"""Two-arm robot_infra real-robot env backend, registered as ``"real_robot_bimanual"``.
+"""Two-arm device-layer real-robot env backend, registered as ``"real_robot_bimanual"``.
 
 ``req.backend_config`` is a ``BimanualRealRobotEnvConfig`` (one ``RealRobotEnvConfig`` per arm).
 As for ``real_robot``, ``req.num_envs``/``req.num_eval_envs`` are ignored (the two arms are one

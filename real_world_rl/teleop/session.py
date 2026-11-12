@@ -7,7 +7,7 @@ import time
 
 import numpy as np
 
-from robot_infra.supervise import Heartbeat
+from real_world_rl.supervise import Heartbeat
 from real_world_rl.teleop.composite import CompositeTeleopSource
 
 

@@ -15,7 +15,7 @@ Run as two separate processes (optionally on two separate machines):
         --sync_port 6000 --env_id <task> --franka_real.bridge-url http://localhost:5000
 
 Both processes must be pointed at the same Franka bridge
-(``robot_infra/controller/real/franka_bridge.py``) config so their env's
+(``real_world_rl/legacy/controller/real/franka_bridge.py``) config so their env's
 observation/action spaces match.
 """
 from __future__ import annotations

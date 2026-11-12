@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "real-world-rl"
 version = "0.1.0"
-description = "Real-world RL for rl-garden: the torch-free device layer (robot_infra: arms, grippers, cameras, teleop, the robot daemon, setup and doctor), the rwrl command, and, in the learning extra, ActorLoop/LearnerLoop, the real-robot env backends and the SERL/HIL-SERL training loops."
+description = "Real-world RL for rl-garden: the torch-free device layer (arms, grippers, cameras, teleop, the robot daemon, setup and doctor), the rwrl command, and, in the learning extra, ActorLoop/LearnerLoop, the real-robot env backends and the SERL/HIL-SERL training loops."
 requires-python = ">=3.10"
 # Core: the device layer, the rwrl command and the daemon; enough for a daemon-only robot host.
 dependencies = [
@@ -24,13 +24,13 @@ dependencies = [
 #   pip install -e ./rl-garden -e '.[learning]'
 # The version is not a commit lock; development uses the pinned submodule.
 learning = ["rl_garden==0.0.1", "torch>=2.1", "gymnasium>=0.29", "tyro", "requests"]
-# robot_infra/controller/simulator/maniskill/ and examples/record_teleop_wsrl.py,
+# real_world_rl/legacy/controller/simulator/maniskill/ and examples/record_teleop_wsrl.py,
 # run_teleop_demo.py: ManiSkill sim envs and controllers.
 sim = ["mani_skill"]
-# robot_infra/controller/real/, robot_infra/teleop/spacemouse/: the legacy Franka bridge/gripper
-# Flask servers and pyspacemouse teleop. ROS itself (rospy, franka_msgs,
+# real_world_rl/legacy/controller/real/, real_world_rl/legacy/teleop/spacemouse/: the legacy Franka
+# bridge/gripper Flask servers and pyspacemouse teleop. ROS itself (rospy, franka_msgs,
 # serl_franka_controllers, franka_gripper, geometry_msgs, sensor_msgs), required only on the
-# machine running robot_infra/controller/real/franka_bridge.py, is not pip-installable and
+# machine running real_world_rl/legacy/controller/real/franka_bridge.py, is not pip-installable and
 # must be set up separately -- see franka_bridge.py's module docstring.
 legacy-bridge = ["flask", "pyzmq", "scipy", "pyspacemouse"]
 # devices/backends/cameras/realsense.py: Intel RealSense camera backend.
@@ -86,8 +86,7 @@ real_robot_bimanual = "real_world_rl.envs.backends.real_robot_bimanual"
 real_world = "real_world_rl.training.rlgarden_algorithms"
 
 [tool.setuptools.packages.find]
-include = ["real_world_rl*", "robot_infra*"]
+include = ["real_world_rl*"]
 
 [tool.setuptools.package-data]
-real_world_rl = ["py.typed"]
-robot_infra = ["setup/*.yaml", "setup/*.rules"]
+real_world_rl = ["py.typed", "setup/*.yaml", "setup/*.rules"]

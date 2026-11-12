@@ -9,7 +9,7 @@ from .errors import (CliError, USAGE_EXIT_CODE, SUCCESS_EXIT_CODE,
 
 def inspect_stop(args, ctx):
     import hashlib
-    from robot_infra.devices.stop_trace import StopThresholds, evaluate_stop_trace
+    from real_world_rl.devices.stop_trace import StopThresholds, evaluate_stop_trace
     try:
         source = Path(args.trace).read_bytes()
         thresholds = StopThresholds(**json.loads(args.thresholds)) if args.thresholds else StopThresholds()

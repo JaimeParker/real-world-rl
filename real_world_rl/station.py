@@ -5,7 +5,7 @@ discover, the device doctor), loads it here, so the STATION_SECTIONS are always 
 """
 from pathlib import Path
 
-from robot_infra.discovery import autoconfig
+from real_world_rl.discovery import autoconfig
 from real_world_rl.teleop.profiles import validate_profiles_reference
 
 STATION_SECTIONS = {"teleop_profiles": validate_profiles_reference}

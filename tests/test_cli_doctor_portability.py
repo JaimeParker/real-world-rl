@@ -189,8 +189,8 @@ def guarded(name, *args, **kwargs):
         raise ImportError('not available on this platform')
     return original(name, *args, **kwargs)
 builtins.__import__ = guarded
-from real_world_rl.cli.doctor import main
-main(['--help'])
+from real_world_rl.cli import main
+main(['doctor', '--help'])
 """
     result = subprocess.run(
         [sys.executable, "-c", script], capture_output=True, text=True

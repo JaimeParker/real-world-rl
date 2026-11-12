@@ -5,7 +5,7 @@ pattern used elsewhere in this repo for hardware-backed classes (see
 test_real_world_hil_serl_loops.py)."""
 from __future__ import annotations
 
-from robot_infra.controller.real.gripper_server import FrankaGripperServer
+from real_world_rl.legacy.controller.real.gripper_server import FrankaGripperServer
 
 
 class _FakeJointState:

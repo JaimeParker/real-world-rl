@@ -8,8 +8,8 @@ import tyro
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
 
-import robot_infra.devices.claims as claims
-from robot_infra.devices.errors import DeviceFault
+import real_world_rl.devices.claims as claims
+from real_world_rl.devices.errors import DeviceFault
 
 from real_world_rl.deploy import (
     DEVICE_ERROR_EXIT_CODE,

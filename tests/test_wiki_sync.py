@@ -42,7 +42,7 @@ def wiki_repo(tmp_path: Path) -> Path:
         "docs/devices/README.md": "# Device layer\n",
         "docs/devices/control-profiles.md": "# Control profiles\n",
         "docs/devices/robot-infra-roadmap.md": "# Excluded roadmap\n",
-        "robot_infra/controller/README.md": "# Excluded package notes\n",
+        "real_world_rl/legacy/controller/README.md": "# Excluded package notes\n",
         "rl-garden/rl_garden/models/act/README.md": "# Excluded\n",
     }
     repo = tmp_path / "repo"

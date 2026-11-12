@@ -11,9 +11,11 @@ This document was moved here from the main `rl-garden` repo's
 (`rl_garden/real_world/`, `rl_garden/training/real_world/`,
 `rl_garden/envs/franka_real/`) was split out into this repo. Paths below
 predate that split and are not updated path-by-path; `robot_infra/...`
-paths refer to the device-layer package `robot_infra/` at the repository
-root (it used to be the sibling `rlgarden-robot-infra` repo, then a second
-distribution in this repository), and `3rd_party/hil-serl/` refers to the
+paths refer to the former device-layer package `robot_infra/`, now
+`real_world_rl/` (devices, server, discovery, setup, supervise, doctor; the
+controller and old teleop under `real_world_rl/legacy/`; it used to be the
+sibling `rlgarden-robot-infra` repo, then a second distribution in this
+repository), and `3rd_party/hil-serl/` refers to the
 vendored reference copy in the main `rl-garden` repo (not present here).
 
 Since this document was written the real-world layer also gained the
@@ -373,7 +375,7 @@ for the rest of the real-world RL stack.
 
 Comparing `3rd_party/hil-serl/serl_robot_infra/robot_servers/franka_server.py`
 against the base SERL version already ported into
-`robot_infra/controller/real/franka_bridge.py` found these HIL-SERL routes
+`real_world_rl/legacy/controller/real/franka_bridge.py` found these HIL-SERL routes
 that weren't carried over:
 
 - `/set_load` (POST) -- calls the ROS service `/franka_control/set_load`
@@ -408,7 +410,7 @@ HIL-SERL's `robotiq_gripper_server.py` differs from the Franka-hand gripper
 server already ported (inverted `gripper_pos` reporting, a partial-open
 default position instead of fully-open, a lower default close force, plus
 the `close_slow()` method backing endpoint 5 above). Out of scope: v1's
-Franka bridge (`robot_infra/controller/real/gripper_server.py`) only
+Franka bridge (`real_world_rl/legacy/controller/real/gripper_server.py`) only
 supports the Franka hand, matching the SERL v1 design's original scoping
 decision (Robotiq flagged there as "a future addition if needed").
 
@@ -502,7 +504,7 @@ override it to keep `intervened`, `policy_action` and their own columns for
 
 ### 12. `gripper_pos` normalization bug + other `robot_servers` deviations
 
-`robot_infra/controller/real/gripper_server.py` was ported from HIL-SERL's
+`real_world_rl/legacy/controller/real/gripper_server.py` was ported from HIL-SERL's
 `franka_gripper_server.py` but diverges from it in ways not previously
 caught:
 
@@ -602,12 +604,12 @@ action wrapper exists in `rl_garden/envs/wrappers/`.
 
 ### 16. Pico and SpaceMouse intervention detection are structurally different (informational)
 
-`robot_infra/teleop/spacemouse/spacemouse_teleop_wrapper.py`'s
+`real_world_rl/legacy/teleop/spacemouse/spacemouse_teleop_wrapper.py`'s
 `SpaceMouseTeleOpWrapper` closely mirrors HIL-SERL's own
 `SpacemouseIntervention` (`3rd_party/hil-serl/serl_robot_infra/franka_env/
 envs/wrappers.py:207-252`): always-on rate control, intervention decided by
 a pure magnitude deadzone (`norm(expert_a) > threshold`). `rl-garden`'s
-other teleop device, `robot_infra/teleop/utils/telo_op_control_twist.py`'s
+other teleop device, `real_world_rl/legacy/teleop/utils/telo_op_control_twist.py`'s
 `EETwistTeleOpWrapper` ("pico"), is *bind-gated* instead -- it only reports
 a nonzero (and therefore "intervened") twist while a physical bind button is
 held, computing a delta-since-bind, and falls back to a zero/not-intervened
@@ -620,7 +622,7 @@ always will. Not a bug -- just worth knowing which device gives which
 behavior when choosing `--teleop_device`.
 
 **Update**: the SpaceMouse side of this comparison changed. `--teleop-device
-spacemouse` no longer uses the legacy `robot_infra/teleop/spacemouse`
+spacemouse` no longer uses the legacy `real_world_rl/legacy/teleop/spacemouse`
 `SpaceMouseTeleOpWrapper`; `SpaceMouseTeleopSource` (`teleop/spacemouse.py`)
 drives the device layer's `SpaceMouseTeleop` (pyspacemouse 2.x) and maps it with
 `TeleopPartSource`. The intervention rule is still magnitude-based (twist norm

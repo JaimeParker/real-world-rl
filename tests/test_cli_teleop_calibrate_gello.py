@@ -6,9 +6,10 @@ import sys
 
 import pytest
 import yaml
-from robot_infra.devices.backends.teleops.gello_calibrate import FRANKA_CALIBRATION_POSE, format_yaml_block
+from real_world_rl.devices.backends.teleops.gello_calibrate import FRANKA_CALIBRATION_POSE, format_yaml_block
 
 from real_world_rl.cli import main
+from real_world_rl.cli.errors import USAGE_EXIT_CODE
 
 LIMITS = [[-2.8, 2.8], [-1.7, 1.7], [-2.8, 2.8], [-3.0, -0.1], [-2.8, 2.8], [0.0, 3.7], [-2.8, 2.8]]
 CALIBRATED = {
@@ -51,7 +52,7 @@ def calibrations(monkeypatch):
         calls.append(kwargs)
         return dict(CALIBRATED)
 
-    monkeypatch.setattr("robot_infra.devices.backends.teleops.gello_calibrate.calibrate_gello", calibrate_gello)
+    monkeypatch.setattr("real_world_rl.devices.backends.teleops.gello_calibrate.calibrate_gello", calibrate_gello)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     return calls
 
@@ -138,7 +139,7 @@ def test_use_writes_station_teleop_options_and_keeps_comments(tmp_path, capsys, 
 
 def test_use_without_gripper_removes_station_gripper_options(tmp_path, capsys, calibrations, monkeypatch):
     gripperless = {**CALIBRATED, "gripper_id": None, "gripper_open_rad": None, "gripper_closed_rad": None}
-    monkeypatch.setattr("robot_infra.devices.backends.teleops.gello_calibrate.calibrate_gello",
+    monkeypatch.setattr("real_world_rl.devices.backends.teleops.gello_calibrate.calibrate_gello",
                         lambda **kwargs: dict(gripperless))
     station = STATION.replace("      gripper_id: 8\n", "      gripper_id: 8\n      gripper_open_rad: 3.0\n"
                               "      gripper_closed_rad: 2.2\n      gripper_binarize_threshold: 0.5\n")
@@ -218,12 +219,5 @@ def test_help_groups_flags_by_backend(capsys):
     assert "\n  --port PORT" in gello_flags and "--port" not in spacemouse_flags
 
 
-def test_rwrl_gello_calibrate_is_an_alias(capsys):
-    from robot_infra.cli import COMMANDS as DEVICE_COMMANDS
-
-    assert main(["gello-calibrate", "--help"]) == 0
-    text = " ".join(capsys.readouterr().out.split())
-    assert "alias of teleop calibrate --backend gello (will be removed)" in text
-    assert "--joint-ids" in text
-    device = next(command for command in DEVICE_COMMANDS if command.name == "gello-calibrate")
-    assert device.help == "Calibrate a GELLO leader arm"
+def test_gello_calibrate_alias_is_gone(capsys):
+    assert main(["gello-calibrate", "--help"]) == USAGE_EXIT_CODE

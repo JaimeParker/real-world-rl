@@ -6,17 +6,17 @@ import json
 import pytest
 import yaml
 
-from robot_infra.devices import CameraConfig, DeviceFault, Gripper, GripperConfig
-from robot_infra.devices.claims import DeviceClaim, claim_key
-from robot_infra.devices.robot import Robot
-from robot_infra.devices.backends.arms.fake import FakeArm
-from robot_infra.devices.backends.cameras.fake import FakeCamera
-from robot_infra.devices.backends.grippers.fake import FakeGripper
-from robot_infra.devices.robots.franka import FrankaConfig
-from robot_infra.devices.robots.piper import PiperConfig
-from robot_infra.discovery import enumerate as probes
-from robot_infra.doctor import cli
-from robot_infra.doctor.checks import CheckResult, exit_code, run_doctor, summarize
+from real_world_rl.devices import CameraConfig, DeviceFault, Gripper, GripperConfig
+from real_world_rl.devices.claims import DeviceClaim, claim_key
+from real_world_rl.devices.robot import Robot
+from real_world_rl.devices.backends.arms.fake import FakeArm
+from real_world_rl.devices.backends.cameras.fake import FakeCamera
+from real_world_rl.devices.backends.grippers.fake import FakeGripper
+from real_world_rl.devices.robots.franka import FrankaConfig
+from real_world_rl.devices.robots.piper import PiperConfig
+from real_world_rl.discovery import enumerate as probes
+from real_world_rl.doctor import cli
+from real_world_rl.doctor.checks import CheckResult, exit_code, run_doctor, summarize
 
 
 def franka_config(**kwargs) -> FrankaConfig:
@@ -206,10 +206,10 @@ def write_config(tmp_path) -> str:
 
 def test_cli_text_and_json(tmp_path, capsys):
     path = write_config(tmp_path)
-    assert cli.main(["--config", path, "--mock"]) == 0
+    assert cli.main(["--station", path, "--mock"]) == 0
     text = capsys.readouterr().out
     assert "summary:" in text and "[3/5] handshake ... OK" in text
-    assert cli.main(["--config", path, "--mock", "--json"]) == 0
+    assert cli.main(["--station", path, "--mock", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["schema_version"] == 1 and payload["status"] == "PASS"
     assert payload["checks"] == [] and payload["repairs"] == []
@@ -226,13 +226,13 @@ def write_station(tmp_path) -> str:
 
 
 def test_cli_without_config_checks_the_station_file(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("ROBOT_INFRA_CONFIG", write_config(tmp_path))
+    monkeypatch.setenv("RWRL_STATION", write_config(tmp_path))
     assert cli.main(["--mock"]) == 0
     assert "[3/5] handshake ... OK" in capsys.readouterr().out
 
 
 def test_cli_without_any_config_is_a_usage_error(tmp_path, monkeypatch, capsys):
-    monkeypatch.delenv("ROBOT_INFRA_CONFIG", raising=False)
+    monkeypatch.delenv("RWRL_STATION", raising=False)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit) as info:
@@ -242,14 +242,14 @@ def test_cli_without_any_config_is_a_usage_error(tmp_path, monkeypatch, capsys):
 
 def test_cli_checks_every_robot_of_a_station_or_one(tmp_path, capsys):
     path = write_station(tmp_path)
-    assert cli.main(["--config", path, "--mock"]) == 0
+    assert cli.main(["--station", path, "--mock"]) == 0
     text = capsys.readouterr().out
     assert "== robot 'left' ==" in text and "== robot 'right' ==" in text
     assert text.count("summary:") == 2 and "overall: 2 robots, all passed" in text
-    assert cli.main(["--config", path, "--mock", "--robot", "right"]) == 0
+    assert cli.main(["--station", path, "--mock", "--robot", "right"]) == 0
     one = capsys.readouterr().out
     assert "== robot" not in one and one.count("summary:") == 1
-    assert cli.main(["--config", path, "--mock", "--json"]) == 0
+    assert cli.main(["--station", path, "--mock", "--json"]) == 0
     assert set(json.loads(capsys.readouterr().out)["results"]) == {"left", "right"}
 
 
@@ -258,7 +258,7 @@ def test_cli_station_exit_code_fails_when_one_robot_fails(tmp_path, monkeypatch,
     monkeypatch.setattr(
         cli, "run_doctor", lambda config, **_: [CheckResult(1, "sdk:arm", config.name == "left", "checked")]
     )
-    assert cli.main(["--config", path]) == 1
+    assert cli.main(["--station", path]) == 1
     assert "overall: 2 robots, failures on ['right']" in capsys.readouterr().out
 
 
@@ -277,7 +277,7 @@ def test_cli_fills_robot_ip_from_env(tmp_path, monkeypatch, capsys, sdk_backed_f
     monkeypatch.setenv("ROBOT_IP", "10.9.8.7")
     path = tmp_path / "robot.yaml"
     path.write_text(yaml.safe_dump({"type": "franka", "arm_backend": "fake", "robot_ip": "", "gripper": {"backend": "fake"}}))
-    assert cli.main(["--config", str(path)]) == 0
+    assert cli.main(["--station", str(path)]) == 0
     assert pinged == ["10.9.8.7"]
     capsys.readouterr()
 
@@ -304,7 +304,7 @@ def test_camera_check_messages_with_unset_serial(monkeypatch, sdk_backed_fakes):
 
 @pytest.fixture
 def claim_dir(tmp_path, monkeypatch):
-    import robot_infra.devices.claims as claims
+    import real_world_rl.devices.claims as claims
 
     monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
 
@@ -327,7 +327,7 @@ def test_doctor_releases_claim_afterwards(claim_dir):
 
 
 def test_mock_doctor_covers_teleop_and_skips_its_os_check():
-    from robot_infra.devices import TeleopConfig
+    from real_world_rl.devices import TeleopConfig
 
     config = PiperConfig(teleop=TeleopConfig(name="sm", backend="spacemouse", options={"device_index": 0}))
     results = run_doctor(config, mock=True)
@@ -339,7 +339,7 @@ def test_mock_doctor_covers_teleop_and_skips_its_os_check():
 
 
 def test_fake_teleop_needs_no_os_device():
-    from robot_infra.devices import TeleopConfig
+    from real_world_rl.devices import TeleopConfig
 
     results = run_doctor(franka_config(teleop=TeleopConfig(backend="fake")))
     os_teleop = next(r for r in results if r.name == "os:teleop:teleop")
@@ -349,7 +349,7 @@ def test_fake_teleop_needs_no_os_device():
 
 
 def test_unknown_teleop_backend_fails_sdk_layer():
-    from robot_infra.devices import TeleopConfig
+    from real_world_rl.devices import TeleopConfig
 
     results = run_doctor(franka_config(teleop=TeleopConfig(backend="nonexistent")))
     sdk = next(r for r in results if r.name == "sdk:teleop:nonexistent")
@@ -361,8 +361,8 @@ def test_spacemouse_sdk_check_reports_missing_hidapi_and_wrong_distribution(monk
     import sys
     import types
 
-    from robot_infra.devices.backends.teleops.spacemouse import SpaceMouseTeleop
-    from robot_infra.doctor import checks
+    from real_world_rl.devices.backends.teleops.spacemouse import SpaceMouseTeleop
+    from real_world_rl.doctor import checks
 
     monkeypatch.setitem(sys.modules, "hid", None)
     outcome = checks._sdk_outcome(SpaceMouseTeleop)
@@ -374,9 +374,9 @@ def test_spacemouse_sdk_check_reports_missing_hidapi_and_wrong_distribution(monk
 
 
 def test_spacemouse_sdk_check_distinguishes_native_load_failure(monkeypatch):
-    from robot_infra.devices.backends.teleops import _spacemouse_hid
-    from robot_infra.devices.backends.teleops.spacemouse import SpaceMouseTeleop
-    from robot_infra.doctor import checks
+    from real_world_rl.devices.backends.teleops import _spacemouse_hid
+    from real_world_rl.devices.backends.teleops.spacemouse import SpaceMouseTeleop
+    from real_world_rl.doctor import checks
 
     def fail(name):
         raise OSError("native library unavailable")

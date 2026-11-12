@@ -6,11 +6,11 @@ import time
 import numpy as np
 import pytest
 
-import robot_infra.devices.backends  # noqa: F401  (registers the fake backends)
-import robot_infra.devices.claims as claims
-from robot_infra.devices import CameraConfig, GripperConfig
-from robot_infra.devices.robots.franka import FrankaConfig, FrankaRobot
-from robot_infra.supervise import StepWatchdogTripped
+import real_world_rl.devices.backends  # noqa: F401  (registers the fake backends)
+import real_world_rl.devices.claims as claims
+from real_world_rl.devices import CameraConfig, GripperConfig
+from real_world_rl.devices.robots.franka import FrankaConfig, FrankaRobot
+from real_world_rl.supervise import StepWatchdogTripped
 
 from real_world_rl.envs.real_robot import RealRobotEnv, RealRobotEnvConfig
 

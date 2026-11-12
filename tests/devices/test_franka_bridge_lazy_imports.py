@@ -10,11 +10,11 @@ import pytest
 
 def test_module_imports_without_ros_or_flask_installed():
     for name in list(sys.modules):
-        if name == "rospy" or name.startswith("flask") or name.startswith("robot_infra.controller.real"):
+        if name == "rospy" or name.startswith("flask") or name.startswith("real_world_rl.legacy.controller.real"):
             del sys.modules[name]
 
-    import robot_infra.controller.real.franka_bridge as m
-    import robot_infra.controller.real.gripper_server as g
+    import real_world_rl.legacy.controller.real.franka_bridge as m
+    import real_world_rl.legacy.controller.real.gripper_server as g
 
     assert hasattr(m, "create_app")
     assert hasattr(m, "FrankaBridgeController")
@@ -22,7 +22,7 @@ def test_module_imports_without_ros_or_flask_installed():
 
 
 def test_missing_serl_franka_controllers_raises_actionable_error():
-    from robot_infra.controller.real.franka_bridge import _check_serl_franka_controllers_installed
+    from real_world_rl.legacy.controller.real.franka_bridge import _check_serl_franka_controllers_installed
 
     with pytest.raises(SystemExit, match="catkin_make"):
         _check_serl_franka_controllers_installed()

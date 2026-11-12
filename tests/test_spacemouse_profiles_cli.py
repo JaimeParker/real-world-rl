@@ -70,7 +70,7 @@ def test_run_builds_supervised_child_with_hold(tmp_path, capsys, monkeypatch, ex
         calls.append(command)
         return SimpleNamespace(returncode=0)
     monkeypatch.setattr('subprocess.run', run)
-    monkeypatch.delenv('ROBOT_INFRA_HEARTBEAT_FD', raising=False)
+    monkeypatch.delenv('RWRL_HEARTBEAT_FD', raising=False)
     result = main(['--station', str(path), '--preset', str(preset), '--json', '--yes',
                    'teleop', 'run', '--record', str(tmp_path / 'demo.pkl'), *extra])
     assert result == 0
@@ -123,7 +123,7 @@ def test_profile_without_serial_matches_model_but_not_other_product():
 @pytest.mark.parametrize('owned', [True, False])
 def test_wrong_device_fails_without_disconnecting_borrowed_input(owned):
     from real_world_rl.teleop.profiles import start_profiled_source
-    from robot_infra.devices.errors import DeviceFault
+    from real_world_rl.devices.errors import DeviceFault
     calls = []
     part = SimpleNamespace(connect=lambda: calls.append('connect'),
                            disconnect=lambda: calls.append('disconnect'),
@@ -152,7 +152,7 @@ def test_motion_diagnostic_launches_supervised_limited_session(tmp_path, capsys,
         calls.append(command)
         return SimpleNamespace(returncode=0)
     monkeypatch.setattr('subprocess.run', run)
-    monkeypatch.delenv('ROBOT_INFRA_HEARTBEAT_FD', raising=False)
+    monkeypatch.delenv('RWRL_HEARTBEAT_FD', raising=False)
     assert main(['--station', str(path), '--preset', str(preset), '--json', '--yes',
                  'teleop', 'run', '--diagnose', axes, '--duration-s', '2',
                  '--record', str(tmp_path / 'diagnostic.pkl'), *([] if gain is None else ['--gain', str(gain)])]) == 0
@@ -326,7 +326,7 @@ def test_calibrate_without_backend_follows_station_spacemouse(tmp_path, capsys, 
     assert json.loads(capsys.readouterr().out)['required_fields'] == ['--profile']
     sample_file = tmp_path / 'samples.json'
     sample_file.write_text(json.dumps(samples(0)))
-    monkeypatch.setattr('robot_infra.devices.backends.teleops.gello_calibrate.calibrate_gello',
+    monkeypatch.setattr('real_world_rl.devices.backends.teleops.gello_calibrate.calibrate_gello',
                         lambda **kwargs: pytest.fail('a SpaceMouse station must not run the GELLO calibration'))
     assert main(['--json', '--station', str(path), 'teleop', 'calibrate', '--profile', 'front',
                  '--samples', str(sample_file)]) == 0
@@ -470,15 +470,15 @@ def test_recalibration_is_provenance_and_saved_rotation_is_not_reloaded(tmp_path
 
 
 def test_remote_teleop_identity_verifies_like_local(tmp_path, monkeypatch):
-    from robot_infra.devices import TeleopConfig
-    from robot_infra.devices.backends.teleops.fake import FakeTeleop
-    from robot_infra.devices.robots.franka import FrankaConfig, FrankaRobot
-    from robot_infra.server import RemoteRobot
-    from robot_infra.server.service import RobotService
-    from robot_infra.server.transport import LocalClient
+    from real_world_rl.devices import TeleopConfig
+    from real_world_rl.devices.backends.teleops.fake import FakeTeleop
+    from real_world_rl.devices.robots.franka import FrankaConfig, FrankaRobot
+    from real_world_rl.server import RemoteRobot
+    from real_world_rl.server.service import RobotService
+    from real_world_rl.server.transport import LocalClient
     from real_world_rl.teleop.profiles import verify_device_identity
     identity = {'vendor_id': 0x256f, 'product_id': 0xc635, 'serial_number': 'unit-a'}
-    monkeypatch.setattr('robot_infra.devices.claims._DEFAULT_LOCK_DIR', tmp_path / 'claims')
+    monkeypatch.setattr('real_world_rl.devices.claims._DEFAULT_LOCK_DIR', tmp_path / 'claims')
     monkeypatch.setattr(FakeTeleop, 'device_identity', property(lambda self: dict(identity)), raising=False)
     robot = FrankaRobot(FrankaConfig(arm_backend='fake', gripper=None,
                                     teleop=TeleopConfig(backend='fake')))
@@ -605,7 +605,7 @@ def test_calibrate_creates_new_profiles_file(tmp_path, capsys):
 @pytest.mark.parametrize("with_env", [False, True])
 def test_upper_layer_station_loader_owns_profiles_section(tmp_path, monkeypatch, with_env):
     from real_world_rl.station import load_station_with_env
-    from robot_infra.discovery.autoconfig import load_station as load_device_station
+    from real_world_rl.discovery.autoconfig import load_station as load_device_station
 
     path = station(tmp_path)
     data = yaml.safe_load(path.read_text())
@@ -676,7 +676,7 @@ def test_doctor_loads_profile_station_without_device_probes(tmp_path):
 
 def test_connect_loads_profile_station_without_passing_section_to_device(tmp_path, monkeypatch):
     from real_world_rl.cli.connect import open_robot
-    from robot_infra.devices import Robot
+    from real_world_rl.devices import Robot
 
     path = station(tmp_path)
     calls = []
@@ -747,7 +747,7 @@ def test_diagnostic_run_preflight_before_child(tmp_path, monkeypatch, capsys, wo
         data = yaml.safe_load(path.read_text())
         data['workspace'] = {'frame': 'table', 'low': [-1]*3, 'high': [1]*3}
         path.write_text(yaml.safe_dump(data))
-    monkeypatch.delenv('ROBOT_INFRA_HEARTBEAT_FD', raising=False)
+    monkeypatch.delenv('RWRL_HEARTBEAT_FD', raising=False)
     monkeypatch.setattr('subprocess.run', lambda *a, **kw: pytest.fail('invalid diagnostics must not start'))
     assert main(['--station', str(path), '--preset', str(tmp_path / 'unused.yaml'), '--json',
                  'teleop', 'run', '--diagnose', 'translation', '--gain', gain, '--duration-s', duration,

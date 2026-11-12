@@ -1,4 +1,4 @@
-"""RealRobotEnv over robot_infra fake devices, both local and through RemoteRobot + LocalClient."""
+"""RealRobotEnv over device-layer fake devices, both local and through RemoteRobot + LocalClient."""
 from __future__ import annotations
 
 import time
@@ -6,13 +6,13 @@ import time
 import numpy as np
 import pytest
 
-import robot_infra.devices.backends  # noqa: F401  (registers the fake backends)
-import robot_infra.devices.claims as claims
-from robot_infra.devices import CameraConfig, DeviceFault, GripperConfig
-from robot_infra.devices.robots.franka import FrankaConfig, FrankaRobot
-from robot_infra.server import RemoteRobot
-from robot_infra.server.service import RobotService
-from robot_infra.server.transport import LocalClient
+import real_world_rl.devices.backends  # noqa: F401  (registers the fake backends)
+import real_world_rl.devices.claims as claims
+from real_world_rl.devices import CameraConfig, DeviceFault, GripperConfig
+from real_world_rl.devices.robots.franka import FrankaConfig, FrankaRobot
+from real_world_rl.server import RemoteRobot
+from real_world_rl.server.service import RobotService
+from real_world_rl.server.transport import LocalClient
 
 from real_world_rl.envs.real_robot import RealRobotEnv, RealRobotEnvConfig, RuntimeReportPaths
 
@@ -733,7 +733,7 @@ def test_looser_env_joint_limits_fault_on_first_reset(limited_rig):
 
 
 def test_device_without_safety_leaves_env_config_unchecked(rig, monkeypatch):
-    from robot_infra.server.remote import RemoteArm
+    from real_world_rl.server.remote import RemoteArm
 
     arm_class = RemoteArm if rig.mode == "remote" else type(rig.arm)
     monkeypatch.setattr(arm_class, "safety_limits", property(lambda self: None))
@@ -757,7 +757,7 @@ def test_joint_abs_without_device_joint_step_limit_faults_with_hint(rig):
 
 
 def test_joint_abs_with_device_unaware_of_safety_limits_faults(limited_rig, monkeypatch):
-    from robot_infra.server.remote import RemoteArm
+    from real_world_rl.server.remote import RemoteArm
 
     arm_class = RemoteArm if limited_rig.mode == "remote" else type(limited_rig.arm)
     monkeypatch.setattr(arm_class, "safety_limits", property(lambda self: None))  # older daemon
@@ -787,7 +787,7 @@ def test_step_info_carries_safety_clips(limited_rig):
 
 @pytest.fixture(params=["local", "remote"])
 def teleop_rig(request):
-    from robot_infra.devices.teleop import TeleopConfig
+    from real_world_rl.devices.teleop import TeleopConfig
 
     rig = _Rig(request.param, teleop=TeleopConfig(name="leader", backend="fake"))
     yield rig
@@ -846,7 +846,7 @@ def test_old_daemon_cannot_claim_workspace_support():
 @pytest.mark.parametrize('mode', ['local', 'remote'])
 @pytest.mark.parametrize('semantics', ['current', 'serl'])
 def test_measured_workspace_violation_stops_without_recovery_command(mode, semantics):
-    from robot_infra.devices.errors import SafetyViolation
+    from real_world_rl.devices.errors import SafetyViolation
     workspace = {'frame': 'base', 'low': [-1.]*3, 'high': [1.]*3}
     rig = _Rig(mode, workspace=workspace)
     try:
@@ -882,7 +882,7 @@ def test_joint_mode_refuses_cartesian_workspace_before_connect():
 
 
 def test_measured_workspace_stop_failure_preserves_violation(monkeypatch):
-    from robot_infra.devices.errors import SafetyViolation
+    from real_world_rl.devices.errors import SafetyViolation
     workspace = {'frame': 'base', 'low': [-1.]*3, 'high': [1.]*3}
     rig = _Rig('local', workspace=workspace)
     try:
@@ -902,7 +902,7 @@ def test_measured_workspace_stop_failure_preserves_violation(monkeypatch):
 
 
 def test_feedback_drift_after_send_is_detected(monkeypatch):
-    from robot_infra.devices.errors import SafetyViolation
+    from real_world_rl.devices.errors import SafetyViolation
     workspace = {'frame': 'base', 'low': [-1.]*3, 'high': [1.]*3}
     rig = _Rig('local', workspace=workspace)
     try:
@@ -1065,7 +1065,7 @@ def test_close_releases_even_when_watchdog_and_stream_close_fail(monkeypatch, ac
 @pytest.mark.parametrize('mode', ['local', 'remote'])
 def test_hold_session_capability_rejected_before_homing(mode, monkeypatch):
     from real_world_rl.teleop.session import session_backend
-    from robot_infra.devices.errors import DeviceFault
+    from real_world_rl.devices.errors import DeviceFault
     rig = _Rig(mode)
     try:
         env = rig.env()
@@ -1163,7 +1163,7 @@ def test_hold_diagnostics_do_not_advance_episode_or_invent_input(mode, tmp_path)
 def test_command_failure_diagnostics_preserve_device_fault(tmp_path, monkeypatch, logging_failure):
     import json
     from types import SimpleNamespace
-    from robot_infra.devices.errors import DeviceFault
+    from real_world_rl.devices.errors import DeviceFault
     rig = _Rig('local')
     try:
         path = tmp_path / 'failed.jsonl'
@@ -1249,7 +1249,7 @@ def test_hold_after_a_plain_arm_stop_refuses_instead_of_resending_the_old_target
 
 
 def test_hold_target_after_step_watchdog_trip_reports_the_trip():
-    from robot_infra.supervise import StepWatchdogTripped
+    from real_world_rl.supervise import StepWatchdogTripped
     rig = _Rig('local')
     try:
         env = rig.env()
@@ -1296,7 +1296,7 @@ def test_hold_allows_measured_half_mm_below_base_box(with_workspace):
 @pytest.mark.parametrize('mode', ['local', 'remote'])
 @pytest.mark.parametrize('outside_m,should_fault', [(.001, False), (.004, True)])
 def test_measured_workspace_margin_distinguishes_one_and_four_mm(mode, outside_m, should_fault):
-    from robot_infra.devices.errors import SafetyViolation
+    from real_world_rl.devices.errors import SafetyViolation
     workspace = {'low': [-1., -1., 0.], 'high': [1., 1., 1.]}
     rig = _Rig(mode, workspace=workspace)
     try:

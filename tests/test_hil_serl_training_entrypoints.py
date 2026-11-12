@@ -611,7 +611,7 @@ def test_build_env_franka_real_rotvec_unchanged(monkeypatch):
 
 @pytest.fixture
 def _fake_robot_claims(tmp_path, monkeypatch):
-    import robot_infra.devices.claims as claims
+    import real_world_rl.devices.claims as claims
 
     monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
 

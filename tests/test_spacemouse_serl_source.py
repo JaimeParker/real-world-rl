@@ -12,7 +12,7 @@ import torch
 from _teleop_fakes import ContractEnv, make_hid
 from test_spacemouse_teleop_source import _Part
 
-from robot_infra.devices.errors import SdkMissing
+from real_world_rl.devices.errors import SdkMissing
 
 from real_world_rl.action_contract import LEGACY_ACTION_CONTRACT, demo_contract_of
 from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper

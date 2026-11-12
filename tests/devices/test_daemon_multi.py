@@ -9,10 +9,10 @@ import sys
 import pytest
 import yaml
 
-import robot_infra.devices.claims as claims
-import robot_infra.server.daemon as daemon
-from robot_infra.discovery.autoconfig import STATION_CONFIG_ENV
-from robot_infra.server.transport import Transport
+import real_world_rl.devices.claims as claims
+import real_world_rl.server.daemon as daemon
+from real_world_rl.discovery.autoconfig import STATION_CONFIG_ENV
+from real_world_rl.server.transport import Transport
 
 STATION = {
     "robots": {
@@ -112,7 +112,7 @@ def stub_transport(monkeypatch):
 
 
 def test_one_child_per_robot_with_the_shared_flags(station_path, launcher, capsys):
-    argv = ["--config", str(station_path), "--no-preflight", "--watchdog-s", "0.25", "--jpeg-quality", "80"]
+    argv = ["--station", str(station_path), "--no-preflight", "--watchdog-s", "0.25", "--jpeg-quality", "80"]
     assert daemon.main(argv) == 0
     assert [child.argv for child in launcher.children] == [
         [
@@ -129,16 +129,16 @@ def test_one_child_per_robot_with_the_shared_flags(station_path, launcher, capsy
 
 
 def test_preflight_flag_is_not_passed_when_unset(station_path, launcher):
-    assert daemon.main(["--config", str(station_path)]) == 0
+    assert daemon.main(["--station", str(station_path)]) == 0
     assert all("--no-preflight" not in child.argv and "--jpeg-quality" not in child.argv for child in launcher.children)
 
 
 def test_exit_code_is_the_first_non_zero_in_robot_order(station_path, launcher):
     launcher.behaviour = {"left": {"exit_code": 0}, "right": {"exit_code": 3, "polls_to_exit": 3}}
-    assert daemon.main(["--config", str(station_path)]) == 3
+    assert daemon.main(["--station", str(station_path)]) == 3
     launcher.children.clear()
     launcher.behaviour = {"left": {"exit_code": -signal.SIGTERM}, "right": {"exit_code": 3}}
-    assert daemon.main(["--config", str(station_path)]) == 128 + signal.SIGTERM
+    assert daemon.main(["--station", str(station_path)]) == 128 + signal.SIGTERM
 
 
 def test_sigterm_is_forwarded_to_every_child_and_the_handler_restored(station_path, launcher):
@@ -147,7 +147,7 @@ def test_sigterm_is_forwarded_to_every_child_and_the_handler_restored(station_pa
         "left": {"polls_to_exit": None, "on_first_poll": lambda: signal.raise_signal(signal.SIGTERM)},
         "right": {"polls_to_exit": None},
     }
-    assert daemon.main(["--config", str(station_path)]) == 0
+    assert daemon.main(["--station", str(station_path)]) == 0
     assert [child.signals for child in launcher.children] == [[signal.SIGTERM], [signal.SIGTERM]]
     assert signal.getsignal(signal.SIGTERM) == previous
 
@@ -157,7 +157,7 @@ def test_sigterm_is_forwarded_to_every_child_and_the_handler_restored(station_pa
     [(["--bind", "0.0.0.0:1"], "--bind/--token apply to one robot"), (["--token", "x"], "--bind/--token apply to one robot")],
 )
 def test_bind_or_token_with_several_robots_is_an_error(station_path, launcher, capsys, extra, message):
-    assert daemon.main(["--config", str(station_path), *extra]) == 2
+    assert daemon.main(["--station", str(station_path), *extra]) == 2
     assert launcher.children == [] and message in capsys.readouterr().err
 
 
@@ -166,12 +166,12 @@ def test_two_robots_on_one_bind_is_an_error(tmp_path, launcher, capsys):
     data["robots"]["right"]["daemon"]["bind"] = "0.0.0.0:50051"
     path = tmp_path / "station.yaml"
     path.write_text(yaml.safe_dump(data))
-    assert daemon.main(["--config", str(path)]) == 2
+    assert daemon.main(["--station", str(path)]) == 2
     assert launcher.children == [] and "both bind 0.0.0.0:50051" in capsys.readouterr().err
 
 
 def test_robot_flag_serves_one_robot_with_its_daemon_block(station_path, launcher, stub_transport, capsys):
-    assert daemon.main(["--config", str(station_path), "--robot", "right", "--no-preflight"]) == 0
+    assert daemon.main(["--station", str(station_path), "--robot", "right", "--no-preflight"]) == 0
     service, bind, token = stub_transport.served
     assert (bind, token) == ("0.0.0.0:50052", "t") and service.robot.name == "right"
     assert launcher.children == []
@@ -179,19 +179,19 @@ def test_robot_flag_serves_one_robot_with_its_daemon_block(station_path, launche
 
 
 def test_command_line_bind_and_token_override_the_block_for_one_robot(station_path, stub_transport):
-    argv = ["--config", str(station_path), "--robot", "right", "--no-preflight", "--bind", "127.0.0.1:0", "--token", "u"]
+    argv = ["--station", str(station_path), "--robot", "right", "--no-preflight", "--bind", "127.0.0.1:0", "--token", "u"]
     assert daemon.main(argv) == 0
     assert stub_transport.served[1:] == ("127.0.0.1:0", "u")
 
 
 def test_build_daemon_selects_the_robot(station_path, stub_transport):
-    service, _ = daemon.build_daemon(["--config", str(station_path), "--robot", "left"])
+    service, _ = daemon.build_daemon(["--station", str(station_path), "--robot", "left"])
     try:
         assert service.robot.name == "left"
     finally:
         service.close()
     with pytest.raises(ValueError, match="pass --robot <name>"):
-        daemon.build_daemon(["--config", str(station_path)])
+        daemon.build_daemon(["--station", str(station_path)])
 
 
 def test_no_config_resolves_the_station(station_path, stub_transport, monkeypatch):

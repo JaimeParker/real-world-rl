@@ -16,7 +16,7 @@ from _leader_teleop_fakes import (
     normalized_joints,
 )
 from _teleop_fakes import ContractEnv
-from robot_infra.devices import DeviceFault
+from real_world_rl.devices import DeviceFault
 
 from real_world_rl.envs.wrappers.intervention import (
     InterventionWrapper,

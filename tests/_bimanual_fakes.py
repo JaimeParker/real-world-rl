@@ -1,11 +1,11 @@
-"""Two fake Franka arms (robot_infra fake backends) for the two-arm env tests."""
+"""Two fake Franka arms (device-layer fake backends) for the two-arm env tests."""
 from __future__ import annotations
 
 from typing import Any
 
-import robot_infra.devices.backends  # noqa: F401  (registers the fake backends)
-from robot_infra.devices import CameraConfig, GripperConfig
-from robot_infra.devices.robots.franka import FrankaConfig, FrankaRobot
+import real_world_rl.devices.backends  # noqa: F401  (registers the fake backends)
+from real_world_rl.devices import CameraConfig, GripperConfig
+from real_world_rl.devices.robots.franka import FrankaConfig, FrankaRobot
 
 from real_world_rl.envs.bimanual import BimanualRealRobotEnvConfig
 from real_world_rl.envs.real_robot import RealRobotEnvConfig
@@ -22,7 +22,7 @@ def camera_name(arm: str) -> str:
 
 
 def fake_robot_dict(arm: str) -> dict[str, Any]:
-    """A local robot_infra RobotConfig dict for ``arm``: a fake Franka with a gripper and a camera.
+    """A local device-layer RobotConfig dict for ``arm``: a fake Franka with a gripper and a camera.
 
     Each arm gets its own robot and camera names, as two real arms would."""
     return {

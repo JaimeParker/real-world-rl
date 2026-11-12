@@ -18,11 +18,13 @@ from real_world_rl.cli.errors import CliError, USAGE_EXIT_CODE
 ROOT = Path(__file__).resolve().parents[1]
 # Learning-side subpackages of real_world_rl that the device layer must never import.
 LEARNING_SUBPACKAGES = ("envs", "loops", "training", "policies", "algorithms", "buffers", "demos", "reward", "deploy")
+# The torch-free device layer inside real_world_rl, and the legacy code kept beside it.
+DEVICE_LAYER_PACKAGES = ("devices", "server", "discovery", "setup", "supervise", "doctor", "legacy")
 DEVICE_ENTRY_MODULES = (
-    "robot_infra.server.daemon",
-    "robot_infra.doctor.cli",
-    "robot_infra.setup.command",
-    "robot_infra.discovery.report",
+    "real_world_rl.server.daemon",
+    "real_world_rl.doctor.cli",
+    "real_world_rl.setup.command",
+    "real_world_rl.discovery.report",
 )
 # The meta_path finder makes every learning module look uninstalled, as on a daemon-only host.
 BLOCK_LEARNING = f'''
@@ -111,9 +113,11 @@ def test_learning_dependencies_keeps_other_import_errors():
 
 
 def test_device_layer_never_imports_the_learning_side():
-    """robot_infra may load real_world_rl's station sections, never its learning subpackages."""
+    """The device layer may load real_world_rl's station sections, never its learning subpackages."""
     offenders = []
-    for path in sorted((ROOT / "robot_infra").rglob("*.py")):
+    paths = sorted(path for package in DEVICE_LAYER_PACKAGES for path in (ROOT / "real_world_rl" / package).rglob("*.py"))
+    assert paths
+    for path in paths:
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             names = []
             if isinstance(node, ast.Import):
@@ -125,6 +129,6 @@ def test_device_layer_never_imports_the_learning_side():
                 if parts[0] in LEARNING_MODULES or (
                         parts[0] == "real_world_rl" and len(parts) > 1 and parts[1] in LEARNING_SUBPACKAGES):
                     offenders.append(f"{path.relative_to(ROOT)}: {name}")
-    allowed_torch = {"controller"}  # legacy torch controllers, imported by nothing on the device path
-    offenders = [line for line in offenders if line.split("/")[1] not in allowed_torch]
+    # Legacy torch controllers, imported by nothing on the device path.
+    offenders = [line for line in offenders if not line.startswith("real_world_rl/legacy/controller/")]
     assert not offenders, offenders

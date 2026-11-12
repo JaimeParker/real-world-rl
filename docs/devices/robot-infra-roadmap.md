@@ -10,7 +10,7 @@ about `rl_garden/real_world/`/`rl_garden/training/real_world/` (now
 not this repo -- kept here since it moved with the rest of this file rather
 than being split out separately.
 
-**Note on the real-world RL v1 bridge:** `robot_infra/controller/real/franka_bridge.py`
+**Note on the real-world RL v1 bridge:** `real_world_rl/legacy/controller/real/franka_bridge.py`
 forwards to the ROS-side `serl_franka_controllers` instead of a project-owned
 real-time controller. This is an explicit transitional solution (see
 `docs/superpowers/specs/2026-07-09-real-world-rl-design.md`) to get a
@@ -23,7 +23,7 @@ real-time C++ process, not a torch module under `controller/core` -- see the
 
 ## V1 Boundary
 
-- Keep controller math in pure torch modules under `robot_infra/controller/core`
+- Keep controller math in pure torch modules under `real_world_rl/legacy/controller/core`
   for GPU-batched simulation backends, where the point is avoiding GPU<->CPU
   handoffs across many parallel `env.step()` calls. This does not extend to
   real hardware: `num_envs` is always 1 on a physical robot, so there is no
@@ -54,7 +54,7 @@ real-time C++ process, not a torch module under `controller/core` -- see the
   torque-rate limits, fault handling, and calibrated model/dynamics providers.
   Runs as its own real-time C++ process (today: `serl_franka_controllers`;
   potentially a project-owned successor later) -- never a torch module under
-  `controller/core`. `robot_infra/controller/real/` owns only the non-real-time
+  `controller/core`. `real_world_rl/legacy/controller/real/` owns only the non-real-time
   interface into it.
 
 ## Safety And Observability

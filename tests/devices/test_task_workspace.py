@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
 
-from robot_infra.devices.workspace import Workspace, task_transform
-from robot_infra.devices.safety import ArmSafety
-from robot_infra.devices.errors import SafetyViolation
+from real_world_rl.devices.workspace import Workspace, task_transform
+from real_world_rl.devices.safety import ArmSafety
+from real_world_rl.devices.errors import SafetyViolation
 
 
 def frame():
@@ -47,7 +47,7 @@ def test_reflection_and_unknown_frames_rejected():
 
 
 def test_spatial_contract_is_numeric_and_legacy_is_empty():
-    from robot_infra.devices.workspace import spatial_contract
+    from real_world_rl.devices.workspace import spatial_contract
     assert spatial_contract() == {}
     task = frame()
     spec = {'frame': 'table', 'low': [-1]*3, 'high': [1]*3,
@@ -80,7 +80,7 @@ def test_invalid_measured_margin_rejected(key, value):
 
 
 def test_workspace_projection_uses_task_axes_and_reference_cone():
-    from robot_infra.devices.workspace import quaternion_matrix
+    from real_world_rl.devices.workspace import quaternion_matrix
     spec = {'frame': 'table', 'low': [-.1]*3, 'high': [.1]*3,
             'orientation_xyzw': [0, 0, 0, 1], 'max_angle_rad': .2}
     geometry = Workspace(spec, frame())
@@ -95,7 +95,7 @@ def test_workspace_projection_uses_task_axes_and_reference_cone():
 
 
 def test_arm_servo_workspace_rejection_is_counted_and_never_sent():
-    from robot_infra.devices.backends.arms.fake import FakeArm
+    from real_world_rl.devices.backends.arms.fake import FakeArm
     arm = FakeArm(safety=ArmSafety(workspace={'low': [-1]*3, 'high': [1]*3}))
     arm.connect()
     try:
@@ -109,7 +109,7 @@ def test_arm_servo_workspace_rejection_is_counted_and_never_sent():
 
 
 def test_frame_without_workspace_is_validated_but_has_no_semantics():
-    from robot_infra.devices.workspace import spatial_contract
+    from real_world_rl.devices.workspace import spatial_contract
     assert spatial_contract(task_frame=frame()) == {}
     bad = frame()
     bad['base_T_frame'][3][0] = 1

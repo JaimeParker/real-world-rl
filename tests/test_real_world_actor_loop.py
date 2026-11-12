@@ -164,7 +164,7 @@ def test_actor_loop_rejects_multi_env():
 
 
 def test_actor_loop_beats_the_supervisor_heartbeat_per_step_and_announces_resets():
-    from robot_infra.supervise import BEAT_BYTE, LONG_OPERATION_BYTE, capture_heartbeats
+    from real_world_rl.supervise import BEAT_BYTE, LONG_OPERATION_BYTE, capture_heartbeats
 
     env = _FakeEnv(terminate_every=2)
     loop = ActorLoop(env, _FakePolicy(), _FakeSyncClient(), control_hz=1_000_000.0)
@@ -313,7 +313,7 @@ def test_two_interventions_restore_policy_in_one_archived_episode(tmp_path):
 @pytest.mark.parametrize('rollout_fault', [False, True])
 def test_cleanup_heartbeat_failure_still_closes_actor(monkeypatch, rollout_fault):
     from types import SimpleNamespace
-    from robot_infra.supervise import Heartbeat
+    from real_world_rl.supervise import Heartbeat
     env = _FakeEnv()
     closed = []
     env.close = lambda: closed.append(True)

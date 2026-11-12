@@ -10,13 +10,13 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from robot_infra.devices import Arm, ControlMode, DeviceFault, DeviceNotFound, Gripper, Robot
-from robot_infra.devices.backends.arms._rotations import rpy_to_quat_xyzw
-from robot_infra.devices.backends.arms.pyagxarm import AgxArm
-from robot_infra.devices.backends.grippers.pyagxarm import AgxGripper
-from robot_infra.devices.robots.piper import PiperConfig
-from robot_infra.discovery import enumerate as can_discovery
-from robot_infra.discovery.enumerate import CanInfo
+from real_world_rl.devices import Arm, ControlMode, DeviceFault, DeviceNotFound, Gripper, Robot
+from real_world_rl.devices.backends.arms._rotations import rpy_to_quat_xyzw
+from real_world_rl.devices.backends.arms.pyagxarm import AgxArm
+from real_world_rl.devices.backends.grippers.pyagxarm import AgxGripper
+from real_world_rl.devices.robots.piper import PiperConfig
+from real_world_rl.discovery import enumerate as can_discovery
+from real_world_rl.discovery.enumerate import CanInfo
 
 JOINTS = [0.1, -0.2, 0.3, -0.4, 0.5, -0.6]
 FLANGE_RPY = [0.1, -0.2, 0.3]
@@ -628,7 +628,7 @@ def test_stop_refuses_stale_feedback(arm, sdk, monkeypatch):
 
 @pytest.mark.parametrize("backend_cls", [AgxArm, AgxGripper])
 def test_missing_sdk_hint_points_to_extra(monkeypatch, backend_cls):
-    from robot_infra.devices import SdkMissing
+    from real_world_rl.devices import SdkMissing
 
     monkeypatch.setitem(sys.modules, "pyAgxArm", None)
     with pytest.raises(SdkMissing) as info:

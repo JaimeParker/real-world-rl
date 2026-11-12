@@ -1,8 +1,8 @@
 """The two-arm workflow end to end, hardware-free, the way a station runs it.
 
-A robot_infra station yaml lists two fake Frankas (``robots: {left, right}``), each with a fake
+A station yaml lists two fake Frankas (``robots: {left, right}``), each with a fake
 arm, gripper, two fake cameras and a scripted fake ``joint_abs`` leader part; both are served by
-real daemons (``robot_infra.server.daemon.build_daemon`` over gRPC on loopback). The actor builds
+real daemons (``real_world_rl.server.daemon.build_daemon`` over gRPC on loopback). The actor builds
 the ``real_robot_bimanual`` env through the backend registry (``env_building.build_hil_env``)
 with ``remote`` per arm and ``--teleop-device bimanual --teleop-arm-device leader_arm``, then
 runs the hil_serl actor loop, records demos with their contract sidecar, and runs the residual
@@ -22,14 +22,14 @@ from typing import Any, Optional
 
 import numpy as np
 import pytest
-import robot_infra.devices.claims as claims
+import real_world_rl.devices.claims as claims
 import torch
 import yaml
 from _residual_fakes import FakeSyncClient
 from rl_garden.encoders.config import EncoderConfig
 from rl_garden.observations import ObservationConfig
-from robot_infra.devices.robots.franka import FRANKA_HOME_JOINTS
-from robot_infra.discovery.autoconfig import load_station
+from real_world_rl.devices.robots.franka import FRANKA_HOME_JOINTS
+from real_world_rl.discovery.autoconfig import load_station
 
 import real_world_rl.envs.backends.real_robot_bimanual  # noqa: F401  (registers the backend)
 from real_world_rl.action_contract import (
@@ -159,14 +159,14 @@ def station_daemons(tmp_path, monkeypatch):
     """Both robots of the station yaml, each served by its own daemon on a loopback port (the
     yaml's ``daemon.bind`` names the robot PC's port; the test binds an ephemeral one)."""
     pytest.importorskip("grpc")
-    from robot_infra.server import daemon
+    from real_world_rl.server import daemon
 
     monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
     path = tmp_path / "station.yaml"
     path.write_text(yaml.safe_dump(_station()), encoding="utf-8")
     station = load_station(path)
     assert station.multi_robot and list(station.robots) == list(ARMS)
-    daemon_args = daemon.parse_args(["--config", str(path), "--no-preflight", "--watchdog-s", "30"])
+    daemon_args = daemon.parse_args(["--station", str(path), "--no-preflight", "--watchdog-s", "30"])
 
     served: dict[str, StationDaemon] = {}
     try:

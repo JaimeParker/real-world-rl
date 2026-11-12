@@ -28,7 +28,7 @@ FRAME_POINT_FLAGS = ("--origin", "--x-axis", "--y-axis")
 
 def frame_candidate(args, station_path: Path) -> tuple[dict, dict]:
     """A validated task_frame from 16 row-major values or three captured points, plus point quality."""
-    from robot_infra.devices.workspace import task_transform
+    from real_world_rl.devices.workspace import task_transform
     point_names = dict(zip(FRAME_POINT_FLAGS, (args.origin, args.x_axis, args.y_axis)))
     if args.base_T_frame is not None:
         if any(name is not None for name in point_names.values()):
@@ -106,7 +106,7 @@ def frame_command(args, config, path, raw, document, node, ctx):
 
 
 def workspace_command(args, config, path, raw, document, node, ctx):
-    from robot_infra.devices.workspace import Workspace, task_transform
+    from real_world_rl.devices.workspace import Workspace, task_transform
     from real_world_rl.teleop.workspace_points import point_set, candidate_bounds
     import yaml
     if args.action == "frame":
@@ -159,9 +159,9 @@ def workspace_command(args, config, path, raw, document, node, ctx):
     if args.action == "validate":
         if config.workspace is None:
             raise CliError("no workspace configured", code=USAGE_EXIT_CODE)
-        from robot_infra.devices.safety import ArmSafety
+        from real_world_rl.devices.safety import ArmSafety
         safety = ArmSafety.from_config(config)
-        from robot_infra.devices.errors import SafetyViolation
+        from real_world_rl.devices.errors import SafetyViolation
         try:
             safety.require_pose_inside(args.pose)
         except SafetyViolation as error:

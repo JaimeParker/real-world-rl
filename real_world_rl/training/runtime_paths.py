@@ -71,7 +71,7 @@ def learner_experiment_kwargs(env, checkpoint_dir=None):
 
 
 def actor_control_hz(args):
-    """The robot env config owns pacing for robot_infra-backed experiments."""
+    """The robot env config owns pacing for device-layer experiments."""
     resolve_control_frequency(args)
     if args.env_backend == "real_robot": return args.real_robot.control_hz
     if args.env_backend == "real_robot_bimanual": return args.real_robot_bimanual.left.control_hz

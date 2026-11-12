@@ -5,12 +5,12 @@ import signal
 
 import pytest
 
-import robot_infra.devices.claims as claims
-import robot_infra.server.daemon as daemon
-from robot_infra.devices.robots.franka import FrankaRobot
-from robot_infra.discovery import enumerate as probes
-from robot_infra.doctor.checks import CheckResult
-from robot_infra.server.transport import Transport
+import real_world_rl.devices.claims as claims
+import real_world_rl.server.daemon as daemon
+from real_world_rl.devices.robots.franka import FrankaRobot
+from real_world_rl.discovery import enumerate as probes
+from real_world_rl.doctor.checks import CheckResult
+from real_world_rl.server.transport import Transport
 
 _FAKE_FRANKA_YAML = """\
 robot:
@@ -57,7 +57,7 @@ def stub_transport(monkeypatch):
 
 def test_build_daemon_does_not_serve(config_path, stub_transport):
     service, transport = daemon.build_daemon(
-        ["--config", config_path, "--no-preflight", "--bind", "127.0.0.1:0", "--watchdog-s", "0.25"]
+        ["--station", config_path, "--no-preflight", "--bind", "127.0.0.1:0", "--watchdog-s", "0.25"]
     )
     try:
         assert isinstance(service.robot, FrankaRobot)
@@ -70,7 +70,7 @@ def test_build_daemon_does_not_serve(config_path, stub_transport):
 
 
 def test_jpeg_quality_stored_on_service(config_path, stub_transport):
-    service, _ = daemon.build_daemon(["--config", config_path, "--no-preflight", "--jpeg-quality", "80"])
+    service, _ = daemon.build_daemon(["--station", config_path, "--no-preflight", "--jpeg-quality", "80"])
     service.close()
     assert service.jpeg_quality == 80
 
@@ -84,14 +84,14 @@ def test_jpeg_quality_reaches_service_constructor(config_path, stub_transport, m
         return real_service(robot, **kwargs)
 
     monkeypatch.setattr(daemon, "RobotService", spy)
-    service, _ = daemon.build_daemon(["--config", config_path, "--no-preflight", "--jpeg-quality", "80"])
+    service, _ = daemon.build_daemon(["--station", config_path, "--no-preflight", "--jpeg-quality", "80"])
     service.close()
     assert received["jpeg_quality"] == 80
 
 
 def test_build_daemon_with_grpc_transport(config_path):
-    grpc_transport = pytest.importorskip("robot_infra.server.transport.grpc_transport")
-    service, transport = daemon.build_daemon(["--config", config_path, "--no-preflight", "--bind", "127.0.0.1:0"])
+    grpc_transport = pytest.importorskip("real_world_rl.server.transport.grpc_transport")
+    service, transport = daemon.build_daemon(["--station", config_path, "--no-preflight", "--bind", "127.0.0.1:0"])
     try:
         assert isinstance(transport, grpc_transport.GrpcTransport)
         transport.start(service, "127.0.0.1:0")
@@ -101,7 +101,7 @@ def test_build_daemon_with_grpc_transport(config_path):
 
 
 def test_main_serves_and_cleans_up(config_path, stub_transport, capsys):
-    assert daemon.main(["--config", config_path, "--no-preflight", "--bind", "127.0.0.1:0", "--token", "t"]) == 0
+    assert daemon.main(["--station", config_path, "--no-preflight", "--bind", "127.0.0.1:0", "--token", "t"]) == 0
     out = capsys.readouterr().out
     assert "serving franka 'franka' on 127.0.0.1:0 (token required)" in out
     assert "franka (franka)" in out
@@ -114,7 +114,7 @@ def test_sigterm_stops_transport_and_restores_handler(config_path, monkeypatch):
     previous = signal.getsignal(signal.SIGTERM)
     transport = StubTransport(on_serve=lambda: signal.raise_signal(signal.SIGTERM))
     monkeypatch.setattr(daemon, "_make_transport", lambda name: transport)
-    assert daemon.main(["--config", config_path, "--no-preflight"]) == 0
+    assert daemon.main(["--station", config_path, "--no-preflight"]) == 0
     assert transport.stops >= 2  # once from the handler, once in cleanup
     assert signal.getsignal(signal.SIGTERM) == previous
 
@@ -123,7 +123,7 @@ def test_failed_preflight_exits_1(config_path, stub_transport, monkeypatch, caps
     monkeypatch.setattr(
         daemon, "run_doctor", lambda config: [CheckResult(1, "sdk:arm", False, "boom", "install it")]
     )
-    assert daemon.main(["--config", config_path]) == 1
+    assert daemon.main(["--station", config_path]) == 1
     captured = capsys.readouterr()
     assert captured.out == ""
     out = captured.err
@@ -134,14 +134,14 @@ def test_failed_preflight_exits_1(config_path, stub_transport, monkeypatch, caps
 
 def test_passing_preflight_serves(config_path, stub_transport, monkeypatch, capsys):
     monkeypatch.setattr(daemon, "run_doctor", lambda config: [CheckResult(1, "sdk:arm", True, "fine")])
-    assert daemon.main(["--config", config_path]) == 0
+    assert daemon.main(["--station", config_path]) == 0
     assert "summary: 1 ok, 0 failed, 0 skipped" in capsys.readouterr().out
     assert stub_transport.served is not None
 
 
 def test_fake_config_starts_with_preflight(config_path, stub_transport, monkeypatch):
     monkeypatch.setattr(probes, "ping", lambda ip, timeout_s=1.0: False)
-    assert daemon.main(["--config", config_path, "--bind", "127.0.0.1:0"]) == 0
+    assert daemon.main(["--station", config_path, "--bind", "127.0.0.1:0"]) == 0
     assert stub_transport.served is not None
-    service, _ = daemon.build_daemon(["--config", config_path])
+    service, _ = daemon.build_daemon(["--station", config_path])
     service.close()

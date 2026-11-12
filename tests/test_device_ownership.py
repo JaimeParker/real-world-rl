@@ -42,7 +42,7 @@ def test_offline_rwrl_process_is_not_an_owner(tmp_path):
     (['rwrl', '--station=s.yaml', '--direct', 'gripper', 'open'], 'rwrl gripper'),
     (['rwrl', '--json', 'status'], 'rwrl status'),
     (['python', '-m', 'real_world_rl.cli', '--json', 'status'], 'real_world_rl.cli status'),
-    # The per-robot child of a multi-robot `rwrl daemon` (robot_infra.server.daemon.station_daemon_argv).
+    # The per-robot child of a multi-robot `rwrl daemon` (real_world_rl.server.daemon.station_daemon_argv).
     (['python', '-m', 'real_world_rl.cli', 'daemon', '--station', '/s.yaml', '--robot', 'left',
       '--watchdog-s', '0.5', '--transport', 'grpc'], 'real_world_rl.cli daemon'),
     # Process names of the previous release, still recognised while old daemons may run.
@@ -61,6 +61,8 @@ def test_offline_rwrl_process_is_not_an_owner(tmp_path):
     (['rwrl', 'deploy'], 'rwrl deploy'),
     (['rwrl', 'collect-reward'], 'rwrl collect-reward'),
     (['python', 'examples/record_real_demos.py'], 'record_real_demos.py'),
+    (['python', '-m', 'real_world_rl.server'], 'real_world_rl.server'),
+    (['python', '-m', 'real_world_rl.server.daemon'], 'real_world_rl.server.daemon'),
     (['python', '-m', 'robot_infra.server'], 'robot_infra.server'),
 ])
 def test_connecting_commands_are_controlling(argv, expected):

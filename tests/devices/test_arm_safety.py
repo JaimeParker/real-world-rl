@@ -9,13 +9,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import robot_infra.devices.claims as claims
-from robot_infra.devices import ArmHealth, ControlMode, DeviceFault, GripperConfig, Robot
-from robot_infra.devices.backends.arms.fake import FakeArm
-from robot_infra.devices.errors import DeviceError, SafetyViolation
-from robot_infra.devices.robots.franka import FrankaConfig, FrankaRobot
-from robot_infra.devices.robots.piper import PiperConfig
-from robot_infra.devices.safety import ArmSafety
+import real_world_rl.devices.claims as claims
+from real_world_rl.devices import ArmHealth, ControlMode, DeviceFault, GripperConfig, Robot
+from real_world_rl.devices.backends.arms.fake import FakeArm
+from real_world_rl.devices.errors import DeviceError, SafetyViolation
+from real_world_rl.devices.robots.franka import FrankaConfig, FrankaRobot
+from real_world_rl.devices.robots.piper import PiperConfig
+from real_world_rl.devices.safety import ArmSafety
 
 
 @pytest.mark.parametrize("values", [
@@ -41,9 +41,9 @@ def test_nonfinite_station_geometry_rejected_before_robot_connection(monkeypatch
 def test_direct_arm_safety_rejects_nonfinite_boundaries(values):
     with pytest.raises(ValueError):
         ArmSafety(**values)
-from robot_infra.server import RemoteRobot
-from robot_infra.server.service import RobotService
-from robot_infra.server.transport import LocalClient
+from real_world_rl.server import RemoteRobot
+from real_world_rl.server.service import RobotService
+from real_world_rl.server.transport import LocalClient
 
 BOX = [0.2, -0.3, 0.1, 0.6, 0.3, 0.5]
 JOINT_LIMITS = [[-1.0, 1.0]] * 7
@@ -391,7 +391,7 @@ def test_remote_arm_with_old_describe_has_no_limits(services):
 
 def test_grpc_round_trip_of_limits_and_safety_violation(services):
     pytest.importorskip("grpc")
-    from robot_infra.server.transport import GrpcTransport
+    from real_world_rl.server.transport import GrpcTransport
 
     service = services(watchdog_s=30.0)
     transport = GrpcTransport()

@@ -1,6 +1,6 @@
 # Two arms as one env (`real_robot_bimanual`)
 
-`--env-backend real_robot_bimanual` drives two `robot_infra` arms as one env: one
+`--env-backend real_robot_bimanual` drives two device-layer arms as one env: one
 `RealRobotEnv` per arm (each a local robot or its own daemon), stepped concurrently, with one
 action and one observation for both. `real_robot` (one arm) is unchanged.
 
@@ -77,7 +77,7 @@ Step `info` carries every arm's keys with its prefix (`left_tcp_pose`, `right_rt
 
 ## Running two daemons
 
-Each arm is served by its own `robot_infra` daemon with its own robot yaml and port (see the
+Each arm is served by its own robot daemon with its own robot yaml and port (see the
 device-layer guide, [How to Start](devices/README.md#how-to-start)), for example on two
 robot PCs or on one PC with two ports:
 
@@ -86,7 +86,7 @@ rwrl daemon --station left.yaml --bind 0.0.0.0:50051 --watchdog-s 5
 rwrl daemon --station right.yaml --bind 0.0.0.0:50052 --watchdog-s 5
 ```
 
-A robot_infra station yaml with a `robots:` list describes both arms of a station.
+A station yaml with a `robots:` list describes both arms of a station.
 `rwrl setup` writes it (the [setup wizard](devices/README.md#setup-wizard))
 and `rwrl daemon --watchdog-s 5` with no `--station` starts one daemon process per
 robot on the ports in the file's `daemon.bind` entries, so the two commands above are only needed
@@ -111,7 +111,7 @@ rwrl train hil_serl --role actor --config bimanual.yaml \
     --robot-teleop-action-mode joint_delta --teleop-event-device keyboard
 ```
 
-Two GELLOs on the actor's machine instead, with their options taken from the robot_infra station
+Two GELLOs on the actor's machine instead, with their options taken from the station
 yaml (`robots: {left, right}`, each with its `teleop:` section):
 
 ```bash
@@ -151,8 +151,8 @@ Add each arm's `token`, `cameras` and `image_size` (equal to the training run's)
 
 `tests/test_bimanual_station_smoke.py` runs the whole two-arm workflow on fakes: a station yaml
 with `robots: {left, right}` (fake arm, gripper, two cameras and a scripted `joint_abs` leader part
-per arm, a token on one daemon) loaded with `robot_infra.discovery.autoconfig.load_station`, each
-robot served by its own gRPC daemon (`robot_infra.server.daemon.build_daemon`, what
+per arm, a token on one daemon) loaded with `real_world_rl.discovery.autoconfig.load_station`, each
+robot served by its own gRPC daemon (`real_world_rl.server.daemon.build_daemon`, what
 `rwrl daemon` starts per robot) on loopback. Against those daemons it builds the
 `real_robot_bimanual` env through the backend registry (`remote` per arm, `joint_delta`, four
 `--obs.rgb` cameras) and runs, in order, what these commands run:

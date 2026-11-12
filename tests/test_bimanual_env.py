@@ -1,4 +1,4 @@
-"""BimanualRealRobotEnv over two robot_infra fake Frankas: config, spaces, action split,
+"""BimanualRealRobotEnv over two device-layer fake Frankas: config, spaces, action split,
 concurrent stepping, observation/info prefixes, truncation, failure propagation, contract."""
 from __future__ import annotations
 
@@ -18,10 +18,10 @@ from _bimanual_fakes import (
     fake_franka,
 )
 
-import robot_infra.devices.claims as claims
-from robot_infra.server import RemoteRobot
-from robot_infra.server.service import RobotService
-from robot_infra.server.transport import LocalClient
+import real_world_rl.devices.claims as claims
+from real_world_rl.server import RemoteRobot
+from real_world_rl.server.service import RobotService
+from real_world_rl.server.transport import LocalClient
 
 from real_world_rl.envs.bimanual import BimanualRealRobotEnv, BimanualRealRobotEnvConfig
 from real_world_rl.envs.real_robot import RealRobotEnv

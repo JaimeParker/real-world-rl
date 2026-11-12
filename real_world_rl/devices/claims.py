@@ -1,0 +1,63 @@
+"""Advisory, node-local exclusive claims on device endpoints."""
+from __future__ import annotations
+
+import re
+from pathlib import Path
+from types import TracebackType
+from typing import TYPE_CHECKING
+
+import filelock
+
+from real_world_rl.devices.errors import DeviceBusy
+
+if TYPE_CHECKING:
+    from real_world_rl.devices.robot import Robot
+
+_DEFAULT_LOCK_DIR = Path.home() / ".cache" / "robot_infra" / "claims"
+
+
+def claim_key(robot: "Robot") -> str:
+    config = robot.config
+    address = getattr(config, "robot_ip", None) or getattr(config, "can_interface", None) or config.name
+    return f"{robot.ROBOT_TYPE}:{address}"
+
+
+class DeviceClaim:
+    """Advisory, node-local exclusive claim on a device endpoint (filelock, timeout=0)."""
+
+    def __init__(self, key: str, lock_dir: Path | None = None) -> None:
+        self.key = key
+        lock_dir = Path(lock_dir) if lock_dir is not None else _DEFAULT_LOCK_DIR
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        slug = re.sub(r"[^A-Za-z0-9_.-]", "_", key)
+        # thread_local=False: a daemon acquires and releases from different gRPC worker threads.
+        self._lock = filelock.FileLock(str(lock_dir / f"{slug}.lock"), timeout=0, thread_local=False)
+
+    def acquire(self) -> None:
+        try:
+            self._lock.acquire()
+        except filelock.Timeout:
+            raise DeviceBusy(
+                f"device '{self.key}' is claimed by another process",
+                hint=f"stop the other process using '{self.key}', or set `claim: false` in the robot config",
+                device=self.key,
+            ) from None
+
+    @property
+    def held(self) -> bool:
+        return self._lock.is_locked
+
+    def release(self) -> None:
+        self._lock.release()
+
+    def __enter__(self) -> "DeviceClaim":
+        self.acquire()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        self.release()

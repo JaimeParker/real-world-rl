@@ -1,8 +1,8 @@
 import threading
 import time
 
-from robot_infra.devices.stop_sampling import StopTraceRecorder
-from robot_infra.devices.stop_trace import evaluate_stop_trace
+from real_world_rl.devices.stop_sampling import StopTraceRecorder
+from real_world_rl.devices.stop_trace import evaluate_stop_trace
 
 
 def sample():

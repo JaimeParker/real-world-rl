@@ -13,8 +13,8 @@ from .errors import SUCCESS_EXIT_CODE
 def main():
     request = json.load(sys.stdin)
     with redirect_stdout(sys.stderr):
-        from robot_infra.devices import Robot
-        from robot_infra.doctor.checks import run_doctor
+        from real_world_rl.devices import Robot
+        from real_world_rl.doctor.checks import run_doctor
 
         config = Robot.from_dict(request["config"]).config
         # Always participate in device ownership even if a legacy config disables claims.

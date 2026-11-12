@@ -7,13 +7,13 @@ import sys
 
 import pytest
 
-import robot_infra.devices.backends.teleops as teleops_package
-from robot_infra.devices import SdkMissing, Teleop, TeleopConfig
-from robot_infra.devices.backends.teleops import gello as original_gello
-from robot_infra.devices.backends.teleops import gello_calibrate as original_calibrate
+import real_world_rl.devices.backends.teleops as teleops_package
+from real_world_rl.devices import SdkMissing, Teleop, TeleopConfig
+from real_world_rl.devices.backends.teleops import gello as original_gello
+from real_world_rl.devices.backends.teleops import gello_calibrate as original_calibrate
 
-GELLO_MODULE = "robot_infra.devices.backends.teleops.gello"
-CALIBRATE_MODULE = "robot_infra.devices.backends.teleops.gello_calibrate"
+GELLO_MODULE = "real_world_rl.devices.backends.teleops.gello"
+CALIBRATE_MODULE = "real_world_rl.devices.backends.teleops.gello_calibrate"
 OPTIONS = {
     "port": "/dev/ttyUSB0",
     "joint_ids": [1, 2, 3, 4, 5, 6, 7],
@@ -51,7 +51,7 @@ def test_connect_without_dynamixel_sdk_raises_sdk_missing_with_install_hint(with
 
 
 def test_calibration_cli_without_dynamixel_sdk_raises_sdk_missing(without_sdks):
-    from robot_infra.devices.backends.teleops.gello_calibrate import main
+    from real_world_rl.devices.backends.teleops.gello_calibrate import main
 
     def never_asked(prompt):
         raise AssertionError(f"prompted before the SDK check: {prompt}")

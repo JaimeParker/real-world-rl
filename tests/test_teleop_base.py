@@ -8,7 +8,7 @@ import types
 import numpy as np
 import pytest
 from _teleop_fakes import ContractEnv, FakeEnv
-from robot_infra.teleop.utils.telo_op_control_twist import TeleOpSample
+from real_world_rl.legacy.teleop.utils.telo_op_control_twist import TeleOpSample
 
 from real_world_rl.teleop import (
     LegacyTeleopAdapter,

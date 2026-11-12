@@ -7,11 +7,11 @@ import subprocess
 
 import pytest
 
-from robot_infra.devices import TeleopConfig
-from robot_infra.devices.robots.franka import FrankaConfig
-from robot_infra.doctor import checks, cli
-from robot_infra.doctor import probes as os_probes
-from robot_infra.doctor.checks import CheckResult, exit_code
+from real_world_rl.devices import TeleopConfig
+from real_world_rl.devices.robots.franka import FrankaConfig
+from real_world_rl.doctor import checks, cli
+from real_world_rl.doctor import probes as os_probes
+from real_world_rl.doctor.checks import CheckResult, exit_code
 
 
 @pytest.fixture
@@ -240,7 +240,7 @@ def test_spacemouse_permission_hint_installs_packaged_vendor_rules(tmp_path, mon
     monkeypatch.setattr(checks.os, "access", lambda path, mode: False)
     ok, message, hint = checks._hid_outcome(str(tmp_path / "hidraw*"))()
     assert not ok and "no read/write access" in message
-    assert "sudo cp robot_infra/setup/99-spacemouse.rules /etc/udev/rules.d/" in hint
+    assert "sudo cp real_world_rl/setup/99-spacemouse.rules /etc/udev/rules.d/" in hint
     assert 'sudo usermod -aG plugdev "$USER"' in hint
     assert "--reload-rules" in hint and "--subsystem-match=hidraw" in hint
     assert "log in again" in hint and "replug" in hint

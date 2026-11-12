@@ -6,7 +6,7 @@ import numpy as np
 import torch
 
 from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
-from robot_infra.teleop.utils.telo_op_control_twist import TeleOpSample
+from real_world_rl.legacy.teleop.utils.telo_op_control_twist import TeleOpSample
 
 
 class _FakeEnv(gym.Env):

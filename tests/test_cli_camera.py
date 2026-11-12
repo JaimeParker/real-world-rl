@@ -12,9 +12,9 @@ import pytest
 import yaml
 
 from real_world_rl.cli import connect, main
-from robot_infra.devices.base import Health
-from robot_infra.devices.camera import CameraConfig, Frame
-from robot_infra.devices.errors import DeviceFault
+from real_world_rl.devices.base import Health
+from real_world_rl.devices.camera import CameraConfig, Frame
+from real_world_rl.devices.errors import DeviceFault
 
 HEIGHT, WIDTH = 4, 6
 
@@ -321,11 +321,11 @@ def test_show_direct_mock_reads_the_fake_backend(camera_station, capsys):
 
 
 def test_show_daemon_reads_the_remote_camera(camera_station, capsys, monkeypatch):
-    from robot_infra.devices import Robot
-    from robot_infra.discovery.autoconfig import load_station
-    from robot_infra.server import remote
-    from robot_infra.server.service import RobotService
-    from robot_infra.server.transport.local import LocalClient
+    from real_world_rl.devices import Robot
+    from real_world_rl.discovery.autoconfig import load_station
+    from real_world_rl.server import remote
+    from real_world_rl.server.service import RobotService
+    from real_world_rl.server.transport.local import LocalClient
 
     service = RobotService(Robot.from_config(load_station(camera_station).select().config),
                            claim=False, watchdog_s=30.0)

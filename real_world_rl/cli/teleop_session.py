@@ -23,7 +23,7 @@ def run_session(args, ctx):
 
     if args.preset is None:
         raise CliError("teleop run requires --preset with home and task limits", code=USAGE_EXIT_CODE, required_fields=["--preset"])
-    if os.environ.get("ROBOT_INFRA_HEARTBEAT_FD"):
+    if os.environ.get("RWRL_HEARTBEAT_FD"):
         raise CliError("teleop run starts its own supervisor; invoke it directly", code=USAGE_EXIT_CODE)
     path, _, _, _, selected = station_document(args)
     config = selected.config
@@ -54,7 +54,7 @@ def run_session(args, ctx):
             raise CliError("daemon owns arm; omit --direct", code=USAGE_EXIT_CODE)
         robot = {"type": config.TYPE, **dataclasses.asdict(config)}
         if args.mock:
-            from robot_infra.doctor.checks import mocked_config
+            from real_world_rl.doctor.checks import mocked_config
             robot = {"type": config.TYPE, **dataclasses.asdict(mocked_config(config))}
         env.update(robot=robot, remote=None, token=None)
     settings = {**preset.document, "real_robot": env, "env_backend": "real_robot",

@@ -54,8 +54,8 @@ class RealWorldFrankaArgs:
     publish_freq: int = 100
 
     # "franka_real" (FrankaRealEnv over the HTTP bridge, ``--franka_real.*``),
-    # "real_robot" (any robot_infra robot, ``--real_robot.*``) or "real_robot_bimanual"
-    # (two robot_infra arms as one env, ``--real_robot_bimanual.{left,right}.*``).
+    # "real_robot" (any device-layer robot, ``--real_robot.*``) or "real_robot_bimanual"
+    # (two device-layer arms as one env, ``--real_robot_bimanual.{left,right}.*``).
     env_backend: Literal["franka_real", "real_robot", "real_robot_bimanual"] = "franka_real"
     real_robot: RealRobotEnvConfig = field(default_factory=RealRobotEnvConfig)
     real_robot_bimanual: BimanualRealRobotEnvConfig = field(default_factory=BimanualRealRobotEnvConfig)
@@ -176,7 +176,7 @@ class HilEnvArgs:
     # Yaml mapping merged into the --teleop-device source kwargs (after the ones derived from the
     # args above, so it overrides them): device options such as port/joint_ids/joint_offsets_rad/
     # joint_signs for gello, device_index/deadzone/invert_axes for spacemouse, hold_s, read_timeout_s. A
-    # robot_infra station yaml also works for gello: its teleop: options become the source kwargs.
+    # station yaml also works for gello: its teleop: options become the source kwargs.
     # For bimanual: per-arm sections keyed by arm name (left: {...}) plus common keys, or a station
     # yaml with robots: {left, right}.
     teleop_options_yaml: Optional[str] = None

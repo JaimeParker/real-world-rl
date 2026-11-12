@@ -84,14 +84,14 @@ def test_learning_extra_matches_the_submodule_version():
     assert f"rl_garden=={garden['version']}" in learning
 
 
-def test_one_distribution_ships_both_packages_and_the_setup_data():
+def test_one_package_ships_the_device_layer_and_the_setup_data():
     pyproject = load_pyproject(ROOT / "pyproject.toml")
     setuptools = pyproject["tool"]["setuptools"]
-    assert setuptools["packages"]["find"]["include"] == ["real_world_rl*", "robot_infra*"]
-    assert setuptools["package-data"]["robot_infra"] == ["setup/*.yaml", "setup/*.rules"]
-    assert list((ROOT / "robot_infra" / "setup").glob("*.yaml"))
-    assert list((ROOT / "robot_infra" / "setup").glob("*.rules"))
-    assert not (ROOT / "robot_infra" / "pyproject.toml").exists()
+    assert setuptools["packages"]["find"]["include"] == ["real_world_rl*"]
+    assert setuptools["package-data"] == {"real_world_rl": ["py.typed", "setup/*.yaml", "setup/*.rules"]}
+    assert list((ROOT / "real_world_rl" / "setup").glob("*.yaml"))
+    assert list((ROOT / "real_world_rl" / "setup").glob("*.rules"))
+    assert not (ROOT / "robot_infra").exists()
 
 
 def test_no_robot_infra_command_or_station_section_entry_points():
@@ -126,7 +126,7 @@ def test_installer_rejects_bad_arguments(tmp_path, args):
 
 def test_installer_requires_the_repository_root(tmp_path):
     (tmp_path / "pyproject.toml").touch()
-    (tmp_path / "robot_infra").mkdir()  # the package alone does not make a checkout
+    (tmp_path / "rl-garden").mkdir()  # the submodule alone does not make a checkout
     result = subprocess.run([str(INSTALLER)], cwd=tmp_path, capture_output=True, text=True)
     assert result.returncode != 0
     assert "repository root" in result.stderr
@@ -203,7 +203,7 @@ def test_default_installer_runs_mock_and_prints_hardware_next_step(installer_che
     assert [call["args"] for call in doctor_calls(installer_checkout)] == [calls[-1]]
     assert ["-m", "pip", "install", "-e", "./rl-garden", "-e", ".[learning,franka-gello,test]"] in calls
     assert not any("./robot_infra" in call for call in calls)
-    assert any("import rl_garden, robot_infra, real_world_rl" in " ".join(call) for call in calls)
+    assert any("import rl_garden, real_world_rl" in " ".join(call) for call in calls)
     assert "Next, configure local/station.yaml, then run from this repository root:" in result.stdout
     assert "rwrl doctor --station local/station.yaml" in result.stdout
 
@@ -249,7 +249,7 @@ def test_daemon_only_installs_franky_and_grpc_without_the_submodule_or_torch(ins
     assert installs == [["-m", "pip", "install", "-U", "pip"], ["-m", "pip", "install", "-e", ".[franky,grpc]"]]
     imports = [call for call in calls if call[:1] == ["-c"]]
     assert len(imports) == 1 and "rl_garden" not in imports[0][1]
-    assert "import robot_infra, real_world_rl" in imports[0][1]
+    assert "import real_world_rl.server, real_world_rl" in imports[0][1]
     assert calls[-1][:3] == ["doctor", "--mock", "--station"]
 
 

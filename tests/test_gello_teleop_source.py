@@ -12,7 +12,7 @@ from _leader_teleop_fakes import (
     executed_joints,
 )
 from _teleop_fakes import ContractEnv
-from robot_infra.devices.teleop import Teleop
+from real_world_rl.devices.teleop import Teleop
 
 from real_world_rl.envs.wrappers.intervention import (
     InterventionWrapper,

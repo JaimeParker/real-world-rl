@@ -88,7 +88,7 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
 
     The leader is either ``teleop`` (a ``Teleop``/``RemoteTeleop`` part or a zero-arg resolver
     returning one, as for ``TeleopPartSource``; the caller owns the part) or the teleop part of
-    ``leader_robot``, a robot_infra robot this source owns: ``start()`` connects it and
+    ``leader_robot``, a device-layer robot this source owns: ``start()`` connects it and
     ``close()`` disconnects it (a ``RemoteRobot`` for a stub-robot daemon on the robot host, or a
     local robot built from a yaml). ``teleop_contract=(action_mode, arm_action_dim,
     has_gripper)`` optionally pins what the leader must declare; every resolved part must be
@@ -260,15 +260,15 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
         if leader is not None:
             return cls(leader, **kwargs)
         if remote_address is not None:
-            from robot_infra.server import RemoteRobot, RemoteRobotConfig
+            from real_world_rl.server import RemoteRobot, RemoteRobotConfig
 
             robot = RemoteRobot(
                 RemoteRobotConfig(name=remote_name, address=remote_address, token=remote_token)
             )
         else:
-            import robot_infra.devices.backends  # noqa: F401  (registers backends; SDK imports are lazy)
-            import robot_infra.devices.robots  # noqa: F401  (registers robot types)
-            from robot_infra.devices import Robot
+            import real_world_rl.devices.backends  # noqa: F401  (registers backends; SDK imports are lazy)
+            import real_world_rl.devices.robots  # noqa: F401  (registers robot types)
+            from real_world_rl.devices import Robot
 
             robot = Robot.from_yaml(robot_yaml)
         return cls(leader_robot=robot, **kwargs)
@@ -289,7 +289,7 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
     def reset(self) -> None:
         """After the env reset: the tracker holds the follower's pose, the next intervened poll
         is a take-over, and the leader's latched events are dropped."""
-        from robot_infra.devices.errors import DeviceNotConnected
+        from real_world_rl.devices.errors import DeviceNotConnected
 
         self._previously_requested = False
         self._needs_new_takeover = False
@@ -520,7 +520,7 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
 
     @staticmethod
     def _device_fault(message: str, teleop: Any = None) -> Exception:
-        from robot_infra.devices.errors import DeviceFault
+        from real_world_rl.devices.errors import DeviceFault
 
         return DeviceFault(
             message,

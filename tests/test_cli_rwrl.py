@@ -40,7 +40,7 @@ def station(tmp_path):
 
 @pytest.fixture
 def built_robots(monkeypatch):
-    from robot_infra.devices import Robot
+    from real_world_rl.devices import Robot
 
     original = Robot.from_config
     robots = []
@@ -125,7 +125,7 @@ def test_mock_replaces_sdk_backends(station, capsys, built_robots):
 
 
 def test_float32_device_state(station, capsys, monkeypatch):
-    from robot_infra.devices.backends.arms.fake import FakeArm
+    from real_world_rl.devices.backends.arms.fake import FakeArm
 
     original = FakeArm.read_state
 
@@ -140,11 +140,11 @@ def test_float32_device_state(station, capsys, monkeypatch):
 
 @pytest.fixture
 def daemon(station, monkeypatch):
-    from robot_infra.devices import Robot
-    from robot_infra.discovery.autoconfig import load_station
-    from robot_infra.server import remote
-    from robot_infra.server.service import RobotService
-    from robot_infra.server.transport.local import LocalClient
+    from real_world_rl.devices import Robot
+    from real_world_rl.discovery.autoconfig import load_station
+    from real_world_rl.server import remote
+    from real_world_rl.server.service import RobotService
+    from real_world_rl.server.transport.local import LocalClient
 
     config = load_station(station).select().config
     service = RobotService(Robot.from_config(config), claim=False, watchdog_s=30.0)
@@ -276,8 +276,8 @@ def test_no_gripper_and_no_home(station, capsys):
 
 
 def test_device_fault_is_clean_and_disconnects(station, capsys, monkeypatch):
-    from robot_infra.devices import DeviceFault
-    from robot_infra.devices.backends.arms.fake import FakeArm
+    from real_world_rl.devices import DeviceFault
+    from real_world_rl.devices.backends.arms.fake import FakeArm
 
     closed = []
     original_release = FakeArm._release
@@ -302,7 +302,7 @@ def test_device_fault_is_clean_and_disconnects(station, capsys, monkeypatch):
 
 
 def test_failed_connect_still_disconnects(station, capsys, monkeypatch, built_robots):
-    from robot_infra.devices import Robot
+    from real_world_rl.devices import Robot
 
     calls = []
 
@@ -327,17 +327,17 @@ def test_doctor_forwarding(station, capsys):
 
 
 @pytest.mark.parametrize("command,module", [
-    ("setup", "robot_infra.setup.command"),
-    ("daemon", "robot_infra.server.daemon"), ("supervise", "robot_infra.supervise.supervisor"),
+    ("setup", "real_world_rl.setup.command"),
+    ("daemon", "real_world_rl.server.daemon"), ("supervise", "real_world_rl.supervise.supervisor"),
 ])
 def test_native_subcommand_uses_same_argv_and_implementation(monkeypatch, command, module):
     from importlib import import_module
-    from robot_infra.cli.command import Context
+    from real_world_rl.cli.command import Context
 
     implementation = import_module(module)
     argv = {
-        "setup": ["--from", "S", "--mock"],
-        "daemon": ["--config", "S", "--robot", "R"],
+        "setup": ["--station", "S", "--mock"],
+        "daemon": ["--station", "S", "--robot", "R"],
         "supervise": ["--grace-s", "1", "--", "python", "--json"],
     }[command]
     seen = []
@@ -369,7 +369,7 @@ def test_global_doctor_options_reach_context(monkeypatch):
 
 
 def test_missing_station_and_usage(capsys, monkeypatch, tmp_path):
-    from robot_infra.discovery import autoconfig
+    from real_world_rl.discovery import autoconfig
 
     def missing(explicit):
         raise FileNotFoundError("no station found")
@@ -398,11 +398,11 @@ def test_module_help_and_lazy_package_exports():
 import importlib.abc
 import runpy
 import sys
+DEVICE_LAYER = [['real_world_rl', name] for name in ('devices', 'server', 'discovery', 'setup', 'supervise', 'doctor', 'legacy')]
 class NoHeavyImports(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
         if (fullname.split('.')[0] in {'torch', 'rl_garden', 'numpy', 'yaml'}
-                or (fullname.startswith('robot_infra.') and fullname != 'robot_infra.cli'
-                    and not fullname.startswith('robot_infra.cli.'))):
+                or fullname.split('.')[:2] in DEVICE_LAYER):
             raise AssertionError('heavy import: ' + fullname)
 sys.meta_path.insert(0, NoHeavyImports())
 import real_world_rl

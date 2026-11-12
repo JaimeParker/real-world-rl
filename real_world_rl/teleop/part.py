@@ -1,4 +1,4 @@
-"""Adapts a robot_infra ``Teleop`` part (local ``Teleop`` or ``RemoteTeleop``) to the
+"""Adapts a device-layer ``Teleop`` part (local ``Teleop`` or ``RemoteTeleop``) to the
 ``TeleopSource`` that ``InterventionWrapper`` consumes (registered as ``device="robot"``).
 
 The teleop's arm action is mapped into the env's ``[-1, 1]`` action space:
@@ -57,7 +57,7 @@ class TeleopContract(NamedTuple):
 def teleop_contract_of(teleop: Any) -> TeleopContract:
     """Declaration of a ``Teleop`` or ``RemoteTeleop`` (``action_space``/``has_gripper``/``action_dim``)."""
     action_mode = getattr(teleop, "action_space", None)
-    if action_mode is None:  # robot_infra predating the Teleop.action_space/has_gripper properties
+    if action_mode is None:  # device layers predating the Teleop.action_space/has_gripper properties
         return TeleopContract(str(teleop.ACTION_SPACE), int(teleop.action_dim), bool(teleop.HAS_GRIPPER))
     return TeleopContract(str(action_mode), int(teleop.action_dim), bool(teleop.has_gripper))
 
@@ -179,7 +179,7 @@ class TeleopPartSource(TeleopSource):
         contract = get_env_action_contract(env)
         if real_env is None or contract is None:
             raise ValueError(
-                "device='robot' needs a real_robot backend env (RealRobotEnv with a robot_infra "
+                "device='robot' needs a real_robot backend env (RealRobotEnv with a device-layer "
                 "robot); franka_real has no teleop part"
             )
         robot = real_env.robot
@@ -191,7 +191,7 @@ class TeleopPartSource(TeleopSource):
     def reset(self) -> None:
         """Drops events latched so far (the wrapper calls it after the env reset, so presses
         during homing are discarded). No-op while the robot is not connected."""
-        from robot_infra.devices.errors import DeviceNotConnected
+        from real_world_rl.devices.errors import DeviceNotConnected
 
         teleop = self._resolve()
         if teleop is None:
@@ -205,7 +205,7 @@ class TeleopPartSource(TeleopSource):
     def poll(self) -> TeleopReading:
         """One teleop read mapped into the env action space. Read failures propagate: silently
         dropping an intervention would put policy actions into the demo buffer."""
-        from robot_infra.devices.errors import DeviceFault
+        from real_world_rl.devices.errors import DeviceFault
 
         teleop = self._resolve()
         if teleop is None:
@@ -239,7 +239,7 @@ class TeleopPartSource(TeleopSource):
     def _check_declaration(self, teleop: Any) -> None:
         if teleop is self._verified:
             return
-        from robot_infra.devices.errors import DeviceFault
+        from real_world_rl.devices.errors import DeviceFault
 
         actual = teleop_contract_of(teleop)
         if actual != self._contract:
@@ -265,7 +265,7 @@ class TeleopPartSource(TeleopSource):
         if self._pads_gripper:
             return held_gripper_action(self._last_gripper_action)
         if sample.gripper is None:
-            from robot_infra.devices.errors import DeviceFault
+            from real_world_rl.devices.errors import DeviceFault
 
             raise DeviceFault(
                 "teleop declares a gripper but its sample carries none",

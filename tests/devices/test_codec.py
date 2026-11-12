@@ -4,8 +4,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from robot_infra.devices import ControlMode, DeviceError, DeviceFault, DeviceNotFound
-from robot_infra.server.codec import encode_jpeg, pack, unpack
+from real_world_rl.devices import ControlMode, DeviceError, DeviceFault, DeviceNotFound
+from real_world_rl.server.codec import encode_jpeg, pack, unpack
 
 
 def round_trip(obj):

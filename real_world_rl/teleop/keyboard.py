@@ -164,7 +164,7 @@ class KeyboardTeleopSource(OperatorKeySource):
         try:
             from pynput import keyboard
         except ImportError:
-            from robot_infra.devices.errors import SdkMissing
+            from real_world_rl.devices.errors import SdkMissing
 
             raise SdkMissing(
                 "the keyboard teleop source needs pynput",
@@ -184,7 +184,7 @@ class KeyboardTeleopSource(OperatorKeySource):
 
     def _check_alive(self) -> None:
         if self._listener is not None and not self._listener.is_alive():
-            from robot_infra.devices.errors import DeviceFault
+            from real_world_rl.devices.errors import DeviceFault
 
             raise DeviceFault(
                 "the keyboard listener stopped",

@@ -5,7 +5,7 @@ import io
 
 import pytest
 
-from robot_infra.cli.render import (
+from real_world_rl.cli.render import (
     STATUS_STYLES,
     pad_then_paint,
     paint,

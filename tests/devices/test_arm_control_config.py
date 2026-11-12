@@ -5,13 +5,13 @@ import sys
 import numpy as np
 import pytest
 
-from robot_infra.control import ArmControlConfig
-from robot_infra.devices.arm import ControlMode
-from robot_infra.devices.errors import DeviceFault, VersionMismatch
-from robot_infra.devices.robots.franka import FrankaConfig, FrankaRobot
-from robot_infra.server.remote import RemoteRobot
-from robot_infra.server.service import RobotService
-from robot_infra.server.transport.local import LocalClient
+from real_world_rl.devices.control import ArmControlConfig
+from real_world_rl.devices.arm import ControlMode
+from real_world_rl.devices.errors import DeviceFault, VersionMismatch
+from real_world_rl.devices.robots.franka import FrankaConfig, FrankaRobot
+from real_world_rl.server.remote import RemoteRobot
+from real_world_rl.server.service import RobotService
+from real_world_rl.server.transport.local import LocalClient
 
 
 def test_control_validation_and_roundtrip():
@@ -44,7 +44,7 @@ def test_station_control_and_remote_idle_configuration():
 
 
 def test_unsupported_backend_refuses_nonempty_but_empty_is_compatible():
-    from robot_infra.devices.backends.arms.fake import FakeArm
+    from real_world_rl.devices.backends.arms.fake import FakeArm
     class UnsupportedArm(FakeArm):
         CONTROL_CAPABILITIES = ()
     arm = UnsupportedArm()
@@ -55,7 +55,7 @@ def test_unsupported_backend_refuses_nonempty_but_empty_is_compatible():
 
 def test_franky_kwargs_reach_actual_tracker_and_old_sdk_is_rejected(monkeypatch):
     from test_franky_backend import make_fake_franky
-    from robot_infra.devices.backends.arms.franky import FrankyArm
+    from real_world_rl.devices.backends.arms.franky import FrankyArm
     log = []
     franky = make_fake_franky(log)
     captured = []
@@ -90,13 +90,13 @@ def test_franky_kwargs_reach_actual_tracker_and_old_sdk_is_rejected(monkeypatch)
 
 
 def test_control_import_is_torch_free():
-    result = subprocess.run([sys.executable, "-c", "import sys; import robot_infra.control; import robot_infra.server.service; assert 'torch' not in sys.modules; assert 'rl_garden' not in sys.modules"], capture_output=True, text=True)
+    result = subprocess.run([sys.executable, "-c", "import sys; import real_world_rl.devices.control; import real_world_rl.server.service; assert 'torch' not in sys.modules; assert 'rl_garden' not in sys.modules"], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
 
 
 def test_station_renderer_preserves_control_defaults():
-    from robot_infra.setup.render import render_station_yaml
-    from robot_infra.setup.wizard import ArmDraft, StationDraft
+    from real_world_rl.setup.render import render_station_yaml
+    from real_world_rl.setup.wizard import ArmDraft, StationDraft
     import yaml
     profile = {"translational_stiffness": 400, "max_delta_tau": .5}
     config = FrankaConfig(control=profile)
@@ -106,7 +106,7 @@ def test_station_renderer_preserves_control_defaults():
 
 
 def test_experiment_can_only_tighten_station_torque_and_error_limits():
-    from robot_infra.devices.errors import SafetyViolation
+    from real_world_rl.devices.errors import SafetyViolation
     robot = FrankaRobot(FrankaConfig(arm_backend="fake", gripper=None, claim=False,
                       control={"max_delta_tau": .5, "translational_error_clip": [.02] * 3}))
     robot.connect()
@@ -124,10 +124,10 @@ def test_experiment_can_only_tighten_station_torque_and_error_limits():
 
 def test_wizard_optional_control_input_roundtrips_and_from_preserves():
     import yaml
-    from robot_infra.setup.command import build_parser, answers_from_args
-    from robot_infra.setup.probes import mock_station_probe
-    from robot_infra.setup.wizard import ArmDraft, StationDraft, run_wizard, WizardError
-    from robot_infra.setup.render import render_station_yaml
+    from real_world_rl.setup.command import build_parser, answers_from_args
+    from real_world_rl.setup.probes import mock_station_probe
+    from real_world_rl.setup.wizard import ArmDraft, StationDraft, run_wizard, WizardError
+    from real_world_rl.setup.render import render_station_yaml
     previous = StationDraft([ArmDraft("arm", FrankaConfig(name="arm", cameras=[], teleop=None))])
     def never(prompt): pytest.fail("optional control input added a question: " + prompt)
     parsed = build_parser().parse_args(["--non-interactive", "--only", "daemon", "--control", "{max_delta_tau: 0.4}"])

@@ -1,8 +1,8 @@
 """The single-arm workflow end to end, hardware-free, the way a newcomer runs it.
 
-A robot_infra station yaml lists ONE fake Franka (fake arm, fake gripper, two fake cameras and
+A station yaml lists ONE fake Franka (fake arm, fake gripper, two fake cameras and
 a scripted fake ``joint_abs`` leader part standing in for the GELLO the daemon serves), served by
-a real daemon (``robot_infra.server.daemon.build_daemon`` over gRPC on a loopback port). Every
+a real daemon (``real_world_rl.server.daemon.build_daemon`` over gRPC on a loopback port). Every
 command parses the tutorial's flags over a ``hil.yaml`` preset that points at that daemon
 (``--config hil.yaml --teleop-device leader_arm --robot-teleop-action-mode joint_delta``); the
 operator's buttons are the leader part's own scripted events (no ``--teleop-event-device``, so no
@@ -28,14 +28,14 @@ from typing import Any, Iterator, Optional
 
 import numpy as np
 import pytest
-import robot_infra.devices.claims as claims
+import real_world_rl.devices.claims as claims
 import torch
 import yaml
 from _residual_fakes import FakeSyncClient
 from rl_garden.common.logger import Logger
 from rl_garden.encoders.config import EncoderConfig
-from robot_infra.devices.robots.franka import FRANKA_HOME_JOINTS
-from robot_infra.discovery.autoconfig import load_station
+from real_world_rl.devices.robots.franka import FRANKA_HOME_JOINTS
+from real_world_rl.discovery.autoconfig import load_station
 
 import real_world_rl.envs.backends.real_robot  # noqa: F401  (registers the backend)
 from real_world_rl.action_contract import (
@@ -169,7 +169,7 @@ def station(workdir) -> Iterator[StationDaemon]:
     """The station's robot served by its daemon on a loopback port (the yaml's ``daemon.bind``
     names the robot PC's port; the test binds an ephemeral one)."""
     pytest.importorskip("grpc")
-    from robot_infra.server import daemon
+    from real_world_rl.server import daemon
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(claims, "_DEFAULT_LOCK_DIR", workdir / "claims")
@@ -179,7 +179,7 @@ def station(workdir) -> Iterator[StationDaemon]:
         assert not loaded.multi_robot and list(loaded.robots) == [ROBOT_NAME]
         robot = loaded.select()
         assert robot.token == TOKEN
-        daemon_args = daemon.parse_args(["--config", str(path), "--no-preflight", "--watchdog-s", "30"])
+        daemon_args = daemon.parse_args(["--station", str(path), "--no-preflight", "--watchdog-s", "30"])
         service, transport = daemon.build_daemon(daemon_args, config=robot.config)
         try:
             transport.start(service, "127.0.0.1:0", token=robot.token)

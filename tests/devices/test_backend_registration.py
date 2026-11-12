@@ -1,9 +1,9 @@
-"""Importing robot_infra.devices registers all backends without any vendor SDK installed."""
+"""Importing real_world_rl.devices registers all backends without any vendor SDK installed."""
 from __future__ import annotations
 
 import pytest
 
-from robot_infra.devices import Arm, Camera, Gripper, Robot
+from real_world_rl.devices import Arm, Camera, Gripper, Robot
 
 SDK_BACKENDS = {"fake", "franky", "serl_http", "pyagxarm", "piper_sdk"}
 
@@ -27,7 +27,7 @@ def test_default_backends_build_without_sdk_or_hardware(robot_type):
 
 
 def test_teleop_backends_registered_and_buildable_without_sdk():
-    from robot_infra.devices import Teleop
+    from real_world_rl.devices import Teleop
 
     assert "fake" in Teleop.backends()
     robot = Robot.from_dict({"type": "piper", "teleop": {"backend": "fake"}})

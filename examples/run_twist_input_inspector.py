@@ -5,7 +5,7 @@ from typing import Literal, Optional
 import numpy as np
 import tyro
 
-from robot_infra.teleop.utils.telo_op_control_twist import EETwistTeleOpWrapper
+from real_world_rl.legacy.teleop.utils.telo_op_control_twist import EETwistTeleOpWrapper
 
 
 @dataclass

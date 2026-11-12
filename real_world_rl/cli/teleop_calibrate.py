@@ -90,7 +90,7 @@ class _UsageErrors:
 def calibrate_gello_teleop(args, ctx, station):
     """Guided GELLO calibration; unset flags fall back to the station teleop options."""
     from types import SimpleNamespace
-    from robot_infra.devices.backends.teleops import gello_calibrate
+    from real_world_rl.devices.backends.teleops import gello_calibrate
     path, raw, document, node, selected = station
     config = selected.config
     station_teleop = config.teleop

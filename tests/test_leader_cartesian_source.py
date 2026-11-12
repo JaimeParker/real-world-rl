@@ -18,14 +18,14 @@ import yaml
 from _teleop_fakes import ContractEnv
 from scipy.spatial.transform import Rotation
 
-import robot_infra.devices.backends  # noqa: F401  (registers the fake backends)
-import robot_infra.devices.claims as claims
-from robot_infra.devices import DeviceFault
-from robot_infra.devices.robots.franka import FrankaConfig, FrankaRobot
-from robot_infra.devices.teleop import EVENT_KEYS, TeleopConfig, TeleopSample
-from robot_infra.server import RemoteRobot
-from robot_infra.server.service import RobotService
-from robot_infra.server.transport import LocalClient
+import real_world_rl.devices.backends  # noqa: F401  (registers the fake backends)
+import real_world_rl.devices.claims as claims
+from real_world_rl.devices import DeviceFault
+from real_world_rl.devices.robots.franka import FrankaConfig, FrankaRobot
+from real_world_rl.devices.teleop import EVENT_KEYS, TeleopConfig, TeleopSample
+from real_world_rl.server import RemoteRobot
+from real_world_rl.server.service import RobotService
+from real_world_rl.server.transport import LocalClient
 
 from real_world_rl.action_contract import (
     describe_contract,

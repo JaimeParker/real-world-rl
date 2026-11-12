@@ -205,7 +205,7 @@ home_joints: [0.1, 0.0, 0.0, -1.5, 0.0, 1.5, 0.7]
 在该终端中先选择此文件，再运行 mock 命令：
 
 ```bash
-export ROBOT_INFRA_CONFIG=local/mock-station.yaml
+export RWRL_STATION=local/mock-station.yaml
 ```
 
 后续全部 mock 示例均在同一终端运行。此配置没有相机、teleop 或 daemon 声明，其 home 显示如下：

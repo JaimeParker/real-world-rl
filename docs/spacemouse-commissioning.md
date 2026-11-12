@@ -24,12 +24,12 @@ descriptor declares a multi-axis controller, so a keyboard or mouse receiver is 
 1. `teleop.options.device_table` of the station robot. A relative path is relative to the
    directory of the station file.
 2. `spacemouse-devices.yaml` next to the station file: `local/spacemouse-devices.yaml` for
-   `local/station.yaml`, `~/.config/robot_infra/spacemouse-devices.yaml` for the user-scope
+   `local/station.yaml`, `~/.config/rwrl/spacemouse-devices.yaml` (the pre-0.1.0 `~/.config/robot_infra/` is still read, last) for the user-scope
    station.
 3. Without a station (setup probes, a device built from options that name no table, and the
    host-level USB checks and udev rules of `rwrl doctor` when no station is found): the first
    existing of
-   `./local/spacemouse-devices.yaml` and `$XDG_CONFIG_HOME/robot_infra/spacemouse-devices.yaml`.
+   `./local/spacemouse-devices.yaml` and `$XDG_CONFIG_HOME/rwrl/spacemouse-devices.yaml` (then the pre-0.1.0 `$XDG_CONFIG_HOME/robot_infra/`).
 
 With none of these, only the built-in table applies. A local entry with the `hid_id` of a
 built-in entry replaces it; any other local entry is added.
@@ -143,7 +143,7 @@ the bounds. Points files saved in the old frame must be recaptured.
 base frame.
 
 `teleop_profiles` is a real_world_rl station section, not a `RobotConfig`
-field. The device-layer loaders in `robot_infra.discovery.autoconfig` parse strictly
+field. The device-layer loaders in `real_world_rl.discovery.autoconfig` parse strictly
 unless given sections: an unknown `teleop_profiles` key there fails with an error naming
 `real_world_rl.station.load_station`. Every `rwrl` command (the daemon, setup, discover
 and doctor included) and Python callers use `real_world_rl.station.load_station` (or `load_station_with_env`)
@@ -205,7 +205,7 @@ or the freshness of every axis in a split HID report.
 
 Input acquisitions and supervised CLI sessions save private `provenance.json`
 before opening input or launching control. It records Python source file hashes
-for `real_world_rl`, `robot_infra` and `rl_garden`, installed distribution names
+for `real_world_rl` and `rl_garden`, installed distribution names
 and versions, and a canonical configuration digest. Session records additionally
 hash station, preset, profile and resolved-config files. Paths do not affect a
 package's source digest; content edits and file renames do. This is pre-run

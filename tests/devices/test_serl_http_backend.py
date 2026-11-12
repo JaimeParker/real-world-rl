@@ -9,12 +9,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import numpy as np
 import pytest
 
-import robot_infra.devices.backends.arms.serl_http as arm_module
-import robot_infra.devices.backends.grippers.serl_http  # noqa: F401  (registers the gripper)
-from robot_infra.devices import Arm, ControlMode, DeviceFault, DeviceNotFound, Gripper
-from robot_infra.devices.backends.arms.serl_http import SerlHttpArm
-from robot_infra.devices.backends.grippers.serl_http import SerlHttpGripper
-from robot_infra.devices.robots.franka import FrankaConfig
+import real_world_rl.devices.backends.arms.serl_http as arm_module
+import real_world_rl.devices.backends.grippers.serl_http  # noqa: F401  (registers the gripper)
+from real_world_rl.devices import Arm, ControlMode, DeviceFault, DeviceNotFound, Gripper
+from real_world_rl.devices.backends.arms.serl_http import SerlHttpArm
+from real_world_rl.devices.backends.grippers.serl_http import SerlHttpGripper
+from real_world_rl.devices.robots.franka import FrankaConfig
 
 HOME = [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]
 

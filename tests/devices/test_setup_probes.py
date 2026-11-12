@@ -7,12 +7,12 @@ import types
 import numpy as np
 import pytest
 
-from robot_infra.devices.backends.cameras.realsense import RealSenseCamera
-from robot_infra.devices.backends.teleops import gello_calibrate
-from robot_infra.devices.backends.teleops.gello import DynamixelBus, GelloTeleop
-from robot_infra.devices.backends.teleops.spacemouse import SpaceMouseTeleop
-from robot_infra.discovery import enumerate as host_probes
-from robot_infra.setup import probes
+from real_world_rl.devices.backends.cameras.realsense import RealSenseCamera
+from real_world_rl.devices.backends.teleops import gello_calibrate
+from real_world_rl.devices.backends.teleops.gello import DynamixelBus, GelloTeleop
+from real_world_rl.devices.backends.teleops.spacemouse import SpaceMouseTeleop
+from real_world_rl.discovery import enumerate as host_probes
+from real_world_rl.setup import probes
 
 GELLO_PORT = "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FAKE-if00-port0"
 DEAD_PORT = "/dev/ttyUSB9"

@@ -1,4 +1,4 @@
-"""RealRobotEnv: a numpy gym.Env over any robot_infra ``Robot`` (local or daemon-served).
+"""RealRobotEnv: a numpy gym.Env over any device-layer ``Robot`` (local or daemon-served).
 
 Observation is a nested dict ``{"state": {field: float32}, "frames": {cam: uint8 HxWx3}}``;
 the rl-garden backend (``envs/backends/real_robot.py``) flattens it to ``state``/``rgb_<cam>``
@@ -51,11 +51,11 @@ def _state_field_shape(field: str, num_joints: int) -> tuple[int, ...]:
 def _build_robot(config: RealRobotEnvConfig):
     """Construct (never connect) the robot described by ``config``."""
     if config.robot is not None:
-        import robot_infra.devices.backends  # noqa: F401  (registers backends; SDK imports are lazy)
-        from robot_infra.devices import Robot
+        import real_world_rl.devices.backends  # noqa: F401  (registers backends; SDK imports are lazy)
+        from real_world_rl.devices import Robot
 
         return Robot.from_dict(config.robot)
-    from robot_infra.server import RemoteRobot, RemoteRobotConfig
+    from real_world_rl.server import RemoteRobot, RemoteRobotConfig
 
     return RemoteRobot(RemoteRobotConfig(address=config.remote, token=config.token))
 
@@ -133,7 +133,7 @@ class RealRobotEnv(gym.Env):
         self._last_obs: Optional[dict] = None
         self._last_send_time: Optional[float] = None
         self._elapsed_steps = 0
-        self._step_watchdog = None  # robot_infra StepWatchdog, built on the first reset when watchdog_s is set
+        self._step_watchdog = None  # device-layer StepWatchdog, built on the first reset when watchdog_s is set
         if config.cartesian_semantics == "serl":
             self._last_gripper_act = time.monotonic()
 
@@ -152,7 +152,7 @@ class RealRobotEnv(gym.Env):
         return camera_configs[cam].height, camera_configs[cam].width
 
     def _requested_spatial_contract(self):
-        from robot_infra.devices.workspace import spatial_contract
+        from real_world_rl.devices.workspace import spatial_contract
         local = self.config.robot or {}
         frame = self.config.task_frame if self.config.task_frame is not None else local.get("task_frame")
         workspace = self.config.workspace if self.config.workspace is not None else local.get("workspace")
@@ -176,7 +176,7 @@ class RealRobotEnv(gym.Env):
         self._validated = True
 
     def _validate_robot(self) -> None:
-        from robot_infra.devices.errors import DeviceFault
+        from real_world_rl.devices.errors import DeviceFault
 
         robot, config = self.robot, self.config
 
@@ -243,7 +243,7 @@ class RealRobotEnv(gym.Env):
     def _merge_device_safety(self, arm, fault) -> None:
         """Inherit the device layer's box/joint limits; an env limit looser than it is a fault."""
         device = getattr(arm, "safety_limits", None)  # None: no limits, or a daemon predating them
-        from robot_infra.devices.workspace import spatial_contract
+        from real_world_rl.devices.workspace import spatial_contract
         actual = spatial_contract((device or {}).get("workspace"), (device or {}).get("task_frame"))
         expected_workspace = self._spatial_contract.get("workspace")
         if expected_workspace is not None:
@@ -254,7 +254,7 @@ class RealRobotEnv(gym.Env):
             raise fault("configured workspace differs from the robot's enforced workspace",
                         "set real_robot.workspace/task_frame to match the station; do not weaken limits")
         if actual.get("workspace") is not None:
-            from robot_infra.devices.workspace import Workspace
+            from real_world_rl.devices.workspace import Workspace
             self._measured_workspace = Workspace(device["workspace"], device.get("task_frame"))
         if device is None:
             return
@@ -294,7 +294,7 @@ class RealRobotEnv(gym.Env):
                 )
 
     def _home_joints(self) -> np.ndarray:
-        from robot_infra.devices.errors import DeviceFault
+        from real_world_rl.devices.errors import DeviceFault
 
         home = self.config.home_joints
         if home is None:
@@ -325,7 +325,7 @@ class RealRobotEnv(gym.Env):
         if self.config.watchdog_s is None:
             return
         if self._step_watchdog is None:
-            from robot_infra.supervise import StepWatchdog
+            from real_world_rl.supervise import StepWatchdog
             self._step_watchdog = StepWatchdog(self.robot.arm, timeout_s=self.config.watchdog_s)
         self._step_watchdog.activate()
 
@@ -351,7 +351,7 @@ class RealRobotEnv(gym.Env):
 
     def _check_workspace_feedback(self, pose=None):
         """Latch measured violations and stop; never command a return to the box."""
-        from robot_infra.devices.errors import SafetyViolation
+        from real_world_rl.devices.errors import SafetyViolation
         if self._workspace_fault is not None:
             raise self._workspace_fault
         if self._measured_workspace is None:
@@ -377,7 +377,7 @@ class RealRobotEnv(gym.Env):
 
     def _reset_begin(self):
         self._closed = False
-        from robot_infra.devices.arm import ControlMode
+        from real_world_rl.devices.arm import ControlMode
         self._deactivate_step_watchdog()
         self._connect_and_validate()
         self._check_workspace_feedback()
@@ -393,7 +393,7 @@ class RealRobotEnv(gym.Env):
             self._observe(self.robot.get_observation())
 
     def _reset_finish(self):
-        from robot_infra.devices.arm import ControlMode
+        from real_world_rl.devices.arm import ControlMode
         self.robot.arm.set_control_mode(ControlMode.CARTESIAN_SERVO if self.config.action_mode == "cartesian_delta" else ControlMode.JOINT_SERVO)
         raw = self.robot.get_observation()
         self._elapsed_steps = 0
@@ -569,7 +569,7 @@ class RealRobotEnv(gym.Env):
     def _record_control_diagnostic(self, input_action, requested, limited, raw, *, kind="step", accepted=None):
         import json
         from scipy.spatial.transform import Rotation
-        from robot_infra.devices.workspace import quaternion_matrix
+        from real_world_rl.devices.workspace import quaternion_matrix
         if accepted is None:
             accepted = self.robot.arm.last_cartesian_target
         measured = np.asarray(raw["arm"]["tcp_pose"], dtype=float)
@@ -602,7 +602,7 @@ class RealRobotEnv(gym.Env):
 
     def _refresh_safety_clips(self) -> None:
         """Cumulative device-layer clip count; None when the robot cannot report it."""
-        from robot_infra.devices.errors import DeviceError
+        from real_world_rl.devices.errors import DeviceError
 
         try:
             self._safety_clips = int(self.robot.arm.health().safety_clips)
@@ -673,7 +673,7 @@ class RealRobotEnv(gym.Env):
         try:
             from PIL import Image
         except ImportError:
-            from robot_infra.devices.errors import SdkMissing
+            from real_world_rl.devices.errors import SdkMissing
 
             raise SdkMissing(
                 f"resizing camera frames {frame.shape[:2]} -> {size} needs Pillow",
@@ -789,7 +789,7 @@ class RealRobotEnv(gym.Env):
 
     @staticmethod
     def _validate_session_hold(arm):
-        from robot_infra.devices.errors import DeviceFault
+        from real_world_rl.devices.errors import DeviceFault
         if "accepted_cartesian_target_v1" not in getattr(arm, "safety_capabilities", ()):
             raise DeviceFault("session hold requires accepted_cartesian_target_v1",
                               hint="upgrade the backend/daemon before starting a hold session")
@@ -819,7 +819,7 @@ class RealRobotEnv(gym.Env):
             raise RuntimeError(f"cannot hold an unhealthy arm: {health}")
         raw = self.robot.arm.read_state()
         self._check_workspace_feedback(raw["tcp_pose"])
-        from robot_infra.devices.safety import ArmSafety
+        from real_world_rl.devices.safety import ArmSafety
         limits = self.robot.arm.safety_limits
         if limits:
             ArmSafety.from_dict(limits).require_pose_inside(target)

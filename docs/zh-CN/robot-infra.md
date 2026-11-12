@@ -125,7 +125,7 @@ source .venv/bin/activate
 udev 规则文件随包提供，路径为 `robot_infra.setup/99-spacemouse.rules`，以 `MODE="0664", GROUP="plugdev"` 允许访问厂商 `256f` 和 `046d` 的 hidraw 设备。在 NUC、仓库根目录、任意 shell（无需项目环境），具有 sudo 权限时一次性安装：
 
 ```bash
-sudo cp robot_infra/robot_infra/setup/99-spacemouse.rules /etc/udev/rules.d/
+sudo cp real_world_rl/setup/99-spacemouse.rules /etc/udev/rules.d/
 sudo usermod -aG plugdev "$USER"
 sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw
 ```
@@ -133,7 +133,7 @@ sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hi
 注销并重新登录，然后拔插设备。也可在 NUC 的任意目录、**项目环境激活**且具有 sudo 权限时，用以下命令复制随包提供的文件，再运行相同的加组/重载命令：
 
 ```bash
-sudo cp "$(python -c 'import robot_infra.setup, os; print(os.path.dirname(robot_infra.setup.__file__))')/99-spacemouse.rules" /etc/udev/rules.d/
+sudo cp "$(python -c 'import real_world_rl.setup, os; print(os.path.dirname(real_world_rl.setup.__file__))')/99-spacemouse.rules" /etc/udev/rules.d/
 ```
 
 完整安装范围见 [SpaceMouse 安装](teleop.md#spacemouse-installation-and-linux-permissions)。设备层的按钮电平与锁存按下事件仍不同于应用的接管/夹爪语义（见[第 7 步](#7-add-a-teleop-device)）。
@@ -247,7 +247,7 @@ cameras: []
 可以不接触硬件，构建机器人以检查文件：
 
 ```python
-from robot_infra.devices import Robot
+from real_world_rl.devices import Robot
 
 robot = Robot.from_yaml("robot.yaml")   # builds parts; does not connect
 print(robot.describe_text())
@@ -543,8 +543,8 @@ pip install -e '.[grpc]'
 ```
 
 ```python
-import robot_infra.server  # registers robot type "remote"
-from robot_infra.devices import ControlMode, Robot
+import real_world_rl.server  # registers robot type "remote"
+from real_world_rl.devices import ControlMode, Robot
 
 robot = Robot.from_dict({"type": "remote", "address": "robot-pc:50051", "token": "T"})
 robot.connect()                       # builds arm/gripper/cameras from the daemon's describe
@@ -565,9 +565,9 @@ robot.disconnect()
 - 单机无需 gRPC 时，可在同进程包装本地机器人：
 
   ```python
-  from robot_infra.devices import Robot
-  from robot_infra.server import RemoteRobot, RobotService
-  from robot_infra.server.transport import LocalClient
+  from real_world_rl.devices import Robot
+  from real_world_rl.server import RemoteRobot, RobotService
+  from real_world_rl.server.transport import LocalClient
 
   service = RobotService(Robot.from_yaml("robot.yaml"), watchdog_s=0.5)
   robot = RemoteRobot.from_client(LocalClient(service))   # same API as above, incl. watchdog
@@ -578,7 +578,7 @@ robot.disconnect()
 
   ```python
   import numpy as np
-  from robot_infra.devices import SafetyViolation
+  from real_world_rl.devices import SafetyViolation
 
   robot.arm.set_control_mode(ControlMode.JOINT_SERVO)
   robot.arm.servo_joints(np.full(7, 5.0))      # no error: clipped on the daemon, safety_clips += 1
@@ -602,7 +602,7 @@ robot.disconnect()
 
 ```python
 import numpy as np
-from robot_infra.devices import ControlMode, Robot
+from real_world_rl.devices import ControlMode, Robot
 
 robot = Robot.from_yaml("robot.yaml")
 robot.connect()
@@ -723,7 +723,7 @@ Connection (ABC)                 connect()/disconnect() lifecycle, owner borrowi
             └── Robot  [type registry]  config -> arm (+ gripper) (+ cameras group)
                 ├── FrankaRobot "franka"   (FrankaConfig)
                 ├── PiperRobot  "piper"    (PiperConfig)
-                └── RemoteRobot "remote"   (RemoteRobotConfig; registered by importing robot_infra.server)
+                └── RemoteRobot "remote"   (RemoteRobotConfig; registered by importing real_world_rl.server)
 
 Robot PC:   Robot ── RobotService (method table, watchdog, DeviceClaim) ── GrpcTransport
 GPU side:   RemoteRobot ── GrpcClient (msgpack over gRPC, token metadata, read-only retry)
@@ -824,6 +824,6 @@ docker exec <container> bash -lc 'cd <checkout>/robot_infra && python -m pytest 
 
 以下模块早于设备层，为已有用户保留。后续计划见 [`docs/robot-infra-roadmap.md`](../devices/robot-infra-roadmap.md)。
 
-- **`controller/`**：纯 torch 笛卡尔阻抗与姿态控制器位于 `core/`、`adapters/`，经 `controller/simulator/maniskill/` 封装用于 GPU 批量模拟，需要 `sim`。详见 [`robot_infra/controller/README.md`](../../robot_infra/controller/README.md)。
+- **`controller/`**：纯 torch 笛卡尔阻抗与姿态控制器位于 `core/`、`adapters/`，经 `controller/simulator/maniskill/` 封装用于 GPU 批量模拟，需要 `sim`。详见 [`real_world_rl/legacy/controller/README.md`](../../real_world_rl/legacy/controller/README.md)。
 - **`controller/real/franka_bridge.py`** 与 **`gripper_server.py`**：转发到 ROS1 `serl_franka_controllers` 阻抗控制器和 Franka Hand 的 Flask/HTTP 服务，`serl_http` 是其客户端。ROS 机器运行 `python -m robot_infra.controller.real.franka_bridge --robot_ip <ip> --port 5000`，需要 `real`，ROS1 另装，细节见模块说明。
 - **`teleop/`**：旧设备层之前的遥操作，包括使用旧 `pyspacemouse` `read_all()` API 和 `real` 组的 `teleop/spacemouse/`、经 ZeroMQ 接收 Pico 速度的 `teleop/utils/` 与 `teleop/examples/`。[第 7 步](#7-add-a-teleop-device)的 `Teleop` 部件已替代旧 SpaceMouse。Pico 路线尚未迁移，`real-world-rl` 的 `--teleop-device pico` 仍导入这些模块，因此继续保留。

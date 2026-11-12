@@ -15,7 +15,7 @@ teleop:
   backend: gello              # needs the gello extra: pip install -e ".[gello]"
   hold_s: 0.0
   options:                    # every key shown; the calibration CLI prints this block:
-                              #   rwrl gello-calibrate --port ... --joint-ids 1 2 3 4 5 6 7 --gripper-id 8
+                              #   rwrl teleop calibrate --backend gello --port ... --joint-ids 1 2 3 4 5 6 7 --gripper-id 8
     port: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_XXXXXXXX-if00-port0  # required; or /dev/ttyUSB0 (user in the dialout group)
     baudrate: 57600           # default 57600; must match the servos, never written to EEPROM
     joint_ids: [1, 2, 3, 4, 5, 6, 7]                       # required: servo ids of the arm joints

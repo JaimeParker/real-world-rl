@@ -304,7 +304,7 @@ def test_silri_seed_demo_preserves_partial_human_masks(tmp_path):
 
 
 def test_bundle_initial_snapshot_retains_effective_sdk_and_actor_rejects_before_home(tmp_path, monkeypatch):
-    import robot_infra.devices.claims as claims
+    import real_world_rl.devices.claims as claims
     from test_tasks_and_preprocess import single
     from real_world_rl.envs.real_robot import RealRobotVectorEnv
     from real_world_rl.envs.wrappers.experiment import apply_experiment_contract

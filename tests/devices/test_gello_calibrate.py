@@ -6,10 +6,10 @@ import numpy as np
 import pytest
 import yaml
 
-from robot_infra.devices import TeleopConfig
-from robot_infra.devices.backends.teleops import gello as gello_backend
-from robot_infra.devices.backends.teleops import gello_calibrate as calibrate
-from robot_infra.devices.backends.teleops.gello import (
+from real_world_rl.devices import TeleopConfig
+from real_world_rl.devices.backends.teleops import gello as gello_backend
+from real_world_rl.devices.backends.teleops import gello_calibrate as calibrate
+from real_world_rl.devices.backends.teleops.gello import (
     GelloTeleop,
     joint_positions_from_raw,
 )

@@ -10,6 +10,9 @@ import subprocess
 
 # Programs whose whole process holds the hardware connection.
 CONTROL_PROGRAMS = {
+    "real_world_rl.server",
+    "real_world_rl.server.daemon",
+    # Pre-0.1.0 module names, recognised for one release so an old running daemon still counts.
     "robot_infra.server",
     "robot_infra.server.daemon",
     "record_real_demos.py",

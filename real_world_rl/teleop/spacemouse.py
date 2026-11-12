@@ -55,10 +55,10 @@ import numpy as np
 
 from real_world_rl.teleop.input_frame import rotate_input, diagnostic_input, input_sample_diagnostics
 
-from robot_infra.devices.backends.teleops import (
+from real_world_rl.devices.backends.teleops import (
     spacemouse as _spacemouse_backend,  # registers "spacemouse"
 )
-from robot_infra.devices.teleop import Teleop, TeleopConfig
+from real_world_rl.devices.teleop import Teleop, TeleopConfig
 
 from real_world_rl.action_contract import (
     LEGACY_ACTION_CONTRACT,
@@ -281,7 +281,7 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
     def reset(self) -> None:
         """After the env reset: handed back, the tracker holds the follower's pose, the button
         levels of the next read are the baseline, and the device's latched presses are dropped."""
-        from robot_infra.devices.errors import DeviceNotConnected
+        from real_world_rl.devices.errors import DeviceNotConnected
 
         self._driving = False
         self._previously_driving = False
@@ -450,7 +450,7 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
 
     @staticmethod
     def _device_fault(message: str) -> Exception:
-        from robot_infra.devices.errors import DeviceFault
+        from real_world_rl.devices.errors import DeviceFault
 
         return DeviceFault(
             message,

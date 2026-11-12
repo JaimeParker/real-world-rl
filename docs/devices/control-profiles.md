@@ -17,7 +17,7 @@ These are illustrative settings. Choose and validate values for the actual
 payload, tool, task and installed SDK before operating hardware. Automated tests
 exercise fake SDKs and local RPC; they do not measure robot stability.
 
-`robot_infra.control.ArmControlConfig` validates finite values and vector sizes
+`real_world_rl.devices.control.ArmControlConfig` validates finite values and vector sizes
 without importing torch. Cartesian gains use the tracker’s scalar translational
 and rotational stiffness keywords, a six-axis damping vector, and three-axis
 error clips. Joint control has separate `joint_stiffness` and `joint_damping`

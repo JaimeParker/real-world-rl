@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from robot_infra.devices.backends.arms._rotations import (
+from real_world_rl.devices.backends.arms._rotations import (
     quat_xyzw_to_rpy,
     rpy_to_matrix,
     rpy_to_quat_xyzw,

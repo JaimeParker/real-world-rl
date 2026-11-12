@@ -8,7 +8,7 @@ import torch
 import gymnasium as gym
 from gymnasium import spaces
 from _bimanual_fakes import bimanual_config, fake_franka
-import robot_infra.devices.claims as claims
+import real_world_rl.devices.claims as claims
 from real_world_rl.tasks import TaskConfig, ResetConfig
 from real_world_rl.tasks.outcome import TaskOutcomeWrapper
 from real_world_rl.envs.real_robot import RealRobotEnv, RealRobotVectorEnv, RealRobotEnvConfig
@@ -81,7 +81,7 @@ def test_invalid_right_arm_action_rejected_before_either_arm_command(monkeypatch
 
 
 def test_invalid_right_station_boundaries_prevent_both_connections(monkeypatch):
-    from robot_infra.devices import Robot
+    from real_world_rl.devices import Robot
     config = bimanual_config()
     config.right.robot["safety_box"] = [0, 0, 0, float("nan"), 1, 1]
     connections = []
@@ -93,13 +93,13 @@ def test_invalid_right_station_boundaries_prevent_both_connections(monkeypatch):
 
 def test_wizard_profile_reaches_real_fake_backend_reset():
     import yaml
-    from robot_infra.devices.robots.franka import FrankaConfig
-    from robot_infra.devices import GripperConfig
-    from robot_infra.setup.command import build_parser, answers_from_args
-    from robot_infra.setup.probes import mock_station_probe
-    from robot_infra.setup.wizard import ArmDraft, StationDraft, run_wizard
-    from robot_infra.setup.render import render_station_yaml
-    from robot_infra.discovery.autoconfig import parse_station
+    from real_world_rl.devices.robots.franka import FrankaConfig
+    from real_world_rl.devices import GripperConfig
+    from real_world_rl.setup.command import build_parser, answers_from_args
+    from real_world_rl.setup.probes import mock_station_probe
+    from real_world_rl.setup.wizard import ArmDraft, StationDraft, run_wizard
+    from real_world_rl.setup.render import render_station_yaml
+    from real_world_rl.discovery.autoconfig import parse_station
     prior = StationDraft([ArmDraft("arm", FrankaConfig(name="arm", arm_backend="fake",
                          gripper=GripperConfig(backend="fake"), claim=False, cameras=[], teleop=None))])
     parsed = build_parser().parse_args(["--non-interactive", "--only", "daemon",
@@ -470,7 +470,7 @@ def test_deploy_accepts_a_relocated_or_retrained_arm_classifier_before_connectio
     from real_world_rl.action_contract import save_experiment_metadata
     from real_world_rl.envs.bimanual import BimanualRealRobotEnvConfig
     import rl_garden.models.reward.success.model as classifier_module
-    from robot_infra.devices import Robot
+    from real_world_rl.devices import Robot
     monkeypatch.setattr(classifier_module, "load_classifier_fn", lambda *a, **k: lambda obs: torch.ones(1))
     original, moved = tmp_path / "original.pt", tmp_path / "moved.pt"
     original.write_bytes(b"same classifier")

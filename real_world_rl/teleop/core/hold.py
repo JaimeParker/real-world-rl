@@ -9,8 +9,8 @@ from typing import Any, Callable, Mapping, Optional
 import numpy as np
 import torch
 from real_world_rl.action_contract import LEGACY_ACTION_CONTRACT, get_env_action_contract, num_arms_of, num_grippers_of
-from real_world_rl.teleop.bimanual import find_bimanual_env, normalized_joint_target
-from real_world_rl.teleop.part import _find_last_observation_owner
+from real_world_rl.teleop.core.bimanual import find_bimanual_env, normalized_joint_target
+from real_world_rl.teleop.core.part import _find_last_observation_owner
 HoldActionFn = Callable[[Any], torch.Tensor]
 
 _CARTESIAN_ARM_DIM = 6
@@ -104,11 +104,11 @@ class CartesianHold(HoldPolicy):
 
     def _bind(self) -> tuple:
         if self._binding is None:
-            from real_world_rl.teleop.cartesian_tracker import (
+            from real_world_rl.teleop.core.targets.cartesian_tracker import (
                 CartesianTargetTracker,
                 CartesianTrackerConfig,
             )
-            from real_world_rl.teleop.leader_cartesian import follower_pose_from_env
+            from real_world_rl.teleop.leader.cartesian import follower_pose_from_env
 
             getter, scales = follower_pose_from_env(self._env, get_env_action_contract(self._env))
             xyz_scale_m, rot_scale_rad = (float(scale) for scale in scales)
@@ -164,9 +164,9 @@ def shared_cartesian_tracker(env: Any):
     """The ``CartesianTargetTracker`` of the ``leader_cartesian`` or ``spacemouse`` source (also
     as the motion half of a composite) of the intervention wrapper in ``env``'s chain, or None."""
     from real_world_rl.envs.wrappers.intervention import InterventionWrapper
-    from real_world_rl.teleop.composite import CompositeTeleopSource
-    from real_world_rl.teleop.leader_cartesian import LeaderArmCartesianSource
-    from real_world_rl.teleop.spacemouse import SpaceMouseTeleopSource
+    from real_world_rl.teleop.core.composite import CompositeTeleopSource
+    from real_world_rl.teleop.leader.cartesian import LeaderArmCartesianSource
+    from real_world_rl.teleop.spacemouse.source import SpaceMouseTeleopSource
 
     tracked_sources = (LeaderArmCartesianSource, SpaceMouseTeleopSource)
     node, seen = env, set()

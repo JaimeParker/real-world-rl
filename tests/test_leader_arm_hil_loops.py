@@ -22,7 +22,7 @@ from _leader_teleop_fakes import (
 from _residual_fakes import DictEnv, FakeSyncClient, RecordingProvider, residual_agent
 from gymnasium import spaces
 from rl_garden.algorithms.rlpd_hybrid import RLPDHybrid, _discrete_labels_from_actions
-from real_world_rl.devices.backends.teleops.gello import gripper_width_from_raw
+from real_world_rl.teleop.gello.backend import gripper_width_from_raw
 
 from real_world_rl.algorithms.residual import ResidualRLPDHybrid
 from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
@@ -30,7 +30,7 @@ from real_world_rl.loops.hil_serl import HilSerlActorLoop, HilSerlLearnerLoop
 from real_world_rl.loops.residual import ResidualActorLoop, ResidualLearnerLoop
 from real_world_rl.loops.silri import SilriActorLoop
 from real_world_rl.policies.base_provider import ZeroBaseProvider
-from real_world_rl.teleop.leader_arm import TELEOP_SYNCING_EVENT
+from real_world_rl.teleop.leader.joint import TELEOP_SYNCING_EVENT
 
 NUM_JOINTS = 7
 ACTION_DIM = NUM_JOINTS + 1

@@ -15,7 +15,7 @@ from __future__ import annotations
 import numpy as np
 
 from real_world_rl.legacy.teleop.spacemouse.spacemouse_expert import SpaceMouseExpert
-from real_world_rl.legacy.teleop.utils.telo_op_control_twist import TeleOpSample
+from real_world_rl.teleop.pico.bridge import TeleOpSample
 
 DEFAULT_INTERVENTION_THRESHOLD = 1e-3
 

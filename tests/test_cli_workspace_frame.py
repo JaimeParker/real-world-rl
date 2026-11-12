@@ -7,7 +7,7 @@ import yaml
 
 from real_world_rl.cli import main
 from real_world_rl.station import load_station
-from real_world_rl.teleop.workspace_points import (frame_axes, frame_from_points, frame_point_quality,
+from real_world_rl.teleop.core.workspace_points import (frame_axes, frame_from_points, frame_point_quality,
                                                     point_base_positions)
 
 ROBOT = {"type": "franka", "name": "left", "robot_ip": "172.16.0.2"}

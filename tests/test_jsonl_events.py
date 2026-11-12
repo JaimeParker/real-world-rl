@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from real_world_rl.teleop.jsonl_events import JsonlEventSource
+from real_world_rl.teleop.keyboard.jsonl import JsonlEventSource
 from real_world_rl.devices.errors import DeviceFault
 
 

@@ -6,7 +6,7 @@ import math
 
 import numpy as np
 
-from real_world_rl.teleop.input_frame import validate_input_rotation
+from real_world_rl.teleop.core.targets.twist_input import validate_input_rotation
 
 _DIRECTIONS = {"+x": (1., 0.), "+y": (0., 1.), "-x": (-1., 0.), "-y": (0., -1.)}
 

@@ -8,9 +8,9 @@ import numpy as np
 import pytest
 
 from real_world_rl.devices.backends.cameras.realsense import RealSenseCamera
-from real_world_rl.devices.backends.teleops import gello_calibrate
-from real_world_rl.devices.backends.teleops.gello import DynamixelBus, GelloTeleop
-from real_world_rl.devices.backends.teleops.spacemouse import SpaceMouseTeleop
+from real_world_rl.teleop.gello import calibrate as gello_calibrate
+from real_world_rl.teleop.gello.backend import DynamixelBus, GelloTeleop
+from real_world_rl.teleop.spacemouse.backend import SpaceMouseTeleop
 from real_world_rl.discovery import enumerate as host_probes
 from real_world_rl.setup import probes
 

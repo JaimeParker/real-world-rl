@@ -19,12 +19,12 @@ from real_world_rl.devices import (
     RobotConfig,
     TeleopConfig,
 )
-from real_world_rl.devices.backends.teleops.gello import (
+from real_world_rl.teleop.gello.backend import (
     DEFAULT_EVENT_KEYS,
     INTERVENTION_MODES,
     MAX_DYNAMIXEL_ID,
 )
-from real_world_rl.devices.backends.teleops.gello_calibrate import (
+from real_world_rl.teleop.gello.calibrate import (
     FRANKA_CALIBRATION_POSE,
     calibrate_gello,
     wrap_centers_from_joint_limits,

@@ -14,7 +14,7 @@ from _teleop_fakes import ContractEnv
 from real_world_rl.envs.wrappers import TeleopEventRewardWrapper, teleop_event_reward
 from real_world_rl.envs.wrappers.intervention import InterventionWrapper
 from real_world_rl.teleop import TeleopReading
-from real_world_rl.teleop.fake import ScriptedTeleopSource
+from real_world_rl.teleop.core.fake import ScriptedTeleopSource
 from real_world_rl.training import env_building
 
 

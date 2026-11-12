@@ -12,11 +12,11 @@ import uuid
 
 import numpy as np
 
-from real_world_rl.devices.backends.teleops.spacemouse import map_spacemouse_axes
+from real_world_rl.teleop.spacemouse.backend import map_spacemouse_axes
 from real_world_rl.common.json_io import write_json
 
-from real_world_rl.teleop.calibration import yaw_rotation
-from real_world_rl.teleop.input_frame import rotate_input
+from real_world_rl.teleop.spacemouse.calibration import yaw_rotation
+from real_world_rl.teleop.core.targets.twist_input import rotate_input
 
 LABELS = ('+x', '+y', '-x', '-y', '+z', '-z', '+rx', '-rx', '+ry', '-ry', '+rz', '-rz')
 
@@ -39,7 +39,7 @@ def report_directory(directory=None):
 def open_input(config):
     from real_world_rl.common.device_ownership import process_owners
     from real_world_rl.devices.errors import DeviceBusy
-    from real_world_rl.devices.backends.teleops import _spacemouse_hid
+    from real_world_rl.teleop.spacemouse import hid as _spacemouse_hid
     if config.teleop is None or config.teleop.backend != 'spacemouse':
         raise ValueError('station must configure a SpaceMouse teleop')
     owners = process_owners()

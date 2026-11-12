@@ -663,8 +663,8 @@ def bimanual_backend_env(tmp_path, monkeypatch):
 
 def test_bimanual_args_build_the_bimanual_source_over_the_two_arm_env(bimanual_backend_env):
     from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
-    from real_world_rl.teleop.bimanual import BimanualTeleopSource
-    from real_world_rl.teleop.leader_arm import LeaderArmPartSource
+    from real_world_rl.teleop.core.bimanual import BimanualTeleopSource
+    from real_world_rl.teleop.leader.joint import LeaderArmPartSource
 
     args = _bimanual_args(real_robot_bimanual=bimanual_backend_env.env.config)
     wrapped = TeleopInterventionWrapper(bimanual_backend_env, **env_building.teleop_wrapper_kwargs(args))

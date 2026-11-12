@@ -20,6 +20,22 @@ ROOT = Path(__file__).resolve().parents[1]
 LEARNING_SUBPACKAGES = ("envs", "loops", "training", "policies", "algorithms", "buffers", "demos", "reward", "deploy")
 # The torch-free device layer inside real_world_rl, and the legacy code kept beside it.
 DEVICE_LAYER_PACKAGES = ("devices", "server", "discovery", "setup", "supervise", "doctor", "legacy")
+# The teleop files on the device path: the package root, the source contract and registry, and the
+# spacemouse/gello slices' backends, readers, calibration and the station's teleop_profiles section.
+DEVICE_LAYER_TELEOP_FILES = (
+    "teleop/__init__.py", "teleop/core/__init__.py", "teleop/core/contract.py", "teleop/core/registry.py",
+    "teleop/core/targets/__init__.py", "teleop/core/targets/twist_input.py",
+    "teleop/spacemouse/__init__.py", "teleop/spacemouse/backend.py", "teleop/spacemouse/hid.py",
+    "teleop/spacemouse/profiles.py", "teleop/spacemouse/calibration.py",
+    "teleop/gello/__init__.py", "teleop/gello/backend.py", "teleop/gello/calibrate.py",
+)
+# Each imported first in a fresh interpreter: a slice module must not depend on the device layer
+# having been imported before it (the device backend registry imports these slices back).
+TELEOP_DEVICE_MODULES = (
+    "real_world_rl.teleop.spacemouse.hid", "real_world_rl.teleop.spacemouse.backend",
+    "real_world_rl.teleop.spacemouse.profiles", "real_world_rl.teleop.gello.backend",
+    "real_world_rl.teleop.gello.calibrate",
+)
 DEVICE_ENTRY_MODULES = (
     "real_world_rl.server.daemon",
     "real_world_rl.doctor.cli",
@@ -116,6 +132,7 @@ def test_device_layer_never_imports_the_learning_side():
     """The device layer may load real_world_rl's station sections, never its learning subpackages."""
     offenders = []
     paths = sorted(path for package in DEVICE_LAYER_PACKAGES for path in (ROOT / "real_world_rl" / package).rglob("*.py"))
+    paths += [ROOT / "real_world_rl" / name for name in DEVICE_LAYER_TELEOP_FILES]
     assert paths
     for path in paths:
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
@@ -132,3 +149,19 @@ def test_device_layer_never_imports_the_learning_side():
     # Legacy torch controllers, imported by nothing on the device path.
     offenders = [line for line in offenders if not line.startswith("real_world_rl/legacy/controller/")]
     assert not offenders, offenders
+
+
+@pytest.mark.parametrize("module_name", TELEOP_DEVICE_MODULES)
+def test_teleop_device_module_imports_first_without_sdks_or_learning_packages(module_name):
+    code = f'''
+import importlib
+for sdk in ("hid", "dynamixel_sdk", "evdev"):
+    sys.modules[sdk] = None
+module = importlib.import_module({module_name!r})
+from real_world_rl.devices import Teleop
+assert {{"spacemouse", "gello"}} <= set(Teleop.backends()), sorted(Teleop.backends())
+loaded = sorted(name for name in sys.modules if name.split(".")[0] in BLOCKED)
+assert not loaded, loaded
+'''
+    result = run_without_learning(code)
+    assert result.returncode == 0, result.stderr

@@ -44,7 +44,7 @@ HIDAPI_REQUIREMENT = "hidapi==0.14.0.post4"
 SDK_HINT = "pip install -e '.[spacemouse]'"
 UDEV_HINT = (
     "on the NUC, repository root (no venv required): "
-    "sudo cp real_world_rl/setup/99-spacemouse.rules /etc/udev/rules.d/; "
+    "sudo cp real_world_rl/teleop/spacemouse/udev/99-spacemouse.rules /etc/udev/rules.d/; "
     'sudo usermod -aG plugdev "$USER"; '
     "sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw; "
     "log in again and replug the SpaceMouse"

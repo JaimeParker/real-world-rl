@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from real_world_rl.teleop.calibration import fit_yaw, input_rotation, yaw_rotation
+from real_world_rl.teleop.spacemouse.calibration import fit_yaw, input_rotation, yaw_rotation
 
 
 def samples(yaw):
@@ -54,7 +54,7 @@ def test_bad_trial_cannot_hide_in_good_group():
 
 
 def test_rotation_trials_are_individually_validated():
-    from real_world_rl.teleop.calibration import validate_axes
+    from real_world_rl.teleop.spacemouse.calibration import validate_axes
     good = [[0, 0, 0, .4, 0, 0]]
     bad = [[0, 0, 0, -.4, 0, 0]]
     with pytest.raises(ValueError, match='direction error'):

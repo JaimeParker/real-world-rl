@@ -39,7 +39,7 @@ from real_world_rl.supervise import Heartbeat
 from rl_garden.policies.base import BasePolicy
 from real_world_rl.loops.sync import ActorSyncClient
 from real_world_rl.checkpoint_contract import load_policy_state_with_action_contract
-from real_world_rl.teleop.keyboard import operator_quit_requested
+from real_world_rl.teleop.core.operator_keys import operator_quit_requested
 
 
 logger = logging.getLogger(__name__)
@@ -104,7 +104,7 @@ class ActorLoop:
     def configure_episode_session(self, behavior="auto", *, neutral_threshold=.05,
                                   neutral_stable_s=.2):
         """Opt into operator-controlled episode boundaries; auto stays compatible."""
-        from real_world_rl.teleop.session import validate_neutral_options
+        from real_world_rl.teleop.core.session import validate_neutral_options
         if behavior not in ("auto", "hold"):
             raise ValueError("episode_end_behavior must be auto or hold")
         validate_neutral_options(neutral_threshold, neutral_stable_s)
@@ -115,7 +115,7 @@ class ActorLoop:
     def _wait_episode_session(self, *, starting=False, allow_next=True):
         if self._episode_session is None:
             return "next"
-        from real_world_rl.teleop.session import wait_before_episode, wait_after_episode
+        from real_world_rl.teleop.core.session import wait_before_episode, wait_after_episode
         options = {"control_hz": 1. / self.control_period, **self._episode_session}
         if starting:
             return wait_before_episode(self.env, self._session_source, **options)
@@ -292,7 +292,7 @@ class ActorLoop:
         heartbeat = Heartbeat.from_env()
         try:
             if self._episode_session is not None:
-                from real_world_rl.teleop.session import session_backend, session_source
+                from real_world_rl.teleop.core.session import session_backend, session_source
                 session_backend(self.env)
                 self._session_source = session_source(self.env)
             self._bind_experiment()
@@ -308,7 +308,7 @@ class ActorLoop:
             if self._wait_episode_session(starting=True) == "quit":
                 return
             if self._episode_session is not None:
-                from real_world_rl.teleop.session import session_observe
+                from real_world_rl.teleop.core.session import session_observe
                 obs = session_observe(self.env)
             self._begin_trajectory()
             step = 0
@@ -332,7 +332,7 @@ class ActorLoop:
                     self._end_trajectory(terminated=bool(terminated), truncated=bool(truncated))
                     if operator_quit_requested(info):
                         if self._episode_session is not None:
-                            from real_world_rl.teleop.session import notify_session_event
+                            from real_world_rl.teleop.core.session import notify_session_event
                             notify_session_event(self.env, "STOPPING", "operator_quit")
                         logger.info("operator quit: stopping the actor after this episode")
                         break

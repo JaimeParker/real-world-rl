@@ -243,7 +243,7 @@ def test_no_control_process_is_killed(tmp_path):
 
 
 def test_spacemouse_rules_cover_libusb_and_hidraw_and_all_supported_products(host):
-    from real_world_rl.devices.backends.teleops._spacemouse_hid import BUILTIN_DEVICE_SPECS
+    from real_world_rl.teleop.spacemouse.hid import BUILTIN_DEVICE_SPECS
 
     host.rules("usb.spacemouse", "spacemouse", [])
     action = next(a for a in host.actions if a.target)
@@ -290,7 +290,7 @@ def site_host(site, report):
 
 
 def test_spacemouse_rules_include_the_products_of_the_local_table(isolated_site, report):
-    from real_world_rl.devices.backends.teleops._spacemouse_hid import BUILTIN_DEVICE_SPECS
+    from real_world_rl.teleop.spacemouse.hid import BUILTIN_DEVICE_SPECS
 
     write_site_table(isolated_site)
     host = site_host(isolated_site, report)

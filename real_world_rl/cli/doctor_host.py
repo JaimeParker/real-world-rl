@@ -72,7 +72,7 @@ def spacemouse_device_table(station_dir=None, options=None):
     device layer uses: ``_spacemouse_hid.load_device_specs(station_dir, options)`` (without a
     station, the site table in ``./local`` or the user config directory). It needs no HID
     SDK; a failure to load raises."""
-    from real_world_rl.devices.backends.teleops import _spacemouse_hid
+    from real_world_rl.teleop.spacemouse import hid as _spacemouse_hid
 
     return _spacemouse_hid.load_device_specs(station_dir, options)
 
@@ -144,7 +144,7 @@ class Host:
 
     def describes_multi_axis_hid(self, usb_path):
         """Whether a hidraw interface of this USB device has a multi-axis controller descriptor."""
-        from real_world_rl.devices.backends.teleops._spacemouse_hid import (
+        from real_world_rl.teleop.spacemouse.hid import (
             describes_multi_axis_controller,
         )
 
@@ -183,7 +183,7 @@ class Host:
             )
             unknown_spacemouse = False
             if table is not None and not kind:
-                from real_world_rl.devices.backends.teleops._spacemouse_hid import (
+                from real_world_rl.teleop.spacemouse.hid import (
                     LOGITECH_VENDOR_ID,
                     is_unknown_spacemouse,
                 )
@@ -385,7 +385,7 @@ class Host:
         # Set only when the device table loaded, so the device layer is importable here.
         unknown = [device for device in self.usb if device.get("unknown_spacemouse")]
         if unknown:
-            from real_world_rl.devices.backends.teleops._spacemouse_hid import (
+            from real_world_rl.teleop.spacemouse.hid import (
                 DEVICE_TABLE_FILENAME,
                 unknown_device_message,
             )

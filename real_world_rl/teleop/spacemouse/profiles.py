@@ -10,7 +10,7 @@ import yaml
 
 from real_world_rl.devices.workspace import task_transform
 from real_world_rl.discovery.autoconfig import StationRobot
-from real_world_rl.teleop.calibration import input_rotation
+from real_world_rl.teleop.spacemouse.calibration import input_rotation
 
 AXIS_MAPPING_VERSION = "serl_hid_axes_v1"
 

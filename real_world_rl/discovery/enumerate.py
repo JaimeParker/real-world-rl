@@ -183,7 +183,7 @@ def discover_all(
 ) -> DiscoveryReport:
     """Everything visible from this host. ``spacemouse_table`` is the SpaceMouse device table
     the HID devices are matched against (default: ``_spacemouse_hid.load_device_specs()``)."""
-    from real_world_rl.devices.backends.teleops import _spacemouse_hid
+    from real_world_rl.teleop.spacemouse import hid as _spacemouse_hid
 
     table = _spacemouse_hid.load_device_specs() if spacemouse_table is None else spacemouse_table
     ports = list(ports)

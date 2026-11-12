@@ -12,7 +12,7 @@ from real_world_rl.devices import DeviceFault
 
 from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
 from real_world_rl.teleop import make_teleop_source
-from real_world_rl.teleop.stdin import StdinTeleopSource, keys_from_bytes
+from real_world_rl.teleop.keyboard.stdin import StdinTeleopSource, keys_from_bytes
 
 
 class _Pipe:

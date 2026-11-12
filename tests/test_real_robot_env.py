@@ -1064,7 +1064,7 @@ def test_close_releases_even_when_watchdog_and_stream_close_fail(monkeypatch, ac
 
 @pytest.mark.parametrize('mode', ['local', 'remote'])
 def test_hold_session_capability_rejected_before_homing(mode, monkeypatch):
-    from real_world_rl.teleop.session import session_backend
+    from real_world_rl.teleop.core.session import session_backend
     from real_world_rl.devices.errors import DeviceFault
     rig = _Rig(mode)
     try:
@@ -1081,7 +1081,7 @@ def test_hold_session_capability_rejected_before_homing(mode, monkeypatch):
 
 
 def test_spacemouse_from_env_inherits_task_workspace_without_connecting():
-    from real_world_rl.teleop.spacemouse import SpaceMouseTeleopSource
+    from real_world_rl.teleop.spacemouse.source import SpaceMouseTeleopSource
     rig = _Rig('local')
     try:
         frame = {'name': 'table', 'base_T_frame': np.eye(4).tolist()}
@@ -1193,7 +1193,7 @@ def test_command_failure_diagnostics_preserve_device_fault(tmp_path, monkeypatch
 
 def _hold_source(events):
     from types import SimpleNamespace
-    from real_world_rl.teleop.composite import CompositeTeleopSource
+    from real_world_rl.teleop.core.composite import CompositeTeleopSource
     events = iter(events)
     return CompositeTeleopSource(SimpleNamespace(session_input=lambda: (np.zeros(6), {})),
                                  SimpleNamespace(poll=lambda: SimpleNamespace(events=next(events))))
@@ -1202,7 +1202,7 @@ def _hold_source(events):
 @pytest.mark.parametrize('mode', ['local', 'remote'])
 def test_episode_end_to_hold_never_stops_the_arm_and_holds_the_last_accepted_target(mode, monkeypatch):
     """WO-17: the HOLD target is read with no arm stop after the episode's final step."""
-    from real_world_rl.teleop.session import wait_after_episode
+    from real_world_rl.teleop.core.session import wait_after_episode
     rig = _Rig(mode)
     try:
         env = rig.env(max_episode_steps=1)

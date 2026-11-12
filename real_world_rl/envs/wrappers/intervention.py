@@ -43,8 +43,8 @@ from real_world_rl.action_contract import (
     num_grippers_of,
     with_arm_layout,
 )
-from real_world_rl.teleop.base import TeleopSource, as_teleop_source
-from real_world_rl.teleop.registry import make_teleop_source
+from real_world_rl.teleop.core.contract import TeleopSource, as_teleop_source
+from real_world_rl.teleop.core.registry import make_teleop_source
 
 # RealRobotEnv opens the gripper on reset.
 _GRIPPER_ACTION_AFTER_RESET = 1.0
@@ -67,10 +67,10 @@ class InterventionWrapper(gym.Wrapper):
         self.source = as_teleop_source(source)
         try:
             self._num_grippers = num_grippers_of(get_env_action_contract(env) or LEGACY_ACTION_CONTRACT)
-            from real_world_rl.teleop.action_parts import part_mask
+            from real_world_rl.teleop.core.action_parts import part_mask
             self._selected_mask = part_mask(get_env_action_contract(env) or LEGACY_ACTION_CONTRACT, selected_parts)
-            from real_world_rl.teleop.composite import CompositeTeleopSource
-            from real_world_rl.teleop.spacemouse_serl import SpaceMouseSerlTeleopSource
+            from real_world_rl.teleop.core.composite import CompositeTeleopSource
+            from real_world_rl.teleop.spacemouse.serl import SpaceMouseSerlTeleopSource
             motion = self.source.motion if isinstance(self.source, CompositeTeleopSource) else self.source
             if isinstance(motion, SpaceMouseSerlTeleopSource) and not self._selected_mask.all():
                 raise ValueError("spacemouse serl mode requires all arm and gripper action parts")
@@ -80,7 +80,7 @@ class InterventionWrapper(gym.Wrapper):
             self._last_gripper_action = self._gripper_actions_after_reset()
             self._previously_intervened = False
             self._action_dim = self._validate_against_env(env, self.source)
-            from real_world_rl.teleop.hold import hold_action_fn_for
+            from real_world_rl.teleop.core.hold import hold_action_fn_for
             self._hold_action = hold_action_fn_for(env)
             self.source.start()
         except BaseException:

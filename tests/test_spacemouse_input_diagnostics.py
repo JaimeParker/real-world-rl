@@ -3,8 +3,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from real_world_rl.teleop.calibration import fit_yaw, validate_axes, yaw_rotation
-from real_world_rl.teleop.input_diagnostics import capture
+from real_world_rl.teleop.spacemouse.calibration import fit_yaw, validate_axes, yaw_rotation
+from real_world_rl.teleop.spacemouse.diagnostics import capture
 
 
 class Clock:
@@ -95,7 +95,7 @@ def test_open_input_decodes_with_the_station_device_table(tmp_path, monkeypatch)
     import yaml
 
     from real_world_rl.station import load_station
-    from real_world_rl.teleop.input_diagnostics import open_input
+    from real_world_rl.teleop.spacemouse.diagnostics import open_input
 
     class Handle:
         def open_path(self, path):

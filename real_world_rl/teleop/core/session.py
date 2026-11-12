@@ -8,7 +8,7 @@ import time
 import numpy as np
 
 from real_world_rl.supervise import Heartbeat
-from real_world_rl.teleop.composite import CompositeTeleopSource
+from real_world_rl.teleop.core.composite import CompositeTeleopSource
 
 
 def session_backend(env):

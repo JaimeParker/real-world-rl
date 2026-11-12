@@ -6,15 +6,15 @@ from typing import Any, Mapping, Optional, Sequence
 
 import numpy as np
 
-from real_world_rl.teleop.input_frame import rotate_input, diagnostic_input, input_sample_diagnostics
+from real_world_rl.teleop.core.targets.twist_input import rotate_input, diagnostic_input, input_sample_diagnostics
 
 from real_world_rl.action_contract import (
     LEGACY_ACTION_CONTRACT,
     get_env_action_contract,
     num_arms_of,
 )
-from real_world_rl.teleop.base import TeleopReading, TeleopSource
-from real_world_rl.teleop.part import DEFAULT_READ_TIMEOUT_S, teleop_contract_of
+from real_world_rl.teleop.core.contract import TeleopReading, TeleopSource
+from real_world_rl.teleop.core.part import DEFAULT_READ_TIMEOUT_S, teleop_contract_of
 
 MOTION_THRESHOLD = 0.001
 # These belong to the tracker path, never to native SERL intervention.
@@ -67,7 +67,7 @@ class SpaceMouseSerlTeleopSource(TeleopSource):
         self._owns_part = teleop is None
         self._previous_event_toggle = False
         if teleop is None:
-            from real_world_rl.devices.backends.teleops import spacemouse  # noqa: F401
+            from real_world_rl.teleop.spacemouse import backend  # noqa: F401
             from real_world_rl.devices.teleop import Teleop, TeleopConfig
 
             teleop = Teleop.backend("spacemouse")(TeleopConfig(
@@ -82,11 +82,11 @@ class SpaceMouseSerlTeleopSource(TeleopSource):
             if (declared.action_mode, declared.arm_action_dim) != ("cartesian_delta", 6):
                 raise ValueError("spacemouse serl mode requires a cartesian_delta teleop part with 6 axes")
         self._part = teleop
-        from real_world_rl.teleop.input_frame import validate_input_rotation
+        from real_world_rl.teleop.core.targets.twist_input import validate_input_rotation
         self._input_rotation = validate_input_rotation(input_rotation)
         diagnostic_input(np.zeros(6), diagnostic_axes, diagnostic_gain)
         self._diagnostic_axes, self._diagnostic_gain = diagnostic_axes, diagnostic_gain
-        from real_world_rl.teleop.profiles import validate_device_identity
+        from real_world_rl.teleop.spacemouse.profiles import validate_device_identity
         self._expected_device_identity = validate_device_identity(expected_device_identity)
 
     @classmethod
@@ -107,7 +107,7 @@ class SpaceMouseSerlTeleopSource(TeleopSource):
         return self._env_gripper
 
     def start(self) -> None:
-        from real_world_rl.teleop.profiles import start_profiled_source
+        from real_world_rl.teleop.spacemouse.profiles import start_profiled_source
         start_profiled_source(self)
 
     def session_input(self):

@@ -10,7 +10,7 @@
 
 ## `TeleopSource` 接口约定
 
-`real_world_rl.teleop`（`teleop/base.py`）：
+`real_world_rl.teleop`（`teleop/core/contract.py`）：
 
 ```python
 @dataclass(frozen=True)
@@ -141,7 +141,7 @@ source .venv/bin/activate
 一次性安装随包提供的厂商规则。在 NUC 的仓库根目录、任意 shell（无需项目环境）、具有 sudo 权限时运行：
 
 ```bash
-sudo cp real_world_rl/setup/99-spacemouse.rules /etc/udev/rules.d/
+sudo cp real_world_rl/teleop/spacemouse/udev/99-spacemouse.rules /etc/udev/rules.d/
 sudo usermod -aG plugdev "$USER"
 sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw
 ```
@@ -149,7 +149,7 @@ sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hi
 该文件涵盖厂商 `256f`（3Dconnexion）和 `046d`（旧 Logitech），使用 `MODE="0664", GROUP="plugdev"`。注销并重新登录，再拔插 SpaceMouse。若仓库不可用，以下替代复制命令可在 NUC 任意目录运行，要求**项目环境已激活**且有 sudo 权限；随后执行上述相同的加组/重载命令：
 
 ```bash
-sudo cp "$(python -c 'import real_world_rl.setup, os; print(os.path.dirname(real_world_rl.setup.__file__))')/99-spacemouse.rules" /etc/udev/rules.d/
+sudo cp "$(python -c 'import os, real_world_rl.teleop.spacemouse as slice; print(os.path.dirname(slice.__file__))')/udev/99-spacemouse.rules" /etc/udev/rules.d/
 ```
 
 打开/权限失败会指向此规则文件及安装命令。doctor 将 `hid` SDK 与 `/dev/hidraw*` 访问分别检查；Docker 内还需将 HID 节点传入容器。旧 `SpaceMouseExpert` 和 `real` extra 保留各自的 `pyspacemouse` API。
@@ -162,7 +162,7 @@ rwrl record --config hil.yaml \
     --output-path demos/task_20.pkl --num-successes 20
 ```
 
-HIL actor 使用相同两个标志。配置两个安全盒后，添加 `--spacemouse-mode serl` 可选择上表原生行为。以下描述默认 **tracker** 模式。`SpaceMouseTeleopSource`（`real_world_rl/teleop/spacemouse.py`）通过设备层 `SpaceMouseTeleop` 打开设备（`TeleopConfig(backend="spacemouse")`，轮询线程向 `read()` 提供数据；HID 读取器状态按 `[-y, x, z, -roll, -pitch, -yaw]` 映射为 `[-1, 1]` 的 twist，`invert_axes` 翻转所列输出索引 0–5 的符号），并驱动与 `leader_cartesian` 相同的 `CartesianTargetTracker`（见[映射](#mapping)）：
+HIL actor 使用相同两个标志。配置两个安全盒后，添加 `--spacemouse-mode serl` 可选择上表原生行为。以下描述默认 **tracker** 模式。`SpaceMouseTeleopSource`（`real_world_rl/teleop/spacemouse/source.py`）通过设备层 `SpaceMouseTeleop` 打开设备（`TeleopConfig(backend="spacemouse")`，轮询线程向 `read()` 提供数据；HID 读取器状态按 `[-y, x, z, -roll, -pitch, -yaw]` 映射为 `[-1, 1]` 的 twist，`invert_axes` 翻转所列输出索引 0–5 的符号），并驱动与 `leader_cartesian` 相同的 `CartesianTargetTracker`（见[映射](#mapping)）：
 
 | 输入 | 作用 |
 | --- | --- |
@@ -187,7 +187,7 @@ robot YAML 路线（`--teleop-device robot` 和 `backend: spacemouse` teleop 段
 
 ### 机器人遥操作部件（`--teleop-device robot`）
 
-`--env-backend real_robot` 上的 hil_serl 也可从机器人自身的 teleop 部件取得介入（robot YAML `teleop:` 段：spacemouse、`gello` 主臂或 `fake` 后端，本地或机器人 daemon 提供；主臂更适合 `--teleop-device leader_arm`，见[主臂](#leader-arms-gello)）。`TeleopPartSource`（`real_world_rl/teleop/part.py`）将笛卡尔或关节（`joint_abs`/`joint_delta`）遥操作动作映射到环境 `[-1, 1]` 动作空间，并转发设备的 `success`/`failure`/`rerecord` 事件；映射、`--robot-teleop-action-mode` 声明和 YAML 示例见 README 的“动作契约”与“Teleop（`--teleop-device robot`）”章节。
+`--env-backend real_robot` 上的 hil_serl 也可从机器人自身的 teleop 部件取得介入（robot YAML `teleop:` 段：spacemouse、`gello` 主臂或 `fake` 后端，本地或机器人 daemon 提供；主臂更适合 `--teleop-device leader_arm`，见[主臂](#leader-arms-gello)）。`TeleopPartSource`（`real_world_rl/teleop/core/part.py`）将笛卡尔或关节（`joint_abs`/`joint_delta`）遥操作动作映射到环境 `[-1, 1]` 动作空间，并转发设备的 `success`/`failure`/`rerecord` 事件；映射、`--robot-teleop-action-mode` 声明和 YAML 示例见 README 的“动作契约”与“Teleop（`--teleop-device robot`）”章节。
 
 <a id="leader-arms-gello"></a>
 
@@ -195,7 +195,7 @@ robot YAML 路线（`--teleop-device robot` 和 `backend: spacemouse` teleop 段
 
 端到端指南（硬件、标定、robot YAML、示范录制及 `hil_serl`、`residual_hil_serl`、`silri` 的 HIL 命令）见 [gello.md](gello.md)；包含设置向导、BC、ACT 和部署的首次上手指南见[教程](tutorial/00-overview.md)。本节描述输入源。
 
-主臂报告绝对关节位置。`LeaderArmPartSource`（`real_world_rl/teleop/leader_arm.py`）与 `TeleopPartSource` 一样映射到环境关节动作模式（`joint_abs`：按 `joint_limits` 归一化；`joint_delta`：`(q_leader - q_follower) / joint_scale_rad`，每步在一个 `joint_scale_rad` 处饱和），并添加操作员接管瞬间的起始策略。读取 GELLO 有两种方式：
+主臂报告绝对关节位置。`LeaderArmPartSource`（`real_world_rl/teleop/leader/joint.py`）与 `TeleopPartSource` 一样映射到环境关节动作模式（`joint_abs`：按 `joint_limits` 归一化；`joint_delta`：`(q_leader - q_follower) / joint_scale_rad`，每步在一个 `joint_scale_rad` 处饱和），并添加操作员接管瞬间的起始策略。读取 GELLO 有两种方式：
 
 - `--teleop-device leader_arm`：GELLO 是机器人 PC 上 daemon 提供的 robot YAML 的 `teleop:` 部件（`robot-infra daemon --station robot.yaml ...`），经 `RemoteRobot` 读取。`rwrl setup` 将该段（包括标定）写入工作站 YAML；也可手动添加到 robot YAML（例如 `robot_infra/docs/robot.franka.example.yaml`）；`rwrl --station robot.yaml teleop calibrate --backend gello --port ... --joint-ids 1 2 3 4 5 6 7 --gripper-id 8` 打印单台设备的 `options` 块（未设置的标志取自工作站的 `teleop.options`；`--use` 将该块写入工作站，见 [gello.md](gello.md#2-calibration)）：
 
@@ -239,7 +239,7 @@ rwrl train hil_serl --role actor --env-backend real_robot \
 
 ### 笛卡尔机器人上的主臂（`leader_cartesian`）
 
-GELLO 主臂报告关节角。仅接受笛卡尔 twist 的环境通过 Panda 正运动学使用这些角度：`LeaderArmCartesianSource`（`real_world_rl/teleop/leader_cartesian.py`，`device="leader_cartesian"`）将 leader 关节转换为请求末端位姿，`CartesianTargetTracker`（`real_world_rl/teleop/cartesian_tracker.py`）将其转成驱动 follower 的 twist（见[映射](#mapping)）。`examples/presets/gello_cartesian.yaml` 是单臂 50 Hz 预设。
+GELLO 主臂报告关节角。仅接受笛卡尔 twist 的环境通过 Panda 正运动学使用这些角度：`LeaderArmCartesianSource`（`real_world_rl/teleop/leader/cartesian.py`，`device="leader_cartesian"`）将 leader 关节转换为请求末端位姿，`CartesianTargetTracker`（`real_world_rl/teleop/core/targets/cartesian_tracker.py`）将其转成驱动 follower 的 twist（见[映射](#mapping)）。`examples/presets/gello_cartesian.yaml` 是单臂 50 Hz 预设。
 
 <a id="why"></a>
 
@@ -260,7 +260,7 @@ GELLO joints q --PandaKinematics--> T* = (p*, R*) --vs follower TCP (p, R)--> tw
 | 组成 | 位置 | 作用 |
 | --- | --- | --- |
 | `PandaKinematics` | `real_world_rl/kinematics/panda.py` | numpy 正运动学，Craig 修正 DH；`flange_pose(q)`、`ee_pose(q)`（xyz、quat xyzw）、`ee_transform(q)`（4×4）。EE 默认值为 Franka Hand：沿法兰 z 轴 0.1034 m，并绕其旋转 -pi/4（`ee_offset_m`、`ee_yaw_rad`）。 |
-| `LeaderArmCartesianSource` | `real_world_rl/teleop/leader_cartesian.py` | 遥操作输入源；任意 `joint_abs` 七关节 teleop 部件均可作为 leader。 |
+| `LeaderArmCartesianSource` | `real_world_rl/teleop/leader/cartesian.py` | 遥操作输入源；任意 `joint_abs` 七关节 teleop 部件均可作为 leader。 |
 | `FrankaRealEnv.last_tcp_pose` | `real_world_rl/envs/franka_real/env.py` | 最近 reset/step 的实测 TCP 位姿（`O_T_EE`，xyz + quat xyzw）；输入源的 follower 位姿。 |
 | 占位机器人 YAML | `robot_infra/docs/robot.gello_station.example.yaml` | 通过机器人 daemon 从机器人主机提供 GELLO。 |
 
@@ -338,7 +338,7 @@ a_rot = rotvec(R_cmd R^T) / rot_scale_rad
 
 这是环境 step 的逆（`p + a_pos * pos_scale_m` 和 `from_rotvec(a_rot * rot_scale_rad) * R`：旋转左乘，所以旋转向量在基坐标系）。尺度至少等于领先上限时动作不会离开 `[-1, 1]`；若将越界，tracker 抛出 `CommandOutOfRange` 而非裁剪。交还、输入或跟踪失败、回合结束都会将 tracker 置于实测位姿的保持状态。控制循环停滞（两次介入轮询超过 0.3 s）视为输入丢失：follower 保持，警告给出间隔，下次轮询像接管一样重新锚定 leader（时钟倒退抛出 `MissedControlDeadline`）。请求位置超出安全盒也如此：输入源记录 `WORKSPACE HOLD: <axes>`，持续报告未介入，直到操作员交还后再接管。
 
-录制器保持策略（`real_world_rl/teleop/hold.py`、`CartesianHold`）共用输入源 tracker：无人驱动时发送回到固定保持位姿的动作（不是零 twist），每步至多一个领先上限。没有 `leader_cartesian`（或同样共用 tracker 的 `spacemouse`）时，保留自身 tracker，上限为 `min(0.05 m, xyz_scale_m)` / `min(0.3 rad, rot_scale_rad)`，所以机械臂被推离保持位姿较远时得到饱和返回动作，不会报错。使用 `--teleop-device leader_cartesian`（或 `spacemouse`）的运行在实验契约中记录 tracker（`teleop_control`：版本 `cartesian_tracker_v1` 和上述四个参与比较的值）：未带 tracker 或值不同的示范不能加载。该块描述 tracker 而非设备，因此参数相同的 GELLO 和 SpaceMouse 示范可以共同加载。
+录制器保持策略（`real_world_rl/teleop/core/hold.py`、`CartesianHold`）共用输入源 tracker：无人驱动时发送回到固定保持位姿的动作（不是零 twist），每步至多一个领先上限。没有 `leader_cartesian`（或同样共用 tracker 的 `spacemouse`）时，保留自身 tracker，上限为 `min(0.05 m, xyz_scale_m)` / `min(0.3 rad, rot_scale_rad)`，所以机械臂被推离保持位姿较远时得到饱和返回动作，不会报错。使用 `--teleop-device leader_cartesian`（或 `spacemouse`）的运行在实验契约中记录 tracker（`teleop_control`：版本 `cartesian_tracker_v1` 和上述四个参与比较的值）：未带 tracker 或值不同的示范不能加载。该块描述 tracker 而非设备，因此参数相同的 GELLO 和 SpaceMouse 示范可以共同加载。
 
 `mapping` 选择请求位姿：
 
@@ -388,7 +388,7 @@ print("rotation error [rad]:", (Rotation.from_quat(quat) * Rotation.from_quat(po
 
 ### 双臂（`bimanual`）
 
-`--env-backend real_robot_bimanual`（见 [bimanual.md](bimanual.md)）动作是 `[left arm, right arm, left gripper, right gripper]`，拒绝单臂设备（`robot`、`leader_arm`、`gello`、`leader_cartesian`、`spacemouse`、`spacemouse_twist`、`pico`）。`--teleop-device bimanual`（`BimanualTeleopSource`，`real_world_rl/teleop/bimanual.py`）在每臂自己的 `RealRobotEnv` 上构建单臂源，各自读取自身机器人和 follower，并将读数组成双臂动作。`--teleop-arm-device` 选择每臂设备：
+`--env-backend real_robot_bimanual`（见 [bimanual.md](bimanual.md)）动作是 `[left arm, right arm, left gripper, right gripper]`，拒绝单臂设备（`robot`、`leader_arm`、`gello`、`leader_cartesian`、`spacemouse`、`spacemouse_twist`、`pico`）。`--teleop-device bimanual`（`BimanualTeleopSource`，`real_world_rl/teleop/core/bimanual.py`）在每臂自己的 `RealRobotEnv` 上构建单臂源，各自读取自身机器人和 follower，并将读数组成双臂动作。`--teleop-arm-device` 选择每臂设备：
 
 | `--teleop-arm-device` | 每臂输入源 | 备注 |
 | --- | --- | --- |
@@ -492,7 +492,7 @@ class JoystickTeleopSource(TeleopSource):
 
 ## EETwist 遥操作接口（Pico）
 
-`PicoTeleopSource` 包装仓库内 `robot_infra` 设备层的 `robot_infra/robot_infra/teleop/utils/telo_op_control_twist.py` 中的 `EETwistTeleOpWrapper`。其唯一设备为 `pico`；包装器从 ZeroMQ `SUB` socket 接收设备数据。Pico 服务端应向以下位置发布 JSON 数组：
+`PicoTeleopSource` 包装 `real_world_rl/teleop/pico/bridge.py` 中的 `EETwistTeleOpWrapper`。其唯一设备为 `pico`；包装器从 ZeroMQ `SUB` socket 接收设备数据。Pico 服务端应向以下位置发布 JSON 数组：
 
 ```python
 tcp://*:7777
@@ -553,7 +553,7 @@ python examples/run_teleop_demo.py \
 不连接环境，仅打印传入遥操作状态：
 
 ```bash
-python robot_infra/robot_infra/teleop/examples/run_twist_input_inspector.py \
+python examples/run_twist_input_inspector.py \
   --device pico \
   --zmq-url tcp://192.168.6.2:7777
 ```

@@ -20,7 +20,7 @@ Episode outcome, read from the intervention wrapper's info keys so any event pat
 
 The hold policy (``hold_action_fn_for``, injectable through ``run_recorder``'s
 ``hold_action_fn_factory``) is reset after every env reset and observes every step; on a
-``cartesian_delta`` arm it holds a fixed pose (``real_world_rl.teleop.hold.CartesianHold``).
+``cartesian_delta`` arm it holds a fixed pose (``real_world_rl.teleop.core.hold.CartesianHold``).
 
 The stored ``reward``/``done`` are the env's. Without a reward classifier, pass
 ``--reward-from-teleop-events`` (``TeleopEventRewardWrapper`` in the ``build_hil_env`` chain): a
@@ -59,20 +59,20 @@ from real_world_rl.action_contract import (
 )
 from real_world_rl.envs.wrappers.intervention import InterventionWrapper
 from real_world_rl.loops.actor import ActorLoop
-from real_world_rl.teleop.hold import (
+from real_world_rl.teleop.core.hold import (
     HoldPolicy,
     _arm_envs_of,
     as_hold_policy,
     follower_joint_pos,
     hold_action_fn_for,
 )
-from real_world_rl.teleop.base import TeleopReading, TeleopSource
-from real_world_rl.teleop.keyboard import operator_quit_requested
-from real_world_rl.teleop.composite import (
+from real_world_rl.teleop.core.contract import TeleopReading, TeleopSource
+from real_world_rl.teleop.core.operator_keys import operator_quit_requested
+from real_world_rl.teleop.core.composite import (
     CompositeTeleopSource,
     ToggleableTeleopSource,
 )
-from real_world_rl.teleop.leader_arm import TELEOP_SYNCING_EVENT
+from real_world_rl.teleop.leader.joint import TELEOP_SYNCING_EVENT
 from real_world_rl.training.args import (
     FrankaRealConfig,
     HilEnvArgs,
@@ -184,7 +184,7 @@ def executed_gripper_actions(executed: Any, num_grippers: int) -> Any:
 
 
 def _validate_episode_limit(args: RecordDemosArgs) -> None:
-    from real_world_rl.teleop.session import validate_neutral_options
+    from real_world_rl.teleop.core.session import validate_neutral_options
     if args.episode_end_behavior not in ("auto", "hold"):
         raise ValueError("episode_end_behavior must be auto or hold")
     validate_neutral_options(args.neutral_threshold, args.neutral_stable_s)
@@ -285,7 +285,7 @@ def record_demos(
     hold = as_hold_policy(hold_action_fn)
     wrapper = intervention_wrapper_of(env)
     if args.episode_end_behavior == "hold":
-        from real_world_rl.teleop.session import session_backend
+        from real_world_rl.teleop.core.session import session_backend
         session_backend(env)  # reject unsupported backends before reset can move the arm
         if (not isinstance(wrapper.source, CompositeTeleopSource)
                 or not callable(getattr(wrapper.source.motion, "session_input", None))):
@@ -311,12 +311,12 @@ def record_demos(
         if contract["action_mode"] == "joint_abs":
             check_leader_near_follower(env, wrapper.source, contract, args.start_tolerance_rad)
         if args.episode_end_behavior == "hold":
-            from real_world_rl.teleop.session import wait_before_episode
+            from real_world_rl.teleop.core.session import wait_before_episode
             if wait_before_episode(env, wrapper.source, control_hz=args.control_hz,
                                    neutral_threshold=args.neutral_threshold,
                                    neutral_stable_s=args.neutral_stable_s) == "quit":
                 break
-            from real_world_rl.teleop.session import session_observe
+            from real_world_rl.teleop.core.session import session_observe
             obs = session_observe(env)
         episode = _record_episode(
             env,
@@ -335,11 +335,11 @@ def record_demos(
         index += 1
         if episode.operator_quit:
             if args.episode_end_behavior == "hold":
-                from real_world_rl.teleop.session import notify_session_event
+                from real_world_rl.teleop.core.session import notify_session_event
                 notify_session_event(env, "STOPPING", "operator_quit")
             break
         if args.episode_end_behavior == "hold":
-            from real_world_rl.teleop.session import wait_after_episode
+            from real_world_rl.teleop.core.session import wait_after_episode
             allow_next = num_kept < args.num_successes and (args.max_episodes is None or index < args.max_episodes)
             if wait_after_episode(env, wrapper.source, allow_next=allow_next,
                                   control_hz=args.control_hz, neutral_threshold=args.neutral_threshold,

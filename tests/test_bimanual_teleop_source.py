@@ -19,17 +19,17 @@ from real_world_rl.envs.wrappers.intervention import (
     TeleopInterventionWrapper,
 )
 from real_world_rl.teleop import TeleopReading, make_teleop_source
-from real_world_rl.teleop.bimanual import (
+from real_world_rl.teleop.core.bimanual import (
     BimanualTeleopSource,
     find_bimanual_env,
     normalized_joint_target,
 )
-from real_world_rl.teleop.composite import (
+from real_world_rl.teleop.core.composite import (
     CompositeTeleopSource,
     ToggleableTeleopSource,
 )
-from real_world_rl.teleop.fake import ScriptedTeleopSource
-from real_world_rl.teleop.leader_arm import LeaderArmPartSource
+from real_world_rl.teleop.core.fake import ScriptedTeleopSource
+from real_world_rl.teleop.leader.joint import LeaderArmPartSource
 
 CART = 6
 LEFT_ARM = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]

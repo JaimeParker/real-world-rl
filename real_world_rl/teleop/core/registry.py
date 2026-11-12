@@ -9,23 +9,23 @@ from __future__ import annotations
 import importlib
 from typing import Any, Callable, Dict, List, Type
 
-from real_world_rl.teleop.base import TeleopSource
+from real_world_rl.teleop.core.contract import TeleopSource
 
 _REGISTRY: Dict[str, Type[TeleopSource]] = {}
 _BUILTIN_MODULES: Dict[str, str] = {
-    "pico": "real_world_rl.teleop.pico",
-    "robot": "real_world_rl.teleop.part",
-    "spacemouse": "real_world_rl.teleop.spacemouse",
-    "spacemouse_twist": "real_world_rl.teleop.spacemouse",
-    "fake": "real_world_rl.teleop.fake",
-    "gello": "real_world_rl.teleop.gello",
-    "leader_arm": "real_world_rl.teleop.leader_arm",
-    "keyboard": "real_world_rl.teleop.keyboard",
-    "jsonl": "real_world_rl.teleop.jsonl_events",
-    "stdin": "real_world_rl.teleop.stdin",
-    "composite": "real_world_rl.teleop.composite",
-    "leader_cartesian": "real_world_rl.teleop.leader_cartesian",
-    "bimanual": "real_world_rl.teleop.bimanual",
+    "pico": "real_world_rl.teleop.pico.source",
+    "robot": "real_world_rl.teleop.core.part",
+    "spacemouse": "real_world_rl.teleop.spacemouse.source",
+    "spacemouse_twist": "real_world_rl.teleop.spacemouse.twist_sim",
+    "fake": "real_world_rl.teleop.core.fake",
+    "gello": "real_world_rl.teleop.gello.source",
+    "leader_arm": "real_world_rl.teleop.leader.joint",
+    "keyboard": "real_world_rl.teleop.keyboard.pynput_source",
+    "jsonl": "real_world_rl.teleop.keyboard.jsonl",
+    "stdin": "real_world_rl.teleop.keyboard.stdin",
+    "composite": "real_world_rl.teleop.core.composite",
+    "leader_cartesian": "real_world_rl.teleop.leader.cartesian",
+    "bimanual": "real_world_rl.teleop.core.bimanual",
 }
 
 

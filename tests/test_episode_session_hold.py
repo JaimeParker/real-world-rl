@@ -3,8 +3,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from real_world_rl.teleop.composite import CompositeTeleopSource
-from real_world_rl.teleop.session import wait_after_episode
+from real_world_rl.teleop.core.composite import CompositeTeleopSource
+from real_world_rl.teleop.core.session import wait_after_episode
 from real_world_rl.supervise import capture_heartbeats
 
 
@@ -64,7 +64,7 @@ def test_device_failure_is_not_silently_held_forever():
 
 
 def test_startup_holds_post_reset_pose_without_next_event():
-    from real_world_rl.teleop.session import wait_before_episode
+    from real_world_rl.teleop.core.session import wait_before_episode
     env = Backend()
     measured = env.target + np.array([.1, 0, 0, 0, 0, 0, 0])
     env.session_start_target = lambda: measured.copy()
@@ -77,7 +77,7 @@ def test_startup_holds_post_reset_pose_without_next_event():
 
 
 def test_startup_quit_does_not_send_target():
-    from real_world_rl.teleop.session import wait_before_episode
+    from real_world_rl.teleop.core.session import wait_before_episode
     env = Backend()
     env.session_start_target = env.session_hold_target
     src = source([{"operator_quit": True}], [])
@@ -96,7 +96,7 @@ def test_hold_emits_machine_readable_phase_without_transitions():
 
 
 def test_next_key_is_registered_only_for_session_mode():
-    from real_world_rl.teleop.keyboard import OperatorKeySource
+    from real_world_rl.teleop.core.operator_keys import OperatorKeySource
     source = OperatorKeySource()
     source._keys.press('n')
     assert 'next_episode' not in source.poll().events
@@ -111,7 +111,7 @@ def test_session_refresh_replaces_all_stacked_images():
     from gymnasium import spaces
     from gymnasium.vector.utils import batch_space
     from real_world_rl.envs.wrappers.obs_chain import apply_obs_chain
-    from real_world_rl.teleop.session import session_observe
+    from real_world_rl.teleop.core.session import session_observe
     class CameraEnv(gym.Env):
         num_envs = 1
         single_observation_space = spaces.Dict({'rgb_wrist': spaces.Box(0, 255, (2, 2, 3), dtype='uint8')})

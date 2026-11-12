@@ -114,7 +114,7 @@ def test_unknown_hid_devices_are_formatted_as_warnings_only_when_present():
 
 
 def test_discover_all_matches_hid_devices_against_the_given_table(monkeypatch):
-    from real_world_rl.devices.backends.teleops import _spacemouse_hid
+    from real_world_rl.teleop.spacemouse import hid as _spacemouse_hid
 
     monkeypatch.setattr(enum, "list_can_interfaces", lambda: {})
     table = _spacemouse_hid.builtin_device_table()

@@ -82,7 +82,7 @@ def build_teleop_kwargs(args: Args) -> dict:
 def reset_teleop(teleop, *, episode_end_pressed: bool = False) -> None:
     """Resets the source; after a manual episode end the Pico button is still held, so it is told
     not to report it again (other sources have no such state)."""
-    from real_world_rl.teleop.pico import PicoTeleopSource
+    from real_world_rl.teleop.pico.source import PicoTeleopSource
 
     if episode_end_pressed and isinstance(teleop, PicoTeleopSource):
         teleop.reset(episode_end_pressed=True)

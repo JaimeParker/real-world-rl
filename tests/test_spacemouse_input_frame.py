@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation
-from real_world_rl.teleop.input_frame import validate_input_rotation, rotate_input
-from real_world_rl.teleop.spacemouse import SpaceMouseTeleopSource
+from real_world_rl.teleop.core.targets.twist_input import validate_input_rotation, rotate_input
+from real_world_rl.teleop.spacemouse.source import SpaceMouseTeleopSource
 from test_spacemouse_teleop_source import _Part, NO_GRIPPER, HOME_TCP
 
 
@@ -30,7 +30,7 @@ def test_rotated_diagonal_is_bounded_without_direction_clipping():
 
 @pytest.mark.parametrize('axes', ['translation', 'rotation', 'all'])
 def test_explicit_diagnostic_filter_keeps_normal_six_axis_mode(axes):
-    from real_world_rl.teleop.input_frame import diagnostic_input, input_frame_contract
+    from real_world_rl.teleop.core.targets.twist_input import diagnostic_input, input_frame_contract
     twist = np.array([.1, .2, .3, .4, .5, .6])
     np.testing.assert_array_equal(diagnostic_input(twist), twist)
     output = diagnostic_input(twist, axes, .2)

@@ -19,7 +19,7 @@ def run_session(args, ctx):
     import yaml
     from .connect import client_address, probe_daemon
     from .preset_edit import Preset
-    from real_world_rl.teleop.profiles import resolve_profile
+    from real_world_rl.teleop.spacemouse.profiles import resolve_profile
 
     if args.preset is None:
         raise CliError("teleop run requires --preset with home and task limits", code=USAGE_EXIT_CODE, required_fields=["--preset"])
@@ -94,7 +94,7 @@ def run_session(args, ctx):
         f"target SpaceMouse {args.mode} session on {config.name}; task reset may home; "
         "s/f ends episode and holds; n resets next; q exits; max delta 0.0000 session"))
     from real_world_rl.common.provenance import runtime_provenance
-    from real_world_rl.teleop.input_diagnostics import write_json
+    from real_world_rl.teleop.spacemouse.diagnostics import write_json
     write_json(report / "provenance.json", runtime_provenance(config=settings, files={
         "station": path, "preset": args.preset, "profiles": resolved["file"],
         "resolved_config": config_path}))

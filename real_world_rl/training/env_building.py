@@ -303,7 +303,7 @@ def _single_arm_yaml_options(args, *, provenance=None) -> dict:
             provenance["options_file"] = portable_path(path)
         return data
     if args.teleop_device == "spacemouse":
-        from real_world_rl.teleop.profiles import source_options
+        from real_world_rl.teleop.spacemouse.profiles import source_options
         from real_world_rl.common.provenance import portable_path
         if provenance is not None:
             provenance["options_file"] = portable_path(path)
@@ -383,7 +383,7 @@ def motion_teleop_kwargs(args, *, source_options=None) -> dict:
         diagnostics = {"diagnostic_axes": axes, "diagnostic_gain": gain}
     _reject_single_arm_teleop_on_bimanual(args)
     if serl:
-        from real_world_rl.teleop.spacemouse_serl import TRACKER_OPTIONS
+        from real_world_rl.teleop.spacemouse.serl import TRACKER_OPTIONS
 
         options = _single_arm_yaml_options(args) if source_options is None else source_options
         forbidden = sorted(set(options) & (TRACKER_OPTIONS | {"mode"}))
@@ -449,13 +449,13 @@ def teleop_control_spec(args) -> Optional[dict]:
                 "motion_threshold": 0.001, "gripper": "serl_buttons"}
         if options.get("invert_axes"):
             spec["invert_axes"] = list(options["invert_axes"])
-        from real_world_rl.teleop.input_frame import input_frame_contract
+        from real_world_rl.teleop.core.targets.twist_input import input_frame_contract
         spec.update({key: value for key, value in input_frame_contract(options).items()
                      if key not in ("input_rotation", "input_rotation_semantics")})
         return spec
     if args.teleop_device not in _CARTESIAN_TRACKER_TELEOP_DEVICES:
         return None
-    from real_world_rl.teleop.cartesian_tracker import CartesianTrackerConfig
+    from real_world_rl.teleop.core.targets.cartesian_tracker import CartesianTrackerConfig
 
     spec = CartesianTrackerConfig(
         lead_cap_m=args.teleop_lead_cap_m,
@@ -464,7 +464,7 @@ def teleop_control_spec(args) -> Optional[dict]:
         speed_rad_s=args.teleop_target_speed_rad_s,
     ).describe()
     if args.teleop_device == "spacemouse":
-        from real_world_rl.teleop.input_frame import input_frame_contract
+        from real_world_rl.teleop.core.targets.twist_input import input_frame_contract
         spec.update({key: value for key, value in input_frame_contract(motion_teleop_kwargs(args)).items()
                      if key not in ("input_rotation", "input_rotation_semantics")})
     return spec
@@ -698,7 +698,7 @@ def _without_device_table(options, provenance) -> dict:
     """The SpaceMouse source options without the machine-local ``device_table`` path; a local
     table in effect is recorded as ``provenance["device_table"]`` (portable file, sha256 and
     entries), which is provenance only: decoding tables never enter ``teleop_control``."""
-    from real_world_rl.devices.backends.teleops._spacemouse_hid import DEVICE_TABLE_OPTION, load_device_specs
+    from real_world_rl.teleop.spacemouse.hid import DEVICE_TABLE_OPTION, load_device_specs
 
     described = load_device_specs(options=options).provenance()
     if described is not None:

@@ -8,7 +8,7 @@ import types
 import numpy as np
 import pytest
 from _teleop_fakes import ContractEnv, FakeEnv
-from real_world_rl.legacy.teleop.utils.telo_op_control_twist import TeleOpSample
+from real_world_rl.teleop.pico.bridge import TeleOpSample
 
 from real_world_rl.teleop import (
     LegacyTeleopAdapter,
@@ -17,11 +17,11 @@ from real_world_rl.teleop import (
     as_teleop_source,
     make_teleop_source,
     register_teleop_source,
-    registry,
     teleop_source_names,
 )
-from real_world_rl.teleop.fake import ScriptedTeleopSource
-from real_world_rl.teleop.part import TeleopPartSource
+from real_world_rl.teleop.core import registry
+from real_world_rl.teleop.core.fake import ScriptedTeleopSource
+from real_world_rl.teleop.core.part import TeleopPartSource
 
 
 def _reading(value: float = 0.5, intervened: bool = True, dim: int = 7) -> TeleopReading:
@@ -184,7 +184,7 @@ def test_importing_the_package_and_building_sources_keeps_sdks_lazy():
         "import sys\n"
         "import real_world_rl.teleop as teleop\n"
         "teleop.teleop_source_names()\n"
-        "import real_world_rl.teleop.pico\n"
+        "import real_world_rl.teleop.pico.source\n"
         "source = teleop.make_teleop_source('spacemouse', None, follower_pose_getter=lambda: None,\n"
         "                                   last_gripper_action_getter=lambda: 1.0)\n"
         "assert 'pyspacemouse' not in sys.modules, 'pyspacemouse imported'\n"
@@ -267,7 +267,7 @@ class _FakePicoWrapper:
 
 
 def test_pico_source_wraps_the_twist_bridge(monkeypatch):
-    monkeypatch.setattr("real_world_rl.teleop.pico.EETwistTeleOpWrapper", _FakePicoWrapper)
+    monkeypatch.setattr("real_world_rl.teleop.pico.source.EETwistTeleOpWrapper", _FakePicoWrapper)
     _FakePicoWrapper.instances = []
     source = make_teleop_source("pico", FakeEnv(), zmq_url="tcp://h:1", hand="left")
     wrapper = _FakePicoWrapper.instances[0]
@@ -293,7 +293,7 @@ def test_pico_source_tolerates_a_wrapper_without_reset_or_close(monkeypatch):
         def poll(self):
             return types.SimpleNamespace(intervened=False, episode_end=False)
 
-    monkeypatch.setattr("real_world_rl.teleop.pico.EETwistTeleOpWrapper", _PollOnlyWrapper)
+    monkeypatch.setattr("real_world_rl.teleop.pico.source.EETwistTeleOpWrapper", _PollOnlyWrapper)
     source = make_teleop_source("pico", FakeEnv())
     source.reset()
     source.reset(episode_end_pressed=True)
@@ -360,7 +360,7 @@ def test_robot_device_needs_a_real_robot_env():
 
 @pytest.mark.parametrize("held", [-0.5, [-0.5], np.array([-0.5], dtype=np.float32)])
 def test_held_gripper_action_reads_a_number_or_a_one_entry_vector(held):
-    from real_world_rl.teleop.base import held_gripper_action
+    from real_world_rl.teleop.core.contract import held_gripper_action
 
     assert held_gripper_action(lambda: held) == -0.5
 
@@ -368,7 +368,7 @@ def test_held_gripper_action_reads_a_number_or_a_one_entry_vector(held):
 def test_held_gripper_action_reads_the_entry_of_its_arm():
     import torch
 
-    from real_world_rl.teleop.base import held_gripper_action
+    from real_world_rl.teleop.core.contract import held_gripper_action
 
     getter = lambda: torch.tensor([1.0, -1.0])  # noqa: E731
     assert held_gripper_action(getter) == 1.0

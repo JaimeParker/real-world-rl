@@ -253,7 +253,7 @@ def load_station(
     for robot in station.robots.values():
         teleop = robot.config.teleop
         if teleop is not None and teleop.backend == "spacemouse":
-            from real_world_rl.devices.backends.teleops._spacemouse_hid import station_teleop_options
+            from real_world_rl.teleop.spacemouse.hid import station_teleop_options
 
             options = station_teleop_options(teleop.options, station_dir)
             if options != teleop.options:

@@ -11,7 +11,7 @@ from real_world_rl.envs.wrappers.intervention import (
     TeleopInterventionWrapper,
 )
 from real_world_rl.teleop import TeleopReading
-from real_world_rl.teleop.fake import ScriptedTeleopSource
+from real_world_rl.teleop.core.fake import ScriptedTeleopSource
 
 
 def _reading(intervened: bool, value: float = 5.0, episode_end: bool = False, events=None) -> TeleopReading:

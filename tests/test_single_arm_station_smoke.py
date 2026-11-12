@@ -51,7 +51,7 @@ from real_world_rl.loops.hil_serl import HilSerlActorLoop, HilSerlLearnerLoop
 from real_world_rl.loops.residual import ResidualActorLoop
 from real_world_rl.loops.silri import SilriActorLoop
 from real_world_rl.reward import collect_data
-from real_world_rl.teleop.leader_arm import LeaderArmPartSource
+from real_world_rl.teleop.leader.joint import LeaderArmPartSource
 from real_world_rl.training import env_building
 from real_world_rl.training.entrypoints import hil_serl
 from real_world_rl.training.entrypoints import (

@@ -10,8 +10,8 @@ import pytest
 from _teleop_fakes import FakeEnv, make_hid
 
 from real_world_rl.teleop import make_teleop_source
-from real_world_rl.teleop.fake import ScriptedTeleopSource
-from real_world_rl.teleop.spacemouse import SpaceMouseTwistTeleopSource
+from real_world_rl.teleop.core.fake import ScriptedTeleopSource
+from real_world_rl.teleop.spacemouse.twist_sim import SpaceMouseTwistTeleopSource
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 

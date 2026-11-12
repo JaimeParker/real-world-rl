@@ -204,9 +204,9 @@ HIL-SERL 的 `robotiq_gripper_server.py` 与已移植 Franka Hand 版相比，`g
 
 ### 16. Pico 与 SpaceMouse 介入检测的结构差异
 
-`robot_infra/teleop/spacemouse/spacemouse_teleop_wrapper.py` 的 `SpaceMouseTeleOpWrapper` 接近 HIL-SERL 的 `SpacemouseIntervention`（`3rd_party/hil-serl/serl_robot_infra/franka_env/envs/wrappers.py:207-252`），持续进行速度控制，以幅度死区 `norm(expert_a) > threshold` 判定介入。另一设备 `robot_infra/teleop/utils/telo_op_control_twist.py` 的 Pico `EETwistTeleOpWrapper` 当时采用绑定按钮门控：按住物理 bind 按钮时计算绑定后位移并报告非零、介入的速度增量；没有新数据包则返回零且未介入。两者统一到 `TeleOpSample.intervened`，由 `TeleopInterventionWrapper` 消费，但激活语义不同：Pico 未按 bind 时移动控制器不会介入，SpaceMouse 超死区运动会介入。选择 `--teleop_device` 时需理解设备行为。
+`real_world_rl/legacy/teleop/spacemouse/spacemouse_teleop_wrapper.py` 的 `SpaceMouseTeleOpWrapper` 接近 HIL-SERL 的 `SpacemouseIntervention`（`3rd_party/hil-serl/serl_robot_infra/franka_env/envs/wrappers.py:207-252`），持续进行速度控制，以幅度死区 `norm(expert_a) > threshold` 判定介入。另一设备 `real_world_rl/teleop/pico/bridge.py` 的 Pico `EETwistTeleOpWrapper` 当时采用绑定按钮门控：按住物理 bind 按钮时计算绑定后位移并报告非零、介入的速度增量；没有新数据包则返回零且未介入。两者统一到 `TeleOpSample.intervened`，由 `TeleopInterventionWrapper` 消费，但激活语义不同：Pico 未按 bind 时移动控制器不会介入，SpaceMouse 超死区运动会介入。选择 `--teleop_device` 时需理解设备行为。
 
-**更新**：SpaceMouse 侧已改变。`--teleop-device spacemouse` 不再使用旧 `robot_infra/teleop/spacemouse` 的 `SpaceMouseTeleOpWrapper`，而由 `teleop/spacemouse.py` 的 `SpaceMouseTeleopSource` 驱动设备层 `SpaceMouseTeleop`（pyspacemouse 2.x），经 `TeleopPartSource` 映射。仍按范数超过 `deadzone` 或按住按钮介入，可追加 `hold_s` 保持；按钮 0 切换锁存夹爪，按钮 1 结束回合。Pico 保留 bind 门控 `PicoTeleopSource`。两者现统一到按名称注册的 `TeleopSource`、`TeleopReading.intervened`，由 `InterventionWrapper` / `TeleopInterventionWrapper` 消费，详见 `docs/teleop.md`。
+**更新**：SpaceMouse 侧已改变。`--teleop-device spacemouse` 不再使用旧 `robot_infra/teleop/spacemouse` 的 `SpaceMouseTeleOpWrapper`，而由 `teleop/spacemouse/source.py` 的 `SpaceMouseTeleopSource` 驱动设备层 `SpaceMouseTeleop`（pyspacemouse 2.x），经 `TeleopPartSource` 映射。仍按范数超过 `deadzone` 或按住按钮介入，可追加 `hold_s` 保持；按钮 0 切换锁存夹爪，按钮 1 结束回合。Pico 保留 bind 门控 `PicoTeleopSource`。两者现统一到按名称注册的 `TeleopSource`、`TeleopReading.intervened`，由 `InterventionWrapper` / `TeleopInterventionWrapper` 消费，详见 `docs/teleop.md`。
 
 <a id="17-no-real-camera-capture-integration"></a>
 

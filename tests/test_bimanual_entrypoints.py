@@ -33,8 +33,8 @@ from real_world_rl.envs.bimanual import (
     BimanualRealRobotVectorEnv,
 )
 from real_world_rl.policies.base_provider import ZeroBaseProvider
-from real_world_rl.teleop.bimanual import BimanualTeleopSource
-from real_world_rl.teleop.leader_arm import LeaderArmPartSource
+from real_world_rl.teleop.core.bimanual import BimanualTeleopSource
+from real_world_rl.teleop.leader.joint import LeaderArmPartSource
 from real_world_rl.training.entrypoints.bc import (
     RealWorldBCArgs,
     build_real_world_bc,

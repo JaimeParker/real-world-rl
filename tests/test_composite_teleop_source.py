@@ -9,12 +9,12 @@ from _teleop_fakes import ContractEnv
 
 from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
 from real_world_rl.teleop import TeleopReading, make_teleop_source
-from real_world_rl.teleop.composite import (
+from real_world_rl.teleop.core.composite import (
     CompositeTeleopSource,
     ToggleableTeleopSource,
 )
-from real_world_rl.teleop.fake import ScriptedTeleopSource
-from real_world_rl.teleop.leader_arm import LeaderArmPartSource
+from real_world_rl.teleop.core.fake import ScriptedTeleopSource
+from real_world_rl.teleop.leader.joint import LeaderArmPartSource
 
 
 def _reading(value=0.0, intervened=False, episode_end=False, events=(), dim=8) -> TeleopReading:

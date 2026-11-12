@@ -179,13 +179,13 @@ system `libhidapi` lookup through easyhid; the wheel's ELF/system-library
 requirements still need a clean-machine check. Installation and device operation
 are **not yet verified on hardware**.
 
-The rules file ships as `real_world_rl.setup/99-spacemouse.rules`, permitting vendor
+The rules file ships as `real_world_rl/teleop/spacemouse/udev/99-spacemouse.rules`, permitting vendor
 `256f` and `046d` hidraw devices with `MODE="0664", GROUP="plugdev"`. Install it
 once on the NUC, repository root, any shell (no project environment required),
 with sudo permission:
 
 ```bash
-sudo cp real_world_rl/setup/99-spacemouse.rules /etc/udev/rules.d/
+sudo cp real_world_rl/teleop/spacemouse/udev/99-spacemouse.rules /etc/udev/rules.d/
 sudo usermod -aG plugdev "$USER"
 sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw
 ```
@@ -195,7 +195,7 @@ NUC from any directory, **project environment active**, with sudo permission,
 copy the packaged file below, then run the same group/reload commands:
 
 ```bash
-sudo cp "$(python -c 'import real_world_rl.setup, os; print(os.path.dirname(real_world_rl.setup.__file__))')/99-spacemouse.rules" /etc/udev/rules.d/
+sudo cp "$(python -c 'import os, real_world_rl.teleop.spacemouse as slice; print(os.path.dirname(slice.__file__))')/udev/99-spacemouse.rules" /etc/udev/rules.d/
 ```
 
 See [SpaceMouse installation](../teleop.md#spacemouse-installation-and-linux-permissions)

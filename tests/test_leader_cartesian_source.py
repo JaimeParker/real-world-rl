@@ -39,13 +39,13 @@ from real_world_rl.envs.wrappers.intervention import (
     TeleopInterventionWrapper,
 )
 from real_world_rl.kinematics import PandaKinematics
-from real_world_rl.teleop.base import TeleopReading, TeleopSource
-from real_world_rl.teleop.cartesian_tracker import (
+from real_world_rl.teleop.core.contract import TeleopReading, TeleopSource
+from real_world_rl.teleop.core.targets.cartesian_tracker import (
     CartesianTrackerConfig,
     MissedControlDeadline,
 )
-from real_world_rl.teleop.composite import CompositeTeleopSource
-from real_world_rl.teleop.leader_cartesian import LeaderArmCartesianSource
+from real_world_rl.teleop.core.composite import CompositeTeleopSource
+from real_world_rl.teleop.leader.cartesian import LeaderArmCartesianSource
 from real_world_rl.training import env_building
 from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
 
@@ -390,7 +390,7 @@ def test_a_request_outside_the_safety_box_holds_until_a_new_take_over(caplog):
     assert source.poll().intervened  # take-over
 
     leader.q = q + np.array([0.0, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)  # several cm out
-    with caplog.at_level(logging.WARNING, logger="real_world_rl.teleop.leader_cartesian"):
+    with caplog.at_level(logging.WARNING, logger="real_world_rl.teleop.leader.cartesian"):
         reading = source.poll()
     assert not reading.intervened and "WORKSPACE HOLD" in caplog.text
     assert not tracker.following
@@ -417,7 +417,7 @@ def test_a_stalled_control_loop_holds_and_re_anchors_at_the_next_poll(caplog):
 
     leader.q = q + 2 * SMALL_DQ.astype(np.float32)  # the leader moves while the loop stalls
     clock.step_s = 1.0
-    with caplog.at_level(logging.WARNING, logger="real_world_rl.teleop.leader_cartesian"):
+    with caplog.at_level(logging.WARNING, logger="real_world_rl.teleop.leader.cartesian"):
         reading = source.poll()
     assert reading.intervened  # no exception: an input loss, the follower holds where it is
     np.testing.assert_allclose(reading.action[:6], 0.0, atol=1e-9)
@@ -841,7 +841,7 @@ def test_real_robot_cartesian_env_pose_and_box_come_from_the_last_observation_an
 
 
 def test_the_recorders_hold_shares_the_sources_tracker():
-    from real_world_rl.teleop.hold import CartesianHold, hold_action_fn_for
+    from real_world_rl.teleop.core.hold import CartesianHold, hold_action_fn_for
 
     q = np.asarray(READY_Q, dtype=np.float32)
     env = _CartesianRealEnv(_ee_pose(q))
@@ -867,7 +867,7 @@ def test_the_recorders_hold_shares_the_sources_tracker():
     np.testing.assert_allclose(source.cartesian_tracker.hold_pose, drifted, atol=1e-6)
     np.testing.assert_allclose(hold(1.0).numpy()[:6], 0.0, atol=1e-4)
 
-    from real_world_rl.teleop.fake import ScriptedTeleopSource
+    from real_world_rl.teleop.core.fake import ScriptedTeleopSource
 
     composite = CompositeTeleopSource(
         LeaderArmCartesianSource.from_env(env, leader=_Leader(q)), ScriptedTeleopSource([TeleopReading.idle(7)])

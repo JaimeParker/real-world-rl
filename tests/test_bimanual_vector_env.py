@@ -19,7 +19,7 @@ from real_world_rl.envs.backends.real_robot_bimanual import RealRobotBimanualBac
 from real_world_rl.envs.real_robot import RealRobotEnvConfig
 from real_world_rl.envs.wrappers.intervention import InterventionWrapper
 from real_world_rl.teleop import TeleopReading
-from real_world_rl.teleop.fake import ScriptedTeleopSource
+from real_world_rl.teleop.core.fake import ScriptedTeleopSource
 
 CAMERAS = (camera_name("left"), camera_name("right"))
 ACTION_DIM = 2 * 6 + 2

@@ -240,7 +240,7 @@ def test_spacemouse_permission_hint_installs_packaged_vendor_rules(tmp_path, mon
     monkeypatch.setattr(checks.os, "access", lambda path, mode: False)
     ok, message, hint = checks._hid_outcome(str(tmp_path / "hidraw*"))()
     assert not ok and "no read/write access" in message
-    assert "sudo cp real_world_rl/setup/99-spacemouse.rules /etc/udev/rules.d/" in hint
+    assert "sudo cp real_world_rl/teleop/spacemouse/udev/99-spacemouse.rules /etc/udev/rules.d/" in hint
     assert 'sudo usermod -aG plugdev "$USER"' in hint
     assert "--reload-rules" in hint and "--subsystem-match=hidraw" in hint
     assert "log in again" in hint and "replug" in hint

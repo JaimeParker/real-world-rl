@@ -122,10 +122,10 @@ source .venv/bin/activate
 
 目标平台为 Ubuntu 22.04 / CPython 3.10 / x86_64。wheel 路线避开了通过 easyhid 查找系统 `libhidapi`；wheel 的 ELF/系统库要求仍需在干净机器上检查。安装和设备运行均**尚未在真机上验证**。
 
-udev 规则文件随包提供，路径为 `robot_infra.setup/99-spacemouse.rules`，以 `MODE="0664", GROUP="plugdev"` 允许访问厂商 `256f` 和 `046d` 的 hidraw 设备。在 NUC、仓库根目录、任意 shell（无需项目环境），具有 sudo 权限时一次性安装：
+udev 规则文件随包提供，路径为 `real_world_rl/teleop/spacemouse/udev/99-spacemouse.rules`，以 `MODE="0664", GROUP="plugdev"` 允许访问厂商 `256f` 和 `046d` 的 hidraw 设备。在 NUC、仓库根目录、任意 shell（无需项目环境），具有 sudo 权限时一次性安装：
 
 ```bash
-sudo cp real_world_rl/setup/99-spacemouse.rules /etc/udev/rules.d/
+sudo cp real_world_rl/teleop/spacemouse/udev/99-spacemouse.rules /etc/udev/rules.d/
 sudo usermod -aG plugdev "$USER"
 sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw
 ```
@@ -133,7 +133,7 @@ sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hi
 注销并重新登录，然后拔插设备。也可在 NUC 的任意目录、**项目环境激活**且具有 sudo 权限时，用以下命令复制随包提供的文件，再运行相同的加组/重载命令：
 
 ```bash
-sudo cp "$(python -c 'import real_world_rl.setup, os; print(os.path.dirname(real_world_rl.setup.__file__))')/99-spacemouse.rules" /etc/udev/rules.d/
+sudo cp "$(python -c 'import os, real_world_rl.teleop.spacemouse as slice; print(os.path.dirname(slice.__file__))')/udev/99-spacemouse.rules" /etc/udev/rules.d/
 ```
 
 完整安装范围见 [SpaceMouse 安装](teleop.md#spacemouse-installation-and-linux-permissions)。设备层的按钮电平与锁存按下事件仍不同于应用的接管/夹爪语义（见[第 7 步](#7-add-a-teleop-device)）。

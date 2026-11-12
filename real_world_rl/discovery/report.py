@@ -48,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
 def station_spacemouse_table(path: str | Path):
     """The SpaceMouse device table of the station: its first spacemouse teleop's
     ``device_table``, else the station's ``spacemouse-devices.yaml``, else the built-in table."""
-    from real_world_rl.devices.backends.teleops._spacemouse_hid import load_device_specs
+    from real_world_rl.teleop.spacemouse.hid import load_device_specs
 
     options = next(
         (robot.config.teleop.options for robot in load_station(path).robots.values()

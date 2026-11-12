@@ -6,7 +6,7 @@ import numpy as np
 import torch
 
 from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
-from real_world_rl.legacy.teleop.utils.telo_op_control_twist import TeleOpSample
+from real_world_rl.teleop.pico.bridge import TeleOpSample
 
 
 class _FakeEnv(gym.Env):
@@ -71,7 +71,7 @@ def test_legacy_reading_does_not_add_button_info():
 
 
 def test_button_levels_are_bool_and_reported_on_an_idle_step():
-    from real_world_rl.teleop.base import TeleopReading
+    from real_world_rl.teleop.core.contract import TeleopReading
 
     reading = TeleopReading(np.zeros(7), False, buttons={"left": np.bool_(True), "right": 0})
     wrapped = TeleopInterventionWrapper(_FakeEnv(), teleop=_FakeTeleop([reading]))

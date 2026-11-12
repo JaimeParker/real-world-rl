@@ -19,7 +19,7 @@ from typing import Any, Callable, Mapping, Sequence
 import numpy as np
 import yaml
 
-from real_world_rl.devices.backends.teleops.gello import (
+from real_world_rl.teleop.gello.backend import (
     DEFAULT_EVENT_KEYS,
     DynamixelBus,
     GelloTeleop,

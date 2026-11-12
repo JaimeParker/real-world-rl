@@ -6,7 +6,7 @@ import pytest
 import yaml
 
 from real_world_rl.cli import main
-from real_world_rl.teleop.profiles import AXIS_MAPPING_VERSION, resolve_profile
+from real_world_rl.teleop.spacemouse.profiles import AXIS_MAPPING_VERSION, resolve_profile
 from real_world_rl.training.env_building import _single_arm_yaml_options
 from real_world_rl.station import load_station
 
@@ -93,7 +93,7 @@ def test_run_builds_supervised_child_with_hold(tmp_path, capsys, monkeypatch, ex
 
 
 def test_profile_identity_validation_and_source_propagation(tmp_path):
-    from real_world_rl.teleop.profiles import validate_device_identity, verify_device_identity, source_options
+    from real_world_rl.teleop.spacemouse.profiles import validate_device_identity, verify_device_identity, source_options
     identity = {'vendor_id': 0x256f, 'product_id': 0xc63a, 'serial_number': 'unit-a'}
     assert validate_device_identity(identity) == identity
     with pytest.raises(ValueError, match='serial_number'):
@@ -113,7 +113,7 @@ def test_profile_identity_validation_and_source_propagation(tmp_path):
 
 
 def test_profile_without_serial_matches_model_but_not_other_product():
-    from real_world_rl.teleop.profiles import verify_device_identity
+    from real_world_rl.teleop.spacemouse.profiles import verify_device_identity
     expected = {'vendor_id': 1, 'product_id': 2, 'serial_number': ''}
     verify_device_identity(expected, {**expected, 'serial_number': 'new-serial'})
     with pytest.raises(ValueError, match='product_id'):
@@ -122,7 +122,7 @@ def test_profile_without_serial_matches_model_but_not_other_product():
 
 @pytest.mark.parametrize('owned', [True, False])
 def test_wrong_device_fails_without_disconnecting_borrowed_input(owned):
-    from real_world_rl.teleop.profiles import start_profiled_source
+    from real_world_rl.teleop.spacemouse.profiles import start_profiled_source
     from real_world_rl.devices.errors import DeviceFault
     calls = []
     part = SimpleNamespace(connect=lambda: calls.append('connect'),
@@ -194,7 +194,7 @@ def test_workspace_saved_points_candidate_and_stale_frame(tmp_path, capsys, monk
 
 
 def test_workspace_points_reject_degenerate_and_invalid_measurements():
-    from real_world_rl.teleop.workspace_points import point_set, candidate_bounds
+    from real_world_rl.teleop.core.workspace_points import point_set, candidate_bounds
     document, _ = point_set(None, None)
     document['points'] = {str(i): {'base_pose': [i, 0, 0, 0, 0, 0, 1]} for i in range(2)}
     with pytest.raises(ValueError, match='span all three'):
@@ -211,7 +211,7 @@ def test_single_label_capture_preserves_merge_and_reports_missing(tmp_path, monk
     def collect(config, **kwargs):
         assert kwargs['labels'] == ['+x']
         return {'+x': [[.5, 0, 0, 0, 0, 0]]}, {'report_directory': str(report)}
-    monkeypatch.setattr('real_world_rl.teleop.input_diagnostics.collect', collect)
+    monkeypatch.setattr('real_world_rl.teleop.spacemouse.diagnostics.collect', collect)
     assert main(['--station', str(path), '--yes', '--json', 'teleop', 'calibrate',
                  '--profile', 'rear', '--capture-label', '+x']) == 0
     result = json.loads(capsys.readouterr().out)
@@ -232,7 +232,7 @@ def test_recapture_one_group_preserves_others(tmp_path, monkeypatch, capsys, app
     def collect(config, **kwargs):
         return {'+x': data['+x']}, {'report_directory': str(report),
                                   'device_identity': {'vendor_id': 1, 'product_id': 2}}
-    monkeypatch.setattr('real_world_rl.teleop.input_diagnostics.collect', collect)
+    monkeypatch.setattr('real_world_rl.teleop.spacemouse.diagnostics.collect', collect)
     argv = ['--station', str(path), '--yes', '--json', 'teleop', 'calibrate', '--profile', 'rear',
             '--samples', str(original), '--capture-label', '+x']
     assert main(argv + (['--append-trial'] if append else [])) == 0
@@ -293,7 +293,7 @@ def test_yaml_save_rejects_change_during_staging(tmp_path, monkeypatch):
 
 
 def test_legacy_rotation_with_task_frame_without_profile_is_rejected(tmp_path):
-    from real_world_rl.teleop.profiles import source_options
+    from real_world_rl.teleop.spacemouse.profiles import source_options
     path = station(tmp_path)
     data = yaml.safe_load(path.read_text())
     del data['teleop_profiles']
@@ -326,7 +326,7 @@ def test_calibrate_without_backend_follows_station_spacemouse(tmp_path, capsys, 
     assert json.loads(capsys.readouterr().out)['required_fields'] == ['--profile']
     sample_file = tmp_path / 'samples.json'
     sample_file.write_text(json.dumps(samples(0)))
-    monkeypatch.setattr('real_world_rl.devices.backends.teleops.gello_calibrate.calibrate_gello',
+    monkeypatch.setattr('real_world_rl.teleop.gello.calibrate.calibrate_gello',
                         lambda **kwargs: pytest.fail('a SpaceMouse station must not run the GELLO calibration'))
     assert main(['--json', '--station', str(path), 'teleop', 'calibrate', '--profile', 'front',
                  '--samples', str(sample_file)]) == 0
@@ -378,8 +378,8 @@ def test_profile_contract_uses_numbers_not_names_and_shared_record_train_resolut
     from real_world_rl.demos.record import RecordDemosArgs
     from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
     from real_world_rl.training.env_building import teleop_control_spec, resolve_teleop_input, reward_sources_spec
-    from real_world_rl.teleop.spacemouse import SpaceMouseTeleopSource
-    from real_world_rl.teleop.spacemouse_serl import SpaceMouseSerlTeleopSource
+    from real_world_rl.teleop.spacemouse.source import SpaceMouseTeleopSource
+    from real_world_rl.teleop.spacemouse.serl import SpaceMouseSerlTeleopSource
     def forbidden(self):
         raise AssertionError('contract resolution must not open hardware')
     monkeypatch.setattr(SpaceMouseTeleopSource, 'start', forbidden)
@@ -476,7 +476,7 @@ def test_remote_teleop_identity_verifies_like_local(tmp_path, monkeypatch):
     from real_world_rl.server import RemoteRobot
     from real_world_rl.server.service import RobotService
     from real_world_rl.server.transport import LocalClient
-    from real_world_rl.teleop.profiles import verify_device_identity
+    from real_world_rl.teleop.spacemouse.profiles import verify_device_identity
     identity = {'vendor_id': 0x256f, 'product_id': 0xc635, 'serial_number': 'unit-a'}
     monkeypatch.setattr('real_world_rl.devices.claims._DEFAULT_LOCK_DIR', tmp_path / 'claims')
     monkeypatch.setattr(FakeTeleop, 'device_identity', property(lambda self: dict(identity)), raising=False)
@@ -501,7 +501,7 @@ def test_calibration_frame_rejected_before_input_collection(tmp_path, monkeypatc
     path = station(tmp_path)
     def forbidden(*args, **kwargs):
         raise AssertionError('must reject the frame before opening input')
-    monkeypatch.setattr('real_world_rl.teleop.input_diagnostics.collect', forbidden)
+    monkeypatch.setattr('real_world_rl.teleop.spacemouse.diagnostics.collect', forbidden)
     assert main(['--station', str(path), '--yes', '--json', 'teleop', 'calibrate',
                  '--profile', 'rear', '--frame', 'wrong', '--capture-label', '+x']) == 2
     assert 'frame must match' in capsys.readouterr().out
@@ -570,7 +570,7 @@ def test_cli_edits_preserve_station_and_profile_text(tmp_path, capsys, monkeypat
         def collect(config, **kwargs):
             return {'+x': sample_data['+x']}, {'report_directory': str(report),
                                              'device_identity': {'vendor_id': 1, 'product_id': 2}}
-        monkeypatch.setattr('real_world_rl.teleop.input_diagnostics.collect', collect)
+        monkeypatch.setattr('real_world_rl.teleop.spacemouse.diagnostics.collect', collect)
         command = ['teleop', 'calibrate', '--profile', 'front', '--samples', str(sample_file),
                    '--capture-label', '+x', '--use']
     assert main(prefix + command) == 0
@@ -637,7 +637,7 @@ def test_profiles_reference_validation_has_station_context(tmp_path, reference):
 
 
 def test_profiles_reference_validator_returns_independent_mapping():
-    from real_world_rl.teleop.profiles import validate_profiles_reference
+    from real_world_rl.teleop.spacemouse.profiles import validate_profiles_reference
 
     reference = {"file": "profiles.yaml", "default": "rear"}
     validated = validate_profiles_reference(reference)
@@ -646,7 +646,7 @@ def test_profiles_reference_validator_returns_independent_mapping():
 
 
 def test_multirobot_profiles_resolve_each_robots_section(tmp_path):
-    from real_world_rl.teleop.profiles import source_options
+    from real_world_rl.teleop.spacemouse.profiles import source_options
 
     path = station(tmp_path)
     left = yaml.safe_load(path.read_text())
@@ -726,7 +726,7 @@ def test_diagnose_is_input_only(tmp_path, monkeypatch, capsys):
         calls.append(kwargs)
         return [], {'report_directory': 'input-report'}
 
-    monkeypatch.setattr('real_world_rl.teleop.input_diagnostics.collect', collect)
+    monkeypatch.setattr('real_world_rl.teleop.spacemouse.diagnostics.collect', collect)
     monkeypatch.setattr('real_world_rl.cli.connect.open_robot',
                         lambda *args: pytest.fail('input diagnosis must not connect the arm'))
     monkeypatch.setattr('subprocess.run', lambda *args, **kwargs: pytest.fail('must not launch a recorder'))

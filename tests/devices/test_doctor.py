@@ -361,7 +361,7 @@ def test_spacemouse_sdk_check_reports_missing_hidapi_and_wrong_distribution(monk
     import sys
     import types
 
-    from real_world_rl.devices.backends.teleops.spacemouse import SpaceMouseTeleop
+    from real_world_rl.teleop.spacemouse.backend import SpaceMouseTeleop
     from real_world_rl.doctor import checks
 
     monkeypatch.setitem(sys.modules, "hid", None)
@@ -374,8 +374,8 @@ def test_spacemouse_sdk_check_reports_missing_hidapi_and_wrong_distribution(monk
 
 
 def test_spacemouse_sdk_check_distinguishes_native_load_failure(monkeypatch):
-    from real_world_rl.devices.backends.teleops import _spacemouse_hid
-    from real_world_rl.devices.backends.teleops.spacemouse import SpaceMouseTeleop
+    from real_world_rl.teleop.spacemouse import hid as _spacemouse_hid
+    from real_world_rl.teleop.spacemouse.backend import SpaceMouseTeleop
     from real_world_rl.doctor import checks
 
     def fail(name):

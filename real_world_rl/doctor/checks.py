@@ -26,7 +26,7 @@ from real_world_rl.devices.backends.arms.franky import (
     parse_libfranka_mismatch,
     server_version_cross_check,
 )
-from real_world_rl.devices.backends.teleops._spacemouse_hid import UDEV_HINT
+from real_world_rl.teleop.spacemouse.hid import UDEV_HINT
 from real_world_rl.devices.claims import DeviceClaim, claim_key
 from real_world_rl.discovery import enumerate as probes
 from real_world_rl.doctor import probes as os_probes
@@ -313,7 +313,7 @@ def _spacemouse_outcome(teleop, name: str) -> Callable[[], Outcome]:
     SpaceMouse but are missing from it (WARN beside a supported one, FAIL without one)."""
 
     def outcome() -> Outcome:
-        from real_world_rl.devices.backends.teleops import _spacemouse_hid
+        from real_world_rl.teleop.spacemouse import hid as _spacemouse_hid
 
         try:
             table = _spacemouse_hid.load_device_specs(options=teleop.options)

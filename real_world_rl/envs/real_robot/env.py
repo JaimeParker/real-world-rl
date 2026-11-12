@@ -782,7 +782,7 @@ class RealRobotEnv(gym.Env):
             self._session_stop_reason = reason
         if self._report_paths.session_events:
             if self._session_events is None:
-                from real_world_rl.teleop.session_events import SessionEvents
+                from real_world_rl.teleop.core.session_events import SessionEvents
                 self._session_events = SessionEvents(self.output_path("session_events"))
             self._session_events.emit(phase, reason=reason,
                                       episode_index=self._diagnostic_reset_index)

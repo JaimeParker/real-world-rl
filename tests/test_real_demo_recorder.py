@@ -42,14 +42,14 @@ from real_world_rl.envs.bimanual import BimanualRealRobotEnv, BimanualRealRobotV
 from real_world_rl.envs.wrappers.intervention import InterventionWrapper
 from real_world_rl.envs.wrappers.teleop_event_reward import TeleopEventRewardWrapper
 from real_world_rl.teleop import TeleopReading
-from real_world_rl.teleop.bimanual import normalized_joint_target
-from real_world_rl.teleop.composite import CompositeTeleopSource
-from real_world_rl.teleop.fake import ScriptedTeleopSource
-from real_world_rl.teleop.leader_arm import (
+from real_world_rl.teleop.core.bimanual import normalized_joint_target
+from real_world_rl.teleop.core.composite import CompositeTeleopSource
+from real_world_rl.teleop.core.fake import ScriptedTeleopSource
+from real_world_rl.teleop.leader.joint import (
     TELEOP_SYNCING_EVENT,
     LeaderArmPartSource,
 )
-from real_world_rl.teleop.hold import CartesianHold, HoldPolicy
+from real_world_rl.teleop.core.hold import CartesianHold, HoldPolicy
 from real_world_rl.training import env_building
 from real_world_rl.training.demo_loading import load_demo_pkls
 
@@ -1153,7 +1153,7 @@ def test_recorder_first_frame_is_observed_after_neutral_gate(monkeypatch):
     def gate(*args, **kwargs):
         env.frame = 42
         return 'next'
-    monkeypatch.setattr('real_world_rl.teleop.session.wait_before_episode', gate)
+    monkeypatch.setattr('real_world_rl.teleop.core.session.wait_before_episode', gate)
     observed = []
     def episode(env, obs, *args, index, **kwargs):
         observed.append(obs['state'].clone())

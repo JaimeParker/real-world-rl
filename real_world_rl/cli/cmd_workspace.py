@@ -43,7 +43,7 @@ def frame_candidate(args, station_path: Path) -> tuple[dict, dict]:
             raise CliError("--from-points requires --origin, --x-axis and --y-axis", code=USAGE_EXIT_CODE,
                            required_fields=missing)
         import yaml
-        from real_world_rl.teleop.workspace_points import (frame_from_points, frame_point_quality,
+        from real_world_rl.teleop.core.workspace_points import (frame_from_points, frame_point_quality,
                                                             point_base_positions)
         file = Path(args.from_points)
         if not file.is_absolute():
@@ -76,7 +76,7 @@ def frame_candidate(args, station_path: Path) -> tuple[dict, dict]:
 
 
 def frame_command(args, config, path, raw, document, node, ctx):
-    from real_world_rl.teleop.workspace_points import frame_axes
+    from real_world_rl.teleop.core.workspace_points import frame_axes
     if args.frame_action == "show":
         return {"task_frame": config.task_frame, **frame_axes(config.task_frame)}
     candidate, quality = frame_candidate(args, path)
@@ -107,7 +107,7 @@ def frame_command(args, config, path, raw, document, node, ctx):
 
 def workspace_command(args, config, path, raw, document, node, ctx):
     from real_world_rl.devices.workspace import Workspace, task_transform
-    from real_world_rl.teleop.workspace_points import point_set, candidate_bounds
+    from real_world_rl.teleop.core.workspace_points import point_set, candidate_bounds
     import yaml
     if args.action == "frame":
         return frame_command(args, config, path, raw, document, node, ctx)

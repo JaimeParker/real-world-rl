@@ -181,7 +181,7 @@ def test_actor_loop_beats_the_supervisor_heartbeat_per_step_and_announces_resets
 def test_actor_holding_waits_for_next_without_adding_transitions():
     from types import SimpleNamespace
     import numpy as np
-    from real_world_rl.teleop.composite import CompositeTeleopSource
+    from real_world_rl.teleop.core.composite import CompositeTeleopSource
 
     class SessionEnv(_FakeEnv):
         def __init__(self):
@@ -230,7 +230,7 @@ def test_actor_hold_rejects_unsupported_environment_before_reset():
 def test_actor_step_budget_holds_without_reset_or_an_extra_step():
     from types import SimpleNamespace
     import numpy as np
-    from real_world_rl.teleop.composite import CompositeTeleopSource
+    from real_world_rl.teleop.core.composite import CompositeTeleopSource
 
     class BudgetEnv(_FakeEnv):
         def __init__(self):
@@ -338,7 +338,7 @@ def test_cleanup_heartbeat_failure_still_closes_actor(monkeypatch, rollout_fault
 def test_actor_policy_and_transition_use_post_gate_observation():
     from types import SimpleNamespace
     import numpy as np
-    from real_world_rl.teleop.composite import CompositeTeleopSource
+    from real_world_rl.teleop.core.composite import CompositeTeleopSource
     class SessionEnv(_FakeEnv):
         def __init__(self):
             super().__init__(terminate_every=1)

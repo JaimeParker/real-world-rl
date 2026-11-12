@@ -7,9 +7,9 @@ import pytest
 import yaml
 
 from real_world_rl.devices import TeleopConfig
-from real_world_rl.devices.backends.teleops import gello as gello_backend
-from real_world_rl.devices.backends.teleops import gello_calibrate as calibrate
-from real_world_rl.devices.backends.teleops.gello import (
+from real_world_rl.teleop.gello import backend as gello_backend
+from real_world_rl.teleop.gello import calibrate
+from real_world_rl.teleop.gello.backend import (
     GelloTeleop,
     joint_positions_from_raw,
 )

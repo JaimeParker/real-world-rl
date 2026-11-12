@@ -88,9 +88,9 @@ def test_one_package_ships_the_device_layer_and_the_setup_data():
     pyproject = load_pyproject(ROOT / "pyproject.toml")
     setuptools = pyproject["tool"]["setuptools"]
     assert setuptools["packages"]["find"]["include"] == ["real_world_rl*"]
-    assert setuptools["package-data"] == {"real_world_rl": ["py.typed", "setup/*.yaml", "setup/*.rules"]}
+    assert setuptools["package-data"] == {"real_world_rl": ["py.typed", "setup/*.yaml", "teleop/spacemouse/udev/*.rules"]}
     assert list((ROOT / "real_world_rl" / "setup").glob("*.yaml"))
-    assert list((ROOT / "real_world_rl" / "setup").glob("*.rules"))
+    assert list((ROOT / "real_world_rl" / "teleop" / "spacemouse" / "udev").glob("*.rules"))
     assert not (ROOT / "robot_infra").exists()
 
 

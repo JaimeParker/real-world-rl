@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 
 from real_world_rl.devices import DeviceNotFound, SdkMissing, Teleop, TeleopConfig, VersionMismatch
-from real_world_rl.devices.backends.teleops import spacemouse as spacemouse_backend
-from real_world_rl.devices.backends.teleops.spacemouse import SpaceMouseTeleop
+from real_world_rl.teleop.spacemouse import backend as spacemouse_backend
+from real_world_rl.teleop.spacemouse.backend import SpaceMouseTeleop
 from real_world_rl.discovery import enumerate as probes
 from real_world_rl.doctor import checks
 
@@ -163,7 +163,7 @@ def test_without_the_option_the_site_table_of_the_working_directory_applies(spac
 
 
 def test_device_spec_names_the_decoding_entry_of_the_open_device(monkeypatch, tmp_path):
-    from real_world_rl.devices.backends.teleops import _spacemouse_hid
+    from real_world_rl.teleop.spacemouse import hid as _spacemouse_hid
 
     class Handle:
         def open_path(self, path):
@@ -343,7 +343,7 @@ def test_discover_matches_vendor_and_product_pairs_of_the_builtin_table(monkeypa
 
 
 def test_discover_also_matches_the_local_table(monkeypatch, tmp_path):
-    from real_world_rl.devices.backends.teleops._spacemouse_hid import load_device_specs
+    from real_world_rl.teleop.spacemouse.hid import load_device_specs
 
     monkeypatch.setitem(sys.modules, "hid", fake_hid(DISCOVER_ENTRIES))
     write_table(tmp_path / "site")
@@ -354,7 +354,7 @@ def test_discover_also_matches_the_local_table(monkeypatch, tmp_path):
 
 
 def test_discover_ignores_logitech_receiver_and_unlisted_3dconnexion_products(monkeypatch):
-    from real_world_rl.devices.backends.teleops._spacemouse_hid import BUILTIN_DEVICE_SPECS
+    from real_world_rl.teleop.spacemouse.hid import BUILTIN_DEVICE_SPECS
 
     listed = {tuple(spec.hid_id) for spec in BUILTIN_DEVICE_SPECS.values()}
     assert (0x046D, 0xC542) not in listed and (0x256F, 0xFFFF) not in listed
@@ -383,7 +383,7 @@ def test_discover_teleops_includes_spacemouse(monkeypatch):
 
 
 def test_discover_teleops_passes_backend_discover_kwargs(monkeypatch, tmp_path):
-    from real_world_rl.devices.backends.teleops._spacemouse_hid import load_device_specs
+    from real_world_rl.teleop.spacemouse.hid import load_device_specs
 
     monkeypatch.setitem(sys.modules, "hid", fake_hid(DISCOVER_ENTRIES))
     write_table(tmp_path / "site")
@@ -454,7 +454,7 @@ def test_hid_check_reports_udev_hint_when_access_denied(tmp_path, monkeypatch):
     monkeypatch.setattr(checks.os, "access", lambda path, mode: False)
     result = run_hid(str(tmp_path / "hidraw*"))
     assert not result.ok and "hidraw0" in result.message
-    assert "sudo cp real_world_rl/setup/99-spacemouse.rules " in result.hint
+    assert "sudo cp real_world_rl/teleop/spacemouse/udev/99-spacemouse.rules " in result.hint
     assert "udevadm control --reload-rules" in result.hint and "plugdev" in result.hint
     assert "--device=/dev/hidrawN" in result.hint
 
@@ -508,7 +508,7 @@ def test_consumed_sample_keeps_decoded_input_metadata(hid_sdk):
 
 
 def test_shared_axis_mapping_and_claim_opt_out(hid_sdk):
-    from real_world_rl.devices.backends.teleops.spacemouse import map_spacemouse_axes
+    from real_world_rl.teleop.spacemouse.backend import map_spacemouse_axes
     from real_world_rl.devices.teleop import TeleopConfig
     raw = [1, 2, 3, 4, 5, 6]
     np.testing.assert_array_equal(map_spacemouse_axes(raw, [1, 4]), [-2, -1, 3, -4, 5, -6])

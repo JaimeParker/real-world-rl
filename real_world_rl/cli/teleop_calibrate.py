@@ -12,7 +12,7 @@ from .station_edit import station_document, confirm_write, atomic_save
 
 
 def profiles(args, ctx):
-    from real_world_rl.teleop.profiles import load_profiles, resolve_profile
+    from real_world_rl.teleop.spacemouse.profiles import load_profiles, resolve_profile
     path, raw, document, node, selected = station_document(args)
     config = selected.config
     result = {"schema_version": 1, "station": str(path), "robot": config.name}
@@ -90,7 +90,7 @@ class _UsageErrors:
 def calibrate_gello_teleop(args, ctx, station):
     """Guided GELLO calibration; unset flags fall back to the station teleop options."""
     from types import SimpleNamespace
-    from real_world_rl.devices.backends.teleops import gello_calibrate
+    from real_world_rl.teleop.gello import calibrate as gello_calibrate
     path, raw, document, node, selected = station
     config = selected.config
     station_teleop = config.teleop
@@ -160,11 +160,11 @@ def calibrate_gello_teleop(args, ctx, station):
 
 
 def calibrate_spacemouse(args, ctx, station):
-    from real_world_rl.teleop.profiles import load_profiles, validate_profile, AXIS_MAPPING_VERSION
+    from real_world_rl.teleop.spacemouse.profiles import load_profiles, validate_profile, AXIS_MAPPING_VERSION
     path, raw, document, node, selected = station
     config = selected.config
     result = {"schema_version": 1, "station": str(path), "robot": config.name}
-    from real_world_rl.teleop.calibration import fit_yaw, validate_axes
+    from real_world_rl.teleop.spacemouse.calibration import fit_yaw, validate_axes
     acquisition = None
     if args.frame != "base" and (not config.task_frame or args.frame != config.task_frame["name"]):
         raise CliError("calibration frame must match station task_frame", code=USAGE_EXIT_CODE)
@@ -175,15 +175,15 @@ def calibrate_spacemouse(args, ctx, station):
     elif args.capture_label:
         samples = {}
     else:
-        from real_world_rl.teleop.input_diagnostics import collect, LABELS
+        from real_world_rl.teleop.spacemouse.diagnostics import collect, LABELS
         if not sys.stdin.isatty():
             raise CliError("missing --samples: live calibration requires a terminal", code=USAGE_EXIT_CODE, required_fields=["--samples"])
         samples, acquisition = collect(config, duration_s=args.duration_s,
                                        directory=args.report_dir, labels=LABELS)
         result.update(acquisition)
     if args.capture_label:
-        from real_world_rl.teleop.input_diagnostics import collect, write_json
-        from real_world_rl.teleop.calibration import sample_trials
+        from real_world_rl.teleop.spacemouse.diagnostics import collect, write_json
+        from real_world_rl.teleop.spacemouse.calibration import sample_trials
         if not sys.stdin.isatty() and not args.yes:
             raise CliError("unattended labelled capture requires --yes", code=USAGE_EXIT_CODE)
         captured, acquisition = collect(config, duration_s=args.duration_s,
@@ -238,11 +238,11 @@ def calibrate_spacemouse(args, ctx, station):
 
 
 def diagnose(args, ctx):
-    from real_world_rl.teleop.profiles import resolve_profile
+    from real_world_rl.teleop.spacemouse.profiles import resolve_profile
     path, raw, document, node, selected = station_document(args)
     config = selected.config
     result = {"schema_version": 1, "station": str(path), "robot": config.name}
-    from real_world_rl.teleop.input_diagnostics import collect
+    from real_world_rl.teleop.spacemouse.diagnostics import collect
     resolved = resolve_profile(path, selected, args.profile) if selected.sections.get("teleop_profiles") else None
     if args.profile and resolved is None:
         raise CliError("--profile requires station teleop_profiles", code=USAGE_EXIT_CODE)

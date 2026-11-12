@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation
 
-from real_world_rl.teleop.cartesian_tracker import (
+from real_world_rl.teleop.core.targets.cartesian_tracker import (
     TRACKER_VERSION,
     CartesianTargetTracker,
     CartesianTrackerConfig,
@@ -312,7 +312,7 @@ def test_task_workspace_measured_violation_is_fault_not_recovery():
 
 def test_base_box_only_does_not_reject_lead_capped_candidate_below_face():
     """B2: HEAD checks requested against the base box, not the candidate."""
-    from real_world_rl.teleop.cartesian_tracker import _limited_towards
+    from real_world_rl.teleop.core.targets.cartesian_tracker import _limited_towards
     tracker = CartesianTargetTracker(CartesianTrackerConfig(speed_m_s=1.),
                                      safety_box=[-1, -1, 0, 1, 1, 1])
     start = np.array([0, 0, 0, 0, 0, 0, 1.])

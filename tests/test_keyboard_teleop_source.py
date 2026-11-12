@@ -12,7 +12,7 @@ from real_world_rl.devices import DeviceFault, SdkMissing
 
 from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
 from real_world_rl.teleop import make_teleop_source
-from real_world_rl.teleop.keyboard import KeyboardTeleopSource
+from real_world_rl.teleop.keyboard.pynput_source import KeyboardTeleopSource
 
 
 @pytest.fixture

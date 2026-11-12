@@ -13,7 +13,7 @@ from typing import Iterable, Mapping, Sequence
 import numpy as np
 
 from real_world_rl.devices import Camera, Teleop
-from real_world_rl.devices.backends.teleops.gello import (
+from real_world_rl.teleop.gello.backend import (
     DYNAMIXEL_SDK_REQUIREMENT,
     DynamixelBus,
     GelloTeleop,

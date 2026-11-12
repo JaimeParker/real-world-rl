@@ -6,7 +6,7 @@ scripts in `examples/` use the same sources.
 
 ## The `TeleopSource` contract
 
-`real_world_rl.teleop` (`teleop/base.py`):
+`real_world_rl.teleop` (`teleop/core/contract.py`):
 
 ```python
 @dataclass(frozen=True)
@@ -231,7 +231,7 @@ Install the packaged vendor rules once. On the NUC, repository root, any shell
 (no project environment required), with sudo permission:
 
 ```bash
-sudo cp real_world_rl/setup/99-spacemouse.rules /etc/udev/rules.d/
+sudo cp real_world_rl/teleop/spacemouse/udev/99-spacemouse.rules /etc/udev/rules.d/
 sudo usermod -aG plugdev "$USER"
 sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw
 ```
@@ -243,7 +243,7 @@ works on the NUC from any directory, **with the project environment active** and
 sudo permission; follow it with the same group/reload commands above:
 
 ```bash
-sudo cp "$(python -c 'import real_world_rl.setup, os; print(os.path.dirname(real_world_rl.setup.__file__))')/99-spacemouse.rules" /etc/udev/rules.d/
+sudo cp "$(python -c 'import os, real_world_rl.teleop.spacemouse as slice; print(os.path.dirname(slice.__file__))')/udev/99-spacemouse.rules" /etc/udev/rules.d/
 ```
 
 An open/permission failure points to this rule file and its installation commands.
@@ -264,7 +264,7 @@ rwrl record --config hil.yaml \
 The HIL actor takes the same two flags. Add `--spacemouse-mode serl` to select
 the native behavior in the table above, after configuring both safety boxes.
 The following description is the default **tracker** mode. `SpaceMouseTeleopSource`
-(`real_world_rl/teleop/spacemouse.py`) opens the device with the device layer's
+(`real_world_rl/teleop/spacemouse/source.py`) opens the device with the device layer's
 `SpaceMouseTeleop` (`TeleopConfig(backend="spacemouse")`, a poll thread feeding `read()`; the
 twist is in `[-1, 1]` with axis map `[-y, x, z, -roll, -pitch, -yaw]` of the HID reader state,
 `invert_axes` flips the sign of the listed output indices 0-5) and drives the same
@@ -325,7 +325,7 @@ hil_serl on `--env-backend real_robot` can also take interventions from the tele
 the robot itself (the robot yaml's `teleop:` section: spacemouse, the `gello` leader arm or the
 `fake` backend, served locally or by the robot daemon; a leader arm is better read with
 `--teleop-device leader_arm`, see [Leader arms](#leader-arms-gello)). `TeleopPartSource`
-(`real_world_rl/teleop/part.py`) adapts it, mapping cartesian or joint
+(`real_world_rl/teleop/core/part.py`) adapts it, mapping cartesian or joint
 (`joint_abs`/`joint_delta`) teleop actions into the env's `[-1, 1]` action space and forwarding
 the device's `success`/`failure`/`rerecord` events; see the README's "Action contract" and
 "Teleop (`--teleop-device robot`)" sections for the mapping, the `--robot-teleop-action-mode`
@@ -339,7 +339,7 @@ with the setup wizard, BC, ACT and deployment is the
 [tutorial](tutorial/00-overview.md). This section describes the sources.
 
 A leader arm reports absolute leader joint positions. `LeaderArmPartSource`
-(`real_world_rl/teleop/leader_arm.py`) maps them into the env's joint action mode like
+(`real_world_rl/teleop/leader/joint.py`) maps them into the env's joint action mode like
 `TeleopPartSource` (`joint_abs`: normalized onto `joint_limits`; `joint_delta`:
 `(q_leader - q_follower) / joint_scale_rad`, saturating at one `joint_scale_rad` per step) and
 adds an onset policy for the moment the operator takes over. Two ways to read a GELLO:
@@ -414,9 +414,9 @@ take-over on button 0 and takes only the events from the event device, see
 
 A GELLO leader arm reports joint angles. Envs that only accept a cartesian twist get those
 angles through Panda forward kinematics: `LeaderArmCartesianSource`
-(`real_world_rl/teleop/leader_cartesian.py`, `device="leader_cartesian"`) turns the
+(`real_world_rl/teleop/leader/cartesian.py`, `device="leader_cartesian"`) turns the
 leader's joints into a requested end-effector pose, and a `CartesianTargetTracker`
-(`real_world_rl/teleop/cartesian_tracker.py`) turns that into the twist that moves the follower
+(`real_world_rl/teleop/core/targets/cartesian_tracker.py`) turns that into the twist that moves the follower
 (see [Mapping](#mapping)). `examples/presets/gello_cartesian.yaml` is a single-arm 50 Hz preset.
 
 #### Why
@@ -440,7 +440,7 @@ The same source serves `real_robot` in `cartesian_delta` mode (for example a dae
 | Piece | Where | What |
 | --- | --- | --- |
 | `PandaKinematics` | `real_world_rl/kinematics/panda.py` | numpy forward kinematics, Craig modified DH; `flange_pose(q)`, `ee_pose(q)` (xyz, quat xyzw), `ee_transform(q)` (4x4). EE defaults: Franka Hand, 0.1034 m along the flange z and -pi/4 about it (`ee_offset_m`, `ee_yaw_rad`). |
-| `LeaderArmCartesianSource` | `real_world_rl/teleop/leader_cartesian.py` | the teleop source; any `joint_abs` 7-joint teleop part is a valid leader. |
+| `LeaderArmCartesianSource` | `real_world_rl/teleop/leader/cartesian.py` | the teleop source; any `joint_abs` 7-joint teleop part is a valid leader. |
 | `FrankaRealEnv.last_tcp_pose` | `real_world_rl/envs/franka_real/env.py` | the measured TCP pose (`O_T_EE`, xyz + quat xyzw) of the latest reset/step; the source's follower pose. |
 | stub-robot yaml | `examples/stations/robot.gello_station.example.yaml` | serves the GELLO from the robot host through the robot daemon. |
 
@@ -549,7 +549,7 @@ backwards raises `MissedControlDeadline`). A requested position outside the safe
 box does too: the source logs `WORKSPACE HOLD: <axes>` and reads as not intervened until the
 operator hands back and takes over again.
 
-The recorder's hold policy (`real_world_rl/teleop/hold.py`, `CartesianHold`) shares the source's
+The recorder's hold policy (`real_world_rl/teleop/core/hold.py`, `CartesianHold`) shares the source's
 tracker: while nobody drives it sends the action back onto the fixed hold pose (not a zero twist),
 at most one lead cap per step. Without `leader_cartesian` (or `spacemouse`, which shares its tracker
 the same way) it keeps a tracker of its own whose caps
@@ -635,7 +635,7 @@ both.
 On `--env-backend real_robot_bimanual` (see [bimanual.md](bimanual.md)) the action is
 `[left arm, right arm, left gripper, right gripper]`, and the single-arm devices (`robot`,
 `leader_arm`, `gello`, `leader_cartesian`, `spacemouse`, `spacemouse_twist`, `pico`) are rejected. `--teleop-device
-bimanual` (`BimanualTeleopSource`, `real_world_rl/teleop/bimanual.py`) builds one
+bimanual` (`BimanualTeleopSource`, `real_world_rl/teleop/core/bimanual.py`) builds one
 single-arm source per arm over that arm's own `RealRobotEnv`, so each one reads its own robot and
 follower, and assembles their readings into the two-arm action. `--teleop-arm-device` picks the
 per-arm device:
@@ -770,7 +770,7 @@ twist is in physical units (as the Pico's), see how the demo scripts normalize i
 
 ## EETwist TeleOp Interface (Pico)
 
-`PicoTeleopSource` wraps `EETwistTeleOpWrapper` in `real_world_rl/legacy/teleop/utils/telo_op_control_twist.py`
+`PicoTeleopSource` wraps `EETwistTeleOpWrapper` in `real_world_rl/teleop/pico/bridge.py`
 (legacy code kept in `real_world_rl/legacy/`). Its only device is `pico`; the wrapper receives device data
 from a ZeroMQ `SUB` socket. The Pico server is expected to publish JSON arrays to:
 

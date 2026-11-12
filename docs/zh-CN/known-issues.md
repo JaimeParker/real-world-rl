@@ -31,7 +31,7 @@
 
 - **症状：**leader_arm、gello 或 robot 路线，策略持物而扳机释放时 `t` 接管会立即张开。
 - **影响：**物体掉落和错误介入行。
-- **位置：**`real_world_rl/teleop/part.py` 的 `TeleopPartSource._gripper_action` 直接做 `2w - 1`；`leader_arm.py` 的 `_poll` onset 仅处理关节。
+- **位置：**`real_world_rl/teleop/core/part.py` 的 `TeleopPartSource._gripper_action` 直接做 `2w - 1`；`real_world_rl/teleop/leader/joint.py` 的 `_poll` onset 仅处理关节。
 - **当前处理：**接管前匹配夹爪状态，持物时先捏紧。要了解哪些扳机位置读作张开和闭合，在会话前运行 `rwrl teleop read`（无机器人运动；recorder 或 actor 占用主臂时不要运行）：它以 `gripper=` 实时打印扳机。
 - **计划修复：**采用 leader_cartesian 的接管锁存，见[已关闭项](#s3-leader_cartesian-taking-over-can-open-the-gripper)。
 - **状态：**关节 leader 路线仍开放。
@@ -58,7 +58,7 @@
 
 - **GELLO 力矩跟随**：主臂跟踪从臂需要 robot_infra 的 Dynamixel 电流控制和操作员安全评估。`ramp`、`arm` 已覆盖接管，见 [gello.md](gello.md#9-future-work-leader-tracking-wp8)，实测 GELLO 延迟后再评估。
 - **放开主臂即交还控制**：缺少握持传感器，暂停操作可能误交还。使用 `h`（keyboard 或 stdin 事件源）或 GELLO `event_device` 的脚踏，见 [teleop.md](teleop.md#leader-arms-gello)。
-- **遥操作读故障使 actor 停止**：属于设计行为。异常经 `real_world_rl/teleop/base.py:86` 向上传播，包装器在每步前轮询（`real_world_rl/envs/wrappers/intervention.py:147`），避免将丢读数当成策略步骤。actor 清理现在会关闭环境，强制终止仍依赖 watchdog。
+- **遥操作读故障使 actor 停止**：属于设计行为。异常经 `real_world_rl/teleop/core/contract.py:86` 向上传播，包装器在每步前轮询（`real_world_rl/envs/wrappers/intervention.py:147`），避免将丢读数当成策略步骤。actor 清理现在会关闭环境，强制终止仍依赖 watchdog。
 
 
 <a id="c-unverified-on-hardware"></a>

@@ -22,8 +22,9 @@ from real_world_rl.envs.wrappers.intervention import (
     InterventionWrapper,
     TeleopInterventionWrapper,
 )
-from real_world_rl.teleop import TeleopReading, leader_arm, make_teleop_source
-from real_world_rl.teleop.leader_arm import (
+from real_world_rl.teleop import TeleopReading, make_teleop_source
+from real_world_rl.teleop.leader import joint as leader_arm
+from real_world_rl.teleop.leader.joint import (
     TELEOP_SYNCING_EVENT,
     LeaderArmPartSource,
 )

@@ -6,7 +6,7 @@ import sys
 
 import pytest
 import yaml
-from real_world_rl.devices.backends.teleops.gello_calibrate import FRANKA_CALIBRATION_POSE, format_yaml_block
+from real_world_rl.teleop.gello.calibrate import FRANKA_CALIBRATION_POSE, format_yaml_block
 
 from real_world_rl.cli import main
 from real_world_rl.cli.errors import USAGE_EXIT_CODE
@@ -52,7 +52,7 @@ def calibrations(monkeypatch):
         calls.append(kwargs)
         return dict(CALIBRATED)
 
-    monkeypatch.setattr("real_world_rl.devices.backends.teleops.gello_calibrate.calibrate_gello", calibrate_gello)
+    monkeypatch.setattr("real_world_rl.teleop.gello.calibrate.calibrate_gello", calibrate_gello)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     return calls
 
@@ -139,7 +139,7 @@ def test_use_writes_station_teleop_options_and_keeps_comments(tmp_path, capsys, 
 
 def test_use_without_gripper_removes_station_gripper_options(tmp_path, capsys, calibrations, monkeypatch):
     gripperless = {**CALIBRATED, "gripper_id": None, "gripper_open_rad": None, "gripper_closed_rad": None}
-    monkeypatch.setattr("real_world_rl.devices.backends.teleops.gello_calibrate.calibrate_gello",
+    monkeypatch.setattr("real_world_rl.teleop.gello.calibrate.calibrate_gello",
                         lambda **kwargs: dict(gripperless))
     station = STATION.replace("      gripper_id: 8\n", "      gripper_id: 8\n      gripper_open_rad: 3.0\n"
                               "      gripper_closed_rad: 2.2\n      gripper_binarize_threshold: 0.5\n")

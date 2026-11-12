@@ -609,7 +609,7 @@ action wrapper exists in `rl_garden/envs/wrappers/`.
 `SpacemouseIntervention` (`3rd_party/hil-serl/serl_robot_infra/franka_env/
 envs/wrappers.py:207-252`): always-on rate control, intervention decided by
 a pure magnitude deadzone (`norm(expert_a) > threshold`). `rl-garden`'s
-other teleop device, `real_world_rl/legacy/teleop/utils/telo_op_control_twist.py`'s
+other teleop device, `real_world_rl/teleop/pico/bridge.py`'s
 `EETwistTeleOpWrapper` ("pico"), is *bind-gated* instead -- it only reports
 a nonzero (and therefore "intervened") twist while a physical bind button is
 held, computing a delta-since-bind, and falls back to a zero/not-intervened
@@ -623,7 +623,7 @@ behavior when choosing `--teleop_device`.
 
 **Update**: the SpaceMouse side of this comparison changed. `--teleop-device
 spacemouse` no longer uses the legacy `real_world_rl/legacy/teleop/spacemouse`
-`SpaceMouseTeleOpWrapper`; `SpaceMouseTeleopSource` (`teleop/spacemouse.py`)
+`SpaceMouseTeleOpWrapper`; `SpaceMouseTeleopSource` (`teleop/spacemouse/source.py`)
 drives the device layer's `SpaceMouseTeleop` (pyspacemouse 2.x) and maps it with
 `TeleopPartSource`. The intervention rule is still magnitude-based (twist norm
 above `deadzone`, or a button held, plus an optional `hold_s` tail); button 0

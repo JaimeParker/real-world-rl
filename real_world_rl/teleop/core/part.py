@@ -25,12 +25,12 @@ from typing import Any, Callable, Mapping, NamedTuple, Optional, Sequence, Union
 
 import numpy as np
 
-from real_world_rl.teleop.base import (
+from real_world_rl.teleop.core.contract import (
     TeleopReading,
     TeleopSource,
     held_gripper_action,
 )
-from real_world_rl.teleop.registry import register_teleop_source
+from real_world_rl.teleop.core.registry import register_teleop_source
 
 __all__ = [
     "DEFAULT_READ_TIMEOUT_S",

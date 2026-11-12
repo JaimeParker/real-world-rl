@@ -6,7 +6,7 @@ import torch
 from gymnasium import spaces
 from real_world_rl.algorithms.masked_imitation import masked_sum_mean, marginal_gripper_ce
 from real_world_rl.buffers.intervention_replay_buffer import InterventionReplayBuffer
-from real_world_rl.teleop.action_parts import action_parts, part_mask
+from real_world_rl.teleop.core.action_parts import action_parts, part_mask
 from real_world_rl.trajectory import begin_episode, transition_record, end_episode, validate_record
 
 
@@ -93,7 +93,7 @@ def test_archive_records_preserve_boundaries_and_mask_dimensions():
 @pytest.mark.parametrize("idle", ["hold", "policy"])
 def test_partial_takeover_preserves_policy_or_holds_unselected_parts(grippers, idle):
     import gymnasium as gym
-    from real_world_rl.teleop.base import TeleopSource, TeleopReading
+    from real_world_rl.teleop.core.contract import TeleopSource, TeleopReading
     from real_world_rl.envs.wrappers.intervention import InterventionWrapper
     width = 6 if grippers else 4
     class Env(gym.Env):
@@ -225,7 +225,7 @@ def test_masked_bc_loads_legacy_bc_checkpoint(tmp_path):
 @pytest.mark.parametrize("close_fails", [False, True])
 def test_intervention_construction_releases_source_and_env_preserving_error(failure, close_fails):
     import gymnasium as gym
-    from real_world_rl.teleop.base import TeleopSource
+    from real_world_rl.teleop.core.contract import TeleopSource
     from real_world_rl.envs.wrappers.intervention import InterventionWrapper
     class Env(gym.Env):
         num_envs = 1

@@ -24,15 +24,15 @@ from real_world_rl.devices.teleop import EVENT_KEYS, TeleopSample
 from real_world_rl.demos.record import RecordDemosArgs, record_demos
 from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
 from real_world_rl.teleop import TeleopReading, make_teleop_source
-from real_world_rl.teleop.cartesian_tracker import CartesianTrackerConfig
-from real_world_rl.teleop.composite import CompositeTeleopSource
-from real_world_rl.teleop.hold import CartesianHold, hold_action_fn_for
-from real_world_rl.teleop.keyboard import OperatorKeySource
-from real_world_rl.teleop.spacemouse import (
+from real_world_rl.teleop.core.targets.cartesian_tracker import CartesianTrackerConfig
+from real_world_rl.teleop.core.composite import CompositeTeleopSource
+from real_world_rl.teleop.core.hold import CartesianHold, hold_action_fn_for
+from real_world_rl.teleop.core.operator_keys import OperatorKeySource
+from real_world_rl.teleop.spacemouse.source import (
     DEFAULT_DEADZONE,
     SpaceMouseTeleopSource,
-    SpaceMouseTwistTeleopSource,
 )
+from real_world_rl.teleop.spacemouse.twist_sim import SpaceMouseTwistTeleopSource
 from real_world_rl.training import env_building
 from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
 
@@ -351,7 +351,7 @@ def test_a_request_outside_the_safety_box_hands_back_until_the_next_press(caplog
     session = _Session(safety_box=[0.0, -1.0, 0.0, 0.512, 1.0, 1.0])  # x up to 12 mm ahead
     session.take_over()
     session.part.twist = FORWARD_X
-    with caplog.at_level(logging.WARNING, logger="real_world_rl.teleop.spacemouse"):
+    with caplog.at_level(logging.WARNING, logger="real_world_rl.teleop.spacemouse.source"):
         readings = [session.poll() for _ in range(3)]
     assert [reading.intervened for reading in readings] == [True, True, False]
     assert "WORKSPACE HOLD: x=" in caplog.text
@@ -370,7 +370,7 @@ def test_a_stalled_control_loop_holds_and_the_next_poll_continues(caplog):
     session.part.twist = FORWARD_X
     session.poll()
     clock.step_s = 1.0
-    with caplog.at_level(logging.WARNING, logger="real_world_rl.teleop.spacemouse"):
+    with caplog.at_level(logging.WARNING, logger="real_world_rl.teleop.spacemouse.source"):
         reading = session.poll()
     assert reading.intervened and "stalled: 1.000 s" in caplog.text
     np.testing.assert_allclose(reading.action[:6], 0.0, atol=1e-9)
@@ -534,7 +534,7 @@ def test_composite_takes_the_labels_from_the_keys_and_the_take_over_from_button_
     session = _Session()
     composite = CompositeTeleopSource(session.source, _ScriptedKeys({1: ["t"], 3: ["s"], 4: ["esc"]}))
     assert not composite.poll().intervened
-    with caplog.at_level(logging.WARNING, logger="real_world_rl.teleop.spacemouse"):
+    with caplog.at_level(logging.WARNING, logger="real_world_rl.teleop.spacemouse.source"):
         reading = composite.poll()  # t: ignored, with a warning
     assert not reading.intervened and "ignores the event device's take-over" in caplog.text
     session.part.press(0)

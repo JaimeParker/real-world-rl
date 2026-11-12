@@ -33,13 +33,13 @@ from typing import Any, Callable, Iterable, Mapping, Optional, Sequence
 import numpy as np
 
 from real_world_rl.action_contract import get_env_action_contract
-from real_world_rl.teleop.base import (
+from real_world_rl.teleop.core.contract import (
     TeleopReading,
     TeleopSource,
     held_gripper_action,
 )
-from real_world_rl.teleop.composite import ToggleableTeleopSource
-from real_world_rl.teleop.registry import (
+from real_world_rl.teleop.core.composite import ToggleableTeleopSource
+from real_world_rl.teleop.core.registry import (
     make_teleop_source,
     register_teleop_source,
 )

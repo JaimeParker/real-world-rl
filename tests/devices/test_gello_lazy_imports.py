@@ -7,13 +7,13 @@ import sys
 
 import pytest
 
-import real_world_rl.devices.backends.teleops as teleops_package
+import real_world_rl.teleop.gello as gello_package
 from real_world_rl.devices import SdkMissing, Teleop, TeleopConfig
-from real_world_rl.devices.backends.teleops import gello as original_gello
-from real_world_rl.devices.backends.teleops import gello_calibrate as original_calibrate
+from real_world_rl.teleop.gello import backend as original_gello
+from real_world_rl.teleop.gello import calibrate as original_calibrate
 
-GELLO_MODULE = "real_world_rl.devices.backends.teleops.gello"
-CALIBRATE_MODULE = "real_world_rl.devices.backends.teleops.gello_calibrate"
+GELLO_MODULE = "real_world_rl.teleop.gello.backend"
+CALIBRATE_MODULE = "real_world_rl.teleop.gello.calibrate"
 OPTIONS = {
     "port": "/dev/ttyUSB0",
     "joint_ids": [1, 2, 3, 4, 5, 6, 7],
@@ -31,8 +31,8 @@ def without_sdks(monkeypatch):
 def test_modules_import_and_register_without_sdks(without_sdks, monkeypatch):
     # A fresh import registers "gello" again, so give it an empty slot; everything is restored after.
     monkeypatch.setattr(Teleop, "_BACKENDS", {k: v for k, v in Teleop.backends().items() if k != "gello"})
-    monkeypatch.setattr(teleops_package, "gello", original_gello)
-    monkeypatch.setattr(teleops_package, "gello_calibrate", original_calibrate)
+    monkeypatch.setattr(gello_package, "backend", original_gello)
+    monkeypatch.setattr(gello_package, "calibrate", original_calibrate)
     monkeypatch.delitem(sys.modules, GELLO_MODULE)
     monkeypatch.delitem(sys.modules, CALIBRATE_MODULE)
     module = importlib.import_module(GELLO_MODULE)
@@ -51,7 +51,7 @@ def test_connect_without_dynamixel_sdk_raises_sdk_missing_with_install_hint(with
 
 
 def test_calibration_cli_without_dynamixel_sdk_raises_sdk_missing(without_sdks):
-    from real_world_rl.devices.backends.teleops.gello_calibrate import main
+    from real_world_rl.teleop.gello.calibrate import main
 
     def never_asked(prompt):
         raise AssertionError(f"prompted before the SDK check: {prompt}")

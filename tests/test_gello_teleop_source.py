@@ -19,8 +19,8 @@ from real_world_rl.envs.wrappers.intervention import (
     TeleopInterventionWrapper,
 )
 from real_world_rl.teleop import make_teleop_source
-from real_world_rl.teleop.gello import GelloTeleopSource
-from real_world_rl.teleop.leader_arm import TELEOP_SYNCING_EVENT
+from real_world_rl.teleop.gello.source import GelloTeleopSource
+from real_world_rl.teleop.leader.joint import TELEOP_SYNCING_EVENT
 
 DEVICE = dict(
     port="/dev/serial/by-id/usb-FTDI_gello",

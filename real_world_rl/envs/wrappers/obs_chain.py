@@ -25,7 +25,7 @@ class SessionImageFrameStackWrapper(ImageFrameStackWrapper):
     """Refill stacked images from a fresh observation after the session gate."""
 
     def session_observe(self):
-        from real_world_rl.teleop.session import session_observe
+        from real_world_rl.teleop.core.session import session_observe
         return self._reset_frames(session_observe(self.env), env_idx=None)
 
 

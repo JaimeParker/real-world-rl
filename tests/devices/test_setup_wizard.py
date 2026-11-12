@@ -11,7 +11,7 @@ import yaml
 
 import real_world_rl.devices.claims as claims
 from real_world_rl.devices import ArmSafety, CameraConfig, DeviceNotFound
-from real_world_rl.devices.backends.teleops import gello as gello_backend
+from real_world_rl.teleop.gello import backend as gello_backend
 from real_world_rl.devices.robots.franka import FrankaConfig
 from real_world_rl.discovery.autoconfig import STATION_CONFIG_ENV, load_station
 from real_world_rl.doctor.cli import doctor_station, station_exit_code

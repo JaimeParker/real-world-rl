@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 
-from real_world_rl.devices.backends.teleops import _spacemouse_hid
+from real_world_rl.teleop.spacemouse import hid as _spacemouse_hid
 from real_world_rl.devices.errors import DeviceError
 from real_world_rl.devices.teleop import RawReading, Teleop, TeleopConfig
 

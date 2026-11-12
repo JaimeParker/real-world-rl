@@ -11,8 +11,8 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import Any, Mapping, Optional
 
-from real_world_rl.teleop.base import TeleopReading, TeleopSource
-from real_world_rl.teleop.registry import (
+from real_world_rl.teleop.core.contract import TeleopReading, TeleopSource
+from real_world_rl.teleop.core.registry import (
     make_teleop_source,
     register_teleop_source,
 )

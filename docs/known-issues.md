@@ -33,8 +33,8 @@ Status: open for the startup hold/warm-up behavior (S8).
   you take over (`t`) with the trigger released, and the gripper opens at once.
 - **Impact**: safety (a dropped object) and a bad intervened row.
 - **Where**: the trigger maps straight to `2w - 1` (`TeleopPartSource._gripper_action` in
-  `real_world_rl/teleop/part.py`); the onset policies act on the joints only
-  (`LeaderArmPartSource._poll` in `real_world_rl/teleop/leader_arm.py`).
+  `real_world_rl/teleop/core/part.py`); the onset policies act on the joints only
+  (`LeaderArmPartSource._poll` in `real_world_rl/teleop/leader/joint.py`).
 - **Workaround today**: before taking over, set the trigger to the gripper's current state
   (squeezed if it holds the object). To learn which trigger positions read as open and closed,
   run `rwrl teleop read` before the session (no robot motion; not while a recorder or actor holds
@@ -78,7 +78,7 @@ Status: open (docs).
   by mistake. Use `h` (`--teleop-event-device keyboard` or `stdin`), or a foot pedal through the
   GELLO's `event_device` option ([teleop.md](teleop.md#leader-arms-gello)).
 - **The actor stops on a teleop read fault**: by design. A failed read propagates
-  (`real_world_rl/teleop/base.py:86`, polled before every step at
+  (`real_world_rl/teleop/core/contract.py:86`, polled before every step at
   `real_world_rl/envs/wrappers/intervention.py:147`), so a dropped reading is never mistaken
   for a policy step. Actor cleanup now closes the environment; a forced kill still relies on the watchdog.
 

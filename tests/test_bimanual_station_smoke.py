@@ -51,8 +51,8 @@ from real_world_rl.loops.hil_serl import HilSerlActorLoop, HilSerlLearnerLoop
 from real_world_rl.loops.residual import ResidualActorLoop, ResidualLearnerLoop
 from real_world_rl.loops.silri import SilriActorLoop, SilriLearnerLoop
 from real_world_rl.policies.base_provider import ZeroBaseProvider
-from real_world_rl.teleop.bimanual import BimanualTeleopSource
-from real_world_rl.teleop.leader_arm import LeaderArmPartSource
+from real_world_rl.teleop.core.bimanual import BimanualTeleopSource
+from real_world_rl.teleop.leader.joint import LeaderArmPartSource
 from real_world_rl.training import env_building
 from real_world_rl.training.entrypoints import hil_serl
 from real_world_rl.training.entrypoints.bc import (

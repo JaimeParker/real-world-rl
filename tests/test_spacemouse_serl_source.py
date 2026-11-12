@@ -17,11 +17,11 @@ from real_world_rl.devices.errors import SdkMissing
 from real_world_rl.action_contract import LEGACY_ACTION_CONTRACT, demo_contract_of
 from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
 from real_world_rl.teleop import make_teleop_source
-from real_world_rl.teleop.composite import CompositeTeleopSource
-from real_world_rl.teleop.hold import shared_cartesian_tracker
-from real_world_rl.teleop.keyboard import OperatorKeySource
-from real_world_rl.teleop.spacemouse import SpaceMouseTeleopSource
-from real_world_rl.teleop.spacemouse_serl import SpaceMouseSerlTeleopSource, TRACKER_OPTIONS
+from real_world_rl.teleop.core.composite import CompositeTeleopSource
+from real_world_rl.teleop.core.hold import shared_cartesian_tracker
+from real_world_rl.teleop.core.operator_keys import OperatorKeySource
+from real_world_rl.teleop.spacemouse.source import SpaceMouseTeleopSource
+from real_world_rl.teleop.spacemouse.serl import SpaceMouseSerlTeleopSource, TRACKER_OPTIONS
 from real_world_rl.training import env_building
 from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
 
@@ -355,7 +355,7 @@ def test_serl_rejects_explicit_current_from_training_provenance(origin):
 
 @pytest.mark.parametrize("event_device", [None, "stdin"])
 def test_serl_wrapper_factory_does_not_inject_gripper_holding_getter(event_device, monkeypatch):
-    import real_world_rl.teleop.composite as composite_module
+    import real_world_rl.teleop.core.composite as composite_module
 
     hid = make_hid()
     monkeypatch.setitem(sys.modules, "hid", hid)

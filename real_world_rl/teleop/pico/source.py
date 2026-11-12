@@ -3,14 +3,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from real_world_rl.legacy.teleop.utils.telo_op_control_twist import EETwistTeleOpWrapper
+from real_world_rl.teleop.pico.bridge import EETwistTeleOpWrapper
 
-from real_world_rl.teleop.base import (
+from real_world_rl.teleop.core.contract import (
     TeleopReading,
     TeleopSource,
     reading_from_legacy_sample,
 )
-from real_world_rl.teleop.registry import register_teleop_source
+from real_world_rl.teleop.core.registry import register_teleop_source
 
 _ACTION_DIM = 7
 

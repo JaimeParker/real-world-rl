@@ -25,7 +25,7 @@ every button press latched until the next read. This source gives them their mea
   it run ahead: once the puck is released (every axis within ``deadzone``) the command stays
   where it is, at most one lead cap ahead of the measured pose, and the robot stops there.
 - **Hand-back** puts the tracker in hold at the measured pose (``hold_at``); the recorder's hold
-  policy (``real_world_rl.teleop.hold``) shares the tracker and keeps the follower there. A
+  policy (``real_world_rl.teleop.core.hold``) shares the tracker and keeps the follower there. A
   workspace rejection (``WORKSPACE HOLD: <axes>``, logged) or an input or tracking failure hands
   back too: the next button-0 press takes over again. A stalled control loop (more than
   ``max_dt_s`` between two intervened polls) holds at the measured pose and the next poll takes
@@ -42,8 +42,8 @@ Needs ``pyspacemouse>=2,<3``, imported when ``start()`` opens the device (the in
 calls it), so building the source works without the SDK and a missing SDK raises ``SdkMissing``
 there. ``close()`` disconnects the device.
 
-``SpaceMouseTwistTeleopSource`` (``device="spacemouse_twist"``) keeps the old raw-twist semantics
-for the ManiSkill sim examples only; see its docstring.
+``SpaceMouseTwistTeleopSource`` (``device="spacemouse_twist"``, in ``twist_sim``) keeps the old
+raw-twist semantics for the ManiSkill sim examples only; see its docstring.
 """
 from __future__ import annotations
 
@@ -53,10 +53,10 @@ from typing import Any, Callable, Mapping, Optional, Sequence
 
 import numpy as np
 
-from real_world_rl.teleop.input_frame import rotate_input, diagnostic_input, input_sample_diagnostics
+from real_world_rl.teleop.core.targets.twist_input import rotate_input, diagnostic_input, input_sample_diagnostics
 
-from real_world_rl.devices.backends.teleops import (
-    spacemouse as _spacemouse_backend,  # registers "spacemouse"
+from real_world_rl.teleop.spacemouse import (
+    backend as _spacemouse_backend,  # registers "spacemouse"
 )
 from real_world_rl.devices.teleop import Teleop, TeleopConfig
 
@@ -64,20 +64,19 @@ from real_world_rl.action_contract import (
     LEGACY_ACTION_CONTRACT,
     get_env_action_contract,
 )
-from real_world_rl.teleop.base import TeleopReading, TeleopSource, held_gripper_action
-from real_world_rl.teleop.cartesian_tracker import (
+from real_world_rl.teleop.core.contract import TeleopReading, TeleopSource, held_gripper_action
+from real_world_rl.teleop.core.targets.cartesian_tracker import (
     CartesianTargetTracker,
     CartesianTrackerConfig,
 )
-from real_world_rl.teleop.composite import ToggleableTeleopSource
-from real_world_rl.teleop.part import (
+from real_world_rl.teleop.core.composite import ToggleableTeleopSource
+from real_world_rl.teleop.core.part import (
     DEFAULT_READ_TIMEOUT_S,
-    TeleopPartSource,
     teleop_contract_of,
 )
-from real_world_rl.teleop.registry import register_teleop_source
+from real_world_rl.teleop.core.registry import register_teleop_source
 
-__all__ = ["DEFAULT_DEADZONE", "SpaceMouseTeleopSource", "SpaceMouseTwistTeleopSource"]
+__all__ = ["DEFAULT_DEADZONE", "SpaceMouseTeleopSource"]
 
 _CARTESIAN_ACTION_MODE = "cartesian_delta"
 _CARTESIAN_ARM_DIM = 6
@@ -173,11 +172,11 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
         self._pos_scale_m = float(pos_scale_m)
         self._rot_scale_rad = float(rot_scale_rad)
         self._deadzone = float(deadzone)
-        from real_world_rl.teleop.input_frame import validate_input_rotation
+        from real_world_rl.teleop.core.targets.twist_input import validate_input_rotation
         self._input_rotation = validate_input_rotation(input_rotation)
         diagnostic_input(np.zeros(6), diagnostic_axes, diagnostic_gain)
         self._diagnostic_axes, self._diagnostic_gain = diagnostic_axes, diagnostic_gain
-        from real_world_rl.teleop.profiles import validate_device_identity
+        from real_world_rl.teleop.spacemouse.profiles import validate_device_identity
         self._expected_device_identity = validate_device_identity(expected_device_identity)
         self._follower_pose = follower_pose_getter
         self._last_gripper_action = last_gripper_action_getter
@@ -239,12 +238,12 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
         mode with ``tcp_pose`` in its state."""
         mode = kwargs.pop("mode", "tracker")
         if mode == "serl":
-            from real_world_rl.teleop.spacemouse_serl import SpaceMouseSerlTeleopSource
+            from real_world_rl.teleop.spacemouse.serl import SpaceMouseSerlTeleopSource
 
             return SpaceMouseSerlTeleopSource.from_env(env, **kwargs)
         if mode != "tracker":
             raise ValueError("spacemouse mode must be 'tracker' or 'serl'")
-        from real_world_rl.teleop.leader_cartesian import (
+        from real_world_rl.teleop.leader.cartesian import (
             _safety_box_from_env,
             follower_pose_from_env,
         )
@@ -257,7 +256,7 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
             kwargs.setdefault("pos_scale_m", pos_scale_m)
             kwargs.setdefault("rot_scale_rad", rot_scale_rad)
         kwargs.setdefault("safety_box", _safety_box_from_env(env, contract))
-        from real_world_rl.teleop.leader_cartesian import _find_in_wrapper_chain
+        from real_world_rl.teleop.leader.cartesian import _find_in_wrapper_chain
         from real_world_rl.envs.real_robot.env import RealRobotEnv
         backend = _find_in_wrapper_chain(env, RealRobotEnv)
         if backend is not None:
@@ -270,7 +269,7 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
     # -- source protocol -----------------------------------------------------------
 
     def start(self) -> None:
-        from real_world_rl.teleop.profiles import start_profiled_source
+        from real_world_rl.teleop.spacemouse.profiles import start_profiled_source
         start_profiled_source(self)
 
     def session_input(self):
@@ -457,105 +456,3 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
             hint="the spacemouse source reads a cartesian_delta teleop (the device layer's spacemouse backend)",
             device="spacemouse",
         )
-
-
-# -- sim only: the old raw-twist source ------------------------------------------------------
-
-_EPISODE_END_BUTTON = 1
-
-
-class _EpisodeEndOnButtonPress:
-    """The device part, with the latched press of ``_EPISODE_END_BUTTON`` read as ``episode_end``;
-    every other attribute is the part's."""
-
-    def __init__(self, part: Any) -> None:
-        self._part = part
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._part, name)
-
-    def read(self, timeout_s: Optional[float] = None) -> Any:
-        sample = self._part.read(timeout_s)
-        if sample.events.get(_spacemouse_backend.BUTTON_NAMES[_EPISODE_END_BUTTON], False):
-            sample.events["episode_end"] = True
-        return sample
-
-
-@register_teleop_source("spacemouse_twist")
-class SpaceMouseTwistTeleopSource(TeleopSource):
-    """Sim only (the ManiSkill teleop examples): raw twist, motion counts as intervention, button 0
-    gripper, button 1 episode end, ``hold_s``. Not for real robots: a nudge of the puck takes over
-    and every reading is the raw twist, with no command tracker; use ``device="spacemouse"`` there.
-
-    A SpaceMouse on this machine, read by the device layer's ``SpaceMouseTeleop`` and mapped into
-    the env action space by ``TeleopPartSource``. The twist is the raw puck reading (axis map
-    ``[-y, x, z, -roll, -pitch, -yaw]`` of the pyspacemouse state, clipped to ``[-1, 1]``;
-    ``invert_axes`` flips the sign of the listed output indices 0-5). The operator counts as
-    intervening while the twist norm exceeds ``deadzone`` or a button is held, and ``hold_s``
-    keeps it intervening that long after the last activity. Button 0 toggles the device's sticky
-    gripper (open at start and after every ``reset()``, sent as ``+1`` open / ``-1`` closed); a
-    press of button 1 raises ``episode_end``.
-
-    Needs ``pyspacemouse>=2,<3``, imported when ``start()`` opens the device. ``close()``
-    disconnects the device.
-    """
-
-    def __init__(
-        self,
-        *,
-        env_contract: Optional[Mapping[str, Any]] = None,
-        device_index: int = 0,
-        deadzone: float = 1e-3,
-        invert_axes: Sequence[int] = (),
-        poll_interval_s: float = 0.005,
-        hold_s: float = 0.0,
-        read_timeout_s: float = DEFAULT_READ_TIMEOUT_S,
-        device_table: Optional[str] = None,
-    ) -> None:
-        config = TeleopConfig(
-            name="spacemouse",
-            backend="spacemouse",
-            hold_s=hold_s,
-            options={
-                "device_index": device_index,
-                "deadzone": deadzone,
-                "invert_axes": list(invert_axes),
-                "poll_interval_s": poll_interval_s,
-                **({} if device_table is None else {"device_table": str(device_table)}),
-            },
-        )
-        self._part = Teleop.backend("spacemouse")(config, read_timeout_s=read_timeout_s)
-        self._mapped = TeleopPartSource(
-            _EpisodeEndOnButtonPress(self._part),
-            env_contract=LEGACY_ACTION_CONTRACT if env_contract is None else env_contract,
-            read_timeout_s=read_timeout_s,
-        )
-
-    @classmethod
-    def from_env(cls, env: Any, **kwargs: Any) -> "SpaceMouseTwistTeleopSource":
-        kwargs.setdefault("env_contract", get_env_action_contract(env))
-        return cls(**kwargs)
-
-    @property
-    def action_mode(self) -> str:
-        return self._mapped.action_mode
-
-    @property
-    def arm_action_dim(self) -> int:
-        return self._mapped.arm_action_dim
-
-    @property
-    def has_gripper(self) -> bool:
-        return self._mapped.has_gripper
-
-    def start(self) -> None:
-        self._part.connect()
-
-    def poll(self) -> TeleopReading:
-        return self._mapped.poll()
-
-    def reset(self) -> None:
-        self._mapped.reset()
-
-    def close(self) -> None:
-        self._part.disconnect()

@@ -17,7 +17,7 @@ from real_world_rl.server.transport import LocalClient
 
 from real_world_rl.envs.real_robot import RealRobotEnv, RealRobotEnvConfig, RealRobotVectorEnv
 from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
-from real_world_rl.teleop.part import TeleopPartSource
+from real_world_rl.teleop.core.part import TeleopPartSource
 
 ZERO_HOME = [0.0] * 7
 FRAME_HW = (24, 32)

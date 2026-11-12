@@ -9,18 +9,18 @@ from real_world_rl.action_contract import (
     LEGACY_ACTION_CONTRACT,
     get_env_action_contract,
 )
-from real_world_rl.teleop.base import TeleopReading
-from real_world_rl.teleop.composite import ToggleableTeleopSource
-from real_world_rl.teleop.leader_arm import (
+from real_world_rl.teleop.core.contract import TeleopReading
+from real_world_rl.teleop.core.composite import ToggleableTeleopSource
+from real_world_rl.teleop.leader.joint import (
     DEFAULT_ARM_TOLERANCE_RAD,
     DEFAULT_RAMP_STEP_RAD,
     LeaderArmPartSource,
 )
-from real_world_rl.teleop.part import (
+from real_world_rl.teleop.core.part import (
     DEFAULT_READ_TIMEOUT_S,
     _find_last_observation_owner,
 )
-from real_world_rl.teleop.registry import register_teleop_source
+from real_world_rl.teleop.core.registry import register_teleop_source
 
 _BACKEND = "gello"
 
@@ -28,7 +28,7 @@ _BACKEND = "gello"
 def _gello_teleop_class() -> type:
     """The device layer's ``gello`` teleop backend (its Dynamixel SDK import is lazy)."""
     if _BACKEND not in Teleop.backends():
-        import real_world_rl.devices.backends.teleops.gello  # noqa: F401  (registers "gello")
+        import real_world_rl.teleop.gello.backend  # noqa: F401  (registers "gello")
     return Teleop.backend(_BACKEND)
 
 
@@ -43,7 +43,7 @@ class GelloTeleopSource(ToggleableTeleopSource):
     ``gripper_closed_rad``, ``gripper_binarize_threshold``, ``intervention``, ``event_device``,
     ``event_keys``, ``poll_interval_s``) go to the backend unchanged; the optional ones are only
     sent when given, so the backend's defaults apply otherwise. ``python -m
-    real_world_rl.devices.backends.teleops.gello_calibrate`` prints them for a unit.
+    real_world_rl.teleop.gello.calibrate`` prints them for a unit.
 
     The SDK is imported when ``start()`` opens the device (the intervention wrapper calls it), so
     building the source works without it. ``close()`` disconnects the device.

@@ -8,8 +8,8 @@ from real_world_rl.action_contract import (
     get_env_action_contract,
     num_arms_of,
 )
-from real_world_rl.teleop.base import TeleopReading, TeleopSource
-from real_world_rl.teleop.registry import register_teleop_source
+from real_world_rl.teleop.core.contract import TeleopReading, TeleopSource
+from real_world_rl.teleop.core.registry import register_teleop_source
 
 
 @register_teleop_source("fake")

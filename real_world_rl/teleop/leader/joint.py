@@ -30,16 +30,16 @@ from typing import Any, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
-from real_world_rl.teleop.base import TeleopReading
-from real_world_rl.teleop.composite import ToggleableTeleopSource
-from real_world_rl.teleop.part import (
+from real_world_rl.teleop.core.contract import TeleopReading
+from real_world_rl.teleop.core.composite import ToggleableTeleopSource
+from real_world_rl.teleop.core.part import (
     _FORWARDED_EVENTS,
     TeleopContract,
     TeleopPartSource,
     TeleopResolver,
     teleop_contract_of,
 )
-from real_world_rl.teleop.registry import register_teleop_source
+from real_world_rl.teleop.core.registry import register_teleop_source
 
 __all__ = [
     "DEFAULT_ARM_TOLERANCE_RAD",

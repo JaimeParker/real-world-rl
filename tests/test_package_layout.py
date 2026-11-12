@@ -53,6 +53,26 @@ REMOVED_MODULES = [
     "real_world_rl.supervise.__main__",
     "real_world_rl.setup.__main__",
     "real_world_rl.discovery.__main__",
+    # The teleop package is laid out as core + per-device slices; no import shim is kept.
+    *(f"real_world_rl.teleop.{name}" for name in (
+        "base", "registry", "part", "composite", "bimanual", "fake", "action_parts", "hold", "session",
+        "session_events", "cartesian_tracker", "input_frame", "stdin", "jsonl_events", "spacemouse_serl",
+        "profiles", "calibration", "input_diagnostics", "leader_arm", "leader_cartesian", "workspace_points",
+    )),
+    "real_world_rl.devices.backends.teleops.spacemouse",
+    "real_world_rl.devices.backends.teleops._spacemouse_hid",
+    "real_world_rl.devices.backends.teleops.gello",
+    "real_world_rl.devices.backends.teleops.gello_calibrate",
+    "real_world_rl.legacy.teleop.utils.telo_op_control_twist",
+]
+# Old teleop module names that are now slice packages: the package imports, the old names do not.
+RENAMED_TO_PACKAGES = [
+    ("real_world_rl.teleop.spacemouse", "SpaceMouseTeleopSource"),
+    ("real_world_rl.teleop.spacemouse", "SpaceMouseTwistTeleopSource"),
+    ("real_world_rl.teleop.gello", "GelloTeleopSource"),
+    ("real_world_rl.teleop.pico", "PicoTeleopSource"),
+    ("real_world_rl.teleop.keyboard", "KeyboardTeleopSource"),
+    ("real_world_rl.teleop.keyboard", "OperatorKeySource"),
 ]
 
 
@@ -65,6 +85,14 @@ def test_version_is_a_non_empty_string():
 def test_removed_module_paths_do_not_import(module_name):
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module(module_name)
+
+
+@pytest.mark.parametrize("package_name, old_name", RENAMED_TO_PACKAGES)
+def test_teleop_slice_packages_do_not_re_export_the_old_module_names(package_name, old_name):
+    package = importlib.import_module(package_name)
+    assert not hasattr(package, old_name)
+    with pytest.raises(ImportError):
+        exec(f"from {package_name} import {old_name}", {})
 
 
 def test_device_layer_lives_in_real_world_rl():

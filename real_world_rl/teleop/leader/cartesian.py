@@ -4,7 +4,7 @@
 For envs that only take a cartesian twist: ``franka_real`` (the SERL HTTP bridge has no joint
 command endpoint) and ``real_robot`` in ``cartesian_delta`` mode, whose step sends
 ``measured + action * scale``. The leader's joints ``q`` become a requested end-effector pose,
-and a ``CartesianTargetTracker`` (``real_world_rl.teleop.cartesian_tracker``) turns it into the
+and a ``CartesianTargetTracker`` (``real_world_rl.teleop.core.targets.cartesian_tracker``) turns it into the
 emitted arm action: the tracker's persistent command advances towards the request at
 ``target_speed_m_s``/``target_speed_rad_s``, never leads the follower's measured TCP pose by more
 than ``lead_cap_m``/``lead_cap_rad`` (the excess is dropped, never queued), and the action is
@@ -30,7 +30,7 @@ polls) counts as an input loss: the follower holds, a warning gives the gap, and
 re-anchors the leader as at a take-over. A requested position outside ``safety_box`` does too, logs
 ``WORKSPACE HOLD: <axes>`` once, and reads as not intervened until the operator hands back and
 takes over again. The tracker (``cartesian_tracker``) is shared with the recorder's hold policy
-(``real_world_rl.teleop.hold``), which keeps the follower on the hold pose while nobody drives.
+(``real_world_rl.teleop.core.hold``), which keeps the follower on the hold pose while nobody drives.
 
 The gripper action comes from the leader's width target ``w`` in ``[0, 1]`` (1 = open): ``+1``
 if ``w > gripper_binarize_threshold`` else ``-1`` (default 0.5: the trigger closes past half
@@ -53,20 +53,20 @@ from real_world_rl.kinematics.transforms import (
     matrix_to_quat_xyzw,
     pose_to_transform,
 )
-from real_world_rl.teleop.base import TeleopReading, held_gripper_action
-from real_world_rl.teleop.cartesian_tracker import (
+from real_world_rl.teleop.core.contract import TeleopReading, held_gripper_action
+from real_world_rl.teleop.core.targets.cartesian_tracker import (
     CartesianTargetTracker,
     CartesianTrackerConfig,
 )
-from real_world_rl.teleop.composite import ToggleableTeleopSource
-from real_world_rl.teleop.part import (
+from real_world_rl.teleop.core.composite import ToggleableTeleopSource
+from real_world_rl.teleop.core.part import (
     DEFAULT_READ_TIMEOUT_S,
     TeleopContract,
     TeleopResolver,
     _find_last_observation_owner,
     teleop_contract_of,
 )
-from real_world_rl.teleop.registry import register_teleop_source
+from real_world_rl.teleop.core.registry import register_teleop_source
 
 __all__ = ["LeaderArmCartesianSource", "MAPPINGS", "follower_pose_from_env"]
 

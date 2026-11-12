@@ -18,7 +18,7 @@ from real_world_rl.reward.collect_real_robot import (
     run_real_robot_collector,
 )
 from real_world_rl.teleop import TeleopReading
-from real_world_rl.teleop.fake import ScriptedTeleopSource
+from real_world_rl.teleop.core.fake import ScriptedTeleopSource
 from real_world_rl.training import env_building
 
 OPEN, CLOSED = 1.0, -1.0

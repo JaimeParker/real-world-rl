@@ -1,6 +1,6 @@
 """The terminal as an event device (``device="stdin"``): the operator keys of
-``real_world_rl.teleop.keyboard`` (``t``/``h``/``s``/``f``/``r``/``Esc``/``q``) typed into the
-terminal that runs the process. Needs no desktop session (works over SSH), unlike ``keyboard``.
+``real_world_rl.teleop.core.operator_keys`` (``t``/``h``/``s``/``f``/``r``/``Esc``/``q``) typed into
+the terminal that runs the process. Needs no desktop session (works over SSH), unlike ``keyboard``.
 """
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ import sys
 import threading
 from typing import Any, List, Optional
 
-from real_world_rl.teleop.keyboard import EPISODE_END_KEY, OperatorKeySource
-from real_world_rl.teleop.registry import register_teleop_source
+from real_world_rl.teleop.core.operator_keys import EPISODE_END_KEY, OperatorKeySource
+from real_world_rl.teleop.core.registry import register_teleop_source
 
 __all__ = ["StdinTeleopSource", "keys_from_bytes"]
 

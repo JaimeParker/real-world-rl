@@ -12,7 +12,7 @@ import types
 import pytest
 
 from real_world_rl.devices import DeviceNotFound, VersionMismatch
-from real_world_rl.devices.backends.teleops import _spacemouse_hid as reader
+from real_world_rl.teleop.spacemouse import hid as reader
 
 
 @pytest.fixture(autouse=True)
@@ -477,7 +477,7 @@ def test_sdk_import_is_lazy_and_missing_hidapi_hint_is_exact():
 sys.modules["hid"] = None
 sys.modules["pyspacemouse"] = None
 sys.modules["easyhid"] = None
-from real_world_rl.devices.backends.teleops import _spacemouse_hid as reader
+from real_world_rl.teleop.spacemouse import hid as reader
 from real_world_rl.devices import SdkMissing
 try:
     reader.open()
@@ -500,13 +500,13 @@ def test_wrong_hid_distribution_is_reported(monkeypatch):
 
 
 def test_udev_rule_is_packaged():
-    rules = files("real_world_rl.setup").joinpath("99-spacemouse.rules").read_text()
+    rules = files("real_world_rl.teleop.spacemouse").joinpath("udev/99-spacemouse.rules").read_text()
     assert rules.splitlines() == [
         'SUBSYSTEM=="hidraw", ATTRS{idVendor}=="256f", MODE="0664", GROUP="plugdev"',
         'SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", MODE="0664", GROUP="plugdev"',
     ]
     metadata = (Path(__file__).resolve().parents[2] / "pyproject.toml").read_text()
-    assert '"setup/*.rules"' in metadata
+    assert '"teleop/spacemouse/udev/*.rules"' in metadata
 
 
 @pytest.mark.parametrize("model", list(reader.BUILTIN_DEVICE_SPECS))

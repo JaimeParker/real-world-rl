@@ -21,7 +21,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from real_world_rl.devices.errors import DeviceFault, DeviceNotFound, SdkMissing
-from real_world_rl.devices.teleop import EVENT_KEYS, RawReading, Teleop, TeleopConfig
+from real_world_rl.devices.teleop import EVENT_KEYS, OptionalSdk, RawReading, Teleop, TeleopConfig
 
 DYNAMIXEL_SDK_REQUIREMENT = "dynamixel-sdk>=3.7.31,<3.9"
 EVDEV_SDK = "evdev"
@@ -321,6 +321,9 @@ class GelloTeleop(Teleop):
 
     SDK = "dynamixel_sdk"
     ACTION_SPACE = "joint_abs"
+    PIP_REQUIREMENTS = (DYNAMIXEL_SDK_REQUIREMENT,)
+    OPTIONAL_SDKS = {"gello-events": OptionalSdk(option="event_device", module=EVDEV_SDK, requirements=(EVDEV_SDK,))}
+    SERIAL_GROUP = "dialout"
 
     @classmethod
     def require_sdk(cls) -> ModuleType:

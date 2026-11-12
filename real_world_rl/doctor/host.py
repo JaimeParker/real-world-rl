@@ -40,24 +40,22 @@ TOOLS = {
     "ping": "iputils-ping",
     "fuser": "psmisc",
 }
+# The extras that are not teleop backends; each teleop backend declares its own (``Teleop.SDK``,
+# ``PIP_REQUIREMENTS``, ``SDK_IMPORT_CHECK``, ``OPTIONAL_SDKS``), see ``sdk_checks``.
 SDK_MODULES = {
     "franky": "franky",
-    "spacemouse": "hid",
-    "gello": "dynamixel_sdk",
-    "gello-events": "evdev",
     "realsense": "pyrealsense2",
     "grpc": "grpc",
     "jpeg": "cv2",
 }
 FALLBACK_REQUIREMENTS = {
     "franky": ["franky-control"],
-    "spacemouse": ["hidapi==0.14.0.post4"],
-    "gello": ["dynamixel-sdk>=3.7.31,<3.9"],
-    "gello-events": ["evdev"],
     "realsense": ["pyrealsense2"],
     "grpc": ["grpcio>=1.60"],
     "jpeg": ["pillow", "opencv-python-headless"],
 }
+IMPORT_OK_CHECK = "print('import OK')"
+REALSENSE_SYSTEM_LIBRARIES = (("usb-1.0", "libusb-1.0-0"), ("udev", "libudev1"))
 
 
 def read(path: Path) -> str:
@@ -65,6 +63,44 @@ def read(path: Path) -> str:
         return path.read_text(encoding="utf-8").strip()
     except (OSError, UnicodeError):
         return ""
+
+
+def teleop_backends() -> dict:
+    """The registered device-layer teleop backend classes by name, sorted; none when the device
+    layer cannot be imported (host diagnosis goes on without it)."""
+    try:
+        from real_world_rl.devices import Teleop
+    except Exception:
+        return {}
+    return dict(sorted(Teleop.backends().items()))
+
+
+def sdk_checks() -> dict[str, tuple[str, str, list[str]]]:
+    """extra -> ``(module, import check statement, fallback requirements)``: the static extras
+    above and the ones the teleop backends declare."""
+    checks = {extra: (module, IMPORT_OK_CHECK, list(FALLBACK_REQUIREMENTS.get(extra, [])))
+              for extra, module in SDK_MODULES.items()}
+    for name, backend in teleop_backends().items():
+        if backend.SDK:
+            checks[name] = (backend.SDK, backend.SDK_IMPORT_CHECK, list(backend.PIP_REQUIREMENTS))
+        for extra, optional in backend.OPTIONAL_SDKS.items():
+            checks[extra] = (optional.module, IMPORT_OK_CHECK, list(optional.requirements))
+    return checks
+
+
+def teleop_usb_ids(station_dir=None, options_by_backend=None) -> dict:
+    """``{backend name: (backend class, USB ids or None)}`` for each teleop backend that declares
+    ``UDEV_SUBSYSTEMS``; None when its ids could not be determined."""
+    declared = {}
+    for name, backend in teleop_backends().items():
+        if not backend.UDEV_SUBSYSTEMS:
+            continue
+        try:
+            ids = frozenset(backend.usb_ids(station_dir, (options_by_backend or {}).get(name)))
+        except Exception:  # the backend's own finding (usb.<name>.table) reports why
+            ids = None
+        declared[name] = (backend, ids)
+    return declared
 
 
 def spacemouse_device_table(station_dir=None, options=None):
@@ -113,6 +149,7 @@ class Host:
                 f"cannot load the SpaceMouse device table: {error}",
                 "fix the reported spacemouse-devices.yaml entry, or repair the real-world-rl installation",
             )
+        self.teleop_usb = teleop_usb_ids(station_dir, {"spacemouse": spacemouse_options})
         self.usb = self.discover_usb()
         self.ports: list[str] = []
         self.actions: list[Action] = []
@@ -202,14 +239,12 @@ class Host:
                 continue
             product = read(path / "product")
             pair = int(vid, 16), int(pid, 16)
-            kind = (
-                "spacemouse"
-                if table is not None and pair in table.specs
-                else (
-                    "realsense"
-                    if vid.lower() == "8086" and "realsense" in product.lower()
-                    else ""
-                )
+            kind = next(
+                (name for name, (_, ids) in self.teleop_usb.items() if ids and pair in ids), ""
+            ) or (
+                "realsense"
+                if vid.lower() == "8086" and "realsense" in product.lower()
+                else ""
             )
             unknown_spacemouse = False
             if table is not None and not kind:
@@ -378,26 +413,23 @@ class Host:
 
     def rules(self, check, kind, devices):
         lines = ["# Managed by rwrl doctor; targeted at supported devices."]
-        if kind == "spacemouse":
-            if self.spacemouse_table is None:
+        teleop = self.teleop_usb.get(kind)
+        if teleop is not None:
+            backend, ids = teleop
+            if ids is None:
                 self.add(
                     check + ".rules",
                     "BLOCKED",
-                    "SpaceMouse device table unavailable (see usb.spacemouse.table); no rule generated",
+                    f"{backend.USB_IDS_SOURCE} unavailable (see usb.{kind}.table); no rule generated",
                 )
                 return
-            pairs = sorted(self.spacemouse_table.hid_ids)
+            lines += backend.udev_rules(ids)
         else:
-            pairs = sorted({(int(d["vid"], 16), int(d["pid"], 16)) for d in devices})
-        for vid, pid in pairs:
-            for subsystem in (
-                ["usb", "hidraw"]
-                if kind == "spacemouse"
-                else ["usb", "video4linux", "hidraw"]
-            ):
-                lines.append(
-                    f'SUBSYSTEM=="{subsystem}", ATTRS{{idVendor}}=="{vid:04x}", ATTRS{{idProduct}}=="{pid:04x}", MODE="0660", GROUP="plugdev"'
-                )
+            for vid, pid in sorted({(int(d["vid"], 16), int(d["pid"], 16)) for d in devices}):
+                for subsystem in ["usb", "video4linux", "hidraw"]:
+                    lines.append(
+                        f'SUBSYSTEM=="{subsystem}", ATTRS{{idVendor}}=="{vid:04x}", ATTRS{{idProduct}}=="{pid:04x}", MODE="0660", GROUP="plugdev"'
+                    )
         content = "\n".join(lines) + "\n"
         target = self.etc / f"udev/rules.d/99-rwrl-{kind}.rules"
         if read(target) == content.strip():
@@ -427,7 +459,7 @@ class Host:
                 f'product "{device["product"]}"; the site table is local/{DEVICE_TABLE_FILENAME} '
                 f"(next to local/station.yaml) or ~/.config/rwrl/{DEVICE_TABLE_FILENAME}",
             )
-        for kind in ("spacemouse", "realsense"):
+        for kind in (*self.teleop_usb, "realsense"):
             if kind not in self.expected:
                 continue
             devices = [d for d in self.usb if d["kind"] == kind]
@@ -457,7 +489,8 @@ class Host:
                 "USB access and SDK reads must both pass; hidraw access alone does not prove libusb access",
             )
             if denied:
-                if kind == "spacemouse":
+                teleop = self.teleop_usb.get(kind)
+                if teleop is not None and "hidraw" in teleop[0].UDEV_SUBSYSTEMS:
                     hidraw = [node for d in devices for node in self.hidraw_nodes(d["sysfs"])]
                     self.grant_access_now(
                         check, [*denied, *(node for node in hidraw if not os.access(node, os.R_OK | os.W_OK))]
@@ -466,16 +499,21 @@ class Host:
                 self.rules(check, kind, devices)
 
     def inspect_gello(self, configs):
+        """The serial teleops of ``configs``: the backends that declare a ``SERIAL_GROUP``
+        (GELLO is the only one, so its findings keep their GELLO names)."""
+        backends = teleop_backends()
         candidates = []
         for config in configs:
             teleop = getattr(config, "teleop", None)
-            if teleop is not None and teleop.backend == "gello":
+            backend = backends.get(teleop.backend) if teleop is not None else None
+            if backend is not None and backend.SERIAL_GROUP:
                 candidates.append(
-                    (teleop.options.get("port"), teleop.options.get("event_device"))
+                    (teleop.options.get("port"), teleop.options.get("event_device"), backend.SERIAL_GROUP)
                 )
-                self.expected.add("gello")
-                if teleop.options.get("event_device"):
-                    self.expected.add("gello-events")
+                self.expected.add(teleop.backend)
+                for extra, optional in backend.OPTIONAL_SDKS.items():
+                    if teleop.options.get(optional.option):
+                        self.expected.add(extra)
         # A serial adapter alone is not proof that a particular calibration/leader is GELLO.
         if not candidates:
             ports = sorted(
@@ -490,7 +528,7 @@ class Host:
                     "uncommissioned serial candidates: " + ", ".join(ports),
                     "select the GELLO port and calibration in a station/preset before device reads or repairs",
                 )
-        for index, (port, event) in enumerate(candidates):
+        for index, (port, event, serial_group) in enumerate(candidates):
             check = f"gello.{index}"
             if not port:
                 self.add(
@@ -512,11 +550,11 @@ class Host:
             usb, selector = self.serial_identity(device)
             if device.exists() and not accessible:
                 self.grant_access_now(check, [device])
-                self.groups("dialout", check)
+                self.groups(serial_group, check)
                 if selector:
                     target = self.etc / f"udev/rules.d/99-rwrl-gello-{index}.rules"
                     content = (
-                        f'SUBSYSTEM=="tty", {selector}, MODE="0660", GROUP="dialout"\n'
+                        f'SUBSYSTEM=="tty", {selector}, MODE="0660", GROUP="{serial_group}"\n'
                     )
                     self.propose(
                         file_action(
@@ -677,8 +715,14 @@ class Host:
 
     def inspect_dependencies(self):
         # Python wheels cannot repair absent system shared libraries. Check separately.
-        if self.capabilities.linux and self.expected & {"spacemouse", "realsense"}:
-            for library, package in (("usb-1.0", "libusb-1.0-0"), ("udev", "libudev1")):
+        library_sets = [
+            backend.SYSTEM_LIBRARIES for name, backend in teleop_backends().items() if name in self.expected
+        ]
+        if "realsense" in self.expected:
+            library_sets.append(REALSENSE_SYSTEM_LIBRARIES)
+        libraries = list(dict.fromkeys(library for group in library_sets for library in group))
+        if self.capabilities.linux and libraries:
+            for library, package in libraries:
                 script = (
                     "import ctypes, ctypes.util; p=ctypes.util.find_library("
                     + repr(library)
@@ -706,6 +750,7 @@ class Host:
         from packaging.utils import canonicalize_name
 
         selected = set(self.expected)
+        checks = sdk_checks()
         # The core requirements and the selected device extras of this project.
         try:
             raw = metadata.requires("real-world-rl") or []
@@ -714,7 +759,7 @@ class Host:
             requirements = [
                 Requirement(row)
                 for extra in selected
-                for row in FALLBACK_REQUIREMENTS.get(extra, [])
+                for row in checks.get(extra, (None, None, []))[2]
             ]
         active_extras = ["", *selected]
         # An installed rl_garden marks a learning host: check its mandatory requirements and the
@@ -795,17 +840,13 @@ class Host:
                         exclusive=True,
                     )
                 )
-        for extra in sorted(selected & SDK_MODULES.keys()):
-            module = SDK_MODULES[extra]
+        for extra in sorted(selected & checks.keys()):
+            module, import_check, reqs = checks[extra]
             script = (
                 "import importlib; m=importlib.import_module("
                 + repr(module)
                 + "); "
-                + (
-                    "assert callable(getattr(m,'device',None)), 'wrong hid distribution; trezor hidapi required'"
-                    if extra == "spacemouse"
-                    else "print('import OK')"
-                )
+                + import_check
             )
             code, output = self.command([sys.executable, "-c", script], timeout=45)
             self.add(
@@ -813,7 +854,6 @@ class Host:
                 "FAIL" if code else "PASS",
                 output.strip()[-1200:] if code else module + " importable",
             )
-            reqs = FALLBACK_REQUIREMENTS.get(extra, [])
             dependency_ids = [
                 "pip:" + canonicalize_name(Requirement(row).name) for row in reqs
             ]

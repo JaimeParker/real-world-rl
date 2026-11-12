@@ -102,15 +102,17 @@ def test_learning_commands_report_the_learning_extra(argv):
     assert "Traceback" not in result.stderr
 
 
-def test_teleop_run_reports_the_learning_extra(monkeypatch):
+def test_teleop_run_reports_the_learning_extra(monkeypatch, tmp_path):
     from real_world_rl.cli.cmd_teleop import TELEOP
 
     def missing_rl_garden(args, ctx):
         raise ModuleNotFoundError("No module named 'rl_garden'", name="rl_garden")
 
-    monkeypatch.setattr("real_world_rl.cli.teleop_session.run_session", missing_rl_garden)
+    station = tmp_path / "station.yaml"
+    station.write_text("type: franka\narm_backend: fake\nteleop:\n  backend: spacemouse\n")
+    monkeypatch.setattr("real_world_rl.teleop.spacemouse.cli.run_session", missing_rl_garden)
     with pytest.raises(CliError) as error:
-        TELEOP.run(SimpleNamespace(teleop_command="run"), None)
+        TELEOP.run(SimpleNamespace(teleop_command="run", station=str(station), robot=None), None)
     assert error.value.code == USAGE_EXIT_CODE and error.value.hint == LEARNING_INSTALL_HINT
     assert "rwrl teleop run needs the learning extra" in error.value.message
 

@@ -35,7 +35,7 @@ CONNECTING_SUBCOMMANDS = {
 }
 # Subcommands that connect only for some of their own sub-subcommands.
 CONNECTING_SUB_SUBCOMMANDS = {
-    "teleop": {"run", "read", "calibrate", "diagnose"},
+    "teleop": {"run", "read", "calibrate", "diagnose", "probe-hid"},
     "workspace": {"capture"},
 }
 # Global options that consume the next token; the remaining global options are flags.

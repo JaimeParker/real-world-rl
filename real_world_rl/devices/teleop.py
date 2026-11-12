@@ -30,6 +30,16 @@ _THREAD_JOIN_TIMEOUT_S = 2.0
 _now = time.monotonic
 
 
+@dataclass(frozen=True)
+class OptionalSdk:
+    """A pip extra a teleop backend needs only when ``option`` is set in its
+    ``TeleopConfig.options``: the extra installs ``requirements`` and provides ``module``."""
+
+    option: str
+    module: str
+    requirements: tuple[str, ...] = ()
+
+
 @dataclass
 class TeleopConfig:
     name: str = "teleop"
@@ -153,6 +163,41 @@ class Teleop(Part, BackendRegistry, ABC):
     MAX_CONSECUTIVE_FAILURES: ClassVar[int] = 5
     FAILURE_BACKOFF_S: ClassVar[float] = 0.01
     IDLE_POLL_INTERVAL_S: ClassVar[float] = 0.001
+
+    # -- host declarations, read by the host doctor (``real_world_rl.doctor.host``) -----------
+    # The doctor names a backend's checks and pip extra after its registry name; ``SDK`` is the
+    # module the extra provides.
+    #: The extra's requirements, used when the installed package metadata is unavailable.
+    PIP_REQUIREMENTS: ClassVar[tuple[str, ...]] = ()
+    #: Python statement run after ``m = importlib.import_module(SDK)`` to check the import.
+    SDK_IMPORT_CHECK: ClassVar[str] = "print('import OK')"
+    #: Extras needed only with an option set, by extra name.
+    OPTIONAL_SDKS: ClassVar[Mapping[str, OptionalSdk]] = {}
+    #: The Unix group that gives access to the backend's serial adapter (None: not a serial device).
+    SERIAL_GROUP: ClassVar[str | None] = None
+    #: The udev subsystems a rule for the backend's ``usb_ids()`` covers (empty: no USB rule).
+    UDEV_SUBSYSTEMS: ClassVar[tuple[str, ...]] = ()
+    #: What the backend's ``usb_ids()`` come from, as host findings name it.
+    USB_IDS_SOURCE: ClassVar[str] = "USB id table"
+    #: Shared libraries its SDK loads: ``(ctypes library name, Debian package)``.
+    SYSTEM_LIBRARIES: ClassVar[tuple[tuple[str, str], ...]] = ()
+
+    @classmethod
+    def usb_ids(cls, station_dir: Any = None, options: Mapping[str, Any] | None = None) -> frozenset[tuple[int, int]]:
+        """The ``(vendor_id, product_id)`` pairs of the USB devices this backend drives, for a
+        station in ``station_dir`` whose teleop has ``options`` (None: no station). Without an
+        SDK; raises when the ids cannot be determined."""
+        return frozenset()
+
+    @classmethod
+    def udev_rules(cls, ids) -> list[str]:
+        """udev rule lines giving the ``plugdev`` group access to ``ids`` in ``UDEV_SUBSYSTEMS``."""
+        return [
+            f'SUBSYSTEM=="{subsystem}", ATTRS{{idVendor}}=="{vid:04x}", ATTRS{{idProduct}}=="{pid:04x}", '
+            'MODE="0660", GROUP="plugdev"'
+            for vid, pid in sorted(ids)
+            for subsystem in cls.UDEV_SUBSYSTEMS
+        ]
 
     def __init__(
         self,

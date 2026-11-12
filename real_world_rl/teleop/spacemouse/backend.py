@@ -59,10 +59,21 @@ class SpaceMouseTeleop(Teleop):
     SDK = "hid"
     ACTION_SPACE = "cartesian_delta"
     HAS_GRIPPER = True
+    PIP_REQUIREMENTS = (_spacemouse_hid.HIDAPI_REQUIREMENT,)
+    # The distribution 'hid' also imports as hid; only trezor hidapi has hid.device().
+    SDK_IMPORT_CHECK = "assert callable(getattr(m,'device',None)), 'wrong hid distribution; trezor hidapi required'"
+    UDEV_SUBSYSTEMS = ("usb", "hidraw")
+    USB_IDS_SOURCE = "SpaceMouse device table"
+    SYSTEM_LIBRARIES = (("usb-1.0", "libusb-1.0-0"), ("udev", "libudev1"))
 
     @classmethod
     def require_sdk(cls) -> ModuleType:
         return _spacemouse_hid.require_sdk()
+
+    @classmethod
+    def usb_ids(cls, station_dir: Any = None, options: Any = None) -> frozenset[tuple[int, int]]:
+        """The products of the merged device table (``_spacemouse_hid.load_device_specs``)."""
+        return _spacemouse_hid.load_device_specs(station_dir, options).hid_ids
 
     def __init__(self, config: TeleopConfig, *, claim: bool = True, **kwargs: Any) -> None:
         super().__init__(config, **kwargs)

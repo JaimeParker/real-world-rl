@@ -89,6 +89,37 @@ table's sha256 for a local entry). Recording and training runs keep the table ou
 compared experiment contract: `teleop_input` records the local table's file, sha256 and entries
 as provenance only, and no machine path enters its `source_options`.
 
+**Probe an unknown device.** `rwrl teleop probe-hid` collects the evidence for a new entry and
+drafts it. On the robot host, repository root, project environment active (the `spacemouse`
+extra provides hidapi), with no other session holding the SpaceMouse:
+
+```bash
+rwrl --station local/station.yaml teleop probe-hid --device 256f:c63a --duration-s 10
+```
+
+During the capture, push and twist the puck along every axis and press every button. The probe
+reads the device's HID report descriptor (from hidapi, else from sysfs) and its raw input
+reports, sends nothing to the device, and writes a new directory
+`local/teleop/probes/256f-c63a/` (next to the station file; `--output DIR` instead, required
+without a station) with `descriptor.hex`, `reports.jsonl` (one `{t, report_id, length,
+bytes_hex}` per report) and `candidate.yaml`. Without `--device` it probes the only 3Dconnexion
+or Logitech multi-axis device attached and lists the candidates when there are several; a
+Logitech interface that is not a multi-axis controller is never read. An existing probe
+directory is refused: remove it or pass another `--output`. The serial number is not recorded,
+and the device table is not written. `--json` prints the same evidence and the draft entry.
+
+`candidate.yaml` is a complete device table holding one draft entry, with `evidence` pointing at
+the probe directory:
+
+1. With `layout:`, a built-in entry decodes the same report ids and lengths. The axis signs
+   are not checked yet.
+2. Without `layout:`, no built-in entry fits: the entry spells out the decoding with what the
+   descriptor gives filled in, and every `TODO` (each axis `scale`, buttons the descriptor does
+   not show) must be replaced; an entry with a `TODO` rejects the whole table.
+3. Copy the entry under `devices:` of `local/spacemouse-devices.yaml` (a site without a table can
+   start from `candidate.yaml` itself), then run the checks below; `teleop diagnose` shows
+   whether every axis has the expected sign.
+
 **Check.** On the robot host, repository root, project environment active, after editing the
 table:
 

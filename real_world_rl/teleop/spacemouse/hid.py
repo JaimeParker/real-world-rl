@@ -830,6 +830,17 @@ class _HidReader:
                 self._claim = None
 
 
+def device_claim(path: Any, *, claims_dir=None):
+    """The node-local exclusive claim on one HID path, shared by ``open`` and ``teleop probe-hid``
+    (not yet acquired)."""
+    import hashlib
+
+    from real_world_rl.devices.claims import DeviceClaim
+
+    key = hashlib.sha256(path if isinstance(path, bytes) else str(path).encode()).hexdigest()
+    return DeviceClaim("spacemouse:" + key, lock_dir=claims_dir)
+
+
 def open(
     device_index: int = 0, *, table: DeviceTable | None = None, claim: bool = True, claims_dir=None,
 ) -> _HidReader:
@@ -856,11 +867,7 @@ def open(
                 hint="; ".join(unknown) if unknown else f"plug it in; {UDEV_HINT}",
             )
         info, spec = devices[device_index]
-        from real_world_rl.devices.claims import DeviceClaim
-        import hashlib
-        path = info["path"]
-        key = hashlib.sha256(path if isinstance(path, bytes) else str(path).encode()).hexdigest()
-        claim = DeviceClaim("spacemouse:" + key, lock_dir=claims_dir) if claim else None
+        claim = device_claim(info["path"], claims_dir=claims_dir) if claim else None
         if claim is not None:
             claim.acquire()
         handle = None

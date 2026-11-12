@@ -88,7 +88,7 @@ def test_run_builds_supervised_child_with_hold(tmp_path, capsys, monkeypatch, ex
     assert calls[0][1:5] == ['-m', 'real_world_rl.cli', 'supervise', '--']
     provenance = json.loads((Path(payload['report_directory']) / 'provenance.json').read_text())
     assert provenance['input_files']['profiles']['sha256']
-    assert provenance['packages']['real_world_rl'][0]['files']['cli/teleop_session.py']
+    assert provenance['packages']['real_world_rl'][0]['files']['teleop/spacemouse/cli.py']
     assert provenance['config_sha256']
 
 
@@ -707,7 +707,7 @@ def test_cli_explicit_unknown_profile_is_rejected(tmp_path, capsys):
     ['--record', 'unused.pkl'], ['--events-file', '-'], ['--input-only'],
 ])
 def test_diagnose_rejects_removed_flags_before_any_device_access(capsys, monkeypatch, removed):
-    monkeypatch.setattr('real_world_rl.cli.teleop_calibrate.diagnose',
+    monkeypatch.setattr('real_world_rl.teleop.spacemouse.cli.diagnose',
                         lambda *args: pytest.fail('removed flags must fail during parsing'))
     assert main(['--json', 'teleop', 'diagnose', *removed]) == 2
     assert 'unrecognized arguments' in json.loads(capsys.readouterr().out)['error']

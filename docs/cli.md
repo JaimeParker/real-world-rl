@@ -108,6 +108,7 @@ refused confirmation; details follow the table.
 | `teleop profiles list/show/use` | (SpaceMouse) Inspect or select a named profile; see [spacemouse-commissioning.md](spacemouse-commissioning.md) | No motion; use writes station | Save confirmation for use | 0 / 1 / 2 |
 | `teleop diagnose` | (SpaceMouse) Input-only diagnosis; see [spacemouse-commissioning.md](spacemouse-commissioning.md) | No robot motion | No | 0 / 1 / 2 |
 | `teleop run` | (SpaceMouse) Supervised recording with episode holding; `--diagnose translation\|rotation\|all` enables motion diagnostics; see [spacemouse-commissioning.md](spacemouse-commissioning.md#supervised-recording-sessions) | Reset and teleoperation | Yes, or `--yes` | Child status or wrapper error |
+| `teleop probe-hid` | (SpaceMouse) Record an attached 3Dconnexion HID device (or a Logitech multi-axis controller) for the site device table: its report descriptor and `--duration-s` (default 10) of raw input reports, into a new `<station dir>/teleop/probes/<vid>-<pid>/` (`--output DIR` instead; required without a station; an existing directory is a usage error) holding `descriptor.hex`, `reports.jsonl` and `candidate.yaml`, a draft `spacemouse-devices.yaml` entry. `--device VID:PID` picks the device when several are attached. Never writes the device table and never records the serial number; see [spacemouse-commissioning.md](spacemouse-commissioning.md#site-device-table) | Input only; writes the probe directory | No | 0 / 1 (no such device, device busy) / 2 |
 | `workspace show/capture/set/validate` | Inspect, sample or configure constraints; see [spacemouse-commissioning.md](spacemouse-commissioning.md). `show` also reports `joint_limits`, `max_delta_per_step`, `home_joints` and `home_within_limits` (`null` without home or limits; `home_violations` lists each joint outside its limits) | Capture reads TCP; no motion | Save confirmation when applicable | 0 / 1 / 2; text validation failure 5 |
 | `workspace frame set --name NAME` | Propose a station `task_frame` from `--base-T-frame` (16 row-major numbers, metres) or from `--from-points PTS --origin A --x-axis B --y-axis C` (point names saved by `workspace capture --save`; right-handed, y orthogonalised to x, degenerate points refused); `--source TEXT` records provenance; `--save` writes only `task_frame`. Refused when the station workspace is in another frame; the same frame name rebases that workspace and says so | No motion; `--save` writes station | Save confirmation | 0 / 1 / 2 |
 | `workspace frame show` | Station `task_frame` with its origin and unit axes in the base frame | Reads the station file only | No | 0 / 1 / 2 |
@@ -139,6 +140,15 @@ arms: `--camera-resolution WIDTHxHEIGHT` (for example `1280x720`),
 `--camera-fps N` and `--camera-depth yes|no`. They apply to that arm's cameras;
 unset, new cameras keep the camera defaults and cameras kept from `--station`
 keep their values. They add no wizard question.
+
+The `teleop` operations other than `read` and `inspect-stop` run in the device
+slice of a teleop backend. `calibrate`, `diagnose`, `run` and `profiles` follow the
+station teleop backend (`calibrate` also takes `--backend`, and needs it when the
+station has no teleop); an operation that backend does not implement is a usage
+error naming the backends that do, for example
+`backend 'gello' does not implement teleop diagnose`. `probe-hid` probes the
+host's HID devices whatever the station teleop is. `rwrl teleop <operation> --help`
+lists the flags grouped by backend.
 
 `rwrl teleop calibrate --backend gello` prints the GELLO `teleop:` YAML block.
 `setup --only teleop --calibrate` runs that calibration inside the wizard and
@@ -226,7 +236,7 @@ probes/repairs; doctor does not stop or take over another process.
 Only processes that hold a hardware connection count as owners: the daemon,
 recorder, actor and deploy entrypoints, `setup`, the
 connecting primitives (`status`, `q`, `tcp`, `home`, `gripper`, `camera`,
-`stop`, `recover`), `teleop run/read/calibrate/diagnose`, `workspace capture`
+`stop`, `recover`), `teleop run/read/calibrate/diagnose/probe-hid`, `workspace capture`
 and the learning commands. Offline `rwrl` commands (`--help`, `workspace
 show/set/validate/frame`, `teleop profiles`, `teleop inspect-stop`, `archive
 inspect`) do not make doctor report `BLOCKED`.

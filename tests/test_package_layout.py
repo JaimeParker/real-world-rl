@@ -70,6 +70,9 @@ REMOVED_MODULES = [
     "real_world_rl.devices.backends.teleops.gello",
     "real_world_rl.devices.backends.teleops.gello_calibrate",
     "real_world_rl.legacy.teleop.utils.telo_op_control_twist",
+    # The SpaceMouse and GELLO teleop commands live in their slices (teleop/<device>/cli.py).
+    "real_world_rl.cli.teleop_calibrate",
+    "real_world_rl.cli.teleop_session",
 ]
 # The device doctor's own text/JSON format, exit code and autofix, removed when the doctors merged.
 REMOVED_DOCTOR_NAMES = [

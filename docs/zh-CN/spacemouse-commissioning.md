@@ -64,6 +64,11 @@ devices:
 
 **证据。** 把支持某条目的材料（HID report descriptor、每个轴和按钮的简短采集、日期）放在 `local/` 下设备表旁，并用 `evidence` 指向它，路径相对于设备表所在目录。`rwrl teleop diagnose` 在 summary 中记录解码该设备的条目（`device_spec`：名字、`hid_id`、`source` 为 `builtin` 或 `local`，local 条目另有设备表的 sha256）。录制和训练不把设备表放进参与比较的实验契约：`teleop_input` 只把 local 设备表的文件、sha256 和条目记作 provenance，`source_options` 中不含任何本机路径。
 
+```bash
+# rwrl teleop probe-hid：探测表外设备并起草条目（步骤见 docs/spacemouse-commissioning.md#site-device-table）
+rwrl --station local/station.yaml teleop probe-hid --device 256f:c63a --duration-s 10
+```
+
 **复核。** 编辑设备表后，在机器人主机的仓库根目录、激活项目环境的情况下运行：
 
 ```bash

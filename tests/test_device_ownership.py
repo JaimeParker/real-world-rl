@@ -53,6 +53,7 @@ def test_offline_rwrl_process_is_not_an_owner(tmp_path):
     (['rwrl', 'teleop', 'calibrate', '--profile', 'p'], 'rwrl teleop calibrate'),
     (['rwrl', 'teleop', 'diagnose'], 'rwrl teleop diagnose'),
     (['rwrl', 'teleop', 'read', '--duration-s', '5'], 'rwrl teleop read'),
+    (['rwrl', '--station', 's.yaml', 'teleop', 'probe-hid', '--device', '256f:c63a'], 'rwrl teleop probe-hid'),
     (['rwrl', 'camera', 'show'], 'rwrl camera'),
     (['robot-infra', 'gello-calibrate', '--port', '/dev/x', '--joint-ids', '1'], 'robot-infra gello-calibrate'),
     (['rwrl', 'workspace', 'capture'], 'rwrl workspace capture'),

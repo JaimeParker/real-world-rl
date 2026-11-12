@@ -103,7 +103,7 @@ kill -STOP "$PID"
 
 S11 默认心跳超时 **2 s 后才开始升级**，再等待 SIGINT 3 s、SIGTERM 2 s 后才 SIGKILL；被 STOP 的进程对 SIGINT/SIGTERM 无反应，预期在 STOP 后约 7 s 被 SIGKILL，这就是 8 s 判据的来源。
 将 stop-request、supervise 的 child_exit 时刻及视频停机时刻填入 measurements；STOP前的记录不能证明之后的物理停止。不要为达标擅改默认超时。
-强制杀进程靠丢失 libfranka 连接触发固件 Reflex，不是受控 stop；确认静止并清空工作区后，运行 `rwrl --station local/station.yaml recover`（NUC、仓库根、项目环境激活）清除 Reflex，而不使用 Desk；若失败，再按 [Supervisor 说明](../../../robot_infra/README.md#supervising-a-single-process-robot-run) 在 Desk 恢复。记录恢复结果再做 S12。
+强制杀进程靠丢失 libfranka 连接触发固件 Reflex，不是受控 stop；确认静止并清空工作区后，运行 `rwrl --station local/station.yaml recover`（NUC、仓库根、项目环境激活）清除 Reflex，而不使用 Desk；若失败，再按 [Supervisor 说明](../../devices/README.md#supervising-a-single-process-robot-run) 在 Desk 恢复。记录恢复结果再做 S12。
 
 证据核查：`rwrl archive inspect`（离线，不连接工作站或机器人）只读归档，输出 outcome、mask 计数并导出步骤，并把每个回合按相同 human_action_mask 切分成段（`summary.json` 的 `episodes[].segments[]`：`hold` 或 `intervene`，含以 mm 计的 TCP 漂移、残余位移和接管跳动）。`measurements.csv` 每段一行、每个保持段另有一行 `hold_window`，给出 `--stop-time-s` 时再加一行 `settle`；自填的行（S11）写在其后。
 S04/S05/S09 以 `hold_window` 行的 `max_drift_mm` 判≤5 mm，即保持段前 10 s（`--drift-window-s`）内 TCP 到该段首个采样的最大欧氏距离；并由 `start_s`/`end_s`（归档墙钟时间）确认保持至少 10 s，结合视频对齐时间窗。

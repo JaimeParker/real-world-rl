@@ -1,0 +1,93 @@
+#@ header
+# robot_infra station config, written by `rwrl setup`.
+# The daemon, the doctor and discovery find it without --station (first match wins):
+#   $ROBOT_INFRA_CONFIG, ./local/station.yaml, ~/.config/robot_infra/station.yaml
+# Edit it by hand, or regenerate it with `rwrl setup --station <this file>`
+# (add `--only cameras|teleop|daemon` to redo one section). Check it with
+# `rwrl doctor`, serve it with `rwrl daemon`.
+#@ multi_header
+# Several robots: `rwrl daemon` starts one daemon process per robot, each on
+# its daemon.bind; `--robot <name>` serves or checks a single one.
+robots:
+#@ robot
+type: franka                  # registered robot type
+name: {{name}}
+arm_backend: {{arm_backend}}  # franky (libfranka) | serl_http (legacy ROS1 bridge) | fake
+robot_ip: {{robot_ip}}        # FCI IP set in Desk
+bridge_url: {{bridge_url}}    # serl_http only: URL of controller/real/franka_bridge.py
+realtime: {{realtime}}        # ignore | enforce (enforce needs a PREEMPT_RT kernel)
+relative_dynamics_factor: {{relative_dynamics_factor}}  # franky velocity/acc/jerk scale for move_to_*
+home_joints: {{home_joints}}  # 7 values, rad
+# Safety limits, enforced by the arm (and so by the daemon): servo targets are clipped,
+# move_to_* targets outside them are refused. null = no limit (not recommended).
+safety_box: {{safety_box}}  # [xmin, ymin, zmin, xmax, ymax, zmax] m, base frame (tcp_pose = O_T_EE); must contain the home pose; suggested [0.3, -0.3, 0.05, 0.7, 0.3, 0.6]
+task_frame: {{task_frame}}  # optional named rigid transform base_T_frame
+workspace: {{workspace}}    # optional task-frame bounds; targets outside are rejected
+# workspace measured_margin_m defaults to 0.003 m; measured_margin_rad to 0.03 rad.
+# Both are nonnegative feedback-only margins; target checks keep 1e-9 tolerance.
+joint_limits: {{joint_limits}}  # 7 [lo, hi] pairs, rad (default: Panda datasheet); home_joints must lie inside
+max_delta_per_step: {{max_delta_per_step}}  # servo step cap from the measured state; default {xyz_m: 0.05, joint_rad: 0.04}
+control: {{control}}          # optional impedance settings, applied while IDLE; null keeps SDK defaults
+claim: {{claim}}              # default true: daemon robot claim and SpaceMouse HID endpoint claim
+{{gripper}}
+{{cameras}}
+{{teleop}}
+{{daemon}}
+#@ gripper
+gripper:
+  backend: {{backend}}        # franky | serl_http | fake (match arm_backend)
+  max_width_m: {{max_width_m}}
+  mode: {{mode}}              # binary | continuous
+  binary_threshold: {{binary_threshold}}  # binary mode: an action > threshold opens
+  shares_arm_session: {{shares_arm_session}}  # false: the Franka Hand opens its own connection
+#@ no_gripper
+gripper: null                 # no gripper
+#@ cameras
+cameras:                      # serials from `rwrl discover`
+{{entries}}
+#@ camera
+  - name: {{name}}            # observation key on the actor side (--obs.rgb)
+    backend: {{backend}}      # realsense | fake
+    serial: {{serial}}        # "" = the only attached camera; required when more are plugged in
+    width: {{width}}
+    height: {{height}}
+    fps: {{fps}}
+    enable_depth: {{enable_depth}}
+#@ no_cameras
+cameras: []                   # none
+#@ teleop_gello
+teleop:                       # GELLO leader arm (extra `gello`; `gello-events` for event_device)
+  name: {{name}}              # the daemon serves teleop.<name>.read / teleop.<name>.reset
+  backend: gello
+  hold_s: {{hold_s}}          # keep intervening this long after the last activity
+  options:
+{{todo}}
+    port: {{port}}            # /dev/serial/by-id/... of the U2D2 / OpenRB-150
+    baudrate: {{baudrate}}    # must match the servos; never written to their EEPROM
+    joint_ids: {{joint_ids}}  # servo ids of the arm joints, in the Panda's joint order
+    joint_offsets_rad: {{joint_offsets_rad}}  # q = wrap((raw - offset) * sign); from the calibration
+    joint_signs: {{joint_signs}}  # +1 or -1 per joint; from the calibration
+    wrap_centers_rad: {{wrap_centers_rad}}  # q wraps into [c - pi, c + pi); midpoints of the joint limits
+    gripper_id: {{gripper_id}}  # null = no gripper channel
+    gripper_open_rad: {{gripper_open_rad}}  # raw angle of the released trigger
+    gripper_closed_rad: {{gripper_closed_rad}}  # raw angle of the squeezed trigger
+    gripper_binarize_threshold: {{gripper_binarize_threshold}}  # null = continuous width
+    intervention: {{intervention}}  # always (every poll intervenes) | toggle (event_keys.toggle starts/stops)
+    event_device: {{event_device}}  # null, or /dev/input/by-id/...-event-kbd (pedal or keyboard)
+    event_keys: {{event_keys}}  # evdev key names; toggle flips on key-down, the rest are events
+    poll_interval_s: {{poll_interval_s}}  # sleep before each bus read
+#@ gello_todo
+    # TODO calibrate: joint_offsets_rad, joint_signs and the gripper range are placeholders.
+    # Run `rwrl setup --station <this file> --only teleop --calibrate`.
+#@ teleop_other
+teleop:
+  name: {{name}}              # the daemon serves teleop.<name>.read / teleop.<name>.reset
+  backend: {{backend}}        # spacemouse (extra `spacemouse`) | gello | fake
+  hold_s: {{hold_s}}          # keep intervening this long after the last activity
+  options: {{options}}        # backend-private
+#@ no_teleop
+teleop: null                  # no operator device
+#@ daemon
+daemon:                       # read by `rwrl daemon`; not part of the robot config
+  bind: {{bind}}              # host:port this robot's daemon listens on
+  token: {{token}}            # shared secret clients must send; null = none

@@ -62,7 +62,7 @@ button 0 held closes, button 1 held opens, and neither sends neutral gripper zer
 Tracker caps/speeds do not apply; the compared contract is `spacemouse_serl_v1`.
 See [both modes](../teleop.md#spacemouse); hardware behavior is unverified.
 
-Each hardware command below is wrapped by `robot_infra.supervise`. Its heartbeat
+Each hardware command below is wrapped by `rwrl supervise`. Its heartbeat
 silence threshold defaults to **2.0 s**. `--startup-s 60` allows initial policy
 loading and the actor's snapshot wait before its first reset heartbeat. Check that
 this exceeds startup work on your machine; the default startup allowance is 30 s.

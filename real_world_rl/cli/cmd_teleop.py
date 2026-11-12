@@ -111,8 +111,13 @@ class TeleopCommand:
         from .teleop_read import read
         from .teleop_session import run_session
         from .stop_inspect import inspect_stop
+        from .cmd_learning import learning_dependencies
         operations = {"read": read, "calibrate": calibrate, "profiles": profiles, "diagnose": diagnose,
-                      "run": run_session, "inspect-stop": inspect_stop}
+                      "inspect-stop": inspect_stop}
+        if args.teleop_command == "run":
+            # The supervised session records through the learning side (torch, rl_garden).
+            with learning_dependencies("teleop run"):
+                return run_session(args, ctx)
         return operations[args.teleop_command](args, ctx)
 
 

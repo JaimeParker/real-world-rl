@@ -1,10 +1,28 @@
 """Lazy adapters; learning entrypoints retain ownership of their arguments."""
+from contextlib import contextmanager
 from dataclasses import dataclass
 from importlib import import_module
 import sys
 
 from .command import Result
 from .errors import CliError, SUCCESS_EXIT_CODE, USAGE_EXIT_CODE
+
+# Top-level modules of the learning extra; a daemon-only install has none of them.
+LEARNING_MODULES = ("torch", "rl_garden", "gymnasium", "tyro")
+LEARNING_INSTALL_HINT = "pip install -e ./rl-garden -e '.[learning]' (from the repository root)"
+
+
+@contextmanager
+def learning_dependencies(command: str):
+    """Report a missing learning-extra module as a usage error with the install command,
+    instead of a traceback; any other import error propagates unchanged."""
+    try:
+        yield
+    except ModuleNotFoundError as error:
+        if (error.name or "").split(".")[0] not in LEARNING_MODULES:
+            raise
+        raise CliError(f"rwrl {command} needs the learning extra: {error}", code=USAGE_EXIT_CODE,
+                       hint=LEARNING_INSTALL_HINT) from error
 
 
 @dataclass(frozen=True)
@@ -38,7 +56,8 @@ class LearningCommand:
         argv = self.entrypoint_argv(args, ctx.remaining)
         module, function = self.target.split(":", 1)
         try:
-            code = getattr(import_module(module), function)(argv)
+            with learning_dependencies(self.name):
+                code = getattr(import_module(module), function)(argv)
         except SystemExit as error:
             if isinstance(error.code, str) or error.code == USAGE_EXIT_CODE:
                 message = error.code if isinstance(error.code, str) else "invalid entrypoint arguments"

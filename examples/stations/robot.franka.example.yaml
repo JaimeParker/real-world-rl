@@ -1,0 +1,69 @@
+# Franka Panda + Franka Hand + one RealSense. Load with Robot.from_yaml(path).
+# Omitted keys take the FrankaConfig defaults shown in the comments.
+type: franka                  # registered robot type: franka | piper | remote
+name: franka                  # default "franka"
+arm_backend: franky           # franky (libfranka, default) | serl_http (legacy ROS1 bridge) | fake
+robot_ip: 172.16.0.2          # FCI IP set in Desk (default 172.16.0.2)
+# bridge_url: http://127.0.0.1:5000   # serl_http only: URL of controller/real/franka_bridge.py
+realtime: ignore              # ignore (default) | enforce: enforce needs a PREEMPT_RT kernel
+relative_dynamics_factor: 0.2 # franky velocity/acc/jerk scale for move_to_* (default 0.2)
+home_joints: [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]  # 7 values (default shown)
+# Safety limits, enforced by the arm (and so by the daemon): servo targets are clipped,
+# move_to_* targets outside them are refused with SafetyViolation. Omit a key for no limit.
+# safety_box: [0.3, -0.3, 0.05, 0.7, 0.3, 0.6]  # [xmin, ymin, zmin, xmax, ymax, zmax] m, base frame (tcp_pose = O_T_EE)
+# joint_limits:                 # 7 [lo, hi] pairs, rad; home_joints must lie inside
+#   - [-2.8, 2.8]
+#   - [-1.7, 1.7]
+#   - [-2.8, 2.8]
+#   - [-3.0, -0.1]
+#   - [-2.8, 2.8]
+#   - [0.0, 3.7]
+#   - [-2.8, 2.8]
+# max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.1}  # servo step cap from the measured state
+claim: true                   # daemon takes an exclusive per-host lock on this robot (default true)
+gripper:                      # null for no gripper
+  backend: franky             # franky (default) | serl_http | fake
+  max_width_m: 0.08
+  mode: binary                # binary (default) | continuous
+  binary_threshold: 0.5       # binary mode: action > threshold opens
+  shares_arm_session: false   # the Franka Hand opens its own connection
+cameras:                      # default: no cameras
+  - name: wrist
+    backend: realsense        # realsense (default) | fake
+    serial: ""                # empty = use the only attached camera; set it when >1 is plugged in
+    width: 640
+    height: 480
+    fps: 30
+    enable_depth: false
+# teleop:                       # default: no teleop; when set, the device must be present at connect
+#   name: teleop                # daemon serves teleop.<name>.read / teleop.<name>.reset
+#   backend: fake               # fake | spacemouse | gello (see the gello block below)
+#   hold_s: 0.0                 # keep intervening this long after the last activity (default 0)
+#   options:                    # backend-private; fake: action_space, has_gripper, num_joints,
+#     on_end: hold_last         #   script, on_end (hold_last | idle | loop), fail_after
+#     script:
+#       - {action: [0.5, 0, 0, 0, 0, 0], active: true, hold: 3}
+#       - {action: [0, 0, 0, 0, 0, 0], gripper: 0.0, events: {episode_end: true}}
+# GELLO leader arm (extra `gello`; `gello-events` for event_device). joint_abs, 7 joints + gripper.
+# Print this block for your unit with:
+#   rwrl gello-calibrate --port <port> \
+#     --joint-ids 1 2 3 4 5 6 7 --gripper-id 8 --joint-limits-yaml robot.yaml
+# teleop:
+#   name: gello
+#   backend: gello
+#   hold_s: 0.0
+#   options:
+#     port: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_XXXX-if00-port0  # required; or usb-ROBOTIS_OpenRB-150_...
+#     baudrate: 57600           # default 57600 (factory); never written to the servo EEPROM
+#     joint_ids: [1, 2, 3, 4, 5, 6, 7]                                   # required, servo ids of the arm joints
+#     joint_offsets_rad: [0.0, 0.0, 3.1416, 3.1416, 3.1416, 4.7124, 0.0]  # required, from the calibration CLI
+#     joint_signs: [1, -1, 1, -1, 1, 1, 1]                               # required, +1/-1, verify per unit
+#     wrap_centers_rad: [0.0, 0.0, 0.0, -1.5708, 0.0, 1.8675, 0.0]        # default zeros; midpoints of joint_limits
+#     gripper_id: 8             # default null = no gripper channel
+#     gripper_open_rad: 3.22    # required with gripper_id: raw trigger angle when open (width 1)
+#     gripper_closed_rad: 2.0   # required with gripper_id: raw trigger angle when closed (width 0)
+#     gripper_binarize_threshold: null  # default null; e.g. 0.5 sends 0/1 for binary grippers
+#     intervention: always      # always (default, active every poll) | toggle (follows the toggle key)
+#     event_device: null        # default null; /dev/input/by-id/...-event-kbd (pedal or keyboard, needs evdev)
+#     event_keys: {toggle: KEY_SPACE, episode_end: KEY_ESC, success: KEY_S, failure: KEY_F, rerecord: KEY_R}  # defaults; null unbinds
+#     poll_interval_s: 0.0      # default 0.0; sleep before each bus read (one read is ~35 ms at 57600)

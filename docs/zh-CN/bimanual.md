@@ -174,7 +174,7 @@ rwrl deploy --checkpoint runs/<bc run>/checkpoints/final.pt \
 - 向导为每臂分配下一台可用相机作为腕部相机，命名 `wrist_left`、`wrist_right`；最后一臂还会分配其余相机，例如 `front`。
 - 依次标定每套 GELLO。
 
-结果是含 `robots:` 映射的文件，每臂有独立相机、`teleop:` 和 `daemon:` 块。下例为缩写；带完整注释的示例见 [`station.bimanual.example.yaml`](../../robot_infra/docs/station.bimanual.example.yaml)：
+结果是含 `robots:` 映射的文件，每臂有独立相机、`teleop:` 和 `daemon:` 块。下例为缩写；带完整注释的示例见 [`station.bimanual.example.yaml`](../../examples/stations/station.bimanual.example.yaml)：
 
 ```yaml
 robots:

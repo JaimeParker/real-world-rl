@@ -253,7 +253,7 @@ def test_missing_sibling_distribution_never_uses_an_invented_source(
     monkeypatch.setattr(
         doctor_host.metadata,
         "requires",
-        lambda name: ["rlgarden-robot-infra==0.0.1"] if name == "real-world-rl" else [],
+        lambda name: ["rl_garden==0.0.1; extra == 'learning'"] if name == "real-world-rl" else [],
     )
 
     def missing(name):
@@ -268,14 +268,14 @@ def test_missing_sibling_distribution_never_uses_an_invented_source(
 
 
 def test_verified_sibling_source_can_be_reinstalled(report, tmp_path, monkeypatch):
-    source = tmp_path / "robot_infra"
+    source = tmp_path / "rl-garden"
     source.mkdir()
-    (source / "pyproject.toml").write_text('[project]\nname="rlgarden-robot-infra"\n')
+    (source / "pyproject.toml").write_text('[project]\nname="rl_garden"\n')
     host = Host(tmp_path, report)
     monkeypatch.setattr(
         doctor_host.metadata,
         "requires",
-        lambda name: ["rlgarden-robot-infra==0.0.1"] if name == "real-world-rl" else [],
+        lambda name: ["rl_garden==0.0.1; extra == 'learning'"] if name == "real-world-rl" else [],
     )
 
     def missing(name):
@@ -284,6 +284,29 @@ def test_verified_sibling_source_can_be_reinstalled(report, tmp_path, monkeypatc
     monkeypatch.setattr(doctor_host.metadata, "version", missing)
     host.inspect_dependencies()
     assert host.actions[0].argv[-2:] == ["-e", str(source)]
+
+
+def test_daemon_only_host_skips_the_learning_extra(report, monkeypatch):
+    """Without rl_garden installed the learning extra is not this host's business."""
+    host = Host(None, report)
+    rows = {"real-world-rl": ["numpy", "torch>=2.1; extra == 'learning'", "grpcio>=1.60; extra == 'grpc'"]}
+
+    def requires(name):
+        if name not in rows:
+            raise doctor_host.metadata.PackageNotFoundError(name)
+        return rows[name]
+
+    def missing(name):
+        raise doctor_host.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(doctor_host.metadata, "requires", requires)
+    monkeypatch.setattr(doctor_host.metadata, "version", missing)
+    host.expected.add("grpc")
+    monkeypatch.setattr(host, "command", lambda *a, **kw: (0, "OK"))
+    host.inspect_dependencies()
+    checked = {row.id for row in host.findings if row.id.startswith("deps.")}
+    assert {"deps.numpy", "deps.grpcio"} <= checked
+    assert "deps.torch" not in checked
 
 
 def test_configured_backend_is_delegated_without_a_second_allowlist(

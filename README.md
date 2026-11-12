@@ -12,11 +12,11 @@ This package imports `rl_garden` as a normal dependency (algorithms,
 buffers, policies, the `EnvBackend`/`BasePolicy` contracts) and registers
 `franka_real` through rl-garden's `rlgarden.env_backends` entry-point group
 — no file inside the `rl_garden` package itself needs editing to add it.
-Hardware/communication code lives in this repository under
-[`robot_infra/`](robot_infra/README.md), a second, torch-free distribution
-(`rlgarden-robot-infra`) that the robot PC installs on its own
-(`pip install -e robot_infra`); `franka_real`'s own coupling to it is HTTP/JSON
-only (`FrankaBridgeClient`), no shared Python types.
+Hardware/communication code lives in this repository in the torch-free package
+`robot_infra/` ([device-layer guide](docs/devices/README.md)), part of the same
+distribution; the learning side (torch, rl-garden) is the `learning` extra, so a robot PC that
+only serves the daemon installs `pip install -e '.[franky,grpc]'`. `franka_real`'s own coupling
+to the device layer is HTTP/JSON only (`FrankaBridgeClient`), no shared Python types.
 
 This repository is the top level for real-robot work. It carries rl-garden as a
 git submodule under [`rl-garden/`](rl-garden), pinned to the rl-garden commit the
@@ -49,7 +49,7 @@ configured xyz/RPY safety boxes ([mode guide](docs/teleop.md#spacemouse)).
 
 ```
 real-world-rl/                   repository real-world-rl (top level)
-  pyproject.toml                 distribution real-world-rl (imports rl_garden)
+  pyproject.toml                 distribution real-world-rl (packages real_world_rl and robot_infra; rl_garden in the learning extra)
   rl-garden/                     git submodule: rl-garden, pinned to the tested commit
   real_world_rl/                 package real_world_rl
     loops/                       actor/learner/sync: base classes (actor, learner, sync) and one module per method (serl, hil_serl, residual, silri)
@@ -61,19 +61,17 @@ real-world-rl/                   repository real-world-rl (top level)
     demos/ reward/               demo recording, reward-classifier data collection
     deploy.py                    eval-only deployment of a checkpoint
     common/ integrations/        small shared helpers; external integrations (integrations/rlinf)
-  robot_infra/                   in-repo device layer: distribution rlgarden-robot-infra (package robot_infra, torch-free)
-    pyproject.toml
-    robot_infra/                 devices, discovery, doctor, daemon, RemoteRobot
-    tests/
-  docs/                          README.md (index), tutorial/ (00-overview ... 08-deploy), bimanual.md, teleop.md, spacemouse-commissioning.md, gello.md, recording-demos.md, residual.md, silri.md, hil-serl-roadmap.md
-  examples/                      train_real_world.py, deploy_real_robot.py, teleop demo and recording scripts; presets/hil_single_arm.yaml
+  robot_infra/                   package robot_infra (torch-free device layer): devices, discovery, doctor, daemon, RemoteRobot, setup, supervise
+  docs/                          README.md (index), tutorial/ (00-overview ... 08-deploy), devices/ (device-layer guide), bimanual.md, teleop.md, spacemouse-commissioning.md, gello.md, recording-demos.md, residual.md, silri.md, hil-serl-roadmap.md
+  examples/                      train_real_world.py, deploy_real_robot.py, teleop demo and recording scripts; presets/hil_single_arm.yaml; stations/ (example station yamls)
   configs/                       RLinf config
-  tests/
+  tests/                         tests/devices/ covers robot_infra
 ```
 
-`robot_infra/` is the device-layer distribution kept inside this repository (it was the separate
-`rlgarden-robot-infra` repository; its history is preserved). It does not import `rl_garden` or
-`real_world_rl`.
+`robot_infra/` is the device layer (it was the separate `rlgarden-robot-infra` repository, then a
+second distribution here; its history is preserved). It does not import `rl_garden` or the
+learning side of `real_world_rl`; its commands (`setup`, `daemon`, `supervise`, `discover`) run
+as `rwrl` subcommands.
 
 Formerly `rlgarden-real-world` (package `rl_garden_real_world`, console scripts `rlgarden-real-*`); renamed in November 2026.
 
@@ -95,8 +93,8 @@ source .venv/bin/activate
 ```
 
 The installer creates or reuses `.venv` using `python3.10` by default, clears inherited
-`PYTHONPATH`, and installs all three local distributions in editable mode with the
-`franka-gello` and `test` extras. Without `--station`, the final doctor uses mock
+`PYTHONPATH`, and installs rl-garden and this project in editable mode with the
+`learning`, `franka-gello` and `test` extras. Without `--station`, the final doctor uses mock
 backends: this does not verify hardware. See the [hardware tutorial](docs/tutorial/01-install.md)
 for station setup; any venv or conda env works for the manual route in
 [step 4](docs/tutorial/01-install.md#4-install-the-project-environment). To check an
@@ -109,19 +107,21 @@ bash scripts/install.sh --station local/station.yaml
 Doctor owns dependency checks (layer 0) and hardware diagnostics. For a libfranka
 mismatch, follow its `--install-sdk` hint to select the wheel for the robot server.
 The default `franka-gello` extra retains gRPC for the optional daemon route.
-Use `--extras franka-gello,spacemouse` for both controllers, `--no-doctor` to skip
+Use `--extras learning,franka-gello,spacemouse` for both controllers, `--no-doctor` to skip
 the final check, or `--torch-index https://download.pytorch.org/whl/cpu` to install
 torch from the CPU index first. `bash scripts/install.sh --help` lists all options.
 
-`rl_garden==0.0.1` and `rlgarden-robot-infra==0.0.1` are supplied by the same pip
-invocation from the local checkout; these versions are not commit locks. Development
-uses the pinned `rl-garden/` submodule. An isolated `pip install .` may not resolve
-these internal packages from a public index. For an existing checkout with an
-uninitialized submodule, run `git submodule update --init` on the NUC/development
-machine, from the repository root (no venv required), then retry the installer.
+`rl_garden==0.0.1` (in the `learning` extra) is supplied by the same pip invocation from the
+`rl-garden/` submodule; the version is not a commit lock. Development uses the pinned
+submodule. An isolated `pip install '.[learning]'` may not resolve it from a public index.
+For an existing checkout with an uninitialized submodule, run `git submodule update --init`
+on the NUC/development machine, from the repository root (no venv required), then retry the
+installer.
 
-On the robot PC only the device layer is needed (see [`robot_infra/README.md`](robot_infra/README.md)):
-`pip install -e robot_infra` (plus the extras for your hardware, e.g. `'robot_infra[franky,grpc]'`).
+A robot PC that only serves the daemon needs neither the submodule nor torch (see the
+[device-layer guide](docs/devices/README.md)). On that PC, from the repository root with no
+environment active, run `bash scripts/install.sh --daemon-only` (extras `franky,grpc`), or
+in an environment of your own `pip install -e '.[franky,grpc]'` plus the extras for your hardware.
 For SpaceMouse, on the NUC/device host, repository root, project environment active,
 run `pip install -e '.[spacemouse]'` to add `hidapi==0.14.0.post4` (import `hid`) for
 the in-tree reader; follow the [udev steps](docs/teleop.md#spacemouse-installation-and-linux-permissions).
@@ -130,11 +130,11 @@ This path is not yet verified on hardware.
 ## Tests
 
 No hardware or network is needed; the tests use fake robots and teleops. Run them from the
-repository root, after the editable install above or with the three source trees on `PYTHONPATH`:
+repository root, after the editable install above or with the two source trees on `PYTHONPATH`:
 
 ```bash
-python -m pytest tests robot_infra/tests
-PYTHONPATH=.:rl-garden:robot_infra python -m pytest tests robot_infra/tests   # without installing
+python -m pytest tests
+PYTHONPATH=.:rl-garden python -m pytest tests   # without installing
 ```
 
 rl-garden's own suite runs inside the submodule (see `rl-garden/.agents/runbooks/testing.md`).
@@ -149,24 +149,24 @@ reference.
 
 Everything below drives a `real_robot` env (any `robot_infra` robot). `franka_real` (the HTTP
 bridge) is always cartesian 7-D and is not covered here. Install this package
-(`pip install -e rl-garden -e robot_infra -e .`) so that the `real_robot` backend is registered through the
+(`pip install -e ./rl-garden -e '.[learning]'`) so that the `real_robot` backend is registered through the
 `rlgarden.env_backends` entry point; without it `--env-backend real_robot` fails with
 `Unknown env backend 'real_robot'`.
 Two arms as one env: `--env-backend real_robot_bimanual`, see [`docs/bimanual.md`](docs/bimanual.md).
 
 ### Robot daemon
 
-The robot daemon runs on the robot PC (see the robot_infra README,
-[How to Start](robot_infra/README.md#how-to-start)):
+The robot daemon runs on the robot PC (see the device-layer guide,
+[How to Start](docs/devices/README.md#how-to-start)):
 
 ```bash
 rwrl setup                  # writes ./local/station.yaml (the setup wizard)
-robot-infra daemon --watchdog-s 5  # serves it: no --station needed
+rwrl daemon --watchdog-s 5  # serves it: no --station needed
 ```
 
-The [setup wizard](robot_infra/README.md#setup-wizard) writes the station yaml of a Franka station
+The [setup wizard](docs/devices/README.md#setup-wizard) writes the station yaml of a Franka station
 (one daemon process per robot for a two-arm station). A hand-written robot yaml is served with
-`robot-infra daemon --station robot.yaml --bind 0.0.0.0:50051 --watchdog-s 5`.
+`rwrl daemon --station robot.yaml --bind 0.0.0.0:50051 --watchdog-s 5`.
 
 The daemon idles a servoing arm that gets no action for `--watchdog-s` (default 0.5 s), and the
 env enters servo mode at the end of `reset()`. If the first policy step after a reset can take
@@ -384,7 +384,7 @@ the policy is untrained). Robot PC side, with a fake-backend `robot.yaml` of typ
 fake teleop above):
 
 ```bash
-robot-infra daemon --station robot.yaml --bind 127.0.0.1:50061 --token T \
+rwrl daemon --station robot.yaml --bind 127.0.0.1:50061 --token T \
     --jpeg-quality 90 --watchdog-s 5 --no-preflight
 ```
 
@@ -458,4 +458,4 @@ Current learner recovery uses `bundle_manifest.json` together with its checkpoin
 SQLite journal. Actor uploads use a persistent outbox; keep actor identity/path across a restart.
 Selected parts and observation preprocessing enter the experiment contract. See
 [tutorial 07](docs/tutorial/07-hil-training.md#resume-an-interrupted-run) and
-[Arm control profiles](robot_infra/docs/control-profiles.md).
+[Arm control profiles](docs/devices/control-profiles.md).

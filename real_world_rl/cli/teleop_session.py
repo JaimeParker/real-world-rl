@@ -98,7 +98,7 @@ def run_session(args, ctx):
     write_json(report / "provenance.json", runtime_provenance(config=settings, files={
         "station": path, "preset": args.preset, "profiles": resolved["file"],
         "resolved_config": config_path}))
-    command = [sys.executable, "-m", "robot_infra.supervise", "--", sys.executable,
+    command = [sys.executable, "-m", "real_world_rl.cli", "supervise", "--", sys.executable,
                "-m", "real_world_rl.demos", "--config", str(config_path)]
     completed = subprocess.run(command, stdout=sys.stderr if args.json else None, check=False, env=child_environment)
     import hashlib

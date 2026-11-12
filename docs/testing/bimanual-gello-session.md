@@ -3,7 +3,7 @@ Reference only: the first hardware session followed the long form of this page; 
 # Bimanual Franka / GELLO session
 
 Run on the **NUC / Ubuntu control PC, repository root, Bash**; P01 needs no environment active; afterward, activate the environment the installer created (`.venv` by default), for example `source .venv/bin/activate`, and use the project environment for all subsequent commands/terminals. No learner or checkpoint. This reference is not evidence of hardware acceptance.
-Before P02, commission `local/station.smoke.yaml` with [setup](../../robot_infra/README.md): actual left/right IPs, Hands, home, joint limits, safety boxes, per-step limits, distinct stable GELLO ports and complete calibrations; copy `examples/presets/bimanual_gello_smoke.yaml` to `local/bimanual.smoke.yaml` and supply per-arm joint_limits/tokens. Inspect static leader readings before connecting followers.
+Before P02, commission `local/station.smoke.yaml` with [setup](../devices/README.md#setup-wizard): actual left/right IPs, Hands, home, joint limits, safety boxes, per-step limits, distinct stable GELLO ports and complete calibrations; copy `examples/presets/bimanual_gello_smoke.yaml` to `local/bimanual.smoke.yaml` and supply per-arm joint_limits/tokens. Inspect static leader readings before connecting followers.
 Keep station daemons at 127.0.0.1:50051 / :50052, cameras empty, teleop.hold_s=0.0, intervention=toggle, one confirmed evdev keyboard event_device for both arms, toggle KEY_F1 left / KEY_F2 right, and episode_end/success/failure/rerecord KEY_ESC/KEY_S/KEY_F/KEY_R. Preserve preset device-side events (no stdin override), joint_delta, 10 Hz, joint_scale_rad=0.01, leader joint_abs and arm onset tolerance 0.1 rad.
 Confirm physical stop, clear both simultaneous home/reset paths and separate workspaces; there is no inter-arm collision check. Trigger and gripper must match before takeover; this joint-space route has no cartesian gripper latch. Reset opens grippers and clears takeover. Stop on unexpected motion or opening; retain evidence before retrying.
 Choose a fresh RUN_ROOT below; setup refuses an existing directory. Fill only its [record CSV](bimanual-gello-session-record.csv), with PASS/FAIL/BLOCKED/NOT_RUN; missing prerequisites/evidence mean BLOCKED. Keep configuration, software/device inventory and timestamped video with case IDs; command exit code is not the conclusion.
@@ -61,7 +61,7 @@ Run P00–P03-R with daemons off. After both doctor checks pass, start this in a
 <!-- tutorial-test: skip -->
 ```bash
 RUN_ROOT=$(cat local/bimanual-current-run)
-robot-infra daemon --station local/station.smoke.yaml --watchdog-s 5 2>&1 | tee "$RUN_ROOT/daemon.log"
+rwrl daemon --station local/station.smoke.yaml --watchdog-s 5 2>&1 | tee "$RUN_ROOT/daemon.log"
 ```
 
 `record_case` prompts GO before each reset, allows exactly one attempt (default 1200 steps), runs the supervisor, captures exit status and exports archive evidence. Reference expansion of its T00 recorder invocation follows; use the table's helper, which also captures/exports evidence, rather than running this a second time:

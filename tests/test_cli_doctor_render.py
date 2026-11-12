@@ -12,7 +12,6 @@ import pytest
 import robot_infra.server.daemon as daemon
 from real_world_rl.cli import doctor, main
 from real_world_rl.cli.doctor_repair import Action
-from robot_infra.cli import main as device_main
 from robot_infra.cli.render import strip_ansi
 from robot_infra.doctor import cli as device_doctor
 from robot_infra.doctor.checks import CheckResult
@@ -245,7 +244,7 @@ def test_device_doctor_command_colours_only_a_terminal(colour_capable, monkeypat
         monkeypatch.setenv("NO_COLOR", "1")
     monkeypatch.setattr(device_doctor, "resolve_station_config_path", lambda path: "station.yaml")
     monkeypatch.setattr(device_doctor, "doctor_station", lambda *args, **kwargs: {"arm": DEVICE_RESULTS})
-    assert device_main(["doctor"]) == 1
+    assert device_doctor.main([]) == 1
     output = terminal.getvalue()
     assert ("\x1b[" in output) is not no_color
     assert strip_ansi(output).rstrip("\n") == DEVICE_TEXT
@@ -255,7 +254,7 @@ def test_device_doctor_json_is_never_coloured(colour_capable, monkeypatch):
     terminal = attach_terminal(monkeypatch)
     monkeypatch.setattr(device_doctor, "resolve_station_config_path", lambda path: "station.yaml")
     monkeypatch.setattr(device_doctor, "doctor_station", lambda *args, **kwargs: {"arm": DEVICE_RESULTS})
-    assert device_main(["doctor", "--json"]) == 1
+    assert device_doctor.main(["--json"]) == 1
     output = terminal.getvalue()
     assert "\x1b" not in output and json.loads(output)["status"] == "FAIL"
 

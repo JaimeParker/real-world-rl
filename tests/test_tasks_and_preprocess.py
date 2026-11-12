@@ -95,7 +95,7 @@ def test_wizard_profile_reaches_real_fake_backend_reset():
     import yaml
     from robot_infra.devices.robots.franka import FrankaConfig
     from robot_infra.devices import GripperConfig
-    from robot_infra.setup.__main__ import build_parser, answers_from_args
+    from robot_infra.setup.command import build_parser, answers_from_args
     from robot_infra.setup.probes import mock_station_probe
     from robot_infra.setup.wizard import ArmDraft, StationDraft, run_wizard
     from robot_infra.setup.render import render_station_yaml

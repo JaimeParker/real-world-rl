@@ -1000,7 +1000,7 @@ def test_from_env_with_robot_yaml_builds_and_owns_a_local_robot(tmp_path):
 
 
 def test_gello_station_example_yaml_is_a_stub_robot_with_every_gello_option():
-    path = Path(__file__).resolve().parents[1] / "robot_infra" / "docs" / "robot.gello_station.example.yaml"
+    path = Path(__file__).resolve().parents[1] / "examples" / "stations" / "robot.gello_station.example.yaml"
     data = yaml.safe_load(path.read_text())
     assert data["type"] == "franka"
     config = FrankaConfig.from_dict(data)

@@ -11,10 +11,9 @@ This document was moved here from the main `rl-garden` repo's
 (`rl_garden/real_world/`, `rl_garden/training/real_world/`,
 `rl_garden/envs/franka_real/`) was split out into this repo. Paths below
 predate that split and are not updated path-by-path; `robot_infra/...`
-paths refer to the device-layer distribution that now lives in this
-repository as `robot_infra/` (package `robot_infra`, i.e.
-`robot_infra/robot_infra/...` from the repository root; it used to be the
-sibling `rlgarden-robot-infra` repo), and `3rd_party/hil-serl/` refers to the
+paths refer to the device-layer package `robot_infra/` at the repository
+root (it used to be the sibling `rlgarden-robot-infra` repo, then a second
+distribution in this repository), and `3rd_party/hil-serl/` refers to the
 vendored reference copy in the main `rl-garden` repo (not present here).
 
 Since this document was written the real-world layer also gained the

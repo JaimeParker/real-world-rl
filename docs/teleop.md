@@ -195,8 +195,7 @@ active, install all SpaceMouse Python dependencies with:
 pip install -e '.[spacemouse]'
 ```
 
-The dependency chain is the root `spacemouse` extra →
-`rlgarden-robot-infra[spacemouse]==0.0.1` → `hidapi==0.14.0.post4`
+The `spacemouse` extra installs `hidapi==0.14.0.post4`
 (trezor/cython-hidapi, import `hid`). The device layer includes its own decoder;
 this path does not import `pyspacemouse` or `easyhid`. Do not install the different
 PyPI distribution named `hid`; it occupies the same import name and has a different
@@ -232,7 +231,7 @@ Install the packaged vendor rules once. On the NUC, repository root, any shell
 (no project environment required), with sudo permission:
 
 ```bash
-sudo cp robot_infra/robot_infra/setup/99-spacemouse.rules /etc/udev/rules.d/
+sudo cp robot_infra/setup/99-spacemouse.rules /etc/udev/rules.d/
 sudo usermod -aG plugdev "$USER"
 sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw
 ```
@@ -250,7 +249,7 @@ sudo cp "$(python -c 'import robot_infra.setup, os; print(os.path.dirname(robot_
 An open/permission failure points to this rule file and its installation commands.
 Doctor checks the `hid` SDK separately from `/dev/hidraw*` access; inside Docker the
 HID node must also be passed into the container. The legacy `SpaceMouseExpert` and
-`real` extra keep their separate `pyspacemouse` API.
+`legacy-bridge` extra keep their separate `pyspacemouse` API.
 
 On the NUC, repository root, with the project environment active and the station's
 `hil.yaml` configured, for a `cartesian_delta` env (`real_robot` in `cartesian_delta` mode, or `franka_real`), with the
@@ -346,10 +345,10 @@ A leader arm reports absolute leader joint positions. `LeaderArmPartSource`
 adds an onset policy for the moment the operator takes over. Two ways to read a GELLO:
 
 - `--teleop-device leader_arm`: the GELLO is the `teleop:` part of the robot yaml the daemon
-  serves on the robot PC (`robot-infra daemon --station robot.yaml ...`), read through
+  serves on the robot PC (`rwrl daemon --station robot.yaml ...`), read through
   `RemoteRobot`. `rwrl setup` writes the section (calibration included) into a
   station yaml; or add it to the robot yaml by hand (for example
-  `robot_infra/docs/robot.franka.example.yaml`);
+  `examples/stations/robot.franka.example.yaml`);
   `rwrl --station robot.yaml teleop calibrate --backend gello --port ... --joint-ids 1 2 3 4 5 6 7 --gripper-id 8`
   prints the `options` block for a unit (unset flags come from the station's `teleop.options`;
   `--use` writes the block into the station, see [gello.md](gello.md#2-calibration)):
@@ -443,7 +442,7 @@ The same source serves `real_robot` in `cartesian_delta` mode (for example a dae
 | `PandaKinematics` | `real_world_rl/kinematics/panda.py` | numpy forward kinematics, Craig modified DH; `flange_pose(q)`, `ee_pose(q)` (xyz, quat xyzw), `ee_transform(q)` (4x4). EE defaults: Franka Hand, 0.1034 m along the flange z and -pi/4 about it (`ee_offset_m`, `ee_yaw_rad`). |
 | `LeaderArmCartesianSource` | `real_world_rl/teleop/leader_cartesian.py` | the teleop source; any `joint_abs` 7-joint teleop part is a valid leader. |
 | `FrankaRealEnv.last_tcp_pose` | `real_world_rl/envs/franka_real/env.py` | the measured TCP pose (`O_T_EE`, xyz + quat xyzw) of the latest reset/step; the source's follower pose. |
-| stub-robot yaml | `robot_infra/docs/robot.gello_station.example.yaml` | serves the GELLO from the robot host through the robot daemon. |
+| stub-robot yaml | `examples/stations/robot.gello_station.example.yaml` | serves the GELLO from the robot host through the robot daemon. |
 
 #### The stub-robot daemon on the robot host
 
@@ -453,11 +452,11 @@ part, and the robot daemon serves it:
 
 ```bash
 # on the robot host, next to the SERL bridge
-pip install -e "robot_infra[gello]"          # + [gello-events] for an evdev pedal/keyboard
+pip install -e ".[gello]"                    # + [gello-events] for an evdev pedal/keyboard
 rwrl --station robot.gello_station.yaml teleop calibrate --backend gello \
     --port /dev/serial/by-id/usb-FTDI_... --joint-ids 1 2 3 4 5 6 7 --gripper-id 8 \
     --use                                                # writes the options into the yaml
-robot-infra daemon --station robot.gello_station.yaml --bind 0.0.0.0:50052
+rwrl daemon --station robot.gello_station.yaml --bind 0.0.0.0:50052
 ```
 
 The fake arm holds no hardware and is never commanded, so the stub does not compete with the
@@ -771,7 +770,7 @@ twist is in physical units (as the Pico's), see how the demo scripts normalize i
 
 ## EETwist TeleOp Interface (Pico)
 
-`PicoTeleopSource` wraps `EETwistTeleOpWrapper` in `robot_infra/robot_infra/teleop/utils/telo_op_control_twist.py`
+`PicoTeleopSource` wraps `EETwistTeleOpWrapper` in `robot_infra/teleop/utils/telo_op_control_twist.py`
 (in the in-repo `robot_infra` device layer). Its only device is `pico`; the wrapper receives device data
 from a ZeroMQ `SUB` socket. The Pico server is expected to publish JSON arrays to:
 
@@ -836,7 +835,7 @@ python examples/run_teleop_demo.py \
 Print incoming teleop state without connecting to an environment:
 
 ```bash
-python robot_infra/robot_infra/teleop/examples/run_twist_input_inspector.py \
+python examples/run_twist_input_inspector.py \
   --device pico \
   --zmq-url tcp://192.168.6.2:7777
 ```

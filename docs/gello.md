@@ -71,8 +71,8 @@ Which path to use:
 Install the backend on the machine the GELLO is plugged into:
 
 ```bash
-pip install -e "robot_infra[gello]"          # dynamixel-sdk
-pip install -e "robot_infra[gello-events]"   # evdev, only for an event_device (pedal/keyboard) on that machine
+pip install -e ".[gello]"                    # dynamixel-sdk
+pip install -e ".[gello-events]"             # evdev, only for an event_device (pedal/keyboard) on that machine
 ```
 
 ## 2. Calibration
@@ -80,7 +80,7 @@ pip install -e "robot_infra[gello-events]"   # evdev, only for an event_device (
 The calibration CLI finds the per-unit joint signs, the joint offsets and the trigger range, and
 prints the `teleop:` yaml block. (`rwrl setup` runs these steps inline per arm and
 writes the result into the station yaml, so with the wizard you can skip the paste below; see the
-[robot_infra README](../robot_infra/README.md#setup-wizard).)
+[device-layer guide](devices/README.md#setup-wizard).)
 
 ```bash
 rwrl --station robot.yaml teleop calibrate --backend gello \
@@ -95,8 +95,8 @@ from the station's `joint_limits`, so once the station has a GELLO `teleop:` sec
 `rwrl --station robot.yaml teleop calibrate --backend gello` alone recalibrates it. `--use` writes
 the calibrated options into the station's `teleop.options` after a reviewed diff (dropping the
 gripper keys for a leader without a gripper channel) instead of the paste below. Without a station
-file, `robot-infra gello-calibrate` takes the same leader flags, with `--port` and `--joint-ids`
-required; `rwrl gello-calibrate` is a deprecated alias of the `teleop calibrate` form.
+file, `rwrl gello-calibrate` takes the same leader flags, with `--port` and `--joint-ids`
+required; it is a deprecated alias of the `teleop calibrate` form.
 
 1. **Sign check.** For each joint the CLI asks you to move that joint in the robot's positive
    direction and press Enter, shows the observed sign and takes it unless you answer `n`. A joint
@@ -152,7 +152,7 @@ then also shows the follower's `follower_q` and the per-joint `delta` (leader mi
 
 ## 3. The robot yaml (`real_robot`, franky)
 
-Start from `robot_infra/docs/robot.franka.example.yaml` and add the safety limits and the GELLO. The
+Start from `examples/stations/robot.franka.example.yaml` and add the safety limits and the GELLO. The
 alternative is `rwrl setup`, which writes a station yaml with the robot, cameras,
 GELLO calibration and daemon port (`./local/station.yaml`, found by the daemon without `--config`);
 it writes Panda `joint_limits`, a `max_delta_per_step` cap and a requested `safety_box`.
@@ -196,7 +196,7 @@ teleop:
 Serve it on the robot PC:
 
 ```bash
-robot-infra daemon --station robot.yaml --bind 0.0.0.0:50051 --token T
+rwrl daemon --station robot.yaml --bind 0.0.0.0:50051 --token T
 ```
 
 The actor's preset (`hil.yaml`, passed with `--config`; the README's
@@ -229,11 +229,11 @@ out of the robot yaml and give the calibration `options` as a flat mapping with
 `franka_real` talks to the SERL HTTP bridge, which takes only cartesian targets. The GELLO is
 plugged into the robot host and served by a stub robot (`type: franka`, `arm_backend: fake`, no
 gripper, no cameras) whose only real device is the GELLO,
-`robot_infra/docs/robot.gello_station.example.yaml`:
+`examples/stations/robot.gello_station.example.yaml`:
 
 ```bash
 # on the robot host, next to the SERL bridge
-robot-infra daemon --station robot.gello_station.yaml --bind 0.0.0.0:50052
+rwrl daemon --station robot.gello_station.yaml --bind 0.0.0.0:50052
 ```
 
 The actor turns the leader joints into a cartesian twist with Panda forward kinematics
@@ -294,9 +294,9 @@ Where the intervention toggle comes from:
 For a two-arm station (`--env-backend real_robot_bimanual`, [bimanual.md](bimanual.md)) give each
 robot its own GELLO. `rwrl setup` writes the station yaml for both: it probes the
 GELLO buses, runs the calibration of each unit inline and writes `robots: {left, right}`, each with
-its `teleop:` section and daemon port (the robot_infra README's
-[Setup wizard](../robot_infra/README.md#setup-wizard);
-`robot_infra/docs/station.bimanual.example.yaml` is an annotated example). Then train or record
+its `teleop:` section and daemon port (the device-layer guide's
+[Setup wizard](devices/README.md#setup-wizard);
+`examples/stations/station.bimanual.example.yaml` is an annotated example). Then train or record
 with `--teleop-device bimanual`: `--teleop-arm-device leader_arm` reads each GELLO through its
 arm's daemon; `--teleop-arm-device gello --teleop-options-yaml <station.yaml>` opens both GELLOs on
 the actor's machine with the options from the same file. One `--teleop-event-device keyboard`

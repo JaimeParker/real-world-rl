@@ -54,7 +54,7 @@ override_cfg:
   reward: none
   # RealRobotEnvConfig fields (real_world_rl/envs/real_robot/config.py).
   real_robot:
-    remote: "ROBOT_PC_IP:50051"  # robot_infra daemon (python -m robot_infra.server ...)
+    remote: "ROBOT_PC_IP:50051"  # robot_infra daemon (rwrl daemon ...)
     num_joints: 7
     state_fields: [tcp_pose, tcp_vel, gripper_pos]
     cameras: [wrist]

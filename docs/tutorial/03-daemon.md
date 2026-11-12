@@ -28,10 +28,10 @@ physical emergency stop available in both layouts.
 First finish the [real doctor handshake](01-install.md#5-configure-once-then-run-doctor).
 Run every command in this section on the **NUC**, from the **repository root**,
 with the **project environment active**. Ensure no other process owns these devices.
-The remote route needs `robot_infra[grpc]` installed on both NUC and actor.
+The remote route needs the `grpc` extra installed on both NUC and actor.
 
 ```bash
-robot-infra daemon --station local/station.yaml --watchdog-s 5
+rwrl daemon --station local/station.yaml --watchdog-s 5
 ```
 
 `--watchdog-s` defaults to **0.5 seconds**. The explicit **5 seconds** above allows
@@ -77,7 +77,7 @@ Install the gRPC client in the actor's project environment:
 
 <!-- tutorial-test: skip -->
 ```bash
-python -m pip install -e 'robot_infra[grpc]'
+python -m pip install -e '.[grpc]'
 ```
 
 Check that configuration without connecting, on the actor machine, repository

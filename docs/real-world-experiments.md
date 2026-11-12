@@ -89,7 +89,7 @@ the physical stop button or the robot's own protections.
 
 | Layer | Where it runs | Detects | Action |
 |---|---|---|---|
-| Daemon watchdog, `robot-infra daemon --watchdog-s 0.5` | the daemon process on the robot PC (daemon route only) | no action for `watchdog_s` while servoing | `arm.stop()`, arm to `IDLE` |
+| Daemon watchdog, `rwrl daemon --watchdog-s 0.5` | the daemon process on the robot PC (daemon route only) | no action for `watchdog_s` while servoing | `arm.stop()`, arm to `IDLE` |
 | Step watchdog, env config `watchdog_s` (default off) | a thread inside the robot process | no `env.step()` for `watchdog_s` after a reset | `arm.stop()` once; the next step raises `StepWatchdogTripped` |
 | Supervisor, `rwrl supervise` | a separate parent process | no heartbeat for `--heartbeat-timeout-s` | SIGINT, then SIGTERM, then SIGKILL to the robot process group |
 
@@ -336,8 +336,8 @@ when gripper heads are separate.
 Run the complete local-fake task/reset path without algorithm training:
 
 ```bash
-PYTHONPATH=.:rl-garden:robot_infra python examples/task_smoke.py --config examples/presets/pick_and_place_fake.yaml
-PYTHONPATH=.:rl-garden:robot_infra python examples/task_smoke.py --config examples/presets/parallel_pick_and_place_fake.yaml
+PYTHONPATH=.:rl-garden python examples/task_smoke.py --config examples/presets/pick_and_place_fake.yaml
+PYTHONPATH=.:rl-garden python examples/task_smoke.py --config examples/presets/parallel_pick_and_place_fake.yaml
 ```
 
 These presets show versioned tasks, reset waypoints/jitter, control settings, termination

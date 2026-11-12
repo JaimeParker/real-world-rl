@@ -13,7 +13,7 @@ Stop the training daemon first; a second daemon on the same robot gets `DeviceBu
 the same `--jpeg-quality` as training (the tutorial used none):
 
 ```bash
-robot-infra daemon --station local/station.deploy.yaml --watchdog-s 5
+rwrl daemon --station local/station.deploy.yaml --watchdog-s 5
 ```
 
 ## Run a checkpoint

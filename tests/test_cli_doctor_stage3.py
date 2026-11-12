@@ -7,7 +7,6 @@ import pytest
 
 from real_world_rl.cli import doctor, main
 from real_world_rl.cli.doctor_repair import Action
-from robot_infra.cli import main as device_main
 from robot_infra.doctor import cli as device_doctor
 from robot_infra.doctor.checks import CheckResult
 
@@ -35,7 +34,7 @@ def test_both_doctors_share_envelope_without_changing_device_records(
         return {}
     monkeypatch.setattr(doctor, 'inspect', inspect)
     extra = ['--install-sdk'] if install_sdk else []
-    assert device_main(['doctor', '--json', *extra]) == int(failed)
+    assert device_doctor.main(['--json', *extra]) == int(failed)
     captured = capsys.readouterr()
     assert 'SDK chatter' in captured.err
     device_payload = json.loads(captured.out)
@@ -71,27 +70,27 @@ def test_host_doctor_confirms_only_y(isolated_reports, monkeypatch, capsys, answ
     assert bool(executions) is confirmed
 
 
-@pytest.mark.parametrize('binary', ['rwrl', 'robot-infra'])
+@pytest.mark.parametrize('entry', ['rwrl', 'device library'])
 def test_yes_without_repairs_still_checks_and_preserves_failure(
-    isolated_reports, monkeypatch, capsys, binary,
+    isolated_reports, monkeypatch, capsys, entry,
 ):
     checked = []
     monkeypatch.setattr('builtins.input', lambda *a: pytest.fail('--yes must skip prompts'))
-    if binary == 'rwrl':
+    if entry == 'rwrl':
         def inspect(args, host):
             checked.append(args.yes)
             host.add('preflight', 'BLOCKED', 'device owned')
             return {}
         monkeypatch.setattr(doctor, 'inspect', inspect)
-        invoke = main
+        code = main(['doctor', '--yes', '--json'])
     else:
         monkeypatch.setattr(device_doctor, 'resolve_station_config_path', lambda path: 'station.yaml')
         def probe(*a, **kw):
             checked.append(True)
             return {'arm': [CheckResult(1, 'preflight', False, 'device owned')]}
         monkeypatch.setattr(device_doctor, 'doctor_station', probe)
-        invoke = device_main
-    assert invoke(['doctor', '--yes', '--json']) == 1
+        code = device_doctor.main(['--yes', '--json'])
+    assert code == 1
     assert checked == [True]
     assert json.loads(capsys.readouterr().out)['status'] == 'FAIL'
 

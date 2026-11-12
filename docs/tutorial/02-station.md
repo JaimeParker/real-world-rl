@@ -143,7 +143,7 @@ The wizard writes the Panda joint limits and a servo step cap
 your cell before the first motion: the box is in the robot base frame (`tcp_pose = O_T_EE`, metres)
 and must contain the home pose, the object and the bin; `home_joints` must lie inside `joint_limits`.
 The device layer clips servo targets to these limits in either process layout and refuses out-of-range `move_to_*` targets
-([Safety rules](../../robot_infra/README.md#safety-rules)). The training env can only be tighter than
+([Safety rules](../devices/README.md#safety-rules)). The training env can only be tighter than
 the yaml. Re-running the wizard with `--station` keeps the values you edited.
 
 To review them without opening the file (it reads only the station file and connects nothing):
@@ -165,7 +165,7 @@ rwrl setup --mock --output /tmp/station.mock.yaml       # rehearse without hardw
 ```
 
 Use `--output` for a rehearsal so it does not replace your real `local/station.yaml`. For scripted
-use see `--non-interactive` in the [robot_infra README](../../robot_infra/README.md#setup-wizard).
+use see `--non-interactive` in the [device-layer guide](../devices/README.md#setup-wizard).
 
 ## The env preset (`hil.yaml`)
 
@@ -259,7 +259,7 @@ choose a new `--output` directory for the next one.
 Station YAML accepts an optional per-arm `control:` impedance profile; `real_robot.control`
 can override it for an experiment. Configure while IDLE. Overrides may only tighten declared
 torque-slew and error-clip bounds, and the installed SDK must support the requested keywords.
-See [Arm control profiles](../../robot_infra/docs/control-profiles.md) for fields, effective
+See [Arm control profiles](../devices/control-profiles.md) for fields, effective
 settings and the wizard's `--control` option. The wizard preserves existing profiles and
 uses `control: null` for a new station. Choose gains for the actual tool and payload.
 

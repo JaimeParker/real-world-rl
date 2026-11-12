@@ -267,18 +267,15 @@ def test_save_confirmation_uses_context_without_rebinding(monkeypatch, capsys, t
     assert station.read_text() == "type: franka\nworkspace: null\n"
 
 
-def test_device_commands_are_shared_but_rwrl_doctor_is_distinct():
+def test_device_commands_are_shared_and_rwrl_owns_the_doctor():
     from robot_infra.cli import COMMANDS as device_commands
     from real_world_rl.cli.cmd_doctor import DOCTOR
     native = {command.name: command for command in device_commands}
     composed = {command.name: command for command in COMMANDS}
+    assert "doctor" not in native and composed["doctor"] is DOCTOR
     for name, command in native.items():
-        if name == "doctor":
-            assert composed[name] is DOCTOR
-            assert composed[name] is not command
-        else:
-            # rwrl may wrap a device command in a deprecated alias; the implementation stays shared.
-            assert composed[name] is command or getattr(composed[name], "target", None) is command
+        # rwrl may wrap a device command in a deprecated alias; the implementation stays shared.
+        assert composed[name] is command or getattr(composed[name], "target", None) is command
 
 
 def test_rwrl_context_injects_upper_layer_station_loader(monkeypatch):

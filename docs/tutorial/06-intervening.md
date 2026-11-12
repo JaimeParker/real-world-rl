@@ -2,7 +2,7 @@
 
 Use this page beside the robot for [recording](04-record-demos.md) and
 [HIL training](07-hil-training.md). The hardware process runs directly on the NUC,
-under `robot_infra.supervise`, with the 50 Hz state-only cartesian preset.
+under `rwrl supervise`, with the 50 Hz state-only cartesian preset.
 GELLO uses `--teleop-device leader_cartesian --teleop-event-device stdin`.
 SpaceMouse uses `--teleop-device spacemouse --teleop-event-device stdin`.
 

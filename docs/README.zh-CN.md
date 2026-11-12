@@ -112,7 +112,7 @@
 - [rwrl：工作站命令行](zh-CN/cli.md)：查询状态、保存与返回 home、夹爪操作、停止与恢复，以及非交互调用约定。
 - [robot_infra README](zh-CN/robot-infra.md)：设备层、工作站向导、discovery、doctor、守护进程和故障排查。
 - [单臂训练预设](../examples/presets/hil_single_arm.yaml)：复制为 `hil.yaml` 后修改连接地址和相机等配置。
-- [双臂工作站示例](../robot_infra/docs/station.bimanual.example.yaml)：了解逐臂设备与守护进程配置。
+- [双臂工作站示例](../examples/stations/station.bimanual.example.yaml)：了解逐臂设备与守护进程配置。
 - [rl-garden 子模块](../rl-garden)：算法和模型依赖；另见 [ACT 完整中文说明](zh-CN/act.md)，包含从轨迹 pkl 训练、数据约定和引用。
 
 ## 操作时常查的规则

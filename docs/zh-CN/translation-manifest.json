@@ -117,7 +117,7 @@
       "source_sha256": "0ee838eddea01044a9c272cbde1339916364ed169f42122e01d050d3ac28b090"
     },
     {
-      "source": "robot_infra/README.md",
+      "source": "docs/devices/README.md",
       "translation": "docs/zh-CN/robot-infra.md",
       "source_sha256": "3fff8a193e3ec0858abd119701000879a86734df194092266d02e1f04d4fc1c6"
     },
@@ -127,7 +127,7 @@
       "source_sha256": "e83f7747e525be5e76c15c6a5808c5c4ff081bf7eeec1d24c07353a03578135a"
     },
     {
-      "source": "robot_infra/docs/control-profiles.md",
+      "source": "docs/devices/control-profiles.md",
       "translation": "docs/zh-CN/control-profiles.md",
       "source_sha256": "afe0047f47f5a2c4cfd14c132bb77febf1fc32c9aa5f2ae63e51fd22efb3dea2"
     },

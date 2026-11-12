@@ -39,8 +39,10 @@ def wiki_repo(tmp_path: Path) -> Path:
         "docs/README.zh-CN.md": "# 中文文档\n",
         "docs/internal/x.md": "# Private\n",
         "docs/design/x.md": "# Design\n",
-        "robot_infra/README.md": "# Device layer\n",
-        "robot_infra/docs/control-profiles.md": "# Control profiles\n",
+        "docs/devices/README.md": "# Device layer\n",
+        "docs/devices/control-profiles.md": "# Control profiles\n",
+        "docs/devices/robot-infra-roadmap.md": "# Excluded roadmap\n",
+        "robot_infra/controller/README.md": "# Excluded package notes\n",
         "rl-garden/rl_garden/models/act/README.md": "# Excluded\n",
     }
     repo = tmp_path / "repo"
@@ -69,8 +71,8 @@ def test_mapping_and_generated_navigation(wiki_repo: Path, tmp_path: Path) -> No
         "docs/tutorial/01-install.md": "tutorial-01-install",
         "docs/testing/README.md": "testing",
         "docs/testing/x.md": "testing-x",
-        "robot_infra/README.md": "robot-infra",
-        "robot_infra/docs/control-profiles.md": "control-profiles",
+        "docs/devices/README.md": "robot-infra",
+        "docs/devices/control-profiles.md": "control-profiles",
         "docs/README.zh-CN.md": "zh-docs",
         "docs/zh-CN/README.md": "zh-README",
         "docs/zh-CN/teleop.md": "zh-teleop",

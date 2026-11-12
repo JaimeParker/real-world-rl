@@ -129,7 +129,8 @@ explain the common wrong-page case.
 ## 4. Install the project environment
 
 The **project environment** is the Python environment (venv or conda) where this
-step installs the three local packages: rl-garden, robot_infra and real-world-rl.
+step installs the two local projects: rl-garden and real-world-rl (whose
+distribution carries both `real_world_rl` and the device layer `robot_infra`).
 `scripts/install.sh` creates `.venv` by default; the manual route can use any
 activated venv or conda environment.
 
@@ -142,24 +143,37 @@ git clone --recurse-submodules https://github.com/JaimeParker/real-world-rl.git
 cd real-world-rl
 ```
 
-The installer `scripts/install.sh` and the `franka-gello` and `test` extras
-(defined in `pyproject.toml`) are part of this checkout. The installer requires
+The installer `scripts/install.sh` and the `learning`, `franka-gello` and `test`
+extras (defined in `pyproject.toml`) are part of this checkout. The installer requires
 Python 3.10 with venv support and package-download access.
 
 On the NUC, repository root, no environment active:
 
 <!-- tutorial-test: skip -->
 ```bash
-bash scripts/install.sh --extras franka-gello
+bash scripts/install.sh --extras learning,franka-gello
 source .venv/bin/activate
 ```
 
 The installer creates or reuses `.venv` (default interpreter `python3.10`), clears
-inherited `PYTHONPATH`, installs rl-garden, robot_infra and this package in editable
-mode, then runs doctor. With no station supplied its final check is **mock**, run
-against a throwaway station whose arm and gripper are fake; that success does not
-establish a hardware handshake. RealSense stations also
-need the `robot_infra[realsense]` extra in this same project environment.
+inherited `PYTHONPATH`, installs rl-garden and this project in editable mode (with
+`learning` it adds the `test` extra), then runs `rwrl doctor`. With no station supplied its
+final check is **mock**, run against a throwaway station whose arm and gripper are fake;
+that success does not establish a hardware handshake. RealSense stations also
+need the `realsense` extra in this same project environment.
+
+A robot PC that only serves the daemon (the learning side runs elsewhere) needs neither the
+`rl-garden/` submodule nor torch. On that PC, repository root, no environment active:
+
+<!-- tutorial-test: skip -->
+```bash
+bash scripts/install.sh --daemon-only
+source .venv/bin/activate
+```
+
+`--daemon-only` installs the `franky` and `grpc` extras; add the other device extras the
+station needs (for example `realsense`) with `python -m pip install -e '.[realsense]'` in
+that environment.
 
 <details>
 <summary>Manual equivalent of the default installation (what the installer does)</summary>
@@ -173,7 +187,7 @@ unset PYTHONPATH
 python3.10 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
-python -m pip install -e ./rl-garden -e ./robot_infra -e '.[franka-gello,test]'
+python -m pip install -e ./rl-garden -e '.[learning,franka-gello,test]'
 python -c 'import rl_garden, robot_infra, real_world_rl'
 rwrl doctor --mock
 ```
@@ -184,7 +198,7 @@ For RealSense, on the NUC, repository root, project environment active:
 
 <!-- tutorial-test: skip -->
 ```bash
-python -m pip install -e 'robot_infra[realsense]'
+python -m pip install -e '.[realsense]'
 ```
 
 *You should see:* successful imports and a mock doctor summary with zero failures.
@@ -212,7 +226,7 @@ NUC, repository root, no environment active:
 
 <!-- tutorial-test: skip -->
 ```bash
-bash scripts/install.sh --extras franka-gello,spacemouse
+bash scripts/install.sh --extras learning,franka-gello,spacemouse
 source .venv/bin/activate
 ```
 

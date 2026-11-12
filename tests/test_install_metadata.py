@@ -16,55 +16,89 @@ except ModuleNotFoundError:  # Python 3.10: pytest supplies the TOML backport.
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "scripts" / "install.sh"
+CORE_DEPENDENCIES = [
+    "numpy", "pyyaml", "msgpack", "filelock", "ruamel.yaml>=0.18", "packaging>=23", "scipy>=1.10",
+]
+# The only requirement installed from outside the package index: pyAgxArm comes from GitHub.
+GIT_URL_EXTRAS = {"pyagxarm"}
+
+
+def load_pyproject(path: Path) -> dict:
+    with path.open("rb") as stream:
+        return tomllib.load(stream)
 
 
 def load_project(path: Path) -> dict:
-    with path.open("rb") as stream:
-        return tomllib.load(stream)["project"]
+    return load_pyproject(path)["project"]
 
 
-def test_root_dependencies_and_extras():
+def test_core_dependencies_are_torch_free():
     project = load_project(ROOT / "pyproject.toml")
-    assert {"rl_garden==0.0.1", "rlgarden-robot-infra==0.0.1", "scipy>=1.10", "ruamel.yaml>=0.18"} <= set(
-        project["dependencies"]
-    )
+    assert project["dependencies"] == CORE_DEPENDENCIES
+    assert project["version"] == "0.1.0"
+
+
+def test_extras():
+    project = load_project(ROOT / "pyproject.toml")
     assert project["optional-dependencies"] == {
-        "robot-infra": ["rlgarden-robot-infra==0.0.1"],
+        "learning": ["rl_garden==0.0.1", "torch>=2.1", "gymnasium>=0.29", "tyro", "requests"],
+        "sim": ["mani_skill"],
+        "legacy-bridge": ["flask", "pyzmq", "scipy", "pyspacemouse"],
+        "realsense": ["pyrealsense2"],
+        "pyagxarm": ["pyAgxArm @ git+https://github.com/agilexrobotics/pyAgxArm.git"],
+        "franky": ["franky-control"],
+        "piper-sdk": ["piper_sdk"],
+        "grpc": ["grpcio>=1.60"],
+        "jpeg": ["pillow", "opencv-python-headless"],
+        "spacemouse": ["hidapi==0.14.0.post4"],
+        "gello": ["dynamixel-sdk>=3.7.31,<3.9"],
+        "gello-events": ["evdev"],
+        "franka-gello": ["franky-control", "dynamixel-sdk>=3.7.31,<3.9", "evdev", "grpcio>=1.60", "websockets>=13"],
         "reward-collection": ["pynput"],
-        "examples": ["mani_skill"],
         "dev": ["pytest", "scipy"],
-        "franka-gello": [
-            "rlgarden-robot-infra[franky,gello,gello-events,grpc]==0.0.1",
-            "franky-control",
-            "websockets>=13",
-        ],
-        "spacemouse": ["rlgarden-robot-infra[spacemouse]==0.0.1"],
         "test": ["pytest", "opencv-python-headless", "ipython", "torchvision", "grpcio>=1.60"],
     }
-    requirements = list(project["dependencies"])
-    for extra in project["optional-dependencies"].values():
-        requirements.extend(extra)
-    assert not any("git+" in requirement for requirement in requirements)
 
 
-def test_device_jpeg_extra_and_local_versions():
-    root = load_project(ROOT / "pyproject.toml")
-    device = load_project(ROOT / "robot_infra" / "pyproject.toml")
-    assert not any("ruamel" in requirement for requirement in device["dependencies"])
+def test_git_urls_only_in_allowlisted_extras():
+    project = load_project(ROOT / "pyproject.toml")
+    assert not any("git+" in requirement for requirement in project["dependencies"])
+    with_git = {name for name, rows in project["optional-dependencies"].items()
+                if any("git+" in row for row in rows)}
+    assert with_git == GIT_URL_EXTRAS
+
+
+def test_franka_gello_spells_out_its_device_extras_without_self_reference():
+    extras = load_project(ROOT / "pyproject.toml")["optional-dependencies"]
+    combined = set(extras["franka-gello"])
+    assert set().union(*(extras[name] for name in ("franky", "gello", "gello-events", "grpc"))) <= combined
+    assert not any(row.startswith("real-world-rl") for rows in extras.values() for row in rows)
+
+
+def test_learning_extra_matches_the_submodule_version():
     garden_pyproject = ROOT / "rl-garden" / "pyproject.toml"
     if not garden_pyproject.exists():
         pytest.skip("rl-garden submodule not checked out at the repository root here")
     garden = load_project(garden_pyproject)
-    assert root["version"] == device["version"] == garden["version"] == "0.0.1"
-    assert device["optional-dependencies"]["jpeg"] == ["pillow", "opencv-python-headless"]
-    # The unrelated pyagxarm extra intentionally retains its upstream Git URL.
-    assert not any("git+" in requirement for requirement in device["dependencies"])
+    learning = load_project(ROOT / "pyproject.toml")["optional-dependencies"]["learning"]
+    assert f"rl_garden=={garden['version']}" in learning
 
 
-def test_spacemouse_extra_pins_trezor_hidapi_and_preserves_legacy_real():
-    device = load_project(ROOT / "robot_infra" / "pyproject.toml")
-    assert device["optional-dependencies"]["spacemouse"] == ["hidapi==0.14.0.post4"]
-    assert device["optional-dependencies"]["real"] == ["flask", "pyzmq", "scipy", "pyspacemouse"]
+def test_one_distribution_ships_both_packages_and_the_setup_data():
+    pyproject = load_pyproject(ROOT / "pyproject.toml")
+    setuptools = pyproject["tool"]["setuptools"]
+    assert setuptools["packages"]["find"]["include"] == ["real_world_rl*", "robot_infra*"]
+    assert setuptools["package-data"]["robot_infra"] == ["setup/*.yaml", "setup/*.rules"]
+    assert list((ROOT / "robot_infra" / "setup").glob("*.yaml"))
+    assert list((ROOT / "robot_infra" / "setup").glob("*.rules"))
+    assert not (ROOT / "robot_infra" / "pyproject.toml").exists()
+
+
+def test_no_robot_infra_command_or_station_section_entry_points():
+    project = load_project(ROOT / "pyproject.toml")
+    assert "robot-infra" not in project["scripts"]
+    assert "robot_infra.station_sections" not in project.get("entry-points", {})
+    assert "robot-infra" not in project["optional-dependencies"]
 
 
 def test_installer_shell_syntax():
@@ -74,13 +108,15 @@ def test_installer_shell_syntax():
 def test_installer_help_works_outside_the_checkout(tmp_path):
     result = subprocess.run([str(INSTALLER), "--help"], cwd=tmp_path, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    for flag in ("--extras", "--venv", "--python", "--torch-index", "--station", "--no-doctor"):
+    for flag in ("--extras", "--daemon-only", "--venv", "--python", "--torch-index", "--station", "--no-doctor"):
         assert flag in result.stdout
 
 
 @pytest.mark.parametrize("args", [
     ["--unknown"], ["--venv"], ["--extras", "--no-doctor"],
     ["--station", ""], ["--torch-index", ""], ["--venv", ""], ["--python", ""],
+    ["--daemon-only", "--extras", "franky"],
+    ["--extras", "grpc", "--torch-index", "https://download.pytorch.org/whl/cpu"],
 ])
 def test_installer_rejects_bad_arguments(tmp_path, args):
     result = subprocess.run([str(INSTALLER), *args], cwd=tmp_path, capture_output=True, text=True)
@@ -88,9 +124,18 @@ def test_installer_rejects_bad_arguments(tmp_path, args):
     assert "argument parsing" in result.stderr and "retry" in result.stderr.lower()
 
 
-def test_installer_requires_initialized_submodule(tmp_path):
+def test_installer_requires_the_repository_root(tmp_path):
     (tmp_path / "pyproject.toml").touch()
-    (tmp_path / "robot_infra").mkdir()
+    (tmp_path / "robot_infra").mkdir()  # the package alone does not make a checkout
+    result = subprocess.run([str(INSTALLER)], cwd=tmp_path, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "repository root" in result.stderr
+    assert not (tmp_path / ".venv").exists()
+
+
+def test_installer_requires_initialized_submodule_for_learning(tmp_path):
+    (tmp_path / "pyproject.toml").touch()
+    (tmp_path / "real_world_rl").mkdir()
     result = subprocess.run([str(INSTALLER)], cwd=tmp_path, capture_output=True, text=True)
     assert result.returncode != 0
     assert "git submodule update --init" in result.stderr
@@ -99,9 +144,9 @@ def test_installer_requires_initialized_submodule(tmp_path):
 
 @pytest.fixture
 def installer_checkout(tmp_path):
-    """Stand-in interpreter records subprocess arguments; it never runs pip or doctor."""
+    """Stand-in interpreter (and venv rwrl) records subprocess arguments; it never runs pip or doctor."""
     (tmp_path / "pyproject.toml").touch()
-    (tmp_path / "robot_infra").mkdir()
+    (tmp_path / "real_world_rl").mkdir()
     (tmp_path / "rl-garden").mkdir()
     (tmp_path / "rl-garden" / "pyproject.toml").touch()
     interpreter = tmp_path / "fake-python"
@@ -117,13 +162,15 @@ station_text = None
 if "--mock" in args and "--station" in args:
     station_text = Path(args[args.index("--station") + 1]).read_text()
 with open(os.environ["INSTALL_CALLS"], "a") as stream:
-    stream.write(json.dumps({"args": args, "pythonpath": os.environ.get("PYTHONPATH"),
+    stream.write(json.dumps({"program": Path(sys.argv[0]).name, "args": args,
+                             "pythonpath": os.environ.get("PYTHONPATH"),
                              "station_text": station_text}) + "\\n")
 if args[:2] == ["-m", "venv"]:
     target = Path(args[2])
     (target / "bin").mkdir(parents=True)
     (target / "pyvenv.cfg").touch()
     (target / "bin" / "python").symlink_to(Path(__file__).resolve())
+    (target / "bin" / "rwrl").symlink_to(Path(__file__).resolve())
 if os.environ.get("FAIL_INSTALL") and args[:3] == ["-m", "pip", "install"]:
     sys.exit(9)
 '''
@@ -145,41 +192,46 @@ def run_installer(checkout, *args):
     return result, [call["args"] for call in calls]
 
 
+def doctor_calls(checkout):
+    return [call for call in map(json.loads, checkout[2].read_text().splitlines()) if call["program"] == "rwrl"]
+
+
 def test_default_installer_runs_mock_and_prints_hardware_next_step(installer_checkout):
     result, calls = run_installer(installer_checkout)
     assert result.returncode == 0, result.stderr
-    assert calls[-1][:4] == ["-m", "robot_infra.doctor", "--mock", "--station"] and len(calls[-1]) == 5
-    assert ["-m", "pip", "install", "-e", "./rl-garden", "-e", "./robot_infra",
-            "-e", ".[franka-gello,test]"] in calls
+    assert calls[-1][:3] == ["doctor", "--mock", "--station"] and len(calls[-1]) == 4
+    assert [call["args"] for call in doctor_calls(installer_checkout)] == [calls[-1]]
+    assert ["-m", "pip", "install", "-e", "./rl-garden", "-e", ".[learning,franka-gello,test]"] in calls
+    assert not any("./robot_infra" in call for call in calls)
+    assert any("import rl_garden, robot_infra, real_world_rl" in " ".join(call) for call in calls)
     assert "Next, configure local/station.yaml, then run from this repository root:" in result.stdout
     assert "rwrl doctor --station local/station.yaml" in result.stdout
 
 
-def test_default_mock_doctor_gets_a_loadable_throwaway_station(installer_checkout, tmp_path):
-    """A bare ``--mock`` exits 2 (the device doctor needs a station file), so the installer must
-    hand it one; the file must load and pass under ``--mock`` and must not outlive the run."""
-    from robot_infra.doctor import cli
+def test_default_mock_doctor_gets_a_loadable_throwaway_station(installer_checkout, tmp_path, doctor_report_dir):
+    """The installer hands ``rwrl doctor --mock`` a throwaway station; the file must load and
+    pass under ``--mock`` and must not outlive the run."""
+    from real_world_rl.cli import main
 
     result, calls = run_installer(installer_checkout)
     assert result.returncode == 0, result.stderr
     assert not Path(calls[-1][-1]).exists()
-    logged = [json.loads(line) for line in installer_checkout[2].read_text().splitlines()]
     station = tmp_path / "recorded-station.yaml"
-    station.write_text(logged[-1]["station_text"])
-    assert cli.main(["--station", str(station), "--mock"]) == 0
+    station.write_text(doctor_calls(installer_checkout)[-1]["station_text"])
+    assert main(["doctor", "--mock", "--station", str(station)]) == 0
 
 
 def test_custom_options_and_existing_venv(installer_checkout):
     directory, _, _, _ = installer_checkout
-    args = ("--venv", "custom venv", "--extras", "franka-gello,spacemouse",
+    args = ("--venv", "custom venv", "--extras", "learning,franka-gello,spacemouse",
             "--torch-index", "https://download.pytorch.org/whl/cpu",
             "--station", "local/my station.yaml")
     result, calls = run_installer(installer_checkout, *args)
     assert result.returncode == 0, result.stderr
-    assert calls[-1] == ["-m", "robot_infra.doctor", "--config", "local/my station.yaml"]
+    assert calls[-1] == ["doctor", "--station", "local/my station.yaml"]
     torch = ["-m", "pip", "install", "torch", "--index-url", "https://download.pytorch.org/whl/cpu"]
     assert calls.index(torch) < next(i for i, call in enumerate(calls) if "-e" in call)
-    assert any(".[franka-gello,spacemouse,test]" in call for call in calls)
+    assert any(".[learning,franka-gello,spacemouse,test]" in call for call in calls)
     initial_creates = sum(call[:2] == ["-m", "venv"] for call in calls)
     result, calls = run_installer(installer_checkout, "--venv", "custom venv", "--no-doctor")
     assert result.returncode == 0, result.stderr
@@ -188,11 +240,25 @@ def test_custom_options_and_existing_venv(installer_checkout):
     assert (directory / "custom venv" / "pyvenv.cfg").exists()
 
 
-def test_no_doctor_skips_hardware_checks(installer_checkout):
+def test_daemon_only_installs_franky_and_grpc_without_the_submodule_or_torch(installer_checkout):
+    directory = installer_checkout[0]
+    (directory / "rl-garden" / "pyproject.toml").unlink()
+    result, calls = run_installer(installer_checkout, "--daemon-only")
+    assert result.returncode == 0, result.stderr
+    installs = [call for call in calls if call[:3] == ["-m", "pip", "install"]]
+    assert installs == [["-m", "pip", "install", "-U", "pip"], ["-m", "pip", "install", "-e", ".[franky,grpc]"]]
+    imports = [call for call in calls if call[:1] == ["-c"]]
+    assert len(imports) == 1 and "rl_garden" not in imports[0][1]
+    assert "import robot_infra, real_world_rl" in imports[0][1]
+    assert calls[-1][:3] == ["doctor", "--mock", "--station"]
+
+
+def test_core_only_installs_the_project_without_extras(installer_checkout):
     result, calls = run_installer(installer_checkout, "--no-doctor", "--extras", "")
     assert result.returncode == 0, result.stderr
-    assert not any("robot_infra.doctor" in call for call in calls)
-    assert any(".[test]" in call for call in calls)
+    assert ["-m", "pip", "install", "-e", "."] in calls
+    assert not any("./rl-garden" in call for call in calls)
+    assert not doctor_calls(installer_checkout)
 
 
 def test_failed_step_prints_retry_and_stops(installer_checkout):
@@ -200,11 +266,4 @@ def test_failed_step_prints_retry_and_stops(installer_checkout):
     result, calls = run_installer(installer_checkout)
     assert result.returncode == 9
     assert "Upgrade pip failed" in result.stderr and "Retry" in result.stderr
-    assert not any("robot_infra.doctor" in call for call in calls)
-
-
-def test_station_sections_entry_point():
-    project = load_project(ROOT / "pyproject.toml")
-    assert project["entry-points"]["robot_infra.station_sections"] == {
-        "teleop_profiles": "real_world_rl.teleop.profiles:validate_profiles_reference",
-    }
+    assert not doctor_calls(installer_checkout)

@@ -32,6 +32,14 @@ REMOVED_MODULES = [
     "real_world_rl.rlinf.register",
     "real_world_rl.envs.wrappers.teleop_intervention",
     "real_world_rl.envs.wrappers.teleop_sources",
+    # The device layer has no command or module entry points of its own; rwrl runs them.
+    "robot_infra.cli.__main__",
+    "robot_infra.cli.cmd_doctor",
+    "robot_infra.server.__main__",
+    "robot_infra.doctor.__main__",
+    "robot_infra.supervise.__main__",
+    "robot_infra.setup.__main__",
+    "robot_infra.discovery.__main__",
 ]
 
 
@@ -44,6 +52,31 @@ def test_version_is_a_non_empty_string():
 def test_removed_module_paths_do_not_import(module_name):
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module(module_name)
+
+
+def test_device_layer_is_a_top_level_package_of_this_checkout():
+    import robot_infra
+
+    root = PYPROJECT.parent
+    assert Path(robot_infra.__file__).resolve().parent == root / "robot_infra"
+    assert not (root / "robot_infra" / "tests").exists()
+    assert not (root / "robot_infra" / "docs").exists()
+    assert (root / "docs" / "devices" / "README.md").is_file()
+    assert sorted(path.name for path in (root / "examples" / "stations").glob("*.example.yaml")) == [
+        "robot.franka.example.yaml", "robot.gello_station.example.yaml",
+        "robot.piper.example.yaml", "station.bimanual.example.yaml",
+    ]
+
+
+def test_device_cli_has_no_entry_point_or_section_discovery():
+    import inspect
+    import robot_infra.cli
+    from robot_infra.discovery import autoconfig
+
+    # `main` may exist as the imported submodule attribute; the entry-point function is gone.
+    assert not inspect.isfunction(getattr(robot_infra.cli, "main", None))
+    assert "doctor" not in {command.name for command in robot_infra.cli.COMMANDS}
+    assert not hasattr(autoconfig, "discover_station_sections")
 
 
 def _project_scripts(text: str) -> dict[str, str]:

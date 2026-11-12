@@ -30,11 +30,10 @@ from .doctor_platform import find_checkout
 from .doctor_preset import preset_station_checks
 from .doctor_repair import Action, Report, execute, exit_status, payload, redact
 
-# Device-layer hints name `robot-infra doctor --fix`; `rwrl doctor --fix` never recovers or reopens devices.
+# Device-layer hints name the device doctor's `--fix`; `rwrl doctor --fix` never recovers or reopens devices.
 _DEVICE_FIX_HINTS = (
-    (re.compile(r"(?:run with )?--fix \(recover\)"), "run rwrl recover (or robot-infra doctor --fix)"),
-    (re.compile(r"(?:run with )?--fix to reopen"),
-     "rerun rwrl status after reconnecting the camera (or robot-infra doctor --fix)"),
+    (re.compile(r"(?:run with )?--fix \(recover\)"), "run rwrl recover"),
+    (re.compile(r"(?:run with )?--fix to reopen"), "rerun rwrl status after reconnecting the camera"),
 )
 
 

@@ -1,4 +1,4 @@
-"""Robot station commands composed with the torch-free device CLI."""
+"""``rwrl``: robot station commands composed with the torch-free device commands."""
 from robot_infra.cli import COMMANDS as DEVICE_COMMANDS
 from robot_infra.cli.main import build_parser as _build_parser, main as _main
 from .command import Context, Result  # noqa: F401
@@ -31,7 +31,7 @@ class DeprecatedAlias:
         return self.target.run(args, ctx)
 
 
-# rwrl names these device commands by their teleop subcommand; robot-infra keeps them as they are.
+# rwrl names these device commands by their teleop subcommand; the old names remain as aliases.
 DEVICE_COMMAND_REPLACEMENTS = {"gello-calibrate": "teleop calibrate --backend gello"}
 
 
@@ -41,7 +41,7 @@ def _station_command(command):
 
 
 COMMANDS = [STATUS, Q, TCP, STOP, RECOVER, HOME, GRIPPER, CAMERA, DOCTOR,
-            *(_station_command(command) for command in DEVICE_COMMANDS if command.name != "doctor"),
+            *(_station_command(command) for command in DEVICE_COMMANDS),
             TELEOP, WORKSPACE, ARCHIVE, *LEARNING_COMMANDS]
 
 

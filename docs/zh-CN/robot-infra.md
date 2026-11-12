@@ -1,10 +1,12 @@
-<!-- English source: robot_infra/README.md -->
+<!-- English source: docs/devices/README.md -->
 
 <a id="rlgarden-robot-infra"></a>
 
 # rlgarden-robot-infra
 
-[中文入口](../README.zh-CN.md) · [English](../../robot_infra/README.md)
+> 命令已改为 rwrl（`robot-infra <命令>` 与 `python -m robot_infra.*` 均已移除，请用 `rwrl <命令>`），正文待同步。
+
+[中文入口](../README.zh-CN.md) · [English](../devices/README.md)
 
 `robot_infra` 是 [rl-garden](https://github.com/JaimeParker/rl-garden) 的真机设备层，现位于 [real-world-rl](https://github.com/JaimeParker/real-world-rl) 仓库的 `robot_infra/` 目录，作为独立发行包；CLI 与设备层运行时不导入 torch，只有 `controller/` 需要 torch，发行包仍声明该依赖。它原为单独的 `rlgarden-robot-infra` 仓库，历史已保留。机器人 PC 仅需克隆该仓库，并从根目录运行 `pip install -e robot_infra`，或按硬件安装 `pip install -e 'robot_infra[franky,grpc]'`，见[安装](#install)；无需使用 `robot_infra/` 外的组件。GPU 机器则安装 `rl-garden/` 子模块及两个发行包：`pip install -e rl-garden -e robot_infra -e .`。它提供：
 
@@ -146,7 +148,7 @@ sudo cp "$(python -c 'import robot_infra.setup, os; print(os.path.dirname(robot_
 
 ### 1. 编写 `robot.yaml`
 
-机器人配置是包含 `type` 的 YAML 映射，也可放在顶层 `robot:` 键下。未知键会被拒绝并列出合法项，省略项采用下方默认值。完整带注释示例见 [`docs/robot.franka.example.yaml`](../../robot_infra/docs/robot.franka.example.yaml) 与 [`docs/robot.piper.example.yaml`](../../robot_infra/docs/robot.piper.example.yaml)。Franka 可由[配置向导](#setup-wizard)生成。
+机器人配置是包含 `type` 的 YAML 映射，也可放在顶层 `robot:` 键下。未知键会被拒绝并列出合法项，省略项采用下方默认值。完整带注释示例见 [`docs/robot.franka.example.yaml`](../../examples/stations/robot.franka.example.yaml) 与 [`docs/robot.piper.example.yaml`](../../examples/stations/robot.piper.example.yaml)。Franka 可由[配置向导](#setup-wizard)生成。
 
 多机器人工作站，例如双 Franka，在 `robots:` 下按名称列出映射；未填写 `name` 时使用映射键。每台可含 `daemon:`，单机器人文件也允许，守护进程读取后在解析机器人配置前移除：
 
@@ -163,7 +165,7 @@ robots:
     daemon: {bind: 0.0.0.0:50052, token: null}
 ```
 
-`robot-infra daemon` 为每台启动独立进程，`robot-infra doctor` 逐台检查，`--robot <name>` 选择单台。两套 GELLO、三台相机的完整示例为 [`docs/station.bimanual.example.yaml`](../../robot_infra/docs/station.bimanual.example.yaml)。`Robot.from_yaml` 仅读取不含 `daemon:` 的单机器人文件。
+`robot-infra daemon` 为每台启动独立进程，`robot-infra doctor` 逐台检查，`--robot <name>` 选择单台。两套 GELLO、三台相机的完整示例为 [`docs/station.bimanual.example.yaml`](../../examples/stations/station.bimanual.example.yaml)。`Robot.from_yaml` 仅读取不含 `daemon:` 的单机器人文件。
 
 上层包可通过 `parse_station`、`load_station` 或 `load_station_with_env`，使用 `sections={name: validator}` 注册额外的机器人映射站点分节（section）。与 `daemon:` 类似，这些分节描述机器人，但不属于设备配置：加载器在调用 `RobotConfig.from_dict` 前移除每个已注册键，校验其值，并将返回值存入 `StationRobot.sections`。设备层不解释分节内容。未注册的未知键仍会报错；单机器人和 `robots:` 映射均支持分节。设置向导渲染设备配置，不渲染上层分节。
 
@@ -685,7 +687,7 @@ robot.teleop.reset()                           # drops latched events and the ho
 
 `backend: spacemouse`（extra `spacemouse`；选项 `device_index` 为 0、`deadzone` 为 1e-3、`invert_axes`、`poll_interval_s` 为 0.005）是带夹爪的 `cartesian_delta` 设备。推杆 twist 为 `[-y, x, z, -roll, -pitch, -yaw]`；每次按键锁存为 `button_0` / `button_1` 事件，避免两次读取间漏按。按钮 0 仍切换设备层粘滞夹爪（连接时打开），两按钮均不发送 `episode_end`。real_world_rl 的 `--teleop-device spacemouse` 另赋语义：0 接管、1 夹爪，忽略设备 `gripper` / `intervening`。需可读写 `/dev/hidraw*`；`robot-infra doctor` 通过 `os:hid` 检查并打印 udev 规则安装命令，见[已知限制](#known-limitations-and-needs-hardware-verification)。
 
-`backend: gello` 使用 `gello` 组，`event_device` 另需 `gello-events`。它读取经 U2D2 或 OpenRB-150 连接、Protocol 2.0 的被动 Dynamixel 主臂，输出 `joint_abs`，每个 `joint_ids` 一关节，设置 `gripper_id` 后有夹爪。每次轮询同步读一次，关节 `i` 为 `wrap((raw_rad - joint_offsets_rad[i]) * joint_signs[i])`，环绕区间 `[wrap_centers_rad[i] - pi, wrap_centers_rad[i] + pi)`，连接无需指定起始姿态；中心应取 `joint_limits` 中点，Panda 第 6 关节超过 pi，需正中心。夹爪为 `clip((raw - gripper_closed_rad) / (gripper_open_rad - gripper_closed_rad), 0, 1)`，1 表示打开，可用 `gripper_binarize_threshold` 二值化。默认 `intervention: always` 每次都报告 `intervening`；`toggle` 经 `evdev` 读取机器人 PC 的 `event_device` 脚踏或键盘，其他键由 `event_keys` 触发 `episode_end` / `success` / `failure` / `rerecord`。连接和断开都关闭力矩，缺舵机或同步读取失败会使轮询失败，避免复用旧样本。完整选项见 [`docs/robot.franka.example.yaml`](../../robot_infra/docs/robot.franka.example.yaml)。每台需标定一次，关闭力矩并手动移动；[配置向导](#setup-wizard)直接执行并写入工作站文件。独立标定命令会打印可粘贴配置：
+`backend: gello` 使用 `gello` 组，`event_device` 另需 `gello-events`。它读取经 U2D2 或 OpenRB-150 连接、Protocol 2.0 的被动 Dynamixel 主臂，输出 `joint_abs`，每个 `joint_ids` 一关节，设置 `gripper_id` 后有夹爪。每次轮询同步读一次，关节 `i` 为 `wrap((raw_rad - joint_offsets_rad[i]) * joint_signs[i])`，环绕区间 `[wrap_centers_rad[i] - pi, wrap_centers_rad[i] + pi)`，连接无需指定起始姿态；中心应取 `joint_limits` 中点，Panda 第 6 关节超过 pi，需正中心。夹爪为 `clip((raw - gripper_closed_rad) / (gripper_open_rad - gripper_closed_rad), 0, 1)`，1 表示打开，可用 `gripper_binarize_threshold` 二值化。默认 `intervention: always` 每次都报告 `intervening`；`toggle` 经 `evdev` 读取机器人 PC 的 `event_device` 脚踏或键盘，其他键由 `event_keys` 触发 `episode_end` / `success` / `failure` / `rerecord`。连接和断开都关闭力矩，缺舵机或同步读取失败会使轮询失败，避免复用旧样本。完整选项见 [`docs/robot.franka.example.yaml`](../../examples/stations/robot.franka.example.yaml)。每台需标定一次，关闭力矩并手动移动；[配置向导](#setup-wizard)直接执行并写入工作站文件。独立标定命令会打印可粘贴配置：
 
 ```bash
 robot-infra gello-calibrate \
@@ -820,8 +822,8 @@ docker exec <container> bash -lc 'cd <checkout>/robot_infra && python -m pytest 
 
 ## 旧模块
 
-以下模块早于设备层，为已有用户保留。后续计划见 [`docs/robot-infra-roadmap.md`](../../robot_infra/docs/robot-infra-roadmap.md)。
+以下模块早于设备层，为已有用户保留。后续计划见 [`docs/robot-infra-roadmap.md`](../devices/robot-infra-roadmap.md)。
 
-- **`controller/`**：纯 torch 笛卡尔阻抗与姿态控制器位于 `core/`、`adapters/`，经 `controller/simulator/maniskill/` 封装用于 GPU 批量模拟，需要 `sim`。详见 [`robot_infra/controller/README.md`](../../robot_infra/robot_infra/controller/README.md)。
+- **`controller/`**：纯 torch 笛卡尔阻抗与姿态控制器位于 `core/`、`adapters/`，经 `controller/simulator/maniskill/` 封装用于 GPU 批量模拟，需要 `sim`。详见 [`robot_infra/controller/README.md`](../../robot_infra/controller/README.md)。
 - **`controller/real/franka_bridge.py`** 与 **`gripper_server.py`**：转发到 ROS1 `serl_franka_controllers` 阻抗控制器和 Franka Hand 的 Flask/HTTP 服务，`serl_http` 是其客户端。ROS 机器运行 `python -m robot_infra.controller.real.franka_bridge --robot_ip <ip> --port 5000`，需要 `real`，ROS1 另装，细节见模块说明。
 - **`teleop/`**：旧设备层之前的遥操作，包括使用旧 `pyspacemouse` `read_all()` API 和 `real` 组的 `teleop/spacemouse/`、经 ZeroMQ 接收 Pico 速度的 `teleop/utils/` 与 `teleop/examples/`。[第 7 步](#7-add-a-teleop-device)的 `Teleop` 部件已替代旧 SpaceMouse。Pico 路线尚未迁移，`real-world-rl` 的 `--teleop-device pico` 仍导入这些模块，因此继续保留。

@@ -101,7 +101,7 @@ points can propose bounds, but do not prove the whole enclosed volume is safe.
 ## C: Supervised direction checks
 
 C1 translation, C2 rotation, C3 all axes use low diagnostic gain. Each command
-launches the recorder under `robot_infra.supervise`; do not wrap it in a second
+launches the recorder under `rwrl supervise`; do not wrap it in a second
 supervisor. Reset can home the arm. At the nominal step budget it holds until q;
 `--duration-s` is not a wall-clock termination deadline.
 

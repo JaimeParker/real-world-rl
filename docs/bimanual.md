@@ -78,17 +78,17 @@ Step `info` carries every arm's keys with its prefix (`left_tcp_pose`, `right_rt
 ## Running two daemons
 
 Each arm is served by its own `robot_infra` daemon with its own robot yaml and port (see the
-robot_infra README, [How to Start](../robot_infra/README.md#how-to-start)), for example on two
+device-layer guide, [How to Start](devices/README.md#how-to-start)), for example on two
 robot PCs or on one PC with two ports:
 
 ```bash
-robot-infra daemon --station left.yaml --bind 0.0.0.0:50051 --watchdog-s 5
-robot-infra daemon --station right.yaml --bind 0.0.0.0:50052 --watchdog-s 5
+rwrl daemon --station left.yaml --bind 0.0.0.0:50051 --watchdog-s 5
+rwrl daemon --station right.yaml --bind 0.0.0.0:50052 --watchdog-s 5
 ```
 
 A robot_infra station yaml with a `robots:` list describes both arms of a station.
-`rwrl setup` writes it (the [setup wizard](../robot_infra/README.md#setup-wizard))
-and `robot-infra daemon --watchdog-s 5` with no `--station` starts one daemon process per
+`rwrl setup` writes it (the [setup wizard](devices/README.md#setup-wizard))
+and `rwrl daemon --watchdog-s 5` with no `--station` starts one daemon process per
 robot on the ports in the file's `daemon.bind` entries, so the two commands above are only needed
 for separate yaml files. Point `left.remote` / `right.remote` at the two addresses.
 
@@ -153,7 +153,7 @@ Add each arm's `token`, `cameras` and `image_size` (equal to the training run's)
 with `robots: {left, right}` (fake arm, gripper, two cameras and a scripted `joint_abs` leader part
 per arm, a token on one daemon) loaded with `robot_infra.discovery.autoconfig.load_station`, each
 robot served by its own gRPC daemon (`robot_infra.server.daemon.build_daemon`, what
-`robot-infra daemon` starts per robot) on loopback. Against those daemons it builds the
+`rwrl daemon` starts per robot) on loopback. Against those daemons it builds the
 `real_robot_bimanual` env through the backend registry (`remote` per arm, `joint_delta`, four
 `--obs.rgb` cameras) and runs, in order, what these commands run:
 
@@ -205,7 +205,7 @@ probes `172.16.1.2`).
 
 The result is one file with a `robots:` mapping, each robot with its own cameras, `teleop:` section
 and `daemon:` block (abbreviated here; the real file is annotated and complete, see
-[`station.bimanual.example.yaml`](../robot_infra/docs/station.bimanual.example.yaml)):
+[`station.bimanual.example.yaml`](../examples/stations/station.bimanual.example.yaml)):
 
 ```yaml
 robots:
@@ -256,7 +256,7 @@ real_robot_bimanual:
 
 **Daemon ([03](tutorial/03-daemon.md)).** The doctor prints `== robot 'left' ==` and
 `== robot 'right' ==` blocks and a final `overall: 2 robots, all passed`; `--robot left` checks one.
-The same `robot-infra daemon --watchdog-s 5` starts both daemons: it prints
+The same `rwrl daemon --watchdog-s 5` starts both daemons: it prints
 `starting 2 daemons from <path>: 'left' on 0.0.0.0:50051, 'right' on 0.0.0.0:50052`, then each daemon
 prints its own preflight and `serving ...` line. The ports come from the file's `daemon.bind` entries.
 `--robot left` serves just one; `--bind` and `--token` are errors for several robots (set them per

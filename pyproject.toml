@@ -4,47 +4,70 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "real-world-rl"
-version = "0.0.1"
-description = "Real-world RL orchestration for rl-garden: ActorLoop/LearnerLoop, the franka_real env backend, and SERL/HIL-SERL training loops. Imports rl_garden as a library; overrides/extends it here rather than living inside its repo."
+version = "0.1.0"
+description = "Real-world RL for rl-garden: the torch-free device layer (robot_infra: arms, grippers, cameras, teleop, the robot daemon, setup and doctor), the rwrl command, and, in the learning extra, ActorLoop/LearnerLoop, the real-robot env backends and the SERL/HIL-SERL training loops."
 requires-python = ">=3.10"
+# Core: the device layer, the rwrl command and the daemon; enough for a daemon-only robot host.
 dependencies = [
-    # Supplied from local checkouts in the same pip invocation (scripts/install.sh).
-    # These versions are not commit locks; development uses the pinned submodule.
-    "rl_garden==0.0.1",
-    "torch>=2.1",
     "numpy",
-    "scipy>=1.10",
+    "pyyaml",
+    "msgpack",
+    "filelock",
     "ruamel.yaml>=0.18",
-    "gymnasium>=0.29",
-    "tyro",
-    "requests",
     "packaging>=23",
-    # Device layer for the generic real_robot env backend (envs/real_robot).
-    # Lives in this repository under robot_infra/ (torch-free). For development:
-    #   pip install -e rl-garden -e robot_infra -e .
-    "rlgarden-robot-infra==0.0.1",
+    "scipy>=1.10",
 ]
 
 [project.optional-dependencies]
-# Franka bridge client + teleop intervention wrapper need the sibling
-# robot_infra/ distribution installed (controller/real, teleop/*). ROS
-# itself, required only on the machine running
-# robot_infra/controller/real/franka_bridge.py, is not pip-installable --
-# see that module's docstring.
-robot-infra = ["rlgarden-robot-infra==0.0.1"]
-# collect_data.py's global success/failure keyboard listener.
-reward-collection = ["pynput"]
-# examples/record_teleop_wsrl.py, run_teleop_demo.py: ManiSkill sim envs.
-examples = ["mani_skill"]
-dev = ["pytest", "scipy"]
+# Training, recording, deployment and teleop sessions. rl_garden is supplied from the
+# rl-garden submodule in the same pip invocation (scripts/install.sh):
+#   pip install -e ./rl-garden -e '.[learning]'
+# The version is not a commit lock; development uses the pinned submodule.
+learning = ["rl_garden==0.0.1", "torch>=2.1", "gymnasium>=0.29", "tyro", "requests"]
+# robot_infra/controller/simulator/maniskill/ and examples/record_teleop_wsrl.py,
+# run_teleop_demo.py: ManiSkill sim envs and controllers.
+sim = ["mani_skill"]
+# robot_infra/controller/real/, robot_infra/teleop/spacemouse/: the legacy Franka bridge/gripper
+# Flask servers and pyspacemouse teleop. ROS itself (rospy, franka_msgs,
+# serl_franka_controllers, franka_gripper, geometry_msgs, sensor_msgs), required only on the
+# machine running robot_infra/controller/real/franka_bridge.py, is not pip-installable and
+# must be set up separately -- see franka_bridge.py's module docstring.
+legacy-bridge = ["flask", "pyzmq", "scipy", "pyspacemouse"]
+# devices/backends/cameras/realsense.py: Intel RealSense camera backend.
+realsense = ["pyrealsense2"]
+# devices/backends/{arms,grippers}/pyagxarm.py: AgileX Piper over CAN. Installed from GitHub,
+# the only requirement here that does not come from the package index.
+pyagxarm = ["pyAgxArm @ git+https://github.com/agilexrobotics/pyAgxArm.git"]
+# devices/backends/{arms,grippers}/franky.py: Franka arm + hand via franky. For a non-default
+# libfranka, install the wheel matching your robot server version instead (rwrl doctor --install-sdk).
+franky = ["franky-control"]
+# devices/backends/{arms,grippers}/piper_sdk.py: AgileX Piper over the vendor SDK.
+piper-sdk = ["piper_sdk"]
+# server/transport/grpc_transport.py: the robot daemon gRPC transport.
+grpc = ["grpcio>=1.60"]
+# server/codec.py: lossy JPEG camera frames (daemon --jpeg-quality); needed on the daemon and the client.
+jpeg = ["pillow", "opencv-python-headless"]
+# In-tree SpaceMouse decoder with trezor/cython-hidapi (import hid), pinned for
+# Ubuntu 22.04 / CPython 3.10 / x86_64. The legacy-bridge extra keeps pyspacemouse separately.
+spacemouse = ["hidapi==0.14.0.post4"]
+# devices/backends/teleops/gello.py: GELLO leader arm over Dynamixel Protocol 2.0 (also the calibration command).
+gello = ["dynamixel-sdk>=3.7.31,<3.9"]
+# devices/backends/teleops/gello.py with options.event_device: pedal/keyboard toggle and events via evdev (Linux).
+gello-events = ["evdev"]
+# The Franka + GELLO station: the franky, gello, gello-events and grpc extras spelled out, not
+# self-referenced, so the doctor's dependency check reads every requirement as a package.
 # The daemon route needs grpc even when the main workflow runs directly on the NUC.
-# doctor --install-sdk selects/reinstalls the wheel for the robot server version.
+# doctor --install-sdk selects/reinstalls the franky wheel for the robot server version.
 franka-gello = [
-    "rlgarden-robot-infra[franky,gello,gello-events,grpc]==0.0.1",
     "franky-control",
+    "dynamixel-sdk>=3.7.31,<3.9",
+    "evdev",
+    "grpcio>=1.60",
     "websockets>=13",
 ]
-spacemouse = ["rlgarden-robot-infra[spacemouse]==0.0.1"]
+# collect_data.py's global success/failure keyboard listener.
+reward-collection = ["pynput"]
+dev = ["pytest", "scipy"]
 test = ["pytest", "opencv-python-headless", "ipython", "torchvision", "grpcio>=1.60"]
 
 [project.scripts]
@@ -53,9 +76,6 @@ real-world-rl-train = "real_world_rl.training.__main__:main"
 real-world-rl-record = "real_world_rl.demos.__main__:main"
 real-world-rl-deploy = "real_world_rl.deploy:run_cli"
 real-world-rl-collect-reward = "real_world_rl.reward.collect_data:main"
-
-[project.entry-points."robot_infra.station_sections"]
-teleop_profiles = "real_world_rl.teleop.profiles:validate_profiles_reference"
 
 [project.entry-points."rlgarden.env_backends"]
 franka_real = "real_world_rl.envs.backends.franka_real"
@@ -66,7 +86,8 @@ real_robot_bimanual = "real_world_rl.envs.backends.real_robot_bimanual"
 real_world = "real_world_rl.training.rlgarden_algorithms"
 
 [tool.setuptools.packages.find]
-include = ["real_world_rl*"]
+include = ["real_world_rl*", "robot_infra*"]
 
 [tool.setuptools.package-data]
 real_world_rl = ["py.typed"]
+robot_infra = ["setup/*.yaml", "setup/*.rules"]

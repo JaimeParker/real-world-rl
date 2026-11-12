@@ -6,7 +6,7 @@ Each ```bash block of a page is read as a small shell script: backslash-newline 
 joined, ``NAME=value`` lines define variables for the later blocks of the same page, and ``$NAME``
 expands to them. Each remaining command is parsed, and only parsed, by its program's own parser
 (the training registry, the recorder, deploy, the reward-data collector, rl-garden's ACT and
-classifier trainers, robot_infra's setup, doctor, daemon and discovery): nothing connects, trains or
+classifier trainers, rwrl and its device commands): nothing connects, trains or
 opens a device. A flag the tutorial uses that a parser no longer knows fails the test.
 
 A block preceded by ``<!-- tutorial-test: skip -->`` on the line before its fence is not parsed
@@ -18,7 +18,6 @@ does not know fails, so a new kind of command needs a parser here or the skip ma
 """
 from __future__ import annotations
 
-import argparse
 import functools
 import re
 import shlex
@@ -74,10 +73,6 @@ class TutorialCommand:
     @property
     def id(self) -> str:
         return f"{self.page}:{self.line}:{' '.join(self.argv[:3])}"
-
-
-class ParsedOnly(Exception):
-    """Raised by the patched ``ArgumentParser.parse_args`` once a ``main`` has parsed its argv."""
 
 
 # -- extraction ---------------------------------------------------------------------------------
@@ -295,48 +290,6 @@ def parse_classifier_trainer(argv: Sequence[str]) -> None:
         sys.argv = saved
 
 
-def parse_setup(argv: Sequence[str]) -> None:
-    from robot_infra.setup.__main__ import build_parser
-
-    build_parser().parse_args(list(argv))
-
-
-def parse_server(argv: Sequence[str]) -> None:
-    from robot_infra.server.daemon import parse_args
-
-    parse_args(list(argv))
-
-
-def _parse_with_main(main: Callable[[list[str]], object], argv: Sequence[str]) -> None:
-    """Runs ``main(argv)`` only up to its ``ArgumentParser.parse_args`` call."""
-    original = argparse.ArgumentParser.parse_args
-
-    def parse_then_stop(self, args=None, namespace=None):
-        original(self, args, namespace)
-        raise ParsedOnly
-
-    argparse.ArgumentParser.parse_args = parse_then_stop
-    try:
-        main(list(argv))
-    except ParsedOnly:
-        return
-    finally:
-        argparse.ArgumentParser.parse_args = original
-    raise AssertionError("main() returned without parsing its arguments")
-
-
-def parse_doctor(argv: Sequence[str]) -> None:
-    from robot_infra.doctor.cli import main
-
-    _parse_with_main(main, argv)
-
-
-def parse_discovery(argv: Sequence[str]) -> None:
-    from robot_infra.discovery.__main__ import main
-
-    _parse_with_main(main, argv)
-
-
 SCRIPT_PARSERS: dict[str, Callable[[Sequence[str]], None]] = {
     "examples/train_real_world.py": parse_training,
     "examples/record_real_demos.py": parse_recorder,
@@ -349,10 +302,6 @@ MODULE_PARSERS: dict[str, Callable[[Sequence[str]], None]] = {
     "real_world_rl.reward.collect_data": parse_collector,
     "rl_garden.models.act.train_trajectories": parse_act_trainer,
     "rl_garden.models.reward.success.train": parse_classifier_trainer,
-    "robot_infra.setup": parse_setup,
-    "robot_infra.doctor": parse_doctor,
-    "robot_infra.server": parse_server,
-    "robot_infra.discovery": parse_discovery,
 }
 CONSOLE_SCRIPT_PARSERS: dict[str, Callable[[Sequence[str]], None]] = {
     "real-world-rl-train": parse_training,
@@ -364,18 +313,8 @@ CONSOLE_SCRIPT_PARSERS: dict[str, Callable[[Sequence[str]], None]] = {
 
 def parser_for(argv: Sequence[str]) -> tuple[Callable[[Sequence[str]], None], list[str]]:
     """The parser of ``argv``'s program and the arguments it takes."""
-    if argv[0] in ("rwrl", "robot-infra"):
-        if argv[0] == "rwrl":
-            from real_world_rl.cli import build_parser
-        else:
-            from robot_infra.cli import COMMANDS as device_commands
-            from robot_infra.cli.main import build_parser as build_device_parser
-
-            build_parser = functools.partial(
-                build_device_parser,
-                commands=device_commands, prog="robot-infra", description="Robot device infrastructure",
-                global_options=("station", "robot", "mock", "json", "yes"),
-            )
+    if argv[0] == "rwrl":
+        from real_world_rl.cli import build_parser
         from real_world_rl.cli.cmd_learning import LearningCommand
 
         parser = build_parser()
@@ -403,11 +342,6 @@ def parser_for(argv: Sequence[str]) -> tuple[Callable[[Sequence[str]], None], li
         return parser.parse_args, list(argv[1:])
     if argv[0] in CONSOLE_SCRIPT_PARSERS:
         return CONSOLE_SCRIPT_PARSERS[argv[0]], list(argv[1:])
-    if argv[0] in _PYTHONS and len(argv) >= 3 and argv[1] == "-m" and argv[2] == "robot_infra.supervise":
-        # The supervisor validates its own options and hands back the supervised command.
-        from robot_infra.supervise.supervisor import parse_args as parse_supervisor_args
-        _options, supervised, _log = parse_supervisor_args(list(argv[3:]))
-        return parser_for(supervised)
     if argv[0] in _PYTHONS and len(argv) >= 3 and argv[1] == "-m" and argv[2] in MODULE_PARSERS:
         return MODULE_PARSERS[argv[2]], list(argv[3:])
     if argv[0] in _PYTHONS and len(argv) >= 2 and argv[1] in SCRIPT_PARSERS:
@@ -441,8 +375,7 @@ def test_testing_pages_include_a_parsed_supervised_recorder():
     supervised = [
         command for command in COMMANDS
         if command.page.startswith("docs/testing/")
-        and (command.argv[:2] in (("rwrl", "supervise"), ("robot-infra", "supervise"))
-             or command.argv[:3] == ("python", "-m", "robot_infra.supervise"))
+        and command.argv[:2] == ("rwrl", "supervise")
     ]
     assert any(parser_for(command.argv)[0] is parse_recorder for command in supervised), (
         "docs/testing/*.md must retain a parsed supervisor + recorder expansion"
@@ -470,8 +403,11 @@ def test_an_unknown_flag_fails_the_parse():
         parse_training(["hil_serl", "--config", str(PRESET), "--no-such-flag", "1"])
     with pytest.raises(SystemExit):
         parse_recorder(["--config", str(PRESET), "--no-such-flag", "1"])
-    with pytest.raises(SystemExit):
-        parse_doctor(["--no-such-flag"])
+    from real_world_rl.cli.errors import CliError
+
+    parse, args = parser_for(["rwrl", "doctor", "--no-such-flag"])
+    with pytest.raises(CliError):
+        parse(args)
 
 
 def test_variables_expand_like_the_shell():

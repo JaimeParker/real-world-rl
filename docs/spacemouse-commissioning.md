@@ -143,11 +143,10 @@ the bounds. Points files saved in the old frame must be recaptured.
 base frame.
 
 `teleop_profiles` is a real_world_rl station section, not a `RobotConfig`
-field. Device-layer station loaders discover its validator through the installed
-real_world_rl package's `robot_infra.station_sections` entry point. If that package
-is not installed, loading fails with an unknown-key error and an installation hint.
-Explicit `sections={}` always requests strict device parsing. Both `rwrl` and
-Python callers use `real_world_rl.station.load_station` (or `load_station_with_env`)
+field. The device-layer loaders in `robot_infra.discovery.autoconfig` parse strictly
+unless given sections: an unknown `teleop_profiles` key there fails with an error naming
+`real_world_rl.station.load_station`. Every `rwrl` command (the daemon, setup, discover
+and doctor included) and Python callers use `real_world_rl.station.load_station` (or `load_station_with_env`)
 to register its validator. Existing station YAML needs no migration; `rwrl teleop calibrate
 --use` continues to write this section in the robot mapping.
 
@@ -271,7 +270,7 @@ volume is safe. Review the candidate before repeating `workspace set` with
 
 ### Supervised recording sessions
 
-`rwrl teleop run` uses the existing demo recorder under `robot_infra.supervise`.
+`rwrl teleop run` uses the existing demo recorder under `rwrl supervise`.
 Supply a station with a selected SpaceMouse profile and a task preset containing
 home and workspace settings. The reset can move the arm and operate the gripper;
 the command previews the session and uses the normal motion confirmation.

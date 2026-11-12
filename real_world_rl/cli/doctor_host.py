@@ -670,8 +670,9 @@ class Host:
         from packaging.utils import canonicalize_name
 
         selected = set(self.expected)
+        # The core requirements and the selected device extras of this project.
         try:
-            raw = metadata.requires("rlgarden-robot-infra") or []
+            raw = metadata.requires("real-world-rl") or []
             requirements = [Requirement(row) for row in raw]
         except metadata.PackageNotFoundError:
             requirements = [
@@ -679,22 +680,24 @@ class Host:
                 for extra in selected
                 for row in FALLBACK_REQUIREMENTS.get(extra, [])
             ]
-        # Include the mandatory requirements of all three local distributions.
-        for distribution in ("real-world-rl", "rl_garden"):
-            try:
-                requirements.extend(
-                    Requirement(row)
-                    for row in metadata.requires(distribution) or []
-                    if Requirement(row).marker is None
-                    or Requirement(row).marker.evaluate({"extra": ""})
-                )
-            except metadata.PackageNotFoundError:
-                pass
+        active_extras = ["", *selected]
+        # An installed rl_garden marks a learning host: check its mandatory requirements and the
+        # learning extra there; a daemon-only host has neither.
+        try:
+            requirements.extend(
+                Requirement(row)
+                for row in metadata.requires("rl_garden") or []
+                if Requirement(row).marker is None
+                or Requirement(row).marker.evaluate({"extra": ""})
+            )
+            active_extras.append("learning")
+        except metadata.PackageNotFoundError:
+            pass
         wanted = {}
         for requirement in requirements:
             if requirement.marker is None or any(
                 requirement.marker.evaluate({"extra": extra})
-                for extra in ["", *selected]
+                for extra in active_extras
             ):
                 name = canonicalize_name(requirement.name)
                 # pip evaluates 'extra' markers as empty for a direct requirement, so strip
@@ -731,10 +734,7 @@ class Host:
                         "non-index package repair requires manual review",
                     )
                     continue
-                local = {
-                    "rl-garden": "rl-garden",
-                    "rlgarden-robot-infra": "robot_infra",
-                }
+                local = {"rl-garden": "rl-garden"}
                 argv = [sys.executable, "-m", "pip", "install"]
                 if name in local:
                     source = self.root / local[name] if self.root else None

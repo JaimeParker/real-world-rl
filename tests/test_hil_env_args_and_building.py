@@ -499,7 +499,7 @@ def test_options_yaml_device_index_opens_that_spacemouse(tmp_path, monkeypatch):
 # -- --teleop-device bimanual ---------------------------------------------------------------
 
 BIMANUAL = "real_robot_bimanual"
-STATION_BIMANUAL_YAML = Path(__file__).resolve().parents[1] / "robot_infra" / "docs" / "station.bimanual.example.yaml"
+STATION_BIMANUAL_YAML = Path(__file__).resolve().parents[1] / "examples" / "stations" / "station.bimanual.example.yaml"
 
 
 def _bimanual_args(**overrides) -> HilSerlArgs:

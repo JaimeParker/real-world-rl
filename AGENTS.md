@@ -6,9 +6,13 @@ Operating guide for coding agents working on `real-world-rl`. Read
 ## Layout
 
 - This repository is the top level for real-robot work. `real_world_rl/`
-  is the real-robot RL package; `robot_infra/` is the torch-free device layer
-  (a second distribution, `rlgarden-robot-infra`, that never imports
-  `rl_garden` or `real_world_rl`).
+  is the real-robot RL package; `robot_infra/` is the torch-free device layer,
+  in the same distribution. `robot_infra` never imports `rl_garden`, torch or the
+  learning subpackages of `real_world_rl` (envs, loops, training, policies,
+  algorithms, buffers, demos, reward, deploy); its daemon, setup, discover and
+  device doctor load stations through `real_world_rl.station`
+  (`tests/test_daemon_imports_no_torch.py` guards both). Learning dependencies
+  live in the `learning` extra.
 - Package layering: `real_world_rl/loops/` holds the actor, learner and sync
   classes (base modules `actor`, `learner`, `sync`, then one module per method);
   `algorithms/`, `policies/`, `envs/`, `teleop/` and `training/entrypoints/` are
@@ -31,11 +35,11 @@ Operating guide for coding agents working on `real-world-rl`. Read
 Run from this repository's root. No hardware or network is needed.
 
 ```bash
-pip install -e rl-garden -e robot_infra -e .     # once, editable
-python -m pytest tests robot_infra/tests -q
+pip install -e ./rl-garden -e '.[learning,test]'     # once, editable
+python -m pytest tests -q
 
 # without installing
-PYTHONPATH=.:rl-garden:robot_infra python -m pytest tests robot_infra/tests -q
+PYTHONPATH=.:rl-garden python -m pytest tests -q
 ```
 
 rl-garden's own suite runs inside the submodule, as its testing runbook

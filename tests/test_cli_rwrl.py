@@ -327,7 +327,7 @@ def test_doctor_forwarding(station, capsys):
 
 
 @pytest.mark.parametrize("command,module", [
-    ("setup", "robot_infra.setup.__main__"),
+    ("setup", "robot_infra.setup.command"),
     ("daemon", "robot_infra.server.daemon"), ("supervise", "robot_infra.supervise.supervisor"),
 ])
 def test_native_subcommand_uses_same_argv_and_implementation(monkeypatch, command, module):

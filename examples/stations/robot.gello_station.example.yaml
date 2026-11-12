@@ -1,0 +1,37 @@
+# GELLO leader-arm station: a stub robot whose only real device is the GELLO, served by the
+# robot daemon so the actor reads the leader over the network as this robot's teleop part:
+#   rwrl daemon --station robot.gello_station.example.yaml --bind 0.0.0.0:50052
+# Used by the franka_real stack (SERL HTTP bridge, cartesian only), whose actor converts the
+# leader joints to a cartesian twist with real_world_rl's leader_cartesian teleop source.
+# The arm is the fake backend: it holds no hardware and nothing ever commands it. Run it on a
+# port other than a real robot's daemon on the same host.
+type: franka                  # 7 joints; the GELLO must mirror the Panda's joint order
+name: gello_station
+arm_backend: fake
+gripper: null
+cameras: []
+teleop:
+  name: gello                 # daemon serves teleop.gello.read / teleop.gello.reset
+  backend: gello              # needs the gello extra: pip install -e ".[gello]"
+  hold_s: 0.0
+  options:                    # every key shown; the calibration CLI prints this block:
+                              #   rwrl gello-calibrate --port ... --joint-ids 1 2 3 4 5 6 7 --gripper-id 8
+    port: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_XXXXXXXX-if00-port0  # required; or /dev/ttyUSB0 (user in the dialout group)
+    baudrate: 57600           # default 57600; must match the servos, never written to EEPROM
+    joint_ids: [1, 2, 3, 4, 5, 6, 7]                       # required: servo ids of the arm joints
+    joint_offsets_rad: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] # required: q = wrap((raw - offset) * sign); from the calibration CLI
+    joint_signs: [1, 1, 1, 1, 1, 1, 1]                     # required: +1 or -1 per joint
+    wrap_centers_rad: [0.0, 0.0, 0.0, -1.571, 0.0, 1.868, 0.0]  # default zeros; q wraps into [c - pi, c + pi); shown: midpoints of the Panda joint limits
+    gripper_id: 8             # default null = no gripper channel (the actor then holds the last gripper action)
+    gripper_open_rad: 3.5     # required with gripper_id: raw angle of the released trigger
+    gripper_closed_rad: 4.4   # required with gripper_id: raw angle of the squeezed trigger
+    gripper_binarize_threshold: null  # default null = continuous width; leader_cartesian binarizes on the actor side
+    intervention: always      # always (default: every poll intervenes, pure teleop) | toggle (needs event_device: event_keys.toggle starts/stops it)
+    event_device: null        # default null = no events and no toggle input; e.g. /dev/input/by-id/usb-...-event-kbd (gello-events extra: evdev)
+    event_keys:               # evdev key names (defaults shown); toggle flips on key-down, the rest are events
+      toggle: KEY_SPACE
+      episode_end: KEY_ESC
+      success: KEY_S
+      failure: KEY_F
+      rerecord: KEY_R
+    poll_interval_s: 0.0      # default 0.0: sleep before each bus read

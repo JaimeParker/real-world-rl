@@ -567,7 +567,7 @@ def test_extra_markers_are_resolved_before_pip_invocation(host, monkeypatch):
         "requires",
         lambda name: (
             ["hidapi==0.14.0.post4; extra == 'spacemouse'"]
-            if name == "rlgarden-robot-infra"
+            if name == "real-world-rl"
             else []
         ),
     )
@@ -626,11 +626,11 @@ def test_franky_conflicting_server_versions_never_generate_install(host, monkeyp
     [
         (
             "clear errors in Desk, then run with --fix (recover)",
-            "clear errors in Desk, then run rwrl recover (or robot-infra doctor --fix)",
+            "clear errors in Desk, then run rwrl recover",
         ),
         (
             "try another port; run with --fix to reopen",
-            "try another port; rerun rwrl status after reconnecting the camera (or robot-infra doctor --fix)",
+            "try another port; rerun rwrl status after reconnecting the camera",
         ),
         ("check the cable", "check the cable"),
         ("", ""),

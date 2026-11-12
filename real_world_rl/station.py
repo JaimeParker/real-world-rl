@@ -1,7 +1,7 @@
 """Station loading with explicit real_world_rl validators, independent of metadata.
 
-Internal callers pass STATION_SECTIONS explicitly. Standalone robot_infra entry
-points discover the same validators through installed station-section entry points.
+Every command that reads a station file, including the device commands (daemon, setup,
+discover, the device doctor), loads it here, so the STATION_SECTIONS are always validated.
 """
 from pathlib import Path
 

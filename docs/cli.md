@@ -7,8 +7,11 @@ stop or recover the arm. People and agents use the same commands; `--json`,
 
 ## Where to run
 
-After installing the `real-world-rl` package and the station's `robot_infra`
-dependencies, `rwrl` is available in that environment. It is equivalent to
+After installing the `real-world-rl` package with the station's device extras,
+`rwrl` is available in that environment. `train`, `record`, `deploy`,
+`collect-reward`, `teleop run` and `archive inspect` also need the `learning`
+extra; without it they exit 2 with the hint
+`pip install -e ./rl-garden -e '.[learning]'`. It is equivalent to
 `python -m real_world_rl.cli`. See [installation](tutorial/01-install.md).
 Run hardware commands on the **robot host** connected to the devices, with the
 **project environment active**. A NUC is one option; no particular computer model
@@ -112,9 +115,9 @@ refused confirmation; details follow the table.
 | `archive inspect ARCHIVE` | Read a recorder SQLite archive read-only: outcomes, mask counts, hold drift, take-over jump and residual per human_action_mask segment, printed as indented JSON. `--csv PATH` and `--measurements PATH` write new step and measurement CSVs; `--drift-window-s` (default 10) sets the hold-drift window; each `--stop-time-s T` (repeatable) adds a settle evaluation using `--settle-speed-mm-s` (default 2) and `--settle-hold-s` (default 0.5). `--json` prints the same fields on one line, non-finite numbers as `null`, plus `status` (`REPORT`, `PASS`, `FAIL` or `BLOCKED`). No station is loaded: `--station`, `--robot`, `--preset`, `--direct`, `--mock` and `--yes` are usage errors. `python examples/inspect_teleop_archive.py` remains an alias with the same arguments and output, but its exit code ignores the settle status | No hardware connection | No | 0 without `--stop-time-s`; with it 0 PASS / 3 FAIL / 4 BLOCKED (a stop time without a spanning TCP episode); 2 for usage or an unreadable archive |
 
 `setup`, `daemon`, `supervise`, `discover` and `gello-calibrate` are native
-commands provided by `robot_infra`, also available through `robot-infra`.
-Both CLIs use the same registered command objects and implementations.
-Station input is `--station PATH`; daemon, discover and the device doctor keep
+commands provided by `robot_infra`; they have no command or `python -m`
+entry point of their own.
+Station input is `--station PATH`; daemon and discover keep
 `--config PATH`, and setup keeps `--from PATH`, as temporary aliases marked
 "(alias, will be removed)" in help. For setup, station input supplies existing
 defaults, **not the output path**. A command-local value overrides the root
@@ -141,12 +144,11 @@ keep their values. They add no wizard question.
 
 `rwrl gello-calibrate` is an alias of `rwrl teleop calibrate --backend gello`
 and will be removed; it keeps the device command's flags (`--port` and
-`--joint-ids` required, no station defaults). `robot-infra gello-calibrate` is
-unchanged. Both print the GELLO `teleop:` YAML block.
+`--joint-ids` required, no station defaults). Both print the GELLO `teleop:` YAML block.
 `setup --only teleop --calibrate` runs that calibration inside the wizard and
 writes the station YAML.
-`robot-infra doctor` remains the device-layer diagnostic; `rwrl doctor` is the
-host and project diagnostic described below.
+`rwrl doctor` is the host and project diagnostic described below; it runs the
+device-layer checks (`robot_infra.doctor`) for each station robot.
 
 Doctor is registered directly in the `rwrl` parser; `rwrl doctor --help` displays
 rwrl's own doctor help. It shares the global `--station`, `--robot`, `--preset`,
@@ -156,14 +158,12 @@ and `--yes` are also accepted after `doctor`; `--station` is accepted there too.
 A trailing value takes precedence
 when the same option is supplied before and after the command.
 `python -m real_world_rl.cli.doctor` remains a transitional entry point that
-delegates to `rwrl doctor`. In both doctors, `--yes` skips confirmation while
+delegates to `rwrl doctor`. `--yes` skips confirmation while
 all preflight checks still run, including when no repair is requested.
-Both JSON reports share `schema_version: 1`, `status` (`PASS` or `FAIL`),
-`checks` and `repairs`. These retain rwrl doctor's existing field names.
-The device doctor's unchanged list/map (or its install-SDK object) is wrapped
-under `results`; its host-only `checks` and `repairs` are empty lists.
-See the [device-layer README](../robot_infra/README.md#3-check-with-the-doctor)
-for the Python doctor, setup, daemon and supervision interfaces.
+The JSON report has `schema_version: 1`, `status` (`PASS` or `FAIL`),
+`checks` and `repairs`.
+See the [device-layer guide](devices/README.md#3-check-with-the-doctor)
+for the device checks, setup, daemon and supervision interfaces.
 
 ## Robot-host diagnosis and repair
 
@@ -237,9 +237,8 @@ inspect`) do not make doctor report `BLOCKED`.
 
 Device rows keep the device doctor's checks, but `rwrl doctor --fix` never
 recovers or reopens devices, so their hints name the rwrl command instead:
-"--fix (recover)" becomes `run rwrl recover (or robot-infra doctor --fix)`, and
-"--fix to reopen" becomes `rerun rwrl status after reconnecting the camera (or
-robot-infra doctor --fix)`.
+"--fix (recover)" becomes `run rwrl recover`, and
+"--fix to reopen" becomes `rerun rwrl status after reconnecting the camera`.
 
 With a station and `--preset`, doctor also compares the preset's robot (the
 inline `real_robot.robot` or bare `robot` mapping, or the station file it names)

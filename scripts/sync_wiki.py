@@ -43,8 +43,9 @@ def page_mapping(root: Path) -> dict[Path, str]:
         for source in sorted((root / "docs" / section).glob("*.md")):
             name = section if source.stem == "README" else f"{section}-{source.stem}"
             add(source.relative_to(root), name)
-    add(Path("robot_infra/README.md"), "robot-infra")
-    add(Path("robot_infra/docs/control-profiles.md"), "control-profiles")
+    # The device-layer pages keep their wiki names, so existing wiki links stay valid.
+    add(Path("docs/devices/README.md"), "robot-infra")
+    add(Path("docs/devices/control-profiles.md"), "control-profiles")
     chinese_root = root / "docs/zh-CN"
     for source in sorted(chinese_root.rglob("*.md")):
         relative = source.relative_to(chinese_root)

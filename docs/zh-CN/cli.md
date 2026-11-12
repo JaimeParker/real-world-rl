@@ -4,6 +4,8 @@
 
 # rwrl：工作站命令行
 
+> 命令已改为 rwrl（`robot-infra <命令>` 与 `python -m robot_infra.*` 均已移除，请用 `rwrl <命令>`），正文待同步。
+
 `rwrl` 统一训练、录制、部署和工作站操作。硬件原语可用于：检查工作站、保存 home 姿态、回 home、操作夹爪、停止机械臂或恢复错误。人和 agent 使用同一套命令；`--json`、`--yes` 和退出码使内置原语适合非交互调用。
 
 <a id="where-to-run"></a>

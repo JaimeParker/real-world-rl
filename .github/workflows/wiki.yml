@@ -6,8 +6,6 @@ on:
     paths:
       - 'docs/**'
       - 'README.md'
-      - 'robot_infra/README.md'
-      - 'robot_infra/docs/**'
       - 'scripts/sync_wiki.py'
       - '.github/workflows/wiki.yml'
   workflow_dispatch:

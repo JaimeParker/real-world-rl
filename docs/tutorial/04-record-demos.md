@@ -76,7 +76,7 @@ It checks for missing steps inside the process. The separate supervisor detects
 missing heartbeats (default **2.0 s**) and escalates signals if cleanup stalls.
 Its final kill loses the libfranka connection and relies on a firmware reflex
 stop. It cannot issue a separate robot stop command. See
-[supervision](../../robot_infra/README.md#supervising-a-single-process-robot-run).
+[supervision](../devices/README.md#supervising-a-single-process-robot-run).
 
 The preset already sets these tracker flags; keep them unchanged through the
 pipeline:

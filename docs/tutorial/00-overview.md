@@ -69,7 +69,7 @@ servo timing or measured USB sampling throughput.
 
 Pages 04–07 use `examples/presets/gello_cartesian.yaml`: state-only, 50 Hz,
 `xyz_scale_m: 0.05`, `rot_scale_rad: 0.3`, with a direct robot mapping. Recording
-and hardware actor commands run under `robot_infra.supervise`. Joint-space
+and hardware actor commands run under `rwrl supervise`. Joint-space
 examples are separate modes requiring their own compatible demos and base policies. Two-arm setup starts with
 [per-arm Desk and wizard checks](02-station.md#multiple-arms), then
 [bimanual.md](../bimanual.md).

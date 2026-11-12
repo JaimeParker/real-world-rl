@@ -40,8 +40,10 @@ def inspect(args, ctx):
         if getattr(args, option, None) not in (None, False):
             raise CliError(f"--{option} not applicable to rwrl archive inspect", code=USAGE_EXIT_CODE)
     import sqlite3
+    from .cmd_learning import learning_dependencies
     # Torch loads here, never while the parser is built.
-    from real_world_rl.demos.archive_inspect import format_summary, inspect_archive
+    with learning_dependencies("archive inspect"):
+        from real_world_rl.demos.archive_inspect import format_summary, inspect_archive
     try:
         summary = inspect_archive(args.archive, args.csv, measurements_path=args.measurements,
                                   stop_times_s=args.stop_time_s, drift_window_s=args.drift_window_s,

@@ -2,7 +2,7 @@
 
 # 机械臂控制配置
 
-[中文入口](../README.zh-CN.md) · [English](../../robot_infra/docs/control-profiles.md)
+[中文入口](../README.zh-CN.md) · [English](../devices/control-profiles.md)
 
 工作站 YAML 可为每个机械臂分别声明阻抗配置：
 

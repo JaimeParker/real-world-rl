@@ -1,6 +1,6 @@
 """Run a task preset using fake devices, without constructing or training an algorithm.
 
-PYTHONPATH=.:rl-garden:robot_infra python examples/task_smoke.py --config examples/presets/pick_and_place_fake.yaml
+PYTHONPATH=.:rl-garden python examples/task_smoke.py --config examples/presets/pick_and_place_fake.yaml
 """
 from __future__ import annotations
 import argparse

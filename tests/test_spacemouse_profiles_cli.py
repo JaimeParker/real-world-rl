@@ -85,7 +85,7 @@ def test_run_builds_supervised_child_with_hold(tmp_path, capsys, monkeypatch, ex
     assert resolved['teleop_profile'] == 'rear'
     assert resolved['teleop_input']['yaw_rad'] == .4
     assert not {'stop_trace_path', 'diagnostics_path', 'session_events_path'} & resolved['real_robot'].keys()
-    assert 'robot_infra.supervise' in calls[0]
+    assert calls[0][1:5] == ['-m', 'real_world_rl.cli', 'supervise', '--']
     provenance = json.loads((Path(payload['report_directory']) / 'provenance.json').read_text())
     assert provenance['input_files']['profiles']['sha256']
     assert provenance['packages']['real_world_rl'][0]['files']['cli/teleop_session.py']
@@ -166,7 +166,7 @@ def test_motion_diagnostic_launches_supervised_limited_session(tmp_path, capsys,
     assert resolved['max_episode_steps'] == 20
     assert resolved['episode_end_behavior'] == 'hold'
     assert not {'stop_trace_path', 'diagnostics_path', 'session_events_path'} & resolved['real_robot'].keys()
-    assert 'robot_infra.supervise' in calls[0]
+    assert calls[0][1:5] == ['-m', 'real_world_rl.cli', 'supervise', '--']
 
 
 def test_workspace_saved_points_candidate_and_stale_frame(tmp_path, capsys, monkeypatch):
@@ -602,19 +602,8 @@ def test_calibrate_creates_new_profiles_file(tmp_path, capsys):
         'schema_version': 1, 'profiles': {'front': result['candidate']}}
 
 
-@pytest.fixture
-def installed_profile_section(monkeypatch):
-    from robot_infra.discovery import autoconfig
-    from real_world_rl.teleop.profiles import validate_profiles_reference
-    entry = SimpleNamespace(name="teleop_profiles", load=lambda: validate_profiles_reference)
-    monkeypatch.setattr(autoconfig, "entry_points", lambda *, group: [entry] if group == "robot_infra.station_sections" else [])
-    autoconfig.discover_station_sections.cache_clear()
-    yield
-    autoconfig.discover_station_sections.cache_clear()
-
-
 @pytest.mark.parametrize("with_env", [False, True])
-def test_upper_layer_station_loader_owns_profiles_section(tmp_path, monkeypatch, with_env, installed_profile_section):
+def test_upper_layer_station_loader_owns_profiles_section(tmp_path, monkeypatch, with_env):
     from real_world_rl.station import load_station_with_env
     from robot_infra.discovery.autoconfig import load_station as load_device_station
 
@@ -628,9 +617,10 @@ def test_upper_layer_station_loader_owns_profiles_section(tmp_path, monkeypatch,
     assert not hasattr(selected.config, "teleop_profiles")
     if with_env:
         assert selected.config.robot_ip == "10.0.0.9"
-    with pytest.raises(ValueError, match="unknown.*teleop_profiles"):
-        load_device_station(path, sections={})
-    assert load_device_station(path).select().sections == selected.sections
+    # Without the upper layer's sections the device loader is strict.
+    for sections in ({}, None):
+        with pytest.raises(ValueError, match="unknown.*teleop_profiles"):
+            load_device_station(path, sections=sections)
 
 
 @pytest.mark.parametrize("reference", [None, [], {}, {"file": "x"}, {"default": "x"},
@@ -766,8 +756,9 @@ def test_diagnostic_run_preflight_before_child(tmp_path, monkeypatch, capsys, wo
     assert not list(tmp_path.glob('*.session-*'))
 
 
-def test_upper_layer_explicit_sections_bypass_entry_point_discovery(tmp_path, monkeypatch):
-    monkeypatch.setattr("robot_infra.discovery.autoconfig.discover_station_sections",
-                        lambda: pytest.fail("explicit upper-layer loaders must not discover plugins"))
+def test_upper_layer_loader_reads_profiles_without_entry_points(tmp_path, monkeypatch):
+    import importlib.metadata
+    monkeypatch.setattr(importlib.metadata, "entry_points",
+                        lambda *a, **kw: pytest.fail("station sections are passed explicitly, never discovered"))
     path = station(tmp_path)
     assert load_station(path).select().sections["teleop_profiles"]["default"] == "rear"

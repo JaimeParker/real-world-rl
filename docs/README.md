@@ -38,10 +38,10 @@ Flags, file formats and hardware details.
 - [`examples/presets/hil_single_arm.yaml`](../examples/presets/hil_single_arm.yaml): the single-arm env preset
 - [rwrl: station command line](cli.md)
 - [SpaceMouse commissioning: profiles, task-frame workspace, sessions](spacemouse-commissioning.md)
-- [robot_infra: device layer, setup wizard, doctor, daemon](../robot_infra/README.md)
+- [robot_infra: device layer, setup wizard, doctor, daemon](devices/README.md)
 - [Real-world experiments](real-world-experiments.md): durable uploads, recovery, outcomes,
   partial takeover, trajectory archives, tasks and observations
-- [Arm control profiles](../robot_infra/docs/control-profiles.md): station gains, backend
+- [Arm control profiles](devices/control-profiles.md): station gains, backend
   capabilities and effective settings
 - [Known issues and deferred work](known-issues.md): what a first real run can hit, workarounds, planned
   fixes

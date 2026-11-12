@@ -351,16 +351,7 @@ class RobotService:
         return dataclasses.asdict(self.robot.arm.health())
 
     def _arm_preflight(self) -> list[dict]:
-        results = []
-        for result in self.robot.arm.preflight():
-            entry = {
-                field.name: getattr(result, field.name)
-                for field in dataclasses.fields(result)
-                if field.name != "autofix"
-            }
-            entry["has_autofix"] = result.autofix is not None
-            results.append(entry)
-        return results
+        return [dataclasses.asdict(result) for result in self.robot.arm.preflight()]
 
     # -- gripper.* -----------------------------------------------------------
 

@@ -1,12 +1,10 @@
 """Read-only host probes for the doctor's OS layer: session groups, USB-serial sysfs, brltty.
-Module-level paths and functions so tests can point them at a fake tree; ``grant_user_acl``
-is the only one that changes anything, and only when the doctor runs with ``--fix``."""
+Module-level paths and functions so tests can point them at a fake tree; none changes anything."""
 from __future__ import annotations
 
 import getpass
 import os
 import shutil
-import subprocess
 from pathlib import Path
 
 USB_SERIAL_SYSFS = Path("/sys/bus/usb-serial/devices")
@@ -81,14 +79,3 @@ def brltty_installed() -> bool:
 
 def brltty_udev_masked() -> bool:
     return any(os.path.realpath(directory / BRLTTY_UDEV_UNIT) == os.devnull for directory in SYSTEMD_OVERRIDE_DIRS)
-
-
-def grant_user_acl(path: str) -> None:
-    """``setfacl -m u:<user>:rw <path>`` without sudo; raises with setfacl's stderr when refused."""
-    completed = subprocess.run(
-        ["setfacl", "-m", f"u:{current_user()}:rw", os.path.realpath(path)],
-        capture_output=True,
-        text=True,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError(f"setfacl failed: {completed.stderr.strip() or completed.returncode}")

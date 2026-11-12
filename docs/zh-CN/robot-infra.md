@@ -344,64 +344,67 @@ doctor 会连接并断开机器人，不会关闭电源。
 Franka 示例的 `--mock` 运行结果：
 
 ```text
-$ robot-infra doctor --station robot.yaml --mock
-[0/5] deps ... OK  no extras needed (fake or SDK-free backends)
-[1/5] sdk:arm ... OK  no SDK needed
-[1/5] sdk:gripper ... OK  no SDK needed
-[1/5] sdk:camera:wrist ... OK  no SDK needed
-[2/5] os:ping ... SKIP  skipped (--mock)
-[2/5] os:tcp ... SKIP  skipped (--mock)
-[2/5] os:camera:wrist ... SKIP  skipped (--mock)
-[3/5] handshake ... OK  robot connected
-[4/5] feedback:arm ... OK  arm feedback received
-[4/5] feedback:gripper ... OK  gripper width 0.0800 m (1.00 of max_width_m 0.080), grasped=unknown, source FakeGripper
-[4/5] feedback:camera:wrist ... OK  frames arriving
-[5/5] mode:none ... OK  backend declares no mode checks
-summary: 9 ok, 0 failed, 3 skipped
+$ rwrl doctor --station robot.yaml --mock
+PASS           franka.deps: no extras needed (fake or SDK-free backends)
+PASS           franka.sdk:arm: no SDK needed
+PASS           franka.sdk:gripper: no SDK needed
+PASS           franka.sdk:camera:wrist: no SDK needed
+SKIPPED        franka.os:ping: skipped (--mock)
+SKIPPED        franka.os:tcp: skipped (--mock)
+SKIPPED        franka.os:camera:wrist: skipped (--mock)
+PASS           franka.handshake: robot connected
+PASS           franka.feedback:arm: arm feedback received
+PASS           franka.feedback:gripper: gripper width 0.0800 m (1.00 of max_width_m 0.080), grasped=unknown, source FakeGripper
+PASS           franka.feedback:camera:wrist: frames arriving
+PASS           franka.mode:none: backend declares no mode checks
+Result: no blocking findings; review SKIPPED/WARN coverage
 ```
 
 相同配置在没有 franky、机器人和相机的机器上：
 
 ```text
-$ robot-infra doctor --station robot.yaml
-[0/5] deps ... FAIL  missing extras for this station: franky
+$ rwrl doctor --station robot.yaml
+FAIL           franka.deps: missing extras for this station: franky
     hint: pip install -e 'robot_infra[franky]' (from the repository root; or pip install 'rlgarden-robot-infra[franky]'); if the handshake then reports a libfranka mismatch, rerun the doctor with --install-sdk
-[1/5] sdk:arm ... FAIL  FrankyArm needs the 'franky' package
+FAIL           franka.sdk:arm: FrankyArm needs the 'franky' package
     hint: pip install franky-control (or: pip install 'rlgarden-robot-infra[franky]')
-[1/5] sdk:gripper ... FAIL  FrankyGripper needs the 'franky' package
+FAIL           franka.sdk:gripper: FrankyGripper needs the 'franky' package
     hint: pip install franky-control (or: pip install 'rlgarden-robot-infra[franky]')
-[1/5] sdk:camera:wrist ... OK  'pyrealsense2' importable
-[2/5] os:ping ... FAIL  172.16.0.2 does not reply
+PASS           franka.sdk:camera:wrist: 'pyrealsense2' importable
+FAIL           franka.os:ping: 172.16.0.2 does not reply
     hint: check: robot powered on and brakes released; Desk reachable at https://172.16.0.2/desk; you hold control in Desk; FCI activated (Desk → Activate FCI); cable on the Control port; firewall allows UDP
-[2/5] os:tcp ... OK  port 1337 closed (informational)
-[2/5] os:camera:wrist ... FAIL  no RealSense device found (serial unset)
+PASS           franka.os:tcp: port 1337 closed (informational)
+FAIL           franka.os:camera:wrist: no RealSense device found (serial unset)
     hint: plug in the camera and run `robot-infra discover`
-[3/5] handshake ... FAIL  FrankyArm needs the 'franky' package
+FAIL           franka.handshake: FrankyArm needs the 'franky' package
     hint: pip install franky-control (or: pip install 'rlgarden-robot-infra[franky]')
-[4/5] feedback ... SKIP  skipped: handshake failed
-[5/5] mode ... SKIP  skipped: handshake failed
-summary: 2 ok, 6 failed, 2 skipped
+SKIPPED        franka.feedback: skipped: handshake failed
+SKIPPED        franka.mode: skipped: handshake failed
+Needs attention: 6 FAIL
+  FAIL           franka.deps: missing extras for this station: franky
+  ...
+Result: unresolved failures / blocked checks / pending user actions
 ```
 
 加入 `teleop: {backend: spacemouse}` 后，`--mock` 替换为 fake 并丢弃设备选项，增加以下输出：
 
 ```text
-$ robot-infra doctor --station robot.yaml --mock
+$ rwrl doctor --station robot.yaml --mock
 ...
-[1/5] sdk:teleop:fake ... OK  no SDK needed
-[2/5] os:teleop:teleop ... SKIP  skipped (--mock)
+PASS           franka.sdk:teleop:fake: no SDK needed
+SKIPPED        franka.os:teleop:teleop: skipped (--mock)
 ...
-[4/5] feedback:teleop:teleop ... OK  teleop poll thread alive
+PASS           franka.feedback:teleop:teleop: teleop poll thread alive
 ```
 
 不使用 `--mock`，且未安装 `hidapi`、未连接 SpaceMouse 时，遥操作输出如下；`os:hid` 仅检查 SpaceMouse 后端：
 
 ```text
-[1/5] sdk:teleop:spacemouse ... FAIL  SpaceMouse needs the 'hidapi==0.14.0.post4' distribution (import hid)
+FAIL           franka.sdk:teleop:spacemouse: SpaceMouse needs the 'hidapi==0.14.0.post4' distribution (import hid)
     hint: pip install -e '.[spacemouse]'
-[2/5] os:teleop:teleop ... FAIL  no 'spacemouse' teleop device found
+FAIL           franka.os:teleop:teleop: no 'spacemouse' teleop device found
     hint: plug in the teleop device and run `robot-infra discover`
-[2/5] os:hid ... FAIL  no HID device found
+FAIL           franka.os:hid: no HID device found
     hint: no /dev/hidraw* node: check the USB cable and port; inside Docker pass it with `docker run --device=/dev/hidrawN`
 ```
 
@@ -410,11 +413,11 @@ $ robot-infra doctor --station robot.yaml --mock
 未连接 CAN 适配器时的 Piper 示例，输出有所删节：
 
 ```text
-[2/5] os:can_exists ... FAIL  CAN interface can0 not found
+FAIL           piper.os:can_exists: CAN interface can0 not found
     hint: run `bash can_activate.sh can0 1000000` from piper_sdk, or `sudo ip link set can0 up type can bitrate 1000000`
-[2/5] os:can_up ... FAIL  can0 operstate=missing
-[2/5] os:can_bitrate ... FAIL  can0 bitrate=None, expected 1000000
-[3/5] handshake ... FAIL  CAN interface 'can0' not found
+FAIL           piper.os:can_up: can0 operstate=missing
+FAIL           piper.os:can_bitrate: can0 bitrate=None, expected 1000000
+FAIL           piper.handshake: CAN interface 'can0' not found
     hint: plug in the USB-CAN adapter and run: bash can_activate.sh can0 1000000  (piper_sdk) or: sudo ip link set can0 up type can bitrate 1000000
 ```
 

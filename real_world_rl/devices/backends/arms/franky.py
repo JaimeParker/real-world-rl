@@ -496,15 +496,14 @@ class FrankyArm(Arm):
 
     def _robot_mode_check(self, check_result: type) -> "CheckResult":
         if self.is_connected:
-            self.read_state()  # re-read so a doctor rerun after the recover autofix sees the new mode
+            self.read_state()  # re-read so the doctor sees the mode after an earlier recover
         if self._robot_mode in _BLOCKING_ROBOT_MODES:
             return check_result(
                 5,
                 "mode:robot_mode",
                 False,
                 f"robot mode is {self._robot_mode}",
-                hint="release the external activation device / clear errors in Desk, then run with --fix (recover)",
-                autofix=self.recover,
+                hint="release the external activation device / clear errors in Desk, then run rwrl recover",
             )
         return check_result(5, "mode:robot_mode", True, f"robot mode is {self._robot_mode or 'unknown'}")
 

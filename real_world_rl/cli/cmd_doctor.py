@@ -1,4 +1,4 @@
-"""Doctor command registration; host and repair work stays in implementation libraries."""
+"""Doctor command registration; the implementation is real_world_rl.doctor, imported on use."""
 from pathlib import Path
 
 from .command import doctor_envelope
@@ -29,7 +29,7 @@ class DoctorCommand:
 
     @staticmethod
     def usage_error(parser, message, report_directory=None):
-        from .doctor_repair import redact
+        from real_world_rl.doctor.repair import redact
         message = redact(message)
         return CliError(
             message, code=USAGE_EXIT_CODE,
@@ -38,7 +38,7 @@ class DoctorCommand:
         )
 
     def run(self, args, ctx):
-        from .doctor import run
+        from real_world_rl.doctor.report import run
         result = run(ctx, lambda message, directory=None: self.usage_error(args._parser, message, directory))
         result.payload = doctor_envelope(code=result.exit_code, **result.payload)
         return result

@@ -30,8 +30,8 @@ this package. The device layer itself does not depend on `rl_garden`.
 The device layer's native commands, `setup`, `daemon`, `supervise` and `discover`, are
 `rwrl` subcommands; there is no separate binary and no `python -m` entry point. `rwrl doctor` runs the device checks of this layer
 for every station robot, together with its host and project checks
-([cli.md](../cli.md#robot-host-diagnosis-and-repair)); the device doctor itself is a
-library (`real_world_rl.doctor`). The command protocol and parser do not import torch.
+([cli.md](../cli.md#robot-host-diagnosis-and-repair)); all doctor code lives in
+`real_world_rl.doctor`. The command protocol and parser do not import torch.
 Station input is `--station PATH`. Setup uses that file as defaults, not as
 its output path; station lookup defaults are unchanged. Errors use stderr,
 and exit-code constants live in `real_world_rl.cli.errors`.
@@ -424,9 +424,8 @@ rwrl doctor --station robot.yaml [--robot NAME] [--mock] [--fix] [--json] [--ins
 `rwrl doctor` runs the device checks below for every station robot, next to its host and
 project checks, and reports each one as a `<robot>.<check>` row (for example `arm.handshake`)
 with `PASS`, `FAIL`, `WARN` or `SKIPPED`; see [cli.md](../cli.md#robot-host-diagnosis-and-repair)
-for its report, flags and exit codes. The `[layer/5]` listings in this section show the
-device checks as the device doctor library (`real_world_rl.doctor.cli`) formats them, which is
-also what the `rwrl daemon` preflight prints.
+for its report, flags and exit codes. `rwrl setup` and the `rwrl daemon` preflight print their
+device checks in the same form.
 
 Without `--station` the doctor checks the [station file](#setup-wizard). A station with several
 robots is checked robot by robot; `--robot NAME` checks one.
@@ -437,7 +436,7 @@ The doctor runs six layers in order, 0 to 5 (a `teleop:` section adds checks to 
 |---|---|---|
 | 0 `deps` | the pip extras this robot needs are installed: one per backend (`franky`, `pyagxarm`, `piper-sdk`, `realsense`, `spacemouse`, `gello`, plus `gello-events` for a gello `event_device`), and `grpc` when the robot's yaml has a `daemon:` block. FAIL `missing extras for this station: franky, gello`, hint `pip install -e '.[franky,gello]' (from the repository root)`; OK `extras ok: franky, gello, grpc`. Without a `daemon:` block (the single-process route) a missing `grpc` is a WARN `optional, not installed: grpc (daemon route)`; a missing `jpeg` is only mentioned | with `--mock` the fakes need none and grpc is never required |
 | 1 `sdk` | each backend name resolves and its SDK imports (`sdk:arm`, `sdk:gripper`, `sdk:camera:<name>`, `sdk:teleop:<backend>`) | an unknown backend skips layers 3-5 |
-| 2 `os` | ping `robot_ip` and port 1337 (informational); CAN interface exists / is up / bitrate; camera serial attached; `os:teleop:<name>` (a device of that backend is discovered); `os:hid` (a readable and writable `/dev/hidraw*` exists, SpaceMouse only); `os:serial` (the gello `port` exists and is readable and writable; `--fix` tries `setfacl -m u:$USER:rw <port>` without sudo); `os:groups` (the user's login session is in `dialout` for the gello port and `input` for its `event_device`); `os:brltty` (brltty would claim a CH340 adapter); `os:latency_timer` (an FTDI adapter's `latency_timer` is 1 ms) | driven by config fields; skipped for backends that need no SDK (fakes); never runs sudo |
+| 2 `os` | ping `robot_ip` and port 1337 (informational); CAN interface exists / is up / bitrate; camera serial attached; `os:teleop:<name>` (a device of that backend is discovered); `os:hid` (a readable and writable `/dev/hidraw*` exists, SpaceMouse only); `os:serial` (the gello `port` exists and is readable and writable; `rwrl doctor --fix` offers `setfacl -m u:<user>:rw -- <port>`, lost on replug); `os:groups` (the user's login session is in `dialout` for the gello port and `input` for its `event_device`); `os:brltty` (brltty would claim a CH340 adapter); `os:latency_timer` (an FTDI adapter's `latency_timer` is 1 ms) | driven by config fields; skipped for backends that need no SDK (fakes); never runs sudo |
 | 3 `handshake` | takes the robot's device claim (unless `claim: false`), then `robot.connect()` | a failure (including a held claim) skips layers 4-5 |
 | 4 `feedback` | the arm returns state; the gripper reports its width; each camera delivers a frame within 2 s; `feedback:teleop:<name>`: the teleop poll thread is alive and healthy | |
 | 5 `mode` | backend preflight: Franka RT kernel, robot mode and libfranka version; Piper status, follower feedback and firmware profile (pyagxarm) or gripper stroke (piper_sdk) | |
@@ -462,49 +461,54 @@ Flags:
   [Installing the right franky wheel](#installing-the-right-franky-wheel).
 - Exit code: `1` if any check failed (on any robot), else `0`. Skipped checks do not fail the run.
   A `WARN` line is an ok check with a hint worth acting on (for example a CH340 adapter that
-  brltty may claim on the next replug); it never fails the run, and the summary counts it as
-  `N ok (M with warnings)`.
+  brltty may claim on the next replug); it never fails the run.
 
 The doctor connects to the robot and disconnects it again. It never powers anything off.
 
-The device checks of a `--mock` run of the Franka example:
+The device rows of a `--mock` run of the Franka example (`rwrl doctor` prints its host rows
+beside them; `rwrl setup` and the daemon preflight print exactly these rows and the result):
 
 ```text
-[0/5] deps ... OK  no extras needed (fake or SDK-free backends)
-[1/5] sdk:arm ... OK  no SDK needed
-[1/5] sdk:gripper ... OK  no SDK needed
-[1/5] sdk:camera:wrist ... OK  no SDK needed
-[2/5] os:ping ... SKIP  skipped (--mock)
-[2/5] os:tcp ... SKIP  skipped (--mock)
-[2/5] os:camera:wrist ... SKIP  skipped (--mock)
-[3/5] handshake ... OK  robot connected
-[4/5] feedback:arm ... OK  arm feedback received
-[4/5] feedback:gripper ... OK  gripper width 0.0800 m (1.00 of max_width_m 0.080), grasped=unknown, source FakeGripper
-[4/5] feedback:camera:wrist ... OK  frames arriving
-[5/5] mode:none ... OK  backend declares no mode checks
-summary: 9 ok, 0 failed, 3 skipped
+PASS           franka.deps: no extras needed (fake or SDK-free backends)
+PASS           franka.sdk:arm: no SDK needed
+PASS           franka.sdk:gripper: no SDK needed
+PASS           franka.sdk:camera:wrist: no SDK needed
+SKIPPED        franka.os:ping: skipped (--mock)
+SKIPPED        franka.os:tcp: skipped (--mock)
+SKIPPED        franka.os:camera:wrist: skipped (--mock)
+PASS           franka.handshake: robot connected
+PASS           franka.feedback:arm: arm feedback received
+PASS           franka.feedback:gripper: gripper width 0.0800 m (1.00 of max_width_m 0.080), grasped=unknown, source FakeGripper
+PASS           franka.feedback:camera:wrist: frames arriving
+PASS           franka.mode:none: backend declares no mode checks
+Result: no blocking findings; review SKIPPED/WARN coverage
 ```
 
-The same config on a machine with no franky, no robot and no camera:
+The same config on a machine with no franky, no robot and no camera (needs-attention block
+trimmed):
 
 ```text
-[0/5] deps ... FAIL  missing extras for this station: franky
+FAIL           franka.deps: missing extras for this station: franky
     hint: pip install -e '.[franky]' (from the repository root); if the handshake then reports a libfranka mismatch, rerun the doctor with --install-sdk
-[1/5] sdk:arm ... FAIL  FrankyArm needs the 'franky' package
+FAIL           franka.sdk:arm: FrankyArm needs the 'franky' package
     hint: pip install franky-control (or, from the repository root: pip install -e '.[franky]')
-[1/5] sdk:gripper ... FAIL  FrankyGripper needs the 'franky' package
+FAIL           franka.sdk:gripper: FrankyGripper needs the 'franky' package
     hint: pip install franky-control (or, from the repository root: pip install -e '.[franky]')
-[1/5] sdk:camera:wrist ... OK  'pyrealsense2' importable
-[2/5] os:ping ... FAIL  172.16.0.2 does not reply
+PASS           franka.sdk:camera:wrist: 'pyrealsense2' importable
+FAIL           franka.os:ping: 172.16.0.2 does not reply
     hint: check: robot powered on and brakes released; Desk reachable at https://172.16.0.2/desk; you hold control in Desk; FCI activated (Desk → Activate FCI); cable on the Control port; firewall allows UDP
-[2/5] os:tcp ... OK  port 1337 closed (informational)
-[2/5] os:camera:wrist ... FAIL  no RealSense device found (serial unset)
+PASS           franka.os:tcp: port 1337 closed (informational)
+FAIL           franka.os:camera:wrist: no RealSense device found (serial unset)
     hint: plug in the camera and run `rwrl discover`
-[3/5] handshake ... FAIL  FrankyArm needs the 'franky' package
+FAIL           franka.handshake: FrankyArm needs the 'franky' package
     hint: pip install franky-control (or, from the repository root: pip install -e '.[franky]')
-[4/5] feedback ... SKIP  skipped: handshake failed
-[5/5] mode ... SKIP  skipped: handshake failed
-summary: 2 ok, 6 failed, 2 skipped
+SKIPPED        franka.feedback: skipped: handshake failed
+SKIPPED        franka.mode: skipped: handshake failed
+Needs attention: 6 FAIL
+  FAIL           franka.deps: missing extras for this station: franky
+    hint: pip install -e '.[franky]' (from the repository root); if the handshake then reports a libfranka mismatch, rerun the doctor with --install-sdk
+  ...
+Result: unresolved failures / blocked checks / pending user actions
 ```
 
 With a `teleop: {backend: spacemouse}` section, `--mock` swaps the teleop for the fake one
@@ -512,21 +516,21 @@ With a `teleop: {backend: spacemouse}` section, `--mock` swaps the teleop for th
 
 ```text
 ...
-[1/5] sdk:teleop:fake ... OK  no SDK needed
-[2/5] os:teleop:teleop ... SKIP  skipped (--mock)
+PASS           franka.sdk:teleop:fake: no SDK needed
+SKIPPED        franka.os:teleop:teleop: skipped (--mock)
 ...
-[4/5] feedback:teleop:teleop ... OK  teleop poll thread alive
+PASS           franka.feedback:teleop:teleop: teleop poll thread alive
 ```
 
 Without `--mock`, on a machine without `hidapi` and without a SpaceMouse, the teleop
 lines read (the `os:hid` line is only checked for the SpaceMouse backend):
 
 ```text
-[1/5] sdk:teleop:spacemouse ... FAIL  SpaceMouse needs the 'hidapi==0.14.0.post4' distribution (import hid)
+FAIL           franka.sdk:teleop:spacemouse: SpaceMouse needs the 'hidapi==0.14.0.post4' distribution (import hid)
     hint: pip install -e '.[spacemouse]'
-[2/5] os:teleop:teleop ... FAIL  no 'spacemouse' teleop device found
+FAIL           franka.os:teleop:teleop: no 'spacemouse' teleop device found
     hint: plug in the teleop device and run `rwrl discover`
-[2/5] os:hid ... FAIL  no HID device found
+FAIL           franka.os:hid: no HID device found
     hint: no /dev/hidraw* node: check the USB cable and port; inside Docker pass it with `docker run --device=/dev/hidrawN`
 ```
 
@@ -540,11 +544,11 @@ active); native import failures report wheel/platform loading separately.
 The Piper example with no CAN adapter plugged in (trimmed):
 
 ```text
-[2/5] os:can_exists ... FAIL  CAN interface can0 not found
+FAIL           piper.os:can_exists: CAN interface can0 not found
     hint: run `bash can_activate.sh can0 1000000` from piper_sdk, or `sudo ip link set can0 up type can bitrate 1000000`
-[2/5] os:can_up ... FAIL  can0 operstate=missing
-[2/5] os:can_bitrate ... FAIL  can0 bitrate=None, expected 1000000
-[3/5] handshake ... FAIL  CAN interface 'can0' not found
+FAIL           piper.os:can_up: can0 operstate=missing
+FAIL           piper.os:can_bitrate: can0 bitrate=None, expected 1000000
+FAIL           piper.handshake: CAN interface 'can0' not found
     hint: plug in the USB-CAN adapter and run: bash can_activate.sh can0 1000000  (piper_sdk) or: sudo ip link set can0 up type can bitrate 1000000
 ```
 
@@ -566,13 +570,13 @@ values are filled in from your config.
 | brltty claims a CH340 adapter | `os:brltty` FAIL `brltty active and a CH340 adapter (USB id 1a86) is attached; brltty has likely claimed <port>` (WARN while the port still exists), hint `sudo systemctl mask --now brltty-udev.service brltty.service, then replug the adapter` | Mask brltty (a `--runtime` mask is lost on reboot), then replug. |
 | Slow FTDI reads | `os:latency_timer` WARN `ttyUSB0 latency_timer is 16 ms; 1 ms is recommended for Dynamixel reads`, hint with the udev rule `ACTION=="add", SUBSYSTEM=="usb-serial", DRIVER=="ftdi_sio", ATTR{latency_timer}="1"` | Install the udev rule (the hint names the file and the reload command) and replug. CH340 adapters have no `latency_timer`. |
 | No PREEMPT_RT kernel | with `realtime: enforce`: `mode:realtime_kernel` FAIL `realtime: enforce but the kernel is not PREEMPT_RT`, or `handshake` FAIL `libfranka realtime setup failed ...`; with `realtime: ignore` the check passes with `control jitter possible` | Install a PREEMPT_RT kernel and realtime group limits, or use `realtime: ignore`. |
-| Franka in Reflex / UserStopped / Guiding | `mode:robot_mode` FAIL `robot mode is Reflex`, hint `release the external activation device / clear errors in Desk, then run with --fix (recover)` | Release the activation device, then run the doctor with `--fix`. |
+| Franka in Reflex / UserStopped / Guiding | `mode:robot_mode` FAIL `robot mode is Reflex`, hint `release the external activation device / clear errors in Desk, then run rwrl recover` | Release the activation device, then run `rwrl recover`. |
 | CAN interface missing / down / wrong bitrate | `os:can_exists`, `os:can_up`, `os:can_bitrate` FAIL (see output above); `handshake` FAIL `CAN interface 'can0' is down, not up` or `runs at N bit/s, expected 1000000` | `sudo ip link set can0 up type can bitrate 1000000` (or piper_sdk's `can_activate.sh can0 1000000`). |
 | Piper does not enable (power, e-stop) | `handshake` FAIL `Piper on 'can0' did not enable within 5s`, hint `check that the arm is powered, that 'can0' is up at 1000000 bit/s, and that its emergency stop is released` | Power the arm, release the e-stop, rerun. `mode:piper_status` names the arm status once connected. |
 | No CAN feedback (arm in master/teach mode) | `handshake` FAIL `... enabled but sent no joint feedback within 2s`, or `mode:follower` FAIL `no joint feedback`; hint `no CAN feedback: the arm may be in master/teach mode; switch it to follower (slave) mode and power-cycle` | Switch the arm to follower (slave) mode and power-cycle it. |
 | Wrong Piper firmware profile (pyagxarm) | `handshake` FAIL `firmware probe ... failed` / `cannot map Piper firmware ...`, hint `set firmware_profile explicitly (default\|v183\|v188\|v189) in the robot config` | Set `firmware_profile` in the yaml. |
 | Camera serial not found | `os:camera:<name>` FAIL `camera '<name>' serial '<s>' not found`, hint `set serial; discovered: [...]` (with `serial` unset: `no RealSense device found (serial unset)` or `serial unset and N devices attached; set serial to one of [...]`); `handshake` FAIL `RealSense serial '<s>' for camera '<name>' not attached` | Copy a serial from `rwrl discover`. With more than one camera attached, `serial` is required. |
-| Camera gives no frames | `feedback:camera:<name>` FAIL `no frames within 2s`, hint `check USB 3 bandwidth; try another port; run with --fix to reopen`; or `RealSense '<s>' failed to start`, hint `check the USB 3 cable/port and udev rules (librealsense scripts/setup_udev_rules.sh)` | Use a USB 3 port and cable (not a hub shared with other cameras), install the librealsense udev rules, then try `--fix`. |
+| Camera gives no frames | `feedback:camera:<name>` FAIL `no frames within 2s`, hint `check USB 3 bandwidth; try another port; rerun rwrl status after reconnecting the camera`; or `RealSense '<s>' failed to start`, hint `check the USB 3 cable/port and udev rules (librealsense scripts/setup_udev_rules.sh)` | Use a USB 3 port and cable (not a hub shared with other cameras), install the librealsense udev rules, reconnect the camera, then run `rwrl status`. |
 | Daemon unreachable | client `TransportError: robot daemon unreachable at <addr>` | Start the daemon, check `--bind`, the address and the firewall. |
 | Token mismatch | client `TransportError: token mismatch`, hint `pass the same --token to the daemon and the remote config` | Use the same token on both sides. |
 | Watchdog stopped the arm | client `DeviceFault: the daemon watchdog stopped the arm after 0.62s without actions (limit 0.5s)`, hint `... call set_control_mode(...) again to resume servoing, and keep the action rate above 1/watchdog_s` | Send actions faster than `1/watchdog_s`, or start the daemon with a larger `--watchdog-s`. Then call `set_control_mode` again. |
@@ -589,31 +593,31 @@ rwrl doctor --station robot.yaml --install-sdk         # asks before installing
 rwrl doctor --station robot.yaml --install-sdk --yes   # installs without asking
 ```
 
-With `--install-sdk` the doctor prints the robot server version from libfranka's handshake error
-(authoritative). Desk does not show that number: to cross-check, read the system version (for
-example 5.9.2) in Desk → Settings → System and look it up in the
+The failed `<robot>.handshake` row carries the robot server version from libfranka's handshake
+error (authoritative). Desk does not show that number: to cross-check, read the system version
+(for example 5.9.2) in Desk → Settings → System and look it up in the
 [compatibility matrix](https://frankarobotics.github.io/docs/compatibility.html), which maps
-system versions to robot server versions. Then the doctor prints the exact command
+system versions to robot server versions. The doctor then plans one repair,
+`PLAN sdk:franky: Install Franky wheel for handshake-confirmed server version <N>`, with the
+exact command
 
-```bash
+```text
 <this python> -m pip install franky-control --extra-index-url https://timschneider42.github.io/franky/whl/by-robot-server-version/<N>/ --force-reinstall --no-deps
 ```
 
-and asks `Install now? [y/N]`. Only `y` (case-insensitive, surrounding whitespace ignored) installs (into the interpreter running the
-doctor); then it re-runs the doctor for those robots in a fresh interpreter, because the old
-libfranka stays loaded in the current one, and exits with that run's code. Nothing is installed
-without confirmation unless `--yes` is given. With `--json` the doctor never prompts or installs:
-its envelope wraps `{"results": <the original device report>, "install_sdk": [{robot, server_version,
-library_version, command}]}`. Robots that report different server versions are not installed
-automatically (one Python environment holds one franky wheel); the doctor prints one command per
-robot instead. `--no-deps` assumes franky's dependencies (`numpy`, `websockets`) are already
+and asks `Apply this plan? [y/N]` once. Only `y` (case-insensitive, surrounding whitespace
+ignored) installs, into the interpreter running the doctor and only inside a project
+environment; `--install-sdk` without `--fix` runs no other repair. The doctor then inspects
+again; its device checks run in a fresh interpreter, so they load the new libfranka. Without
+`--yes` and without a terminal to ask on, nothing is installed and the plan is reported
+`BLOCKED`. Robots that report different server versions are not installed automatically (one
+Python environment holds one franky wheel): the doctor reports `sdk.franky.conflict` as
+`BLOCKED`. `--no-deps` assumes franky's dependencies (`numpy`, `websockets`) are already
 installed, which installing the `franky` extra first takes care of.
 
-With `real-world-rl` installed in the project environment, `rwrl doctor` is a separate,
-broader doctor: it checks the host, the project environment and the configured devices,
-previews targeted repairs (`--fix` applies host and software repairs), and writes its own
-versioned JSON envelope with host checks and repairs; its device probes never repair
-(`fix=False`). Run it on the NUC with the project environment active (see
+Beside the device checks, `rwrl doctor` checks the host and the project environment and
+previews targeted repairs (`--fix` applies host and software repairs, after one
+confirmation); the device checks themselves never repair. Run it on the NUC with the project environment active (see
 [rwrl](../cli.md#robot-host-diagnosis-and-repair)).
 
 ### 4. Serve the robot

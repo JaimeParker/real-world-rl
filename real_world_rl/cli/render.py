@@ -27,9 +27,7 @@ STATUS_STYLES = {
     "WARN": YELLOW,
     "PENDING_ACTION": YELLOW,
     "PASS": GREEN,
-    "OK": GREEN,
     "SKIPPED": GREY,
-    "SKIP": GREY,
 }
 
 _ANSI_SGR = re.compile(r"\x1b\[[0-9;]*m")

@@ -663,7 +663,7 @@ def test_multirobot_profiles_resolve_each_robots_section(tmp_path):
 
 
 def test_doctor_loads_profile_station_without_device_probes(tmp_path):
-    from real_world_rl.cli.doctor import load_targets
+    from real_world_rl.doctor.report import load_targets
 
     path = station(tmp_path)
     targets, expected = load_targets(SimpleNamespace(config=str(path), preset=None, robot=None))

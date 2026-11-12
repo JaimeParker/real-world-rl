@@ -254,8 +254,8 @@ real_robot_bimanual:
     state_fields: [joint_pos, gripper_pos]
 ```
 
-**Daemon ([03](tutorial/03-daemon.md)).** The doctor prints `== robot 'left' ==` and
-`== robot 'right' ==` blocks and a final `overall: 2 robots, all passed`; `--robot left` checks one.
+**Daemon ([03](tutorial/03-daemon.md)).** The doctor prints the device rows of both arms,
+`left.*` and `right.*`, and one final `Result:` line; `--robot left` checks one.
 The same `rwrl daemon --watchdog-s 5` starts both daemons: it prints
 `starting 2 daemons from <path>: 'left' on 0.0.0.0:50051, 'right' on 0.0.0.0:50052`, then each daemon
 prints its own preflight and `serving ...` line. The ports come from the file's `daemon.bind` entries.

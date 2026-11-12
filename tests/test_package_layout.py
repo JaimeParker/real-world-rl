@@ -1,6 +1,7 @@
 """Package layout: version, removed module paths, console-script targets, lazy loop exports."""
 from __future__ import annotations
 
+import dataclasses
 import importlib
 import subprocess
 import sys
@@ -53,6 +54,11 @@ REMOVED_MODULES = [
     "real_world_rl.supervise.__main__",
     "real_world_rl.setup.__main__",
     "real_world_rl.discovery.__main__",
+    # One doctor: everything lives in real_world_rl.doctor; the device doctor command and its
+    # text format are gone.
+    "real_world_rl.cli.doctor",
+    *(f"real_world_rl.cli.doctor_{name}" for name in ("host", "platform", "preset", "probe", "repair")),
+    "real_world_rl.doctor.cli",
     # The teleop package is laid out as core + per-device slices; no import shim is kept.
     *(f"real_world_rl.teleop.{name}" for name in (
         "base", "registry", "part", "composite", "bimanual", "fake", "action_parts", "hold", "session",
@@ -64,6 +70,13 @@ REMOVED_MODULES = [
     "real_world_rl.devices.backends.teleops.gello",
     "real_world_rl.devices.backends.teleops.gello_calibrate",
     "real_world_rl.legacy.teleop.utils.telo_op_control_twist",
+]
+# The device doctor's own text/JSON format, exit code and autofix, removed when the doctors merged.
+REMOVED_DOCTOR_NAMES = [
+    ("real_world_rl.doctor.checks", name) for name in ("summarize", "exit_code", "_apply_fixes", "_preflight_rerun")
+] + [
+    ("real_world_rl.doctor.report", "rwrl_device_hint"),
+    ("real_world_rl.doctor.probes", "grant_user_acl"),
 ]
 # Old teleop module names that are now slice packages: the package imports, the old names do not.
 RENAMED_TO_PACKAGES = [
@@ -85,6 +98,17 @@ def test_version_is_a_non_empty_string():
 def test_removed_module_paths_do_not_import(module_name):
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module(module_name)
+
+
+@pytest.mark.parametrize("module_name, name", REMOVED_DOCTOR_NAMES)
+def test_removed_doctor_names_are_gone(module_name, name):
+    assert not hasattr(importlib.import_module(module_name), name)
+
+
+def test_device_check_results_carry_no_autofix():
+    from real_world_rl.doctor.checks import CheckResult
+
+    assert "autofix" not in {field.name for field in dataclasses.fields(CheckResult)}
 
 
 @pytest.mark.parametrize("package_name, old_name", RENAMED_TO_PACKAGES)

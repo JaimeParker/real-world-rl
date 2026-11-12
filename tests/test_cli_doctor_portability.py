@@ -11,16 +11,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from real_world_rl.cli import doctor, doctor_host, doctor_repair, main
-from real_world_rl.cli.doctor_host import Host
-from real_world_rl.cli.doctor_platform import Capabilities
-from real_world_rl.cli.doctor_repair import Action, Report, execute, redact
+from real_world_rl.cli import main
+from real_world_rl.doctor import host as doctor_host, repair as doctor_repair, report as doctor
+from real_world_rl.doctor.host import Host
+from real_world_rl.doctor.platform import Capabilities
+from real_world_rl.doctor.repair import Action, Report, execute, redact
 
 
 @pytest.fixture
 def caps(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "real_world_rl.cli.doctor_platform.shutil.which",
+        "real_world_rl.doctor.platform.shutil.which",
         lambda tool: "/usr/bin/" + tool,
     )
     etc, runtime = tmp_path / "etc", tmp_path / "run"
@@ -153,7 +154,7 @@ def test_wsl_kernel_is_detected(caps, tmp_path, monkeypatch):
 
 def test_missing_apt_does_not_block_other_linux_repairs(caps, monkeypatch):
     monkeypatch.setattr(
-        "real_world_rl.cli.doctor_platform.shutil.which",
+        "real_world_rl.doctor.platform.shutil.which",
         lambda tool: None if tool == "apt-get" else "/usr/bin/" + tool,
     )
     assert caps.block_reason("packages") and not caps.block_reason("udev")

@@ -287,10 +287,10 @@ def test_unknown_key_error_lists_the_registered_sections():
         parse_station({**data, "typo": 1}, sections={"application": str.upper})
 
 
-@pytest.mark.parametrize("module_name", ["real_world_rl.server.daemon", "real_world_rl.doctor.cli",
+@pytest.mark.parametrize("module_name", ["real_world_rl.server.daemon",
                                          "real_world_rl.setup.command", "real_world_rl.discovery.report"])
 def test_device_entry_points_load_upper_layer_sections(tmp_path, module_name):
-    """The daemon, the device doctor, setup and discover load stations through
+    """The daemon, setup and discover load stations through
     real_world_rl.station, so a teleop_profiles section never needs an installed entry point."""
     from importlib import import_module
 

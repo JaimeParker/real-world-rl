@@ -22,8 +22,8 @@ except (
 
 from real_world_rl.common.device_ownership import process_owners
 
-from .doctor_platform import Capabilities
-from .doctor_repair import (
+from real_world_rl.doctor.platform import Capabilities
+from real_world_rl.doctor.repair import (
     Action,
     Finding,
     Report,
@@ -141,6 +141,36 @@ class Host:
             action.status, action.detail = "BLOCKED", reason
         if all(item.id != action.id for item in self.actions):
             self.actions.append(action)
+
+    def grant_access_now(self, check, nodes):
+        """Propose an ACL giving this user read/write on ``nodes`` at once; a replug drops it,
+        so the group and udev repairs proposed beside it stay the lasting fix."""
+        nodes = sorted({str(node) for node in nodes if node})
+        if not nodes or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.@-]*[$]?", self.user):
+            return
+        # Without setfacl the ACL waits for the host-tools install, when one is planned.
+        needs_tools = shutil.which("setfacl") is None
+        if needs_tools and all(item.id != "apt:tools" for item in self.actions):
+            return
+        self.propose(
+            Action(
+                "acl:" + check,
+                check,
+                f"Grant {self.user} read/write on {', '.join(nodes)} now (lost on replug)",
+                ["setfacl", "-m", f"u:{self.user}:rw", "--", *nodes],
+                dependencies=["apt:tools"] if needs_tools else [],
+                privileged=True,
+            )
+        )
+
+    def hidraw_nodes(self, usb_path):
+        """The /dev/hidraw* nodes of the interfaces of this USB device."""
+        usb = Path(usb_path).resolve()
+        return [
+            str(self.dev / entry.name)
+            for entry in sorted((self.sysfs / "class/hidraw").glob("*"))
+            if usb in (entry / "device").resolve().parents
+        ]
 
     def describes_multi_axis_hid(self, usb_path):
         """Whether a hidraw interface of this USB device has a multi-axis controller descriptor."""
@@ -427,6 +457,11 @@ class Host:
                 "USB access and SDK reads must both pass; hidraw access alone does not prove libusb access",
             )
             if denied:
+                if kind == "spacemouse":
+                    hidraw = [node for d in devices for node in self.hidraw_nodes(d["sysfs"])]
+                    self.grant_access_now(
+                        check, [*denied, *(node for node in hidraw if not os.access(node, os.R_OK | os.W_OK))]
+                    )
                 self.groups("plugdev", check)
                 self.rules(check, kind, devices)
 
@@ -476,6 +511,7 @@ class Host:
             )
             usb, selector = self.serial_identity(device)
             if device.exists() and not accessible:
+                self.grant_access_now(check, [device])
                 self.groups("dialout", check)
                 if selector:
                     target = self.etc / f"udev/rules.d/99-rwrl-gello-{index}.rules"

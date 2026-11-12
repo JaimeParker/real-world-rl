@@ -470,14 +470,13 @@ def test_preflight_realtime_kernel(franky, monkeypatch, tmp_path, realtime, flag
     assert results["mode:libfranka_version"].ok
 
 
-def test_preflight_robot_mode_flags_reflex_with_recover_autofix(arm, franky):
+def test_preflight_robot_mode_flags_reflex_and_points_at_rwrl_recover(arm, franky):
     arm._handle.robot.state.robot_mode = franky.RobotMode.Reflex
     arm.read_state()
     check = {result.name: result for result in arm.preflight()}["mode:robot_mode"]
     assert not check.ok
-    assert "--fix" in check.hint
-    assert check.autofix == arm.recover
-    check.autofix()  # fake recover_from_errors returns the robot to Idle
+    assert "rwrl recover" in check.hint and "--fix" not in check.hint
+    arm.recover()  # what rwrl recover runs; the fake recover_from_errors returns the robot to Idle
     assert {result.name: result for result in arm.preflight()}["mode:robot_mode"].ok
 
 

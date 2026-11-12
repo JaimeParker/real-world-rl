@@ -38,7 +38,8 @@ TELEOP_DEVICE_MODULES = (
 )
 DEVICE_ENTRY_MODULES = (
     "real_world_rl.server.daemon",
-    "real_world_rl.doctor.cli",
+    "real_world_rl.doctor.report",
+    "real_world_rl.doctor.probe",
     "real_world_rl.setup.command",
     "real_world_rl.discovery.report",
 )

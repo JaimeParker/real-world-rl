@@ -196,6 +196,7 @@ class RemoteArm(_RemotePart, Arm):
     def preflight(self) -> list["CheckResult"]:
         from real_world_rl.doctor.checks import CheckResult
 
+        # An older daemon still sends "has_autofix" (removed with the device autofix); tolerated for one release.
         return [
             CheckResult(**{key: value for key, value in entry.items() if key != "has_autofix"})
             for entry in self._call("preflight")

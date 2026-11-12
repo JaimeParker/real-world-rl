@@ -14,7 +14,8 @@ from real_world_rl.devices import ArmSafety, CameraConfig, DeviceNotFound
 from real_world_rl.teleop.gello import backend as gello_backend
 from real_world_rl.devices.robots.franka import FrankaConfig
 from real_world_rl.discovery.autoconfig import STATION_CONFIG_ENV, load_station
-from real_world_rl.doctor.cli import doctor_station, station_exit_code
+from real_world_rl.doctor.repair import exit_status
+from real_world_rl.doctor.report import station_device_findings
 from real_world_rl.setup import probes
 from real_world_rl.setup.command import main, next_steps_text
 from real_world_rl.setup.render import (
@@ -110,7 +111,8 @@ def test_one_arm_with_defaults_calibrates_writes_and_passes_the_doctor(tmp_path)
     assert list(options) == list(GELLO_OPTION_ORDER)
     assert any("calibrate the GELLO" in prompt for prompt in operator.prompts)
     assert any("calibration pose" in prompt for prompt in operator.prompts)
-    assert "summary:" in output and "0 failed" in output
+    assert f"{'PASS':14} arm.handshake: robot connected" in output and "summary:" not in output
+    assert "Result: no blocking findings; review SKIPPED/WARN coverage" in output
     assert f"serve the robot: rwrl daemon --station {out}" in output
     assert "--teleop-device gello --teleop-options-yaml" in output and "--obs.rgb wrist front front_2" in output
     assert "real_robot_bimanual" not in output
@@ -133,7 +135,8 @@ def test_two_arms_get_their_own_ip_cameras_gello_and_port(tmp_path):
     assert [camera.name for camera in right.config.cameras] == ["wrist_right", "front"]
     ports = [robot.config.teleop.options["port"] for robot in (left, right)]
     assert ports == list(probes.MOCK_GELLO_PORTS)
-    assert "== robot 'left' ==" in output and "overall: 2 robots, all passed" in output
+    assert f"{'PASS':14} left.handshake: robot connected" in output and f"{'PASS':14} right.handshake: robot connected" in output
+    assert output.count("Result: no blocking findings") == 1 and "overall:" not in output
     assert "--obs.rgb wrist_left wrist_right front" in output
     assert "--env-backend real_robot_bimanual" in output
     assert (
@@ -506,7 +509,7 @@ def test_bimanual_example_renders_back_to_the_same_station():
 def test_rendered_station_passes_the_doctor_with_mock(tmp_path):
     draft = StationDraft.from_station(load_station(DOCS / "station.bimanual.example.yaml"))
     path = write_station_yaml(render_station_yaml(draft), path_override=tmp_path / "station.yaml")
-    assert station_exit_code(doctor_station(path, mock=True)) == 0
+    assert exit_status(station_device_findings(path, mock=True), []) == 0
 
 
 def test_write_station_yaml_locations_and_backups(tmp_path):

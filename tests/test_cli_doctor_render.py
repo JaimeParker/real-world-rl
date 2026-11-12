@@ -10,11 +10,11 @@ from types import SimpleNamespace
 import pytest
 
 import real_world_rl.server.daemon as daemon
-from real_world_rl.cli import doctor, main
-from real_world_rl.cli.doctor_repair import Action
+from real_world_rl.cli import main
+from real_world_rl.doctor import report as doctor
+from real_world_rl.doctor.repair import Action
 from real_world_rl.cli.render import strip_ansi
-from real_world_rl.doctor import cli as device_doctor
-from real_world_rl.doctor.checks import CheckResult
+from real_world_rl.doctor.checks import CheckResult, check_rows
 
 
 class Terminal(io.StringIO):
@@ -200,73 +200,67 @@ DEVICE_RESULTS = [
     CheckResult(3, "handshake", False, "robot unreachable", hint="check the cable"),
     CheckResult(4, "feedback:camera", True, "no camera configured", skipped=True),
 ]
-DEVICE_TEXT = """\
-[1/5] sdk:arm ... OK  franky importable
-[2/5] os:latency_timer ... WARN  16 ms
-    hint: set it to 1 ms
-[3/5] handshake ... FAIL  robot unreachable
-    hint: check the cable
-[4/5] feedback:camera ... SKIP  no camera configured
-summary: 2 ok (1 with warnings), 1 failed, 1 skipped"""
+DEVICE_TEXT = "\n".join([
+    f"{'PASS':14} arm.sdk:arm: franky importable",
+    f"{'WARN':14} arm.os:latency_timer: 16 ms",
+    "    hint: set it to 1 ms",
+    f"{'FAIL':14} arm.handshake: robot unreachable",
+    "    hint: check the cable",
+    f"{'SKIPPED':14} arm.feedback:camera: no camera configured",
+    "Needs attention: 1 FAIL",
+    f"  {'FAIL':14} arm.handshake: robot unreachable",
+    "    hint: check the cable",
+    "Result: unresolved failures / blocked checks / pending user actions",
+])
 
 
-def test_device_doctor_text_is_plain_unless_colour_is_requested():
-    results = {"arm": DEVICE_RESULTS}
-    plain = device_doctor.format_station_text(results)
-    assert plain == device_doctor.format_station_text(results, color=False) == DEVICE_TEXT
-    coloured = device_doctor.format_station_text(results, color=True)
-    assert strip_ansi(coloured) == plain
+def device_text(results, *, color=False, robot="arm"):
+    return doctor.device_check_text(doctor.device_findings(robot, check_rows(results)), color=color)
+
+
+def test_device_checks_print_in_the_doctor_text_form():
+    assert device_text(DEVICE_RESULTS) == DEVICE_TEXT
+    coloured = device_text(DEVICE_RESULTS, color=True)
+    assert strip_ansi(coloured) == DEVICE_TEXT
     for fragment in (
-        "\x1b[1m[1/5]\x1b[0m sdk:arm ... \x1b[32mOK\x1b[0m  franky importable",
-        "\x1b[33mWARN\x1b[0m  16 ms",
-        "\x1b[31mFAIL\x1b[0m  robot unreachable",
-        "\x1b[90mSKIP\x1b[0m  no camera configured",
-        "\x1b[1;31msummary: 2 ok (1 with warnings), 1 failed, 1 skipped\x1b[0m",
+        f"\x1b[32m{'PASS':14}\x1b[0m arm.sdk:arm: franky importable",
+        f"\x1b[33m{'WARN':14}\x1b[0m arm.os:latency_timer: 16 ms",
+        f"\x1b[31m{'FAIL':14}\x1b[0m arm.handshake: robot unreachable",
+        f"\x1b[90m{'SKIPPED':14}\x1b[0m arm.feedback:camera: no camera configured",
+        "\x1b[1;31mResult: unresolved failures / blocked checks / pending user actions\x1b[0m",
     ):
         assert fragment in coloured
 
 
-def test_device_doctor_station_text_colours_headers_and_verdicts():
-    results = {"left": DEVICE_RESULTS, "right": [CheckResult(1, "sdk:arm", True, "franky importable")]}
-    plain = device_doctor.format_station_text(results)
-    assert "\x1b" not in plain
-    coloured = device_doctor.format_station_text(results, color=True)
-    assert strip_ansi(coloured) == plain
-    assert "\x1b[1m== robot 'left' ==\x1b[0m" in coloured
-    assert "\x1b[1;32msummary: 1 ok, 0 failed, 0 skipped\x1b[0m" in coloured
-    assert coloured.splitlines()[-1] == "\x1b[1;31moverall: 2 robots, failures on ['left']\x1b[0m"
+def test_device_checks_of_several_robots_share_one_result():
+    findings = [
+        *doctor.device_findings("left", check_rows(DEVICE_RESULTS)),
+        *doctor.device_findings("right", check_rows([CheckResult(1, "sdk:arm", True, "franky importable")])),
+    ]
+    text = doctor.device_check_text(findings, color=False)
+    assert f"{'PASS':14} right.sdk:arm: franky importable" in text
+    assert "== robot" not in text and "overall:" not in text and "summary:" not in text
+    assert text.count("Result:") == 1 and text.endswith("pending user actions")
 
 
-@pytest.mark.parametrize("no_color", [False, True])
-def test_device_doctor_command_colours_only_a_terminal(colour_capable, monkeypatch, no_color):
-    terminal = attach_terminal(monkeypatch)
-    if no_color:
-        monkeypatch.setenv("NO_COLOR", "1")
-    monkeypatch.setattr(device_doctor, "resolve_station_config_path", lambda path: "station.yaml")
-    monkeypatch.setattr(device_doctor, "doctor_station", lambda *args, **kwargs: {"arm": DEVICE_RESULTS})
-    assert device_doctor.main([]) == 1
-    output = terminal.getvalue()
-    assert ("\x1b[" in output) is not no_color
-    assert strip_ansi(output).rstrip("\n") == DEVICE_TEXT
-
-
-def test_device_doctor_json_is_never_coloured(colour_capable, monkeypatch):
-    terminal = attach_terminal(monkeypatch)
-    monkeypatch.setattr(device_doctor, "resolve_station_config_path", lambda path: "station.yaml")
-    monkeypatch.setattr(device_doctor, "doctor_station", lambda *args, **kwargs: {"arm": DEVICE_RESULTS})
-    assert device_doctor.main(["--json"]) == 1
-    output = terminal.getvalue()
-    assert "\x1b" not in output and json.loads(output)["status"] == "FAIL"
+def test_passing_device_checks_end_with_the_success_result():
+    text = device_text([CheckResult(1, "sdk:arm", True, "fine")])
+    assert text.splitlines() == [
+        f"{'PASS':14} arm.sdk:arm: fine",
+        "Result: no blocking findings; review SKIPPED/WARN coverage",
+    ]
 
 
 def test_daemon_preflight_colours_the_stream_it_writes_to(colour_capable, monkeypatch):
     terminal = attach_terminal(monkeypatch)
     stderr = io.StringIO()
     monkeypatch.setattr(sys, "stderr", stderr)
+    config = SimpleNamespace(name="arm")
     monkeypatch.setattr(daemon, "run_doctor", lambda config: [CheckResult(1, "sdk:arm", True, "fine")])
-    assert daemon.preflight_passed(None)
-    assert "\x1b[32mOK\x1b[0m  fine" in terminal.getvalue()
+    assert daemon.preflight_passed(config)
+    assert f"\x1b[32m{'PASS':14}\x1b[0m arm.sdk:arm: fine" in terminal.getvalue()
     # A failed preflight goes to stderr, here a pipe, so it stays plain although stdout is a terminal.
     monkeypatch.setattr(daemon, "run_doctor", lambda config: [CheckResult(1, "sdk:arm", False, "boom", "install it")])
-    assert not daemon.preflight_passed(None)
-    assert "sdk:arm ... FAIL  boom" in stderr.getvalue() and "\x1b" not in stderr.getvalue()
+    assert not daemon.preflight_passed(config)
+    assert f"{'FAIL':14} arm.sdk:arm: boom\n    hint: install it" in stderr.getvalue()
+    assert "\x1b" not in stderr.getvalue()

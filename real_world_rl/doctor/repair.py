@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .errors import DOCTOR_UNRESOLVED_EXIT_CODE, SUCCESS_EXIT_CODE
+from real_world_rl.cli.errors import DOCTOR_UNRESOLVED_EXIT_CODE, SUCCESS_EXIT_CODE
 
 import hashlib
 import json
@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .doctor_platform import Capabilities
+from real_world_rl.doctor.platform import Capabilities
 
 
 @dataclass

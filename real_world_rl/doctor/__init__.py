@@ -1,10 +1,6 @@
-"""Layered hardware diagnostic of one robot config; ``rwrl doctor --station robot.yaml`` runs it."""
-from real_world_rl.doctor.checks import (
-    LAYER_NAMES,
-    CheckResult,
-    exit_code,
-    run_doctor,
-    summarize,
-)
+"""``rwrl doctor``: host, project-environment and device diagnostics.
 
-__all__ = ["LAYER_NAMES", "CheckResult", "exit_code", "run_doctor", "summarize"]
+``report`` inspects and repairs (the command), ``host``/``platform``/``preset``/``repair`` are its
+host-side parts, ``checks`` is the layered device engine that ``probe`` runs in an isolated
+interpreter, and ``deps``/``probes`` serve ``checks``. Nothing is imported here, so host-only
+diagnosis keeps working when the device layer cannot be imported."""

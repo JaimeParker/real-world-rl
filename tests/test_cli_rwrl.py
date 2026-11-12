@@ -355,7 +355,7 @@ def test_native_subcommand_uses_same_argv_and_implementation(monkeypatch, comman
 
 
 def test_global_doctor_options_reach_context(monkeypatch):
-    from real_world_rl.cli import doctor
+    from real_world_rl.doctor import report as doctor
     from real_world_rl.cli.command import Result
 
     seen = []

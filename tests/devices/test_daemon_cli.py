@@ -127,7 +127,7 @@ def test_failed_preflight_exits_1(config_path, stub_transport, monkeypatch, caps
     captured = capsys.readouterr()
     assert captured.out == ""
     out = captured.err
-    assert "sdk:arm ... FAIL  boom" in out and "hint: install it" in out
+    assert f"{'FAIL':14} franka.sdk:arm: boom\n    hint: install it" in out and "Needs attention: 1 FAIL" in out
     assert "preflight failed; fix the items above or start with --no-preflight" in out
     assert stub_transport.served is None
 
@@ -135,7 +135,8 @@ def test_failed_preflight_exits_1(config_path, stub_transport, monkeypatch, caps
 def test_passing_preflight_serves(config_path, stub_transport, monkeypatch, capsys):
     monkeypatch.setattr(daemon, "run_doctor", lambda config: [CheckResult(1, "sdk:arm", True, "fine")])
     assert daemon.main(["--station", config_path]) == 0
-    assert "summary: 1 ok, 0 failed, 0 skipped" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert f"{'PASS':14} franka.sdk:arm: fine" in out and "Result: no blocking findings" in out
     assert stub_transport.served is not None
 
 

@@ -35,15 +35,6 @@ def test_station_flag_in_module_parser_and_rwrl(monkeypatch, name, removed, dest
     assert main([name, removed, 'station.yaml']) == USAGE_EXIT_CODE
 
 
-def test_device_doctor_library_parser_has_no_config_alias():
-    from real_world_rl.doctor.cli import build_parser
-
-    parser = build_parser()
-    assert parser.parse_args(['--station', 'station.yaml']).config == 'station.yaml'
-    with pytest.raises(SystemExit):
-        parser.parse_args(['--config', 'station.yaml'])
-
-
 def test_rwrl_global_options_and_no_gello_calibrate_alias(capsys):
     assert main(['--help']) == SUCCESS_EXIT_CODE
     host_help = capsys.readouterr().out
@@ -113,12 +104,3 @@ def test_missing_station_hint_uses_canonical_flag(tmp_path):
     with pytest.raises(FileNotFoundError) as error:
         resolve_station_config_path(cwd=tmp_path, env={'XDG_CONFIG_HOME': str(tmp_path / 'xdg')})
     assert 'Pass --station' in str(error.value) and 'Pass --config' not in str(error.value)
-
-
-@pytest.mark.parametrize('answer,expected', [('y', True), (' Y ', True), ('yes', False),
-                                           ('true', False), ('1', False), ('', False), ('n', False)])
-def test_device_doctor_confirms_only_y(monkeypatch, answer, expected):
-    from real_world_rl.doctor.cli import _confirmed
-
-    monkeypatch.setattr('builtins.input', lambda *a: answer)
-    assert _confirmed('Install? [y/N] ') is expected

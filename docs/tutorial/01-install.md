@@ -258,7 +258,10 @@ rwrl doctor --station local/station.yaml
 | 4 Feedback | actual state/frame reads | inspect the named device, cable and camera bandwidth |
 | 5 Mode | robot mode permits use | inspect Desk faults and mode before attempting motion |
 
-*You should see:* per-check results and `summary: N ok, 0 failed, S skipped`.
+*You should see:* one line per check, such as `PASS           arm.handshake: robot connected`,
+and last `Result: no blocking findings; review SKIPPED/WARN coverage`. A `FAIL`,
+`BLOCKED` or `PENDING_ACTION` is listed again under `Needs attention:` with its hint
+and ends in `Result: unresolved failures / blocked checks / pending user actions` (exit 1).
 For a real handshake use the real configuration without `--mock`; investigate
 skipped checks rather than treating them as hardware verification. Doctor connects
 and disconnects; it does not execute a home trajectory. Configured device

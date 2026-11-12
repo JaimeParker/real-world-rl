@@ -15,8 +15,11 @@ from real_world_rl.devices.backends.grippers.fake import FakeGripper
 from real_world_rl.devices.robots.franka import FrankaConfig
 from real_world_rl.devices.robots.piper import PiperConfig
 from real_world_rl.discovery import enumerate as probes
-from real_world_rl.doctor import cli
-from real_world_rl.doctor.checks import CheckResult, exit_code, run_doctor, summarize
+from real_world_rl.cli import main
+from real_world_rl.doctor import checks
+from real_world_rl.doctor.checks import CheckResult, check_rows, run_doctor
+from real_world_rl.doctor.repair import exit_status
+from real_world_rl.doctor.report import device_findings, station_device_findings
 
 
 def franka_config(**kwargs) -> FrankaConfig:
@@ -44,6 +47,11 @@ def sdk_backed_fakes(monkeypatch):
 
 def by_layer(results, layer):
     return [result for result in results if result.layer == layer]
+
+
+def exit_code(results) -> int:
+    """The doctor exit status of one robot's device checks."""
+    return exit_status(device_findings("robot", check_rows(results)), [])
 
 
 def test_all_green(sdk_backed_fakes):
@@ -126,7 +134,7 @@ def test_handshake_failure_skips_feedback_and_mode(monkeypatch):
     monkeypatch.setattr(FakeArm, "_open", open_fails)
     results = run_doctor(franka_config())
     handshake = by_layer(results, 3)[0]
-    assert not handshake.ok and handshake.hint == "enable FCI" and handshake.autofix is None
+    assert not handshake.ok and handshake.hint == "enable FCI"
     assert all(r.skipped for layer in (4, 5) for r in by_layer(results, layer))
 
 
@@ -137,38 +145,11 @@ def test_mock_piper_skips_os_and_passes():
     assert exit_code(results) == 0
 
 
-def test_fix_reopens_camera_and_flips_result(monkeypatch):
-    calls = {"reopen": 0}
-    original_reopen = FakeCamera.reopen
-
-    def reopen(self):
-        calls["reopen"] += 1
-        original_reopen(self)
-
-    monkeypatch.setattr(FakeCamera, "reopen", reopen)
-    state = {"first": True}
-    original_ready = FakeCamera.is_ready
-
-    def is_ready(self, timeout_s=2.0):
-        if state["first"]:
-            state["first"] = False
-            return False
-        return original_ready(self, timeout_s)
-
-    monkeypatch.setattr(FakeCamera, "is_ready", is_ready)
-    unfixed = run_doctor(franka_config())
-    assert exit_code(unfixed) == 1
-    state["first"] = True
-    fixed = run_doctor(franka_config(), fix=True)
-    assert calls["reopen"] == 1
-    assert next(r for r in fixed if r.name == "feedback:camera:wrist").ok
-    assert exit_code(fixed) == 0
-
-
-def test_fix_without_autofix_leaves_failure(monkeypatch, sdk_backed_fakes):
-    monkeypatch.setattr(probes, "ping", lambda ip, timeout_s=1.0: False)
-    results = run_doctor(franka_config(), fix=True)
-    assert not next(r for r in results if r.name == "os:ping").ok
+def test_camera_without_frames_fails_and_points_at_rwrl_status(monkeypatch):
+    monkeypatch.setattr(FakeCamera, "is_ready", lambda self, timeout_s=2.0: False)
+    camera = next(r for r in run_doctor(franka_config()) if r.name == "feedback:camera:wrist")
+    assert not camera.ok and "rerun rwrl status after reconnecting the camera" in camera.hint
+    assert "--fix" not in camera.hint
 
 
 def test_no_feedback_arm_fails_with_hint(monkeypatch):
@@ -183,10 +164,9 @@ def test_no_feedback_arm_fails_with_hint(monkeypatch):
     assert not feedback.ok and "follower/slave" in feedback.hint
 
 
-def test_summarize_counts():
-    results = run_doctor(PiperConfig(), mock=True)
-    ok, failed, skipped = summarize(results)
-    assert failed == 0 and skipped == 3 and ok + skipped == len(results)
+def test_mock_piper_findings_have_no_failure_and_three_skips():
+    statuses = [finding.status for finding in device_findings("piper", check_rows(run_doctor(PiperConfig(), mock=True)))]
+    assert "FAIL" not in statuses and statuses.count("SKIPPED") == 3
 
 
 def write_config(tmp_path) -> str:
@@ -204,18 +184,18 @@ def write_config(tmp_path) -> str:
     return str(path)
 
 
-def test_cli_text_and_json(tmp_path, capsys):
+def test_rwrl_doctor_mock_text_and_json(tmp_path, capsys, doctor_report_dir):
     path = write_config(tmp_path)
-    assert cli.main(["--station", path, "--mock"]) == 0
+    assert main(["doctor", "--station", path, "--mock"]) == 0
     text = capsys.readouterr().out
-    assert "summary:" in text and "[3/5] handshake ... OK" in text
-    assert cli.main(["--station", path, "--mock", "--json"]) == 0
+    assert ".handshake: robot connected" in text and "summary:" not in text and "[3/5]" not in text
+    assert main(["--json", "doctor", "--station", path, "--mock"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["schema_version"] == 1 and payload["status"] == "PASS"
-    assert payload["checks"] == [] and payload["repairs"] == []
-    payload = payload["results"]
-    assert {entry["layer"] for entry in payload} == {0, 1, 2, 3, 4, 5}
-    assert all("autofix" not in entry and "details" not in entry for entry in payload)
+    assert any(check["id"].endswith(".handshake") and check["status"] == "PASS" for check in payload["checks"])
+    (rows,) = payload["results"].values()
+    assert {entry["layer"] for entry in rows} == {0, 1, 2, 3, 4, 5}
+    assert all("autofix" not in entry for entry in rows)
 
 
 def write_station(tmp_path) -> str:
@@ -225,41 +205,29 @@ def write_station(tmp_path) -> str:
     return str(path)
 
 
-def test_cli_without_config_checks_the_station_file(tmp_path, monkeypatch, capsys):
+def test_rwrl_doctor_without_station_flag_checks_the_station_file(tmp_path, monkeypatch, capsys, doctor_report_dir):
     monkeypatch.setenv("RWRL_STATION", write_config(tmp_path))
-    assert cli.main(["--mock"]) == 0
-    assert "[3/5] handshake ... OK" in capsys.readouterr().out
+    assert main(["doctor", "--mock"]) == 0
+    assert ".handshake: robot connected" in capsys.readouterr().out
 
 
-def test_cli_without_any_config_is_a_usage_error(tmp_path, monkeypatch, capsys):
-    monkeypatch.delenv("RWRL_STATION", raising=False)
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-    monkeypatch.chdir(tmp_path)
-    with pytest.raises(SystemExit) as info:
-        cli.main(["--mock"])
-    assert info.value.code == 2 and "Pass --station <yaml>, or run `rwrl setup` to write one" in capsys.readouterr().err
-
-
-def test_cli_checks_every_robot_of_a_station_or_one(tmp_path, capsys):
+def test_station_device_findings_cover_every_robot_or_one(tmp_path):
     path = write_station(tmp_path)
-    assert cli.main(["--station", path, "--mock"]) == 0
-    text = capsys.readouterr().out
-    assert "== robot 'left' ==" in text and "== robot 'right' ==" in text
-    assert text.count("summary:") == 2 and "overall: 2 robots, all passed" in text
-    assert cli.main(["--station", path, "--mock", "--robot", "right"]) == 0
-    one = capsys.readouterr().out
-    assert "== robot" not in one and one.count("summary:") == 1
-    assert cli.main(["--station", path, "--mock", "--json"]) == 0
-    assert set(json.loads(capsys.readouterr().out)["results"]) == {"left", "right"}
+    findings = station_device_findings(path, mock=True)
+    assert {finding.id.split(".")[0] for finding in findings} == {"left", "right"}
+    assert exit_status(findings, []) == 0
+    one = station_device_findings(path, mock=True, robot="right")
+    assert one and all(finding.id.startswith("right.") for finding in one)
 
 
-def test_cli_station_exit_code_fails_when_one_robot_fails(tmp_path, monkeypatch, capsys):
+def test_station_exit_status_fails_when_one_robot_fails(tmp_path, monkeypatch):
     path = write_station(tmp_path)
     monkeypatch.setattr(
-        cli, "run_doctor", lambda config, **_: [CheckResult(1, "sdk:arm", config.name == "left", "checked")]
+        checks, "run_doctor", lambda config, **_: [CheckResult(1, "sdk:arm", config.name == "left", "checked")]
     )
-    assert cli.main(["--station", path]) == 1
-    assert "overall: 2 robots, failures on ['right']" in capsys.readouterr().out
+    findings = station_device_findings(path)
+    assert exit_status(findings, []) == 1
+    assert [finding.id for finding in findings if finding.status == "FAIL"] == ["right.sdk:arm"]
 
 
 def test_fake_backends_skip_os_probes_and_pass(monkeypatch):
@@ -271,15 +239,14 @@ def test_fake_backends_skip_os_probes_and_pass(monkeypatch):
     assert all(r.skipped and r.message == "backend 'fake' needs no OS device" for r in os_results.values())
 
 
-def test_cli_fills_robot_ip_from_env(tmp_path, monkeypatch, capsys, sdk_backed_fakes):
+def test_station_device_findings_fill_robot_ip_from_env(tmp_path, monkeypatch, sdk_backed_fakes):
     pinged = []
     monkeypatch.setattr(probes, "ping", lambda ip, timeout_s=1.0: pinged.append(ip) or True)
     monkeypatch.setenv("ROBOT_IP", "10.9.8.7")
     path = tmp_path / "robot.yaml"
     path.write_text(yaml.safe_dump({"type": "franka", "arm_backend": "fake", "robot_ip": "", "gripper": {"backend": "fake"}}))
-    assert cli.main(["--station", str(path)]) == 0
+    assert exit_status(station_device_findings(str(path)), []) == 0
     assert pinged == ["10.9.8.7"]
-    capsys.readouterr()
 
 
 def test_can_hints_fill_both_halves(monkeypatch, sdk_backed_fakes):

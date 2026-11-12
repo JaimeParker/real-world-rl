@@ -1,14 +1,13 @@
-"""Shared host/device doctor envelope and confirmation policy, with probes stubbed."""
+"""The doctor's JSON envelope and confirmation policy, with probes stubbed."""
 import dataclasses
 import json
 from types import SimpleNamespace
 
 import pytest
 
-from real_world_rl.cli import doctor, main
-from real_world_rl.cli.doctor_repair import Action
-from real_world_rl.doctor import cli as device_doctor
-from real_world_rl.doctor.checks import CheckResult
+from real_world_rl.cli import main
+from real_world_rl.doctor import report as doctor
+from real_world_rl.doctor.repair import Action
 
 
 @pytest.fixture
@@ -17,38 +16,21 @@ def isolated_reports(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('failed', [False, True])
-@pytest.mark.parametrize('multi', [False, True])
 @pytest.mark.parametrize('install_sdk', [False, True])
-def test_both_doctors_share_envelope_without_changing_device_records(
-    isolated_reports, monkeypatch, capsys, failed, multi, install_sdk,
-):
-    row = CheckResult(1, 'sdk:arm', not failed, 'checked', hint='install it' if failed else '')
-    results = {'left': [row], **({'right': [row]} if multi else {})}
-    monkeypatch.setattr(device_doctor, 'resolve_station_config_path', lambda path: 'station.yaml')
-    def device_probe(*args, **kwargs):
-        print('SDK chatter')
-        return results
-    monkeypatch.setattr(device_doctor, 'doctor_station', device_probe)
+def test_doctor_json_envelope(isolated_reports, monkeypatch, capsys, failed, install_sdk):
+    rows = {'left': [{'layer': 1, 'name': 'sdk:arm', 'ok': not failed, 'message': 'checked'}]}
     def inspect(args, host):
         host.add('sample', 'FAIL' if failed else 'PASS', 'checked')
-        return {}
+        return rows
     monkeypatch.setattr(doctor, 'inspect', inspect)
     extra = ['--install-sdk'] if install_sdk else []
-    assert device_doctor.main(['--json', *extra]) == int(failed)
-    captured = capsys.readouterr()
-    assert 'SDK chatter' in captured.err
-    device_payload = json.loads(captured.out)
     assert main(['doctor', '--json', *extra]) == int(failed)
-    host_payload = json.loads(capsys.readouterr().out)
-    for payload in (device_payload, host_payload):
-        assert payload['schema_version'] == 1
-        assert payload['status'] == ('FAIL' if failed else 'PASS')
-        assert isinstance(payload['checks'], list) and isinstance(payload['repairs'], list)
-    record = {'layer': 1, 'name': 'sdk:arm', 'ok': not failed, 'message': 'checked',
-              'hint': 'install it' if failed else '', 'skipped': False, 'warning': False}
-    inner = {'left': [record], 'right': [record]} if multi else [record]
-    expected = {'results': inner, 'install_sdk': []} if install_sdk else inner
-    assert device_payload['results'] == expected
+    payload = json.loads(capsys.readouterr().out)
+    assert payload['schema_version'] == 1
+    assert payload['status'] == ('FAIL' if failed else 'PASS')
+    assert isinstance(payload['checks'], list) and isinstance(payload['repairs'], list)
+    # The device rows stay as the probe printed them, beside the findings made from them.
+    assert payload['results'] == rows
 
 
 @pytest.mark.parametrize('answer,confirmed', [('y', True), (' Y ', True), ('yes', False),
@@ -70,27 +52,15 @@ def test_host_doctor_confirms_only_y(isolated_reports, monkeypatch, capsys, answ
     assert bool(executions) is confirmed
 
 
-@pytest.mark.parametrize('entry', ['rwrl', 'device library'])
-def test_yes_without_repairs_still_checks_and_preserves_failure(
-    isolated_reports, monkeypatch, capsys, entry,
-):
+def test_yes_without_repairs_still_checks_and_preserves_failure(isolated_reports, monkeypatch, capsys):
     checked = []
     monkeypatch.setattr('builtins.input', lambda *a: pytest.fail('--yes must skip prompts'))
-    if entry == 'rwrl':
-        def inspect(args, host):
-            checked.append(args.yes)
-            host.add('preflight', 'BLOCKED', 'device owned')
-            return {}
-        monkeypatch.setattr(doctor, 'inspect', inspect)
-        code = main(['doctor', '--yes', '--json'])
-    else:
-        monkeypatch.setattr(device_doctor, 'resolve_station_config_path', lambda path: 'station.yaml')
-        def probe(*a, **kw):
-            checked.append(True)
-            return {'arm': [CheckResult(1, 'preflight', False, 'device owned')]}
-        monkeypatch.setattr(device_doctor, 'doctor_station', probe)
-        code = device_doctor.main(['--yes', '--json'])
-    assert code == 1
+    def inspect(args, host):
+        checked.append(args.yes)
+        host.add('preflight', 'BLOCKED', 'device owned')
+        return {}
+    monkeypatch.setattr(doctor, 'inspect', inspect)
+    assert main(['doctor', '--yes', '--json']) == 1
     assert checked == [True]
     assert json.loads(capsys.readouterr().out)['status'] == 'FAIL'
 

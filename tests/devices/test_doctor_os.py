@@ -1,17 +1,18 @@
 """Doctor OS checks for serial/evdev devices: groups, serial ACL, brltty and the USB latency
-timer, against a fake ``/sys`` tree and monkeypatched group helpers. Nothing runs sudo."""
+timer, against a fake ``/sys`` tree and monkeypatched group helpers. Nothing changes the host."""
 from __future__ import annotations
 
 import os
-import subprocess
 
 import pytest
 
 from real_world_rl.devices import TeleopConfig
 from real_world_rl.devices.robots.franka import FrankaConfig
-from real_world_rl.doctor import checks, cli
+from real_world_rl.doctor import checks
 from real_world_rl.doctor import probes as os_probes
-from real_world_rl.doctor.checks import CheckResult, exit_code
+from real_world_rl.doctor.checks import CheckResult, check_rows
+from real_world_rl.doctor.repair import exit_status
+from real_world_rl.doctor.report import device_check_text, device_findings
 
 
 @pytest.fixture
@@ -114,38 +115,13 @@ def test_groups_added_after_login_ask_for_a_new_login(groups, tmp_path, monkeypa
 # -- serial ACL ----------------------------------------------------------------------------------
 
 
-def test_denied_serial_port_suggests_an_acl_and_fix_applies_it(tmp_path, monkeypatch):
+def test_denied_serial_port_suggests_an_acl_that_rwrl_doctor_offers(tmp_path, monkeypatch):
     port = tmp_path / "ttyUSB0"
     port.touch()
-    access = {"granted": False}
-    monkeypatch.setattr(checks.os, "access", lambda path, mode: access["granted"])
-    granted: list[str] = []
-
-    def grant(path):
-        granted.append(path)
-        access["granted"] = True
-
-    monkeypatch.setattr(os_probes, "grant_user_acl", grant)
-    check = checks._make_check(2, "os:serial", checks._serial_outcome(str(port)))
-    results = [check()]
-    assert not results[0].ok and f"setfacl -m u:$USER:rw {port}" in results[0].hint
-    assert "dialout" in results[0].hint and results[0].autofix is not None
-    checks._apply_fixes(results, {0: check})
-    assert granted == [str(port)] and results[0].ok
-
-
-def test_grant_user_acl_never_uses_sudo_and_reports_refusal(monkeypatch, tmp_path):
-    calls: list[list[str]] = []
-
-    def run(argv, **kwargs):
-        calls.append(list(argv))
-        return subprocess.CompletedProcess(argv, 1, stdout="", stderr="Operation not permitted")
-
-    monkeypatch.setattr(subprocess, "run", run)
-    monkeypatch.setattr(os_probes, "current_user", lambda: "operator")
-    with pytest.raises(RuntimeError, match="Operation not permitted"):
-        os_probes.grant_user_acl(str(tmp_path / "ttyUSB0"))
-    assert calls[0][:3] == ["setfacl", "-m", "u:operator:rw"] and "sudo" not in calls[0]
+    monkeypatch.setattr(checks.os, "access", lambda path, mode: False)
+    result = checks._make_check(2, "os:serial", checks._serial_outcome(str(port)))()
+    assert not result.ok and f"setfacl -m u:$USER:rw {port}" in result.hint
+    assert "dialout" in result.hint and "rwrl doctor --fix offers it" in result.hint
 
 
 # -- brltty --------------------------------------------------------------------------------------
@@ -227,12 +203,13 @@ def test_latency_timer_skips_missing_and_non_usb_serial_ports(sysfs):
 
 def test_warnings_print_with_their_hint_and_do_not_fail():
     results = [CheckResult(2, "os:latency_timer", True, "ttyUSB0 latency_timer is 16 ms", "add the udev rule", warning=True)]
-    text = cli.format_text(results)
-    assert "[2/5] os:latency_timer ... WARN  ttyUSB0 latency_timer is 16 ms" in text
+    findings = device_findings("arm", check_rows(results))
+    text = device_check_text(findings, color=False)
+    assert f"{'WARN':14} arm.os:latency_timer: ttyUSB0 latency_timer is 16 ms" in text
     assert "    hint: add the udev rule" in text
-    assert "summary: 1 ok (1 with warnings), 0 failed, 0 skipped" in text
-    assert exit_code(results) == 0
-    assert cli.format_json(results).count('"warning": true') == 1
+    assert text.endswith("Result: no blocking findings; review SKIPPED/WARN coverage")
+    assert exit_status(findings, []) == 0
+    assert check_rows(results)[0]["warning"] is True
 
 
 def test_spacemouse_permission_hint_installs_packaged_vendor_rules(tmp_path, monkeypatch):

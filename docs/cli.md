@@ -143,8 +143,10 @@ keep their values. They add no wizard question.
 `rwrl teleop calibrate --backend gello` prints the GELLO `teleop:` YAML block.
 `setup --only teleop --calibrate` runs that calibration inside the wizard and
 writes the station YAML.
-`rwrl doctor` is the host and project diagnostic described below; it runs the
-device-layer checks (`real_world_rl.doctor`) for each station robot.
+`rwrl doctor` is the one diagnostic: it checks the host, the project environment and,
+for each station robot, the layered device checks, all in one report with one set of
+statuses and exit codes. `rwrl setup` and the daemon preflight print their device checks
+in the same form.
 
 Doctor is registered directly in the `rwrl` parser; `rwrl doctor --help` displays
 rwrl's own doctor help. It shares the global `--station`, `--robot`, `--preset`,
@@ -229,10 +231,12 @@ and the learning commands. Offline `rwrl` commands (`--help`, `workspace
 show/set/validate/frame`, `teleop profiles`, `teleop inspect-stop`, `archive
 inspect`) do not make doctor report `BLOCKED`.
 
-Device rows keep the device doctor's checks, but `rwrl doctor --fix` never
-recovers or reopens devices, so their hints name the rwrl command instead:
-"--fix (recover)" becomes `run rwrl recover`, and
-"--fix to reopen" becomes `rerun rwrl status after reconnecting the camera`.
+Device rows are `<robot>.<check>` (for example `arm.handshake` or
+`arm.os:serial`). `rwrl doctor --fix` never recovers or reopens devices; a robot in
+Reflex names `rwrl recover`, and a camera without frames names `rwrl status` after
+reconnecting it. When a GELLO serial port or a SpaceMouse node is not readable and
+writable, the plan also offers `setfacl -m u:<user>:rw -- <node>` beside the group and
+udev repairs: it grants access at once and is lost on replug.
 
 With a station and `--preset`, doctor also compares the preset's robot (the
 inline `real_robot.robot` or bare `robot` mapping, or the station file it names)
@@ -296,10 +300,6 @@ Configuration errors also save `error.json` when a report directory was created.
 | Only `PASS`, `WARN` or `SKIPPED` | 0; inspect coverage before hardware acceptance |
 | Any `FAIL`, `BLOCKED` or `PENDING_ACTION` | 1 |
 | Invalid arguments or configuration | 2 |
-
-Advanced users can call the lower-level `real_world_rl.doctor` API. The latter has its own repair semantics;
-`rwrl doctor` always runs its device probes with `fix=False`.
-
 
 ## Home: resolve, save and move
 

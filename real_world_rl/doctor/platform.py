@@ -21,7 +21,7 @@ def find_checkout() -> Path | None:
     for start in (Path.cwd(), Path(__file__).resolve().parent):
         for candidate in (start, *start.parents):
             if (candidate / "pyproject.toml").is_file() and (
-                candidate / "real_world_rl/cli/doctor.py"
+                candidate / "real_world_rl/doctor/report.py"
             ).is_file():
                 return candidate
     return None

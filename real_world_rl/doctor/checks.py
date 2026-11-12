@@ -1,5 +1,5 @@
-"""Layered diagnostic: 0 deps, 1 sdk, 2 os, 3 handshake, 4 feedback, 5 mode. Each check is a
-small closure so ``fix`` can run its autofix and then re-run exactly that check."""
+"""Layered device diagnostic: 0 deps, 1 sdk, 2 os, 3 handshake, 4 feedback, 5 mode. Read-only: it
+never repairs; ``rwrl doctor`` proposes and confirms any repair as a host action."""
 from __future__ import annotations
 
 import dataclasses
@@ -54,12 +54,16 @@ class CheckResult:
     skipped: bool = False
     # ok, but worth acting on (printed as WARN with its hint); never fails the run.
     warning: bool = False
-    autofix: Callable[[], None] | None = field(default=None, repr=False, compare=False)
-    # Structured findings for the CLI (e.g. the libfranka versions); not part of the JSON report.
+    # Structured findings for rwrl doctor (e.g. the libfranka versions behind --install-sdk).
     details: dict = field(default_factory=dict, repr=False, compare=False)
 
 
-Outcome = tuple | CheckResult  # tuples: (ok, message[, hint[, autofix]]); CheckResult also supports WARN
+def check_rows(results: list[CheckResult]) -> list[dict]:
+    """The results as the JSON rows ``real_world_rl.doctor.probe`` prints, every field included."""
+    return [dataclasses.asdict(result) for result in results]
+
+
+Outcome = tuple | CheckResult  # tuples: (ok, message[, hint]); CheckResult also supports WARN
 Check = Callable[[], CheckResult]
 
 
@@ -77,8 +81,7 @@ def _make_check(layer: int, name: str, fn: Callable[[], Outcome]) -> Check:
         if ok:
             return CheckResult(layer, name, True, message)
         hint = outcome[2] if len(outcome) > 2 else ""
-        autofix = outcome[3] if len(outcome) > 3 else None
-        return CheckResult(layer, name, False, message, hint, autofix=autofix)
+        return CheckResult(layer, name, False, message, hint)
 
     return run
 
@@ -378,10 +381,9 @@ def _serial_outcome(port: str | None) -> Callable[[], Outcome]:
                 False,
                 f"no read/write access to {port}",
                 f"grant this user access now: `setfacl -m u:$USER:rw {port}` (prefix sudo unless you own "
-                "the node; --fix tries it without sudo; lost on replug); for good add the user to the "
+                "the node; rwrl doctor --fix offers it; lost on replug); for good add the user to the "
                 f"'{_SERIAL_GROUP}' group (`sudo usermod -aG {_SERIAL_GROUP} $USER`, then log in again) or add "
                 'a udev rule giving the adapter MODE="0666"',
-                lambda: os_probes.grant_user_acl(port),
             )
         return True, f"serial port {port} readable and writable"
 
@@ -497,7 +499,6 @@ def run_doctor(
     config: RobotConfig,
     *,
     mock: bool = False,
-    fix: bool = False,
     config_path: str | None = None,
     serves_daemon: bool = False,
 ) -> list[CheckResult]:
@@ -507,11 +508,9 @@ def run_doctor(
     if mock:
         config = _mocked(config)
     results: list[CheckResult] = []
-    reruns: dict[int, Check] = {}
 
     def record(check: Check) -> CheckResult:
         result = check()
-        reruns[len(results)] = check
         results.append(result)
         return result
 
@@ -541,9 +540,7 @@ def run_doctor(
             for layer in (4, 5):
                 results.append(_skipped(layer, LAYER_NAMES[layer], "skipped: handshake failed"))
         else:
-            _feedback_and_mode_layers(robot, record, results, reruns)
-        if fix:
-            _apply_fixes(results, reruns)
+            _feedback_and_mode_layers(robot, record, results)
     except Exception as error:
         results.append(CheckResult(3, "handshake", False, repr(error)))
     finally:
@@ -603,7 +600,7 @@ def _handshake_check(robot: Robot, claim: DeviceClaim | None, config_path: str |
     return run
 
 
-def _feedback_and_mode_layers(robot: Robot, record, results: list[CheckResult], reruns) -> None:
+def _feedback_and_mode_layers(robot: Robot, record, results: list[CheckResult]) -> None:
     arm = robot.arm
 
     def arm_feedback() -> Outcome:
@@ -645,9 +642,7 @@ def _feedback_and_mode_layers(robot: Robot, record, results: list[CheckResult], 
         mode_results = [CheckResult(5, "mode:preflight", False, repr(error))]
     if not mode_results:
         record(_make_check(5, "mode:none", lambda: (True, "backend declares no mode checks")))
-    for mode_result in mode_results:
-        reruns[len(results)] = _preflight_rerun(arm, mode_result)
-        results.append(mode_result)
+    results.extend(mode_results)
 
 
 def _camera_feedback_check(name: str, camera: Camera) -> Check:
@@ -660,8 +655,7 @@ def _camera_feedback_check(name: str, camera: Camera) -> Check:
             f"feedback:camera:{name}",
             False,
             "no frames within 2s",
-            "no frames within 2s: check USB 3 bandwidth; try another port; run with --fix to reopen",
-            autofix=camera.reopen,
+            "no frames within 2s: check USB 3 bandwidth; try another port; rerun rwrl status after reconnecting the camera",
         )
 
     return run
@@ -681,40 +675,8 @@ def _teleop_feedback(teleop: Teleop) -> Callable[[], Outcome]:
     return outcome
 
 
-def _preflight_rerun(arm: Arm, original: CheckResult) -> Check:
-    def run() -> CheckResult:
-        for result in arm.preflight():
-            if result.name == original.name:
-                return result
-        return original
-
-    return run
-
-
-def _apply_fixes(results: list[CheckResult], reruns: dict[int, Check]) -> None:
-    for index, result in enumerate(list(results)):
-        if result.ok or result.autofix is None or index not in reruns:
-            continue
-        try:
-            result.autofix()
-        except Exception as error:
-            result.message = f"{result.message}; autofix failed: {error!r}"
-            continue
-        results[index] = reruns[index]()
-
-
 def _disconnect(robot: Robot, results: list[CheckResult]) -> None:
     try:
         robot.disconnect()
     except Exception as error:
         results.append(CheckResult(3, "disconnect", False, repr(error)))
-
-
-def summarize(results: list[CheckResult]) -> tuple[int, int, int]:
-    skipped = sum(result.skipped for result in results)
-    failed = sum(not result.ok and not result.skipped for result in results)
-    return len(results) - skipped - failed, failed, skipped
-
-
-def exit_code(results: list[CheckResult]) -> int:
-    return 1 if summarize(results)[1] else 0

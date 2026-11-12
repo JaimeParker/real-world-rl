@@ -14,10 +14,11 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from real_world_rl.cli import doctor, main
-from real_world_rl.cli.doctor_host import Host, process_owners
-from real_world_rl.cli.doctor_platform import Capabilities
-from real_world_rl.cli.doctor_repair import (
+from real_world_rl.cli import main
+from real_world_rl.doctor import report as doctor
+from real_world_rl.doctor.host import Host, process_owners
+from real_world_rl.doctor.platform import Capabilities
+from real_world_rl.doctor.repair import (
     Action,
     Finding,
     Report,
@@ -57,7 +58,7 @@ def native_linux_platform(tmp_path, monkeypatch):
     monkeypatch.setattr(Capabilities, "detect", classmethod(lambda cls, **kwargs: capabilities))
     original_which = shutil.which
     monkeypatch.setattr(
-        "real_world_rl.cli.doctor_platform.shutil.which",
+        "real_world_rl.doctor.platform.shutil.which",
         lambda tool: f"/usr/bin/{tool}" if tool in {"apt-get", "udevadm"} else original_which(tool),
     )
     return capabilities
@@ -168,7 +169,7 @@ def test_container_or_wsl_blocks_system_repair(report, monkeypatch, native_linux
 
 
 def test_system_python_repair_refused(report, monkeypatch):
-    from real_world_rl.cli import doctor_repair
+    from real_world_rl.doctor import repair as doctor_repair
 
     monkeypatch.setattr(doctor_repair, "project_environment", lambda: False)
     monkeypatch.setattr(report, "run", lambda *a, **kw: pytest.fail("must not run pip"))
@@ -199,7 +200,7 @@ def test_current_interpreter_is_required_for_pip(report, monkeypatch):
 
 
 def test_sudo_missing_is_blocked_without_password_prompt(report, monkeypatch, native_linux_platform):
-    monkeypatch.setattr("real_world_rl.cli.doctor_repair.os.geteuid", lambda: 1000)
+    monkeypatch.setattr("real_world_rl.doctor.repair.os.geteuid", lambda: 1000)
     monkeypatch.setattr(report, "run", lambda argv, **kw: (1, "sudo password required"))
     action = Action(
         "apt:tools",
@@ -439,6 +440,41 @@ def test_unrelated_intel_usb_is_not_realsense(tmp_path, report):
     assert host.usb[0]["kind"] == ""
 
 
+def test_denied_gello_port_plans_an_immediate_acl(host, monkeypatch, tmp_path):
+    port = tmp_path / "ttyUSB0"
+    port.touch()
+    real_access, real_which = os.access, shutil.which
+    monkeypatch.setattr(os, "access", lambda path, mode, **kw: Path(path) != port.resolve() and real_access(path, mode, **kw))
+    monkeypatch.setattr(shutil, "which", lambda tool, *a, **kw: "/usr/bin/setfacl" if tool == "setfacl" else real_which(tool, *a, **kw))
+    monkeypatch.setattr(host, "command", lambda *a, **kw: (1, ""))
+    host.inspect_gello([SimpleNamespace(teleop=SimpleNamespace(backend="gello", options={"port": str(port)}))])
+    assert next(f for f in host.findings if f.id == "gello.0").status == "FAIL"
+    action = next(a for a in host.actions if a.id == "acl:gello.0")
+    assert action.argv == ["setfacl", "-m", f"u:{host.user}:rw", "--", str(port.resolve())]
+    assert action.privileged and not action.dependencies and "lost on replug" in action.title
+
+
+def test_acl_waits_for_the_host_tools_install_without_setfacl(host, monkeypatch):
+    monkeypatch.setattr(shutil, "which", lambda tool, *a, **kw: None)
+    host.grant_access_now("gello.0", ["/dev/ttyUSB0"])
+    assert not host.actions
+    host.propose(Action("apt:tools", "host.tools", "install", ["apt-get", "install", "-y", "acl"], privileged=True))
+    host.grant_access_now("gello.0", ["/dev/ttyUSB0"])
+    assert host.actions[-1].id == "acl:gello.0" and host.actions[-1].dependencies == ["apt:tools"]
+
+
+def test_hidraw_nodes_belong_to_the_usb_device(host):
+    usb = host.sysfs / "bus/usb/devices/1-1"
+    interface = usb / "1-1:1.0/0003:256F:C635.0001"
+    other = host.sysfs / "bus/usb/devices/1-2/1-2:1.0/0003:046D:C542.0002"
+    for name, device in (("hidraw0", interface), ("hidraw1", other)):
+        device.mkdir(parents=True)
+        entry = host.sysfs / "class/hidraw" / name
+        entry.mkdir(parents=True)
+        (entry / "device").symlink_to(device)
+    assert host.hidraw_nodes(usb) == [str(host.dev / "hidraw0")]
+
+
 def test_unknown_brltty_log_does_not_disable_service(host, monkeypatch, tmp_path):
     port = tmp_path / "ttyUSB0"
     config = SimpleNamespace(
@@ -540,9 +576,13 @@ def test_yes_runs_repairs_and_rechecks(report, monkeypatch, capsys):
 
 
 def test_probe_never_exposes_fix_or_motion_entrypoints():
-    path = Path(doctor.__file__).with_name("doctor_probe.py")
+    import inspect
+
+    from real_world_rl.doctor import checks
+
+    path = Path(doctor.__file__).with_name("probe.py")
     text = path.read_text()
-    assert "fix=False" in text and "fix=True" not in text
+    assert "fix" not in inspect.signature(checks.run_doctor).parameters and "fix=" not in text
     for forbidden in [
         ".recover(",
         ".reset(",
@@ -559,7 +599,7 @@ def test_missing_preset_is_usage_error_with_a_report(report, capsys):
 
 
 def test_extra_markers_are_resolved_before_pip_invocation(host, monkeypatch):
-    from real_world_rl.cli import doctor_host
+    from real_world_rl.doctor import host as doctor_host
 
     host.expected.add("spacemouse")
     monkeypatch.setattr(
@@ -621,26 +661,49 @@ def test_franky_conflicting_server_versions_never_generate_install(host, monkeyp
     assert not any(a.id.startswith("sdk:") for a in host.actions)
 
 
+def test_handshake_confirmed_server_version_plans_the_franky_wheel(host, monkeypatch):
+    from real_world_rl.devices import RobotConfig
+    from real_world_rl.doctor.deps import franky_wheel_install_argv
+
+    config = RobotConfig.from_dict({"type": "franka", "arm_backend": "fake", "name": "left", "gripper": None})
+    monkeypatch.setattr(doctor, "load_targets", lambda args: ([("left", config, "unused", False, "")], set()))
+    monkeypatch.setattr(host, "inspect_system", lambda **kw: None)
+    rows = [{"name": "handshake", "ok": False, "message": "libfranka mismatch",
+             "details": {"libfranka_server_version": 9}}]
+    monkeypatch.setattr(host.report, "run", lambda argv, **kwargs: (0, json.dumps(rows)))
+    doctor.inspect(SimpleNamespace(mock=True), host)
+    assert next(f for f in host.findings if f.id == "left.handshake").status == "FAIL"
+    action = next(a for a in host.actions if a.id == "sdk:franky")
+    assert action.python and action.argv == franky_wheel_install_argv(9)
+
+
+def test_device_hints_name_rwrl_commands_and_no_device_autofix():
+    from real_world_rl.doctor import checks
+
+    package = Path(checks.__file__).resolve().parents[1]
+    for source in [Path(checks.__file__), *sorted((package / "devices/backends").rglob("*.py"))]:
+        text = source.read_text(encoding="utf-8")
+        assert "run with --fix" not in text and "--fix (recover)" not in text, source
+        assert "autofix" not in text, source
+
+
 @pytest.mark.parametrize(
-    "hint, expected",
+    "row, status",
     [
-        (
-            "clear errors in Desk, then run with --fix (recover)",
-            "clear errors in Desk, then run rwrl recover",
-        ),
-        (
-            "try another port; run with --fix to reopen",
-            "try another port; rerun rwrl status after reconnecting the camera",
-        ),
-        ("check the cable", "check the cable"),
-        ("", ""),
+        ({"ok": True}, "PASS"),
+        ({"ok": True, "warning": True}, "WARN"),
+        ({"ok": True, "skipped": True}, "SKIPPED"),
+        ({"ok": False}, "FAIL"),
+        ({"ok": False, "message": "arm claimed by another process (pid 7)"}, "BLOCKED"),
     ],
 )
-def test_device_fix_hints_name_rwrl_commands(hint, expected):
-    assert doctor.rwrl_device_hint(hint) == expected
+def test_device_rows_map_to_doctor_statuses(row, status):
+    row = {"layer": 3, "name": "handshake", "message": "checked", "hint": "", **row}
+    (finding,) = doctor.device_findings("left", [row])
+    assert (finding.id, finding.status, finding.message) == ("left.handshake", status, row["message"])
 
 
-def test_device_rows_report_rwrl_hints(host, monkeypatch):
+def test_device_rows_become_robot_findings_with_their_hints(host, monkeypatch):
     from real_world_rl.devices import RobotConfig
 
     config = RobotConfig.from_dict(
@@ -648,11 +711,11 @@ def test_device_rows_report_rwrl_hints(host, monkeypatch):
     )
     monkeypatch.setattr(doctor, "load_targets", lambda args: ([("left", config, "unused", False, "")], set()))
     monkeypatch.setattr(host, "inspect_system", lambda **kw: None)
-    rows = [{"name": "arm", "ok": False, "message": "reflex", "hint": "then run with --fix (recover)"}]
+    rows = [{"name": "arm", "ok": False, "message": "reflex", "hint": "then run rwrl recover"}]
     monkeypatch.setattr(host.report, "run", lambda argv, **kwargs: (0, json.dumps(rows)))
     doctor.inspect(SimpleNamespace(mock=True), host)
     finding = next(f for f in host.findings if f.id == "left.arm")
-    assert "rwrl recover" in finding.hint and "--fix (recover)" not in finding.hint
+    assert (finding.status, finding.hint) == ("FAIL", "then run rwrl recover")
 
 
 def test_serial_identity_is_stable_and_targets_only_one_adapter(host):
@@ -712,7 +775,7 @@ def test_probe_preserves_franka_fields_and_forces_read_only_claim(monkeypatch, c
 
     from real_world_rl.doctor import checks
 
-    from real_world_rl.cli import doctor_probe
+    from real_world_rl.doctor import probe as doctor_probe
 
     captured = []
 
@@ -738,7 +801,7 @@ def test_probe_preserves_franka_fields_and_forces_read_only_claim(monkeypatch, c
     assert json.loads(output.out) == [] and "SDK chatter" in output.err
     config, kwargs = captured[0]
     assert config.claim and config.home_joints == [0.0] * 7
-    assert kwargs["fix"] is False
+    assert "fix" not in kwargs
 
 
 def test_brltty_repair_requires_correlated_usb_topology(host, monkeypatch):
@@ -835,7 +898,7 @@ class NoDeviceDoctor(importlib.abc.MetaPathFinder):
 sys.meta_path.insert(0, NoDeviceDoctor())
 from real_world_rl.cli import main
 assert main(['doctor', '--help']) == 0
-assert 'real_world_rl.doctor.cli' not in sys.modules
+assert 'real_world_rl.doctor.report' not in sys.modules
 """
     result = subprocess.run([sys.executable, "-c", script], cwd=Path(__file__).resolve().parents[1],
                             env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
@@ -902,7 +965,7 @@ def station_config(**fields):
 
 
 def test_preset_station_differences_normalise_omitted_fields():
-    from real_world_rl.cli.doctor_preset import preset_station_differences
+    from real_world_rl.doctor.preset import preset_station_differences
 
     assert preset_station_differences(station_config(), dict(PRESET_STATION)) == []
     # An omitted key runs with its default, so it differs only when the station is not the default.
@@ -913,7 +976,7 @@ def test_preset_station_differences_normalise_omitted_fields():
 
 
 def test_preset_station_differences_compare_floats_with_tolerance():
-    from real_world_rl.cli.doctor_preset import preset_station_differences
+    from real_world_rl.doctor.preset import preset_station_differences
 
     home = list(PRESET_STATION["home_joints"])
     close = {**PRESET_STATION, "home_joints": [home[0] + 1e-12, *home[1:]]}
@@ -923,7 +986,7 @@ def test_preset_station_differences_compare_floats_with_tolerance():
 
 
 def test_preset_station_differences_align_cameras_by_name():
-    from real_world_rl.cli.doctor_preset import preset_station_differences
+    from real_world_rl.doctor.preset import preset_station_differences
 
     station = station_config(cameras=[{"name": "wrist", "serial": "123"}, {"name": "front", "serial": "456"}])
     preset = {**PRESET_STATION, "cameras": [
@@ -938,13 +1001,13 @@ def test_preset_station_differences_align_cameras_by_name():
 
 
 def test_preset_station_differences_report_a_different_robot_type():
-    from real_world_rl.cli.doctor_preset import preset_station_differences
+    from real_world_rl.doctor.preset import preset_station_differences
 
     assert preset_station_differences(station_config(), {"type": "piper"}) == [("type", "franka", "piper")]
 
 
 def test_preset_check_messages_abbreviate_long_lists():
-    from real_world_rl.cli.doctor_preset import brief
+    from real_world_rl.doctor.preset import brief
 
     assert brief([0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]) == "[0.0, ..., 0.785] (length 7)"
     assert brief([1, 2]) == "[1, 2]"

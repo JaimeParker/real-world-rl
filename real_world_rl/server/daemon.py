@@ -24,8 +24,9 @@ from real_world_rl.discovery.autoconfig import (
     fill_from_env,
     resolve_station_config_path,
 )
-from real_world_rl.doctor.checks import exit_code, run_doctor
-from real_world_rl.doctor.cli import format_text
+from real_world_rl.doctor.checks import check_rows, run_doctor
+from real_world_rl.doctor.repair import exit_status
+from real_world_rl.doctor.report import device_check_text, device_findings
 from real_world_rl.server.service import RobotService
 from real_world_rl.server.transport.base import Transport
 
@@ -64,10 +65,12 @@ def load_daemon_config(args: argparse.Namespace) -> RobotConfig:
 
 
 def preflight_passed(config: RobotConfig) -> bool:
-    results = run_doctor(config)
-    failed = exit_code(results)
+    """The device checks of ``config``, printed as ``rwrl doctor`` prints them (to stderr when they
+    fail); False when any check fails."""
+    findings = device_findings(config.name, check_rows(run_doctor(config)))
+    failed = exit_status(findings, []) != SUCCESS_EXIT_CODE
     stream = sys.stderr if failed else sys.stdout
-    print(format_text(results, color=supports_color(stream)), file=stream)
+    print(device_check_text(findings, color=supports_color(stream)), file=stream)
     if failed:
         print("preflight failed; fix the items above or start with --no-preflight", file=sys.stderr)
         return False

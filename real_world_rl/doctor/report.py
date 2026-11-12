@@ -1,16 +1,19 @@
-"""Robot-host diagnostics: inspect, preview, confirm, repair, then inspect again."""
+"""``rwrl doctor``: inspect, preview, confirm, repair, then inspect again.
+
+Also the one text form of doctor findings, which ``rwrl setup`` and the daemon preflight print
+for their device checks too."""
 
 from __future__ import annotations
 
 import dataclasses
 import json
-import re
 import shlex
 import io
 import sys
 from pathlib import Path
 
-from real_world_rl.cli.command import affirmative
+from real_world_rl.cli.command import Result, affirmative
+from real_world_rl.cli.errors import SUCCESS_EXIT_CODE
 from real_world_rl.cli.render import (
     BOLD,
     BOLD_GREEN,
@@ -29,30 +32,59 @@ from real_world_rl.common.station_paths import (
     station_path_from_env,
 )
 
-from .command import Result
-from .errors import SUCCESS_EXIT_CODE
-from .doctor_host import Host
-from .doctor_platform import find_checkout
-from .doctor_preset import preset_station_checks
-from .doctor_repair import Action, Report, execute, exit_status, payload, redact
-
-# Device-layer hints name the device doctor's `--fix`; `rwrl doctor --fix` never recovers or reopens devices.
-_DEVICE_FIX_HINTS = (
-    (re.compile(r"(?:run with )?--fix \(recover\)"), "run rwrl recover"),
-    (re.compile(r"(?:run with )?--fix to reopen"), "rerun rwrl status after reconnecting the camera"),
-)
-
-
-def rwrl_device_hint(hint: str) -> str:
-    if not hint:
-        return hint
-    for pattern, replacement in _DEVICE_FIX_HINTS:
-        hint = pattern.sub(replacement, hint)
-    return hint
-
+from real_world_rl.doctor.host import Host
+from real_world_rl.doctor.platform import find_checkout
+from real_world_rl.doctor.preset import preset_station_checks
+from real_world_rl.doctor.repair import Action, Finding, Report, execute, exit_status, payload, redact
 
 _STATUS_WIDTH = 14
 _UNRESOLVED_STATUSES = ("FAIL", "BLOCKED", "PENDING_ACTION")
+_SUCCESS_RESULT = "no blocking findings; review SKIPPED/WARN coverage"
+_FAILURE_RESULT = "unresolved failures / blocked checks / pending user actions"
+
+
+def device_status(row: dict) -> str:
+    """The doctor status of one device check row (the fields ``probe`` prints): SKIPPED, WARN,
+    PASS or FAIL, and BLOCKED when another process holds the device."""
+    if row.get("skipped"):
+        status = "SKIPPED"
+    elif not row["ok"]:
+        status = "FAIL"
+    else:
+        status = "WARN" if row.get("warning") else "PASS"
+    if "claimed by another process" in row.get("message", ""):
+        status = "BLOCKED"
+    return status
+
+
+def device_findings(robot: str, rows: list[dict]) -> list[Finding]:
+    """Device check rows of ``robot`` as findings with the id ``<robot>.<check name>``."""
+    return [
+        Finding(f"{robot}.{row['name']}", device_status(row), redact(row["message"]), redact(row.get("hint", "")))
+        for row in rows
+    ]
+
+
+def station_device_findings(path, *, robot: str | None = None, mock: bool = False) -> list[Finding]:
+    """The device checks of ``robot`` of a station yaml, or of every robot in order, run in this
+    process (``rwrl doctor`` runs them in the isolated ``probe``). A robot with a ``daemon:``
+    block needs grpc."""
+    from real_world_rl.discovery.autoconfig import fill_from_env
+    from real_world_rl.doctor import checks
+    from real_world_rl.station import load_station
+
+    station = load_station(path)
+    findings = []
+    for name in [robot] if robot is not None else list(station.robots):
+        selected = station.select(name)
+        results = checks.run_doctor(
+            fill_from_env(selected.config),
+            mock=mock,
+            config_path=str(path),
+            serves_daemon=selected.daemon_declared,
+        )
+        findings += device_findings(name, checks.check_rows(results))
+    return findings
 
 
 def status_line(status: str, item_id: str, text: str, *, color: bool, indent: str = "") -> str:
@@ -64,6 +96,24 @@ def hint_lines(hint: str, *, indent: str = "    ") -> str:
     label = indent + "hint: "
     first, *rest = hint.splitlines() or [""]
     return "\n".join([label + first, *(" " * len(label) + line for line in rest)])
+
+
+def check_lines(findings, *, color: bool) -> str:
+    """One status line per finding, each non-PASS one followed by its hint."""
+    lines = []
+    for row in findings:
+        lines.append(status_line(row.status, row.id, row.message, color=color))
+        if row.hint and row.status != "PASS":
+            lines.append(hint_lines(row.hint))
+    return "\n".join(lines)
+
+
+def result_line(succeeded: bool, *, color: bool) -> str:
+    return paint(
+        "Result: " + (_SUCCESS_RESULT if succeeded else _FAILURE_RESULT),
+        BOLD_GREEN if succeeded else BOLD_RED,
+        enabled=color,
+    )
 
 
 def _last_line(text: str) -> str:
@@ -93,6 +143,15 @@ def needs_attention(findings, actions, *, color: bool) -> str:
         if hint.strip():
             lines.append("    hint: " + hint.strip().splitlines()[0])
     return "\n".join(lines)
+
+
+def device_check_text(findings, *, color: bool) -> str:
+    """Device findings as ``rwrl setup`` and the daemon preflight print them, in ``rwrl doctor``'s
+    form: the check lines, the needs-attention block when something is unresolved, the result."""
+    succeeded = exit_status(findings, []) == SUCCESS_EXIT_CODE
+    parts = [check_lines(findings, color=color), needs_attention(findings, [], color=color),
+             result_line(succeeded, color=color)]
+    return "\n".join(part for part in parts if part)
 
 
 def station_configured(args) -> bool:
@@ -266,7 +325,7 @@ def inspect(args, host: Host):
             )
             continue
         if daemon and not args.mock:
-            from .connect import client_address, probe_daemon
+            from real_world_rl.cli.connect import client_address, probe_daemon
 
             if probe_daemon(client_address(bind)):
                 owners = [*owners, f"daemon owns {name} at {bind}"]
@@ -282,7 +341,7 @@ def inspect(args, host: Host):
             config=config.to_dict(), mock=args.mock, path=path, daemon=daemon
         )
         code, output = host.report.run(
-            [sys.executable, "-m", "real_world_rl.cli.doctor_probe"],
+            [sys.executable, "-m", "real_world_rl.doctor.probe"],
             input_text=json.dumps(request),
             timeout=45,
             stdout_only=True,
@@ -301,25 +360,11 @@ def inspect(args, host: Host):
             host.add(name + ".device", "FAIL", "device probe returned invalid JSON")
             continue
         results_by_robot[name] = rows
+        # The device engine checks every hidraw node; the host's USB/backend-specific check supersedes it.
+        shown = [row for row in rows if args.mock or row["name"] != "os:hid"]
+        for finding in device_findings(name, shown):
+            host.add(finding.id, finding.status, finding.message, finding.hint)
         for row in rows:
-            # The old doctor checks every hidraw node; the new USB/backend-specific check supersedes it.
-            if row["name"] == "os:hid" and not args.mock:
-                continue
-            status = (
-                "SKIPPED"
-                if row.get("skipped")
-                else ("WARN" if row.get("warning") else "PASS")
-                if row["ok"]
-                else "FAIL"
-            )
-            if "claimed by another process" in row.get("message", ""):
-                status = "BLOCKED"
-            host.add(
-                name + "." + row["name"],
-                status,
-                row["message"],
-                rwrl_device_hint(row.get("hint", "")),
-            )
             details = row.get("details", {})
             if (
                 row["name"] == "handshake"
@@ -406,7 +451,7 @@ def inspect(args, host: Host):
                 if d["kind"] == kind
             ]
         code, output = host.report.run(
-            [sys.executable, "-m", "real_world_rl.cli.doctor_probe"],
+            [sys.executable, "-m", "real_world_rl.doctor.probe"],
             input_text=json.dumps(dict(config=config)),
             timeout=20,
             stdout_only=True,
@@ -484,11 +529,9 @@ def run(ctx, usage_error):
     report.save("plan.json", before["repairs"])
     stream = ctx.stderr if args.json else ctx.stdout
     stream_color = supports_color(stream)
-    if not args.json:
-        for row in host.findings:
-            print(status_line(row.status, row.id, row.message, color=stream_color), file=stream)
-            if row.hint and row.status != "PASS":
-                print(hint_lines(row.hint), file=stream)
+    checks_text = check_lines(host.findings, color=stream_color)
+    if checks_text and not args.json:
+        print(checks_text, file=stream)
     for action in actions:
         if args.install_sdk and not args.fix and not action.id.startswith("sdk:"):
             continue
@@ -565,18 +608,5 @@ def run(ctx, usage_error):
         attention = needs_attention(host.findings, actions, color=output_color)
         if attention:
             print(attention, file=output)
-        succeeded = code == SUCCESS_EXIT_CODE
-        print(
-            paint(
-                "Result: "
-                + (
-                    "no blocking findings; review SKIPPED/WARN coverage"
-                    if succeeded
-                    else "unresolved failures / blocked checks / pending user actions"
-                ),
-                BOLD_GREEN if succeeded else BOLD_RED,
-                enabled=output_color,
-            ),
-            file=output,
-        )
+        print(result_line(code == SUCCESS_EXIT_CODE, color=output_color), file=output)
     return Result(result, output.getvalue().removesuffix("\n"), code, ensure_ascii=False)

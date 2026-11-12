@@ -25,12 +25,8 @@ from real_world_rl.discovery.autoconfig import (
     default_station_config_dir,
     resolve_station_config_path,
 )
-from real_world_rl.doctor.cli import (
-    doctor_station,
-    format_station_text,
-    load_station,
-    station_exit_code,
-)
+from real_world_rl.doctor.repair import exit_status
+from real_world_rl.doctor.report import device_check_text, station_device_findings
 from real_world_rl.setup.probes import ProbeOptions, discover_station, mock_station_probe
 from real_world_rl.setup.render import (
     check_rendered_station,
@@ -51,6 +47,12 @@ ROBOT_PC_PLACEHOLDER = "<robot-pc>"
 _WILDCARD_HOSTS = ("", "0.0.0.0", "::", "[::]")
 
 
+def load_station(path: str | Path):
+    """The station with its upper-layer sections (``teleop_profiles``) validated, as every rwrl
+    command loads it; imported on use so this module stays light."""
+    from real_world_rl.station import load_station as load_with_sections
+
+    return load_with_sections(path)
 
 
 def answers_from_args(args: argparse.Namespace, previous: StationDraft | None) -> Answers:
@@ -197,8 +199,8 @@ def run(args, ctx, *, ask: Ask = input, echo: Echo = print) -> int:
         return _USAGE_EXIT_CODE
     echo(f"wrote {path}")
     echo("checking it with the doctor" + (" (--mock)" if args.mock else "") + ":")
-    results = doctor_station(path, mock=args.mock)
+    findings = station_device_findings(path, mock=args.mock)
     # Only the default echo writes to a terminal; an injected echo may record or save the text.
-    echo(format_station_text(results, color=echo is print and supports_color(sys.stdout)))
+    echo(device_check_text(findings, color=echo is print and supports_color(sys.stdout)))
     echo(next_steps_text(draft, path, found_without_config=_found_without_config(path)))
-    return station_exit_code(results)
+    return exit_status(findings, [])

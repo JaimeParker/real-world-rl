@@ -267,3 +267,11 @@ def test_remote_stop_trace_roundtrip_and_observation_exclusion(connected, servic
         thread.join(2.)
     assert calls == ['begin']
     assert results == [evidence]
+
+
+def test_preflight_tolerates_an_older_daemon_that_sends_has_autofix(connected, monkeypatch):
+    row = {"layer": 5, "name": "mode:none", "ok": True, "message": "no mode checks", "hint": "",
+           "skipped": False, "warning": False, "details": {}, "has_autofix": False}
+    monkeypatch.setattr(connected.arm, "_call", lambda method, **kwargs: [row])
+    (result,) = connected.arm.preflight()
+    assert (result.name, result.ok) == ("mode:none", True)

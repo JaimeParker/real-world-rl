@@ -65,9 +65,7 @@ def test_default_environment_is_the_process_environment(monkeypatch):
         ("WARN", "33"),
         ("PENDING_ACTION", "33"),
         ("PASS", "32"),
-        ("OK", "32"),
         ("SKIPPED", "90"),
-        ("SKIP", "90"),
     ],
 )
 def test_each_status_has_its_style(status, code):
@@ -77,6 +75,8 @@ def test_each_status_has_its_style(status, code):
 
 def test_unknown_status_and_disabled_colour_are_plain():
     assert status_style("PLAN") is None
+    # The device engine's old OK/SKIP words are no doctor status any more.
+    assert status_style("OK") is None and status_style("SKIP") is None
     assert pad_then_paint("PLAN", 14) == f"{'PLAN':14}"
     assert pad_then_paint("FAIL", 14, enabled=False) == f"{'FAIL':14}"
     assert paint("text", "1", enabled=False) == "text"

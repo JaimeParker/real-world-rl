@@ -32,6 +32,24 @@ def _gello_teleop_class() -> type:
     return Teleop.backend(_BACKEND)
 
 
+def station_teleop_options(path: Optional[str], robot_name: str, robot: Any) -> dict:
+    """A station robot's ``teleop:`` section as local GELLO source kwargs: ``options`` plus
+    ``hold_s``. ``path`` names the station yaml in errors."""
+    teleop = robot.get("teleop") if isinstance(robot, dict) else None
+    if not isinstance(teleop, dict):
+        raise ValueError(f"--teleop-options-yaml {path}: station robot {robot_name!r} has no teleop: section")
+    backend = teleop.get("backend")
+    if backend != _BACKEND:
+        raise ValueError(
+            f"--teleop-options-yaml {path}: station robot {robot_name!r} has a {backend!r} teleop; "
+            f"only a {_BACKEND!r} section configures a local GELLO"
+        )
+    options = dict(teleop.get("options") or {})
+    if "hold_s" in teleop:
+        options["hold_s"] = teleop["hold_s"]
+    return options
+
+
 @register_teleop_source("gello")
 class GelloTeleopSource(ToggleableTeleopSource):
     """A GELLO on this machine, read by the device layer's ``gello`` teleop (a poll thread over
@@ -48,6 +66,34 @@ class GelloTeleopSource(ToggleableTeleopSource):
     The SDK is imported when ``start()`` opens the device (the intervention wrapper calls it), so
     building the source works without it. ``close()`` disconnects the device.
     """
+
+    USES_LAST_GRIPPER_ACTION = True
+    DRIVES_ONE_ARM = True
+
+    @classmethod
+    def options_from_station(
+        cls,
+        station_path: str,
+        station: Mapping[str, Any],
+        *,
+        robot: Optional[str] = None,
+        profile: Optional[str] = None,
+        provenance: Optional[dict] = None,
+    ) -> dict:
+        """The station robot's ``gello`` teleop section (``station_teleop_options``): the robot
+        of a single-robot station yaml, or the only one of its ``robots:``. The station fixes the
+        robot, so ``robot`` and ``profile`` are not used."""
+        robots = station.get("robots")
+        if not isinstance(robots, dict):
+            return station_teleop_options(station_path, str(station.get("name") or "robot"), station)
+        if len(robots) != 1:
+            raise ValueError(
+                f"--teleop-options-yaml {station_path} lists robots {sorted(robots)}; --teleop-device "
+                f"{_BACKEND} drives one arm (use --teleop-device bimanual "
+                f"--teleop-arm-device {_BACKEND} for two)"
+            )
+        ((name, robot_section),) = robots.items()
+        return station_teleop_options(station_path, name, robot_section)
 
     def __init__(
         self,

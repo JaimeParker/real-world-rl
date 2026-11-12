@@ -78,6 +78,9 @@ class TeleopPartSource(TeleopSource):
     ``failure``/``rerecord`` events are forwarded in ``TeleopReading.events``.
     """
 
+    USES_LAST_GRIPPER_ACTION = True
+    DRIVES_ONE_ARM = True
+
     def __init__(
         self,
         teleop: Union[Any, TeleopResolver],

@@ -9,12 +9,13 @@ SpaceMouse's button 0).
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Any, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional
 
 from real_world_rl.teleop.core.contract import TeleopReading, TeleopSource
 from real_world_rl.teleop.core.registry import (
     make_teleop_source,
     register_teleop_source,
+    source_class,
 )
 
 __all__ = ["INTERVENTION_FROM", "CompositeTeleopSource", "ToggleableTeleopSource"]
@@ -45,7 +46,12 @@ class CompositeTeleopSource(TeleopSource):
     ``intervention_from`` (a ``ToggleableTeleopSource`` motion half receives the event toggle and
     decides), ``episode_end`` and ``events`` are ORed over both. ``start``/``reset``/``close``
     reach both halves; ``close`` closes the second even if the first raises.
+
+    ``from_env`` takes ``last_gripper_action_getter`` and hands it on to a motion half that
+    declares ``USES_LAST_GRIPPER_ACTION``.
     """
+
+    USES_LAST_GRIPPER_ACTION = True
 
     def __init__(
         self,
@@ -72,9 +78,15 @@ class CompositeTeleopSource(TeleopSource):
         motion_kwargs: Optional[Mapping[str, Any]] = None,
         events_kwargs: Optional[Mapping[str, Any]] = None,
         intervention_from: str = "events",
+        last_gripper_action_getter: Optional[Callable[[], Any]] = None,
     ) -> "CompositeTeleopSource":
-        """Builds both halves by registry name with ``make_teleop_source(name, env, **kwargs)``."""
-        motion_source = make_teleop_source(motion, env, **dict(motion_kwargs or {}))
+        """Builds both halves by registry name with ``make_teleop_source(name, env, **kwargs)``;
+        ``last_gripper_action_getter`` joins the motion kwargs (unless they set it) when the
+        motion source uses it."""
+        motion_kwargs = dict(motion_kwargs or {})
+        if last_gripper_action_getter is not None and source_class(motion, motion_kwargs).USES_LAST_GRIPPER_ACTION:
+            motion_kwargs = {"last_gripper_action_getter": last_gripper_action_getter, **motion_kwargs}
+        motion_source = make_teleop_source(motion, env, **motion_kwargs)
         events_source = make_teleop_source(events, env, **dict(events_kwargs or {}))
         return cls(motion_source, events_source, intervention_from=intervention_from)
 

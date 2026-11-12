@@ -7,9 +7,13 @@ nor termios).
 from __future__ import annotations
 
 import importlib
-from typing import Any, Callable, Dict, List, Type
+from typing import Any, Callable, Dict, List, Mapping, Optional, Type
 
 from real_world_rl.teleop.core.contract import TeleopSource
+
+
+class UnknownTeleopSourceError(ValueError):
+    """``device=<name>`` names no registered teleop source."""
 
 _REGISTRY: Dict[str, Type[TeleopSource]] = {}
 _BUILTIN_MODULES: Dict[str, str] = {
@@ -48,10 +52,21 @@ def teleop_source_names() -> List[str]:
     return sorted(set(_REGISTRY) | set(_BUILTIN_MODULES))
 
 
-def make_teleop_source(name: str, env: Any, **kwargs: Any) -> TeleopSource:
-    """Builds the source registered as ``name`` through its ``from_env(env, **kwargs)``."""
+def _registered_class(name: str) -> Type[TeleopSource]:
     if name not in _REGISTRY and name in _BUILTIN_MODULES:
         importlib.import_module(_BUILTIN_MODULES[name])  # registers itself
     if name not in _REGISTRY:
-        raise ValueError(f"unknown teleop source {name!r}; available: {teleop_source_names()}")
-    return _REGISTRY[name].from_env(env, **kwargs)
+        raise UnknownTeleopSourceError(f"unknown teleop source {name!r}; available: {teleop_source_names()}")
+    return _REGISTRY[name]
+
+
+def source_class(name: str, options: Optional[Mapping[str, Any]] = None) -> Type[TeleopSource]:
+    """The class ``make_teleop_source(name, env, **options)`` builds, without building it (a
+    built-in source's module is imported): its class attributes declare what the source can do.
+    Raises ``UnknownTeleopSourceError`` (a ``ValueError``) for a name nothing registers."""
+    return _registered_class(name).resolved_class(dict(options or {}))
+
+
+def make_teleop_source(name: str, env: Any, **kwargs: Any) -> TeleopSource:
+    """Builds the source registered as ``name`` through its ``from_env(env, **kwargs)``."""
+    return _registered_class(name).from_env(env, **kwargs)

@@ -27,6 +27,7 @@ class PicoTeleopSource(TeleopSource):
     action_mode = "cartesian_delta"
     arm_action_dim = 6
     has_gripper = True
+    DRIVES_ONE_ARM = True
 
     def __init__(self, **kwargs: Any) -> None:
         self._wrapper = EETwistTeleOpWrapper(device="pico", **kwargs)

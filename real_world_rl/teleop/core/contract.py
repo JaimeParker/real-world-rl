@@ -4,12 +4,17 @@ A ``TeleopSource`` turns one operator device into ``TeleopReading``s in the env'
 ``[-1, 1]`` action space. The wrapper owns the env side (reset order, action replacement, info
 keys); a source owns only the device: opening it (``start``), reading it (``poll``), dropping
 latched state after an env reset (``reset``) and releasing it (``close``).
+
+What a source can do beyond that is declared, not looked up by device name: the class
+attributes and classmethods of ``TeleopSource`` (read through ``registry.source_class`` before
+any source is built), and the structural protocols ``TrackedCartesianSource`` and
+``SessionInputSource``.
 """
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, ClassVar, Mapping, Optional, Protocol
 
 import numpy as np
 
@@ -72,7 +77,70 @@ class TeleopSource(ABC):
     and ``has_gripper`` describe the emitted actions; the wrapper checks them against the env's
     action contract. Register a subclass with ``register_teleop_source`` to make it available as
     ``device="<name>"``; ``from_env`` is the factory the registry calls.
+
+    The capability attributes below default to what most sources do; a subclass sets only the
+    ones it differs in. The classmethods ``resolved_class``, ``options_from_station`` and
+    ``control_spec`` answer, without building a source, which class a set of options builds,
+    how a station yaml configures it and which control semantics a run with it compares.
     """
+
+    #: Takes ``last_gripper_action_getter``: the gripper actions the intervention wrapper last
+    #: sent to the env, one per arm (the source holds them, or starts a take-over from them).
+    USES_LAST_GRIPPER_ACTION: ClassVar[bool] = False
+    #: Drives every arm and gripper action part at once: a partial ``selected_parts`` is rejected.
+    REQUIRES_FULL_ACTION: ClassVar[bool] = False
+    #: Drives exactly one arm: a two-arm env needs ``device="bimanual"`` instead.
+    DRIVES_ONE_ARM: ClassVar[bool] = False
+    #: Moves the follower through a ``CartesianTargetTracker`` (it is a ``TrackedCartesianSource``)
+    #: built from the tracker kwargs ``lead_cap_m``/``lead_cap_rad``/``target_speed_m_s``/
+    #: ``target_speed_rad_s``, which the experiment contract records from the flags.
+    TRACKS_CARTESIAN_TARGET: ClassVar[bool] = False
+    #: Its resolved source options are frozen into the run's ``teleop_input`` (a numeric snapshot
+    #: reused on resume instead of rereading the options file).
+    RECORDS_TELEOP_INPUT: ClassVar[bool] = False
+    #: Accepts the commissioning input filter ``diagnostic_axes``/``diagnostic_gain``.
+    SUPPORTS_INPUT_DIAGNOSTICS: ClassVar[bool] = False
+
+    @classmethod
+    def resolved_class(cls, options: Mapping[str, Any]) -> type["TeleopSource"]:
+        """The class ``from_env(env, **options)`` builds: ``cls``, unless an option (a mode)
+        makes ``from_env`` build another one."""
+        return cls
+
+    @classmethod
+    def options_from_station(
+        cls,
+        station_path: str,
+        station: Mapping[str, Any],
+        *,
+        robot: Optional[str] = None,
+        profile: Optional[str] = None,
+        provenance: Optional[dict] = None,
+    ) -> dict:
+        """The source kwargs a station yaml configures for this source. ``station`` is the
+        loaded yaml (one robot with a ``teleop:`` section, or ``robots:``); ``robot`` selects the
+        station robot and ``profile`` the operator profile where the source has them; a source
+        that records where its options came from adds that to ``provenance``. By default a
+        source takes no options from a station."""
+        raise ValueError(
+            f"station yaml {station_path}: {cls.__name__} does not take its source options from a "
+            "station robot's teleop: section; pass a mapping of its source kwargs instead"
+        )
+
+    @classmethod
+    def control_spec(
+        cls,
+        *,
+        tracker_options: Optional[Mapping[str, float]],
+        source_options: Callable[[], Mapping[str, Any]],
+    ) -> Optional[dict]:
+        """The ``teleop_control`` block a run with this source compares on resume (None: none).
+
+        ``tracker_options`` are the tracker kwargs of a ``TRACKS_CARTESIAN_TARGET`` source (None
+        for the others). ``source_options()`` resolves the full source kwargs, which may read
+        the options file: call it only when the block depends on them.
+        """
+        return None
 
     @property
     @abstractmethod
@@ -103,6 +171,34 @@ class TeleopSource(ABC):
 
     def close(self) -> None:
         """Releases the device. Must be safe to call more than once."""
+
+
+class TrackedCartesianSource(Protocol):
+    """A ``TRACKS_CARTESIAN_TARGET`` source: it exposes the follower's command tracker, which
+    the hold policy (``real_world_rl.teleop.core.hold``) shares while nobody drives."""
+
+    @property
+    def cartesian_tracker(self) -> Any: ...
+
+
+class SessionInputSource(Protocol):
+    """A motion source the episode-boundary session gate (``real_world_rl.teleop.core.session``)
+    can wait on: ``session_input()`` consumes one fresh device reading without moving the motion
+    target and returns ``(axes, buttons)``, the six input axes and the button levels by name, so
+    the gate can tell when the operator's input is neutral."""
+
+    def session_input(self) -> tuple[Any, Mapping[str, bool]]: ...
+
+
+def declares_capability(source: Any, capability: str) -> bool:
+    """Whether the class of ``source`` sets the capability attribute ``capability`` (one of the
+    ``TeleopSource`` class attributes); a duck-typed source declares none."""
+    return bool(getattr(type(source), capability, False))
+
+
+def provides_session_input(source: Any) -> bool:
+    """Whether ``source`` is a ``SessionInputSource`` (it has a callable ``session_input``)."""
+    return callable(getattr(source, "session_input", None))
 
 
 def reading_from_legacy_sample(sample: Any, *, action_dim: int) -> TeleopReading:

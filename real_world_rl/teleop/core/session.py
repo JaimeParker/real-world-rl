@@ -1,4 +1,9 @@
-"""Episode-boundary holding, separate from policy/human intervention ownership."""
+"""Episode-boundary holding, separate from policy/human intervention ownership.
+
+The gate needs a composite teleop source: an event device for the operator's next/quit keys and
+a motion device that is a ``SessionInputSource`` (its ``session_input()`` reading tells when the
+operator's input is neutral).
+"""
 from __future__ import annotations
 
 import math
@@ -9,6 +14,23 @@ import numpy as np
 
 from real_world_rl.supervise import Heartbeat
 from real_world_rl.teleop.core.composite import CompositeTeleopSource
+from real_world_rl.teleop.core.contract import provides_session_input
+
+SESSION_SOURCE_REQUIRED = (
+    "session hold requires an event device (--teleop-event-device) plus a motion device that "
+    "provides a neutral reading (a SessionInputSource with session_input())"
+)
+
+
+def is_session_source(source) -> bool:
+    """Whether the session gate can wait on ``source``: a composite whose motion half is a
+    ``SessionInputSource``."""
+    return isinstance(source, CompositeTeleopSource) and provides_session_input(source.motion)
+
+
+def require_session_source(source) -> None:
+    if not is_session_source(source):
+        raise ValueError(SESSION_SOURCE_REQUIRED)
 
 
 def session_backend(env):
@@ -57,9 +79,8 @@ def wait_after_episode(env, source, *, allow_next, control_hz,
     if not math.isfinite(control_hz) or control_hz <= 0:
         raise ValueError("control_hz must be positive")
     validate_neutral_options(neutral_threshold, neutral_stable_s)
-    if not isinstance(source, CompositeTeleopSource) or not callable(getattr(source.motion, "session_input", None)):
-        raise ValueError("session hold requires SpaceMouse plus an event device")
-    enable = getattr(source.events, "enable_session_events", None)
+    require_session_source(source)
+    enable =getattr(source.events, "enable_session_events", None)
     if callable(enable):
         enable()
     backend = session_backend(env)
@@ -119,12 +140,13 @@ def notify_session_event(env, phase, reason):
 
 
 def session_source(env):
-    """Find a SpaceMouse composite before reset or controller acquisition."""
+    """Find the session gate's teleop source (``is_session_source``) in ``env``'s chain before
+    reset or controller acquisition."""
     seen = set()
     while env is not None and id(env) not in seen:
         seen.add(id(env))
         source = vars(env).get("source") if hasattr(env, "__dict__") else None
-        if isinstance(source, CompositeTeleopSource) and callable(getattr(source.motion, "session_input", None)):
+        if is_session_source(source):
             return source
         env = vars(env).get("env") if hasattr(env, "__dict__") else None
-    raise ValueError("session hold requires SpaceMouse plus an event device")
+    raise ValueError(SESSION_SOURCE_REQUIRED)

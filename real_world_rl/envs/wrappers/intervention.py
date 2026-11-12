@@ -24,13 +24,13 @@ through ``teleop_kwargs`` (``teleop_contract``, ``joint_limits``, ``joint_scale_
 gripper actions last sent to the env, one per arm (the last ``num_arms`` action dims, see
 ``action_contract``; +1, open, after a reset) as a ``(num_arms,)`` tensor, which a gripper-less
 teleop part holds: it passes ``last_gripper_action_getter`` (returning that tensor; a source
-reads the entry of its arm; ``"bimanual"`` hands each per-arm child a view of its entry) to the
-``GRIPPER_HOLDING_DEVICES`` and to the motion half of a ``"composite"`` whose motion device is one
-of them.
+reads the entry of its arm; ``"bimanual"`` hands each per-arm child a view of its entry) to every
+source that declares ``USES_LAST_GRIPPER_ACTION`` (a ``"composite"`` hands it on to such a motion
+half).
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 import gymnasium as gym
 import torch
@@ -43,15 +43,24 @@ from real_world_rl.action_contract import (
     num_grippers_of,
     with_arm_layout,
 )
-from real_world_rl.teleop.core.contract import TeleopSource, as_teleop_source
-from real_world_rl.teleop.core.registry import make_teleop_source
+from real_world_rl.teleop.core.contract import TeleopSource, as_teleop_source, declares_capability
+from real_world_rl.teleop.core.registry import UnknownTeleopSourceError, make_teleop_source, source_class
 
 # RealRobotEnv opens the gripper on reset.
 _GRIPPER_ACTION_AFTER_RESET = 1.0
-# Sources that read the last sent gripper action (they take ``last_gripper_action_getter``): the
-# ones mapping a device-layer teleop part hold it when the part has no gripper channel, and
-# ``spacemouse`` starts every take-over from it; ``bimanual`` holds one per arm.
-GRIPPER_HOLDING_DEVICES = ("robot", "leader_arm", "gello", "leader_cartesian", "spacemouse", "bimanual")
+_FULL_ACTION_REQUIRED = (
+    "the teleop source drives every arm and gripper action dimension at once "
+    "(REQUIRES_FULL_ACTION), so it requires all arm and gripper action parts; omit selected_parts"
+)
+
+
+def _uses_last_gripper_action(device: Any, teleop_kwargs: Mapping[str, Any]) -> bool:
+    """Whether the source ``device`` builds from ``teleop_kwargs`` takes
+    ``last_gripper_action_getter``; False for a name nothing registers (building it reports that)."""
+    try:
+        return source_class(device, teleop_kwargs).USES_LAST_GRIPPER_ACTION
+    except UnknownTeleopSourceError:
+        return False
 
 
 class InterventionWrapper(gym.Wrapper):
@@ -70,10 +79,9 @@ class InterventionWrapper(gym.Wrapper):
             from real_world_rl.teleop.core.action_parts import part_mask
             self._selected_mask = part_mask(get_env_action_contract(env) or LEGACY_ACTION_CONTRACT, selected_parts)
             from real_world_rl.teleop.core.composite import CompositeTeleopSource
-            from real_world_rl.teleop.spacemouse.serl import SpaceMouseSerlTeleopSource
             motion = self.source.motion if isinstance(self.source, CompositeTeleopSource) else self.source
-            if isinstance(motion, SpaceMouseSerlTeleopSource) and not self._selected_mask.all():
-                raise ValueError("spacemouse serl mode requires all arm and gripper action parts")
+            if declares_capability(motion, "REQUIRES_FULL_ACTION") and not self._selected_mask.all():
+                raise ValueError(_FULL_ACTION_REQUIRED)
             if idle_behavior not in ("hold", "policy"):
                 raise ValueError("idle_behavior must be hold or policy")
             self.idle_behavior = idle_behavior
@@ -269,14 +277,8 @@ class TeleopInterventionWrapper(InterventionWrapper):
         if teleop is not None:
             source = as_teleop_source(teleop)
         else:
-            # Read lazily: the wrapper's bookkeeping attribute does not exist yet.
-            hold_gripper = {"last_gripper_action_getter": lambda: self._last_gripper_action}
-            serl = device == "spacemouse" and teleop_kwargs.get("mode") == "serl"
-            if device in GRIPPER_HOLDING_DEVICES and not serl:
-                teleop_kwargs = {**hold_gripper, **teleop_kwargs}
-            elif device == "composite" and teleop_kwargs.get("motion") in GRIPPER_HOLDING_DEVICES:
-                motion_kwargs = dict(teleop_kwargs.get("motion_kwargs") or {})
-                if not (teleop_kwargs.get("motion") == "spacemouse" and motion_kwargs.get("mode") == "serl"):
-                    teleop_kwargs["motion_kwargs"] = {**hold_gripper, **motion_kwargs}
+            if _uses_last_gripper_action(device, teleop_kwargs):
+                # Read lazily: the wrapper's bookkeeping attribute does not exist yet.
+                teleop_kwargs = {"last_gripper_action_getter": lambda: self._last_gripper_action, **teleop_kwargs}
             source = make_teleop_source(device, env, **teleop_kwargs)
         super().__init__(env, source, selected_parts=selected_parts, idle_behavior=idle_behavior)

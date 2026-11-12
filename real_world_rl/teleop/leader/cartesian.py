@@ -54,20 +54,27 @@ from real_world_rl.kinematics.transforms import (
     pose_to_transform,
 )
 from real_world_rl.teleop.core.contract import TeleopReading, held_gripper_action
-from real_world_rl.teleop.core.targets.cartesian_tracker import (
-    CartesianTargetTracker,
-    CartesianTrackerConfig,
+from real_world_rl.teleop.core.targets.cartesian_driver import (
+    CartesianTrackerDriver,
+    tracker_control_spec,
+    validated_tracker_config,
+)
+from real_world_rl.teleop.core.targets.cartesian_tracker import CartesianTargetTracker
+from real_world_rl.teleop.core.targets.follower import (
+    PoseGetter,
+    follower_kwargs_from_env,
+    follower_pose_from_env,
 )
 from real_world_rl.teleop.core.composite import ToggleableTeleopSource
 from real_world_rl.teleop.core.part import (
     DEFAULT_READ_TIMEOUT_S,
     TeleopContract,
     TeleopResolver,
-    _find_last_observation_owner,
     teleop_contract_of,
 )
 from real_world_rl.teleop.core.registry import register_teleop_source
 
+# follower_pose_from_env moved to core.targets.follower; it stays importable from here.
 __all__ = ["LeaderArmCartesianSource", "MAPPINGS", "follower_pose_from_env"]
 
 MAPPINGS = ("anchored", "absolute")
@@ -76,8 +83,6 @@ _CARTESIAN_ACTION_MODE = "cartesian_delta"
 _CARTESIAN_ARM_DIM = 6
 _FORWARDED_EVENTS = ("success", "failure", "rerecord")
 _DEFAULT_REMOTE_NAME = "leader"
-
-PoseGetter = Callable[[], Optional[np.ndarray]]
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +107,10 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
     raises ``MissedControlDeadline``. Read failures propagate; nothing ever turns into an idle
     reading.
     """
+
+    USES_LAST_GRIPPER_ACTION = True
+    DRIVES_ONE_ARM = True
+    TRACKS_CARTESIAN_TARGET = True
 
     def __init__(
         self,
@@ -132,35 +141,26 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
             raise ValueError("pass exactly one leader: teleop=<part or resolver> or leader_robot=<robot>")
         if mapping not in MAPPINGS:
             raise ValueError(f"mapping {mapping!r} invalid; choose from {list(MAPPINGS)}")
-        if not (pos_scale_m > 0 and rot_scale_rad > 0):
-            raise ValueError(
-                f"pos_scale_m and rot_scale_rad must be positive, got {pos_scale_m}, {rot_scale_rad}"
-            )
-        tracker_config = CartesianTrackerConfig(
+        tracker_config = validated_tracker_config(
+            "leader_cartesian",
+            pos_scale_m=pos_scale_m,
+            rot_scale_rad=rot_scale_rad,
             lead_cap_m=lead_cap_m,
             lead_cap_rad=lead_cap_rad,
-            speed_m_s=target_speed_m_s,
-            speed_rad_s=target_speed_rad_s,
+            target_speed_m_s=target_speed_m_s,
+            target_speed_rad_s=target_speed_rad_s,
             max_dt_s=max_dt_s,
         )
-        if pos_scale_m < lead_cap_m or rot_scale_rad < lead_cap_rad:
-            raise ValueError(
-                "leader_cartesian needs xyz_scale_m >= lead_cap_m and rot_scale_rad >= lead_cap_rad, "
-                "so one env step reaches every command the lead cap allows; got "
-                f"xyz_scale_m={pos_scale_m}, lead_cap_m={lead_cap_m}, rot_scale_rad={rot_scale_rad}, "
-                f"lead_cap_rad={lead_cap_rad}. Raise --real-robot.xyz-scale-m/--real-robot.rot-scale-rad "
-                "or lower --teleop-lead-cap-m/--teleop-lead-cap-rad"
-            )
         self._tracker = CartesianTargetTracker(tracker_config, safety_box=safety_box)
+        self._driver = CartesianTrackerDriver(
+            self._tracker, source_name="leader_cartesian", follower_pose_getter=follower_pose_getter,
+            pos_scale_m=pos_scale_m, rot_scale_rad=rot_scale_rad, clock=clock,
+        )
         self._kinematics = PandaKinematics() if kinematics is None else kinematics
         self._mapping = mapping
-        self._pos_scale_m = float(pos_scale_m)
-        self._rot_scale_rad = float(rot_scale_rad)
         self._gripper_binarize_threshold = gripper_binarize_threshold
-        self._follower_pose = follower_pose_getter
         self._last_gripper_action = last_gripper_action_getter
         self._read_timeout_s = read_timeout_s
-        self._clock = clock
         contract = LEGACY_ACTION_CONTRACT if env_contract is None else env_contract
         self._env_gripper = bool(contract["gripper_in_action"])
 
@@ -188,7 +188,6 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
         # Set by a stalled control loop: the next intervened poll re-anchors on its own.
         self._reanchor_pending = False
         self._anchor: Optional[tuple[np.ndarray, np.ndarray]] = None  # (p_c0 - p_l0, R_l0^T R_c0)
-        self._last_advance_s: Optional[float] = None
         self._gripper_latched = False
 
     @property
@@ -214,6 +213,11 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
         return self._tracker
 
     @classmethod
+    def control_spec(cls, *, tracker_options, source_options) -> dict:
+        """The tracker's block: the leader's other options are not compared."""
+        return tracker_control_spec(tracker_options)
+
+    @classmethod
     def from_env(
         cls,
         env: Any,
@@ -236,11 +240,6 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
         (``last_observation["state"]["tcp_pose"]``, ``xyz_scale_m``/``rot_scale_rad`` of its
         action contract, the configured ``safety_box`` of its experiment).
         """
-        from real_world_rl.action_contract import (
-            LEGACY_ACTION_CONTRACT,
-            get_env_action_contract,
-        )
-
         candidates = {"leader": leader, "remote_address": remote_address, "robot_yaml": robot_yaml}
         given = [name for name, value in candidates.items() if value is not None]
         if len(given) != 1:
@@ -249,14 +248,7 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
                 "remote_address='host:port' (a robot daemon serving the leader as its teleop "
                 f"part) or robot_yaml=<path> (a local robot yaml with a teleop: section); got {given}"
             )
-        contract = get_env_action_contract(env)
-        kwargs.setdefault("env_contract", LEGACY_ACTION_CONTRACT if contract is None else contract)
-        if "follower_pose_getter" not in kwargs:
-            getter, (pos_scale_m, rot_scale_rad) = follower_pose_from_env(env, contract)
-            kwargs["follower_pose_getter"] = getter
-            kwargs.setdefault("pos_scale_m", pos_scale_m)
-            kwargs.setdefault("rot_scale_rad", rot_scale_rad)
-        kwargs.setdefault("safety_box", _safety_box_from_env(env, contract))
+        follower_kwargs_from_env(env, kwargs)
         if leader is not None:
             return cls(leader, **kwargs)
         if remote_address is not None:
@@ -295,11 +287,8 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
         self._needs_new_takeover = False
         self._reanchor_pending = False
         self._anchor = None
-        self._last_advance_s = None
         self._gripper_latched = False
-        pose = self._follower_pose()
-        if pose is not None:
-            self._tracker.reset(pose)
+        self._driver.reset()
         teleop = self._resolve()
         if teleop is None:
             return
@@ -338,7 +327,7 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
         q = np.asarray(sample.action, dtype=np.float64)
         requested = bool(sample.intervening) if toggle is None else toggle
         episode_end = bool(sample.events.get("episode_end", False))
-        measured = self._measured_pose()
+        measured = self._driver.measured_pose()
         if not self._tracker.initialized:
             self._tracker.reset(measured)
         takeover = requested and not self._previously_requested
@@ -347,7 +336,7 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
         if episode_end and self._tracker.following:
             self._tracker.hold_at(measured)
             self._needs_new_takeover = True
-            arm = self._tracker.action_for(measured, self._pos_scale_m, self._rot_scale_rad)
+            arm = self._driver.action_for(measured)
         parts = [arm]
         if self._env_gripper:
             parts.append(np.array([self._gripper_action(sample, teleop, takeover, requested)]))
@@ -376,7 +365,7 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
         elif self._needs_new_takeover:
             return False, idle
         try:
-            update = tracker.advance(self._requested_pose(q), measured, self._elapsed_s())
+            update = tracker.advance(self._requested_pose(q), measured, self._driver.elapsed_s())
             if update.workspace_violations:
                 self._needs_new_takeover = True
                 logger.warning(
@@ -394,7 +383,7 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
                     update.missed_deadline_s,
                     tracker.config.max_dt_s,
                 )
-            return True, tracker.action_for(measured, self._pos_scale_m, self._rot_scale_rad)
+            return True, self._driver.action_for(measured)
         except BaseException:
             self._hold_after_failure()
             raise
@@ -403,7 +392,7 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
         self._tracker.take_over()
         self._needs_new_takeover = False
         self._reanchor_pending = False
-        self._last_advance_s = None
+        self._driver.restart_clock()
         if self._mapping == "anchored":
             leader = self._kinematics.ee_transform(q)
             command = pose_to_transform(self._tracker.command)
@@ -418,27 +407,10 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
             position, rotation = position + position_offset, rotation @ rotation_offset
         return np.concatenate([position, matrix_to_quat_xyzw(rotation)])
 
-    def _elapsed_s(self) -> float:
-        """Seconds since the previous advance; 0 for the first one of a take-over."""
-        now = float(self._clock())
-        elapsed = 0.0 if self._last_advance_s is None else now - self._last_advance_s
-        self._last_advance_s = now
-        return elapsed
-
-    def _measured_pose(self) -> np.ndarray:
-        pose = self._follower_pose()
-        if pose is None:
-            raise RuntimeError("leader_cartesian polled before the env was reset (no follower pose yet)")
-        return np.asarray(pose, dtype=np.float64)
-
     def _hold_after_failure(self) -> None:
         """Input or tracking failure: hold the measured pose; following needs a new take-over."""
-        if not self._tracker.following:
-            return
-        pose = self._follower_pose()
-        if pose is not None:
-            self._tracker.hold_at(pose)
-        self._needs_new_takeover = True
+        if self._driver.hold_after_failure():
+            self._needs_new_takeover = True
 
     # -- gripper -------------------------------------------------------------------
 
@@ -532,50 +504,3 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
 
 def _gripper_open(action: float) -> bool:
     return action > 0.0
-
-
-def follower_pose_from_env(env: Any, contract: Optional[Mapping[str, Any]]) -> tuple[PoseGetter, tuple]:
-    """The follower TCP pose getter and ``(pos_scale_m, rot_scale_rad)`` of ``env``."""
-    from real_world_rl.envs.franka_real.env import FrankaRealEnv
-
-    franka_env = _find_in_wrapper_chain(env, FrankaRealEnv)
-    if franka_env is not None:
-        return (lambda: franka_env.last_tcp_pose), tuple(franka_env.cfg.action_scale)
-    real_env = _find_last_observation_owner(env)
-    if real_env is not None and contract is not None and contract["action_mode"] == _CARTESIAN_ACTION_MODE:
-
-        def tcp_pose_from_observation() -> Optional[np.ndarray]:
-            observation = real_env.last_observation
-            if observation is None:
-                return None
-            return np.asarray(observation["state"]["tcp_pose"], dtype=np.float64)
-
-        return tcp_pose_from_observation, (contract["xyz_scale_m"], contract["rot_scale_rad"])
-    raise ValueError(
-        "the follower's TCP pose is read from a franka_real env (FrankaRealEnv.last_tcp_pose) or "
-        "a real_robot env with action_mode cartesian_delta (and tcp_pose in its state_fields); "
-        "otherwise pass follower_pose_getter=..."
-    )
-
-
-def _safety_box_from_env(env: Any, contract: Optional[Mapping[str, Any]]) -> Optional[list]:
-    """``[xmin, ymin, zmin, xmax, ymax, zmax]`` the env clips commands to, if configured."""
-    from real_world_rl.envs.franka_real.env import FrankaRealEnv
-
-    franka_env = _find_in_wrapper_chain(env, FrankaRealEnv)
-    if franka_env is not None:
-        return [*franka_env.cfg.safety_box_low, *franka_env.cfg.safety_box_high]
-    experiment = (contract or {}).get("experiment") or {}
-    box = experiment.get("safety_box")
-    return None if box is None else list(box)
-
-
-def _find_in_wrapper_chain(env: Any, env_cls: type) -> Optional[Any]:
-    """Walk ``.env`` down the wrapper chain to the first ``env_cls`` instance."""
-    node, seen = env, set()
-    while node is not None and id(node) not in seen:
-        seen.add(id(node))
-        if isinstance(node, env_cls):
-            return node
-        node = vars(node).get("env") if hasattr(node, "__dict__") else None
-    return None

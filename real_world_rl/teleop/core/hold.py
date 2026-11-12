@@ -55,9 +55,9 @@ class _ArmTargetHold(HoldPolicy):
 
 class CartesianHold(HoldPolicy):
     """Keeps a single ``cartesian_delta`` arm on a fixed hold pose with a
-    ``CartesianTargetTracker``: the tracker of the env's ``leader_cartesian`` or ``spacemouse``
-    teleop source when there is one (found through the intervention wrapper in the chain; the
-    source moves it to the
+    ``CartesianTargetTracker``: the tracker of the env's ``TRACKS_CARTESIAN_TARGET`` teleop
+    source (``leader_cartesian``, ``spacemouse``) when there is one (found through the
+    intervention wrapper in the chain; the source moves it to the
     pose measured at every hand-back), else one of its own that ``observe_step`` re-samples at
     the pose measured after every intervened step. ``reset()`` samples the hold pose at the env
     reset. The action moves the arm towards the hold pose by at most the tracker's lead cap
@@ -108,7 +108,7 @@ class CartesianHold(HoldPolicy):
                 CartesianTargetTracker,
                 CartesianTrackerConfig,
             )
-            from real_world_rl.teleop.leader.cartesian import follower_pose_from_env
+            from real_world_rl.teleop.core.targets.follower import follower_pose_from_env
 
             getter, scales = follower_pose_from_env(self._env, get_env_action_contract(self._env))
             xyz_scale_m, rot_scale_rad = (float(scale) for scale in scales)
@@ -161,14 +161,13 @@ def hold_action_fn_for(env: Any) -> HoldPolicy:
 
 
 def shared_cartesian_tracker(env: Any):
-    """The ``CartesianTargetTracker`` of the ``leader_cartesian`` or ``spacemouse`` source (also
-    as the motion half of a composite) of the intervention wrapper in ``env``'s chain, or None."""
+    """The ``CartesianTargetTracker`` of the ``TRACKS_CARTESIAN_TARGET`` source (a
+    ``TrackedCartesianSource``, also as the motion half of a composite) of the intervention
+    wrapper in ``env``'s chain, or None."""
     from real_world_rl.envs.wrappers.intervention import InterventionWrapper
     from real_world_rl.teleop.core.composite import CompositeTeleopSource
-    from real_world_rl.teleop.leader.cartesian import LeaderArmCartesianSource
-    from real_world_rl.teleop.spacemouse.source import SpaceMouseTeleopSource
+    from real_world_rl.teleop.core.contract import declares_capability
 
-    tracked_sources = (LeaderArmCartesianSource, SpaceMouseTeleopSource)
     node, seen = env, set()
     while node is not None and id(node) not in seen:
         seen.add(id(node))
@@ -176,7 +175,8 @@ def shared_cartesian_tracker(env: Any):
             source = node.source
             if isinstance(source, CompositeTeleopSource):
                 source = source.motion
-            return source.cartesian_tracker if isinstance(source, tracked_sources) else None
+            tracked = declares_capability(source, "TRACKS_CARTESIAN_TARGET")
+            return source.cartesian_tracker if tracked else None
         node = vars(node).get("env") if hasattr(node, "__dict__") else None
     return None
 

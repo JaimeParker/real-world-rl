@@ -285,11 +285,9 @@ def record_demos(
     hold = as_hold_policy(hold_action_fn)
     wrapper = intervention_wrapper_of(env)
     if args.episode_end_behavior == "hold":
-        from real_world_rl.teleop.core.session import session_backend
+        from real_world_rl.teleop.core.session import require_session_source, session_backend
         session_backend(env)  # reject unsupported backends before reset can move the arm
-        if (not isinstance(wrapper.source, CompositeTeleopSource)
-                or not callable(getattr(wrapper.source.motion, "session_input", None))):
-            raise ValueError("session hold requires SpaceMouse plus an event device")
+        require_session_source(wrapper.source)
     contract = get_env_action_contract(env) or LEGACY_ACTION_CONTRACT
     num_grippers = num_grippers_of(contract)
     control_period_s = 1.0 / args.control_hz

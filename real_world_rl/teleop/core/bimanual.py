@@ -102,6 +102,8 @@ class BimanualTeleopSource(ToggleableTeleopSource):
     ``CompositeTeleopSource(motion=<this>, events=<keyboard>)`` toggles both arms at once.
     """
 
+    USES_LAST_GRIPPER_ACTION = True
+
     def __init__(
         self,
         sources: Mapping[str, TeleopSource],

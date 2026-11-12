@@ -62,6 +62,8 @@ class SpaceMouseTwistTeleopSource(TeleopSource):
     disconnects the device.
     """
 
+    DRIVES_ONE_ARM = True
+
     def __init__(
         self,
         *,

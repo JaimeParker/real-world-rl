@@ -60,21 +60,21 @@ from real_world_rl.teleop.spacemouse import (
 )
 from real_world_rl.devices.teleop import Teleop, TeleopConfig
 
-from real_world_rl.action_contract import (
-    LEGACY_ACTION_CONTRACT,
-    get_env_action_contract,
-)
+from real_world_rl.action_contract import LEGACY_ACTION_CONTRACT
 from real_world_rl.teleop.core.contract import TeleopReading, TeleopSource, held_gripper_action
-from real_world_rl.teleop.core.targets.cartesian_tracker import (
-    CartesianTargetTracker,
-    CartesianTrackerConfig,
+from real_world_rl.teleop.core.targets.cartesian_driver import (
+    CartesianTrackerDriver,
+    tracker_control_spec,
+    validated_tracker_config,
 )
+from real_world_rl.teleop.core.targets.cartesian_tracker import CartesianTargetTracker
 from real_world_rl.teleop.core.composite import ToggleableTeleopSource
 from real_world_rl.teleop.core.part import (
     DEFAULT_READ_TIMEOUT_S,
     teleop_contract_of,
 )
 from real_world_rl.teleop.core.registry import register_teleop_source
+from real_world_rl.teleop.spacemouse.options import SpaceMouseOptions
 
 __all__ = ["DEFAULT_DEADZONE", "SpaceMouseTeleopSource"]
 
@@ -92,7 +92,7 @@ logger = logging.getLogger(__name__)
 
 
 @register_teleop_source("spacemouse")
-class SpaceMouseTeleopSource(ToggleableTeleopSource):
+class SpaceMouseTeleopSource(SpaceMouseOptions, ToggleableTeleopSource):
     """A SpaceMouse driving the follower's command tracker (module docstring).
 
     The device is the SpaceMouse on this machine (``device_index``, ``deadzone``,
@@ -107,7 +107,27 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
     monotonic clock in seconds) times the tracker's advances. On an env with a gripper,
     ``last_gripper_action_getter`` is required. Read failures propagate; nothing ever turns into
     an idle reading.
+
+    ``mode="serl"`` (an option of ``from_env``) builds ``SpaceMouseSerlTeleopSource`` instead.
     """
+
+    USES_LAST_GRIPPER_ACTION = True
+    TRACKS_CARTESIAN_TARGET = True
+
+    @classmethod
+    def resolved_class(cls, options: Mapping[str, Any]) -> type[TeleopSource]:
+        if options.get("mode") == "serl":
+            from real_world_rl.teleop.spacemouse.serl import SpaceMouseSerlTeleopSource
+
+            return SpaceMouseSerlTeleopSource
+        return cls
+
+    @classmethod
+    def control_spec(cls, *, tracker_options, source_options) -> dict:
+        """The tracker's block plus the compared input frame (the diagnostics filter)."""
+        spec = tracker_control_spec(tracker_options)
+        spec.update(cls.compared_input_frame(source_options()))
+        return spec
 
     def __init__(
         self,
@@ -140,25 +160,16 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
     ) -> None:
         if not 0.0 <= deadzone < 1.0:
             raise ValueError(f"deadzone must be in [0, 1) of full scale, got {deadzone}")
-        if not (pos_scale_m > 0 and rot_scale_rad > 0):
-            raise ValueError(
-                f"pos_scale_m and rot_scale_rad must be positive, got {pos_scale_m}, {rot_scale_rad}"
-            )
-        tracker_config = CartesianTrackerConfig(
+        tracker_config = validated_tracker_config(
+            "spacemouse",
+            pos_scale_m=pos_scale_m,
+            rot_scale_rad=rot_scale_rad,
             lead_cap_m=lead_cap_m,
             lead_cap_rad=lead_cap_rad,
-            speed_m_s=target_speed_m_s,
-            speed_rad_s=target_speed_rad_s,
+            target_speed_m_s=target_speed_m_s,
+            target_speed_rad_s=target_speed_rad_s,
             max_dt_s=max_dt_s,
         )
-        if pos_scale_m < lead_cap_m or rot_scale_rad < lead_cap_rad:
-            raise ValueError(
-                "spacemouse needs xyz_scale_m >= lead_cap_m and rot_scale_rad >= lead_cap_rad, "
-                "so one env step reaches every command the lead cap allows; got "
-                f"xyz_scale_m={pos_scale_m}, lead_cap_m={lead_cap_m}, rot_scale_rad={rot_scale_rad}, "
-                f"lead_cap_rad={lead_cap_rad}. Raise --real-robot.xyz-scale-m/--real-robot.rot-scale-rad "
-                "or lower --teleop-lead-cap-m/--teleop-lead-cap-rad"
-            )
         contract = LEGACY_ACTION_CONTRACT if env_contract is None else env_contract
         self._env_gripper = bool(contract["gripper_in_action"])
         if self._env_gripper and last_gripper_action_getter is None:
@@ -169,8 +180,10 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
             )
         self._tracker = CartesianTargetTracker(tracker_config, safety_box=safety_box,
                                                workspace=workspace, task_frame=task_frame)
-        self._pos_scale_m = float(pos_scale_m)
-        self._rot_scale_rad = float(rot_scale_rad)
+        self._driver = CartesianTrackerDriver(
+            self._tracker, source_name="spacemouse", follower_pose_getter=follower_pose_getter,
+            pos_scale_m=pos_scale_m, rot_scale_rad=rot_scale_rad, clock=clock,
+        )
         self._deadzone = float(deadzone)
         from real_world_rl.teleop.core.targets.twist_input import validate_input_rotation
         self._input_rotation = validate_input_rotation(input_rotation)
@@ -178,10 +191,8 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
         self._diagnostic_axes, self._diagnostic_gain = diagnostic_axes, diagnostic_gain
         from real_world_rl.teleop.spacemouse.profiles import validate_device_identity
         self._expected_device_identity = validate_device_identity(expected_device_identity)
-        self._follower_pose = follower_pose_getter
         self._last_gripper_action = last_gripper_action_getter
         self._read_timeout_s = read_timeout_s
-        self._clock = clock
 
         self._owns_part = teleop is None
         if teleop is None:
@@ -210,7 +221,6 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
         self._previously_driving = False
         self._previous_buttons: Optional[tuple[bool, ...]] = None  # None: the next read is the baseline
         self._previous_event_toggle = False
-        self._last_advance_s: Optional[float] = None
         self._gripper_action = _OPEN_GRIPPER
 
     @property
@@ -243,27 +253,13 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
             return SpaceMouseSerlTeleopSource.from_env(env, **kwargs)
         if mode != "tracker":
             raise ValueError("spacemouse mode must be 'tracker' or 'serl'")
-        from real_world_rl.teleop.leader.cartesian import (
-            _safety_box_from_env,
-            follower_pose_from_env,
+        from real_world_rl.teleop.core.targets.follower import (
+            follower_kwargs_from_env,
+            workspace_from_env,
         )
 
-        contract = get_env_action_contract(env)
-        kwargs.setdefault("env_contract", LEGACY_ACTION_CONTRACT if contract is None else contract)
-        if "follower_pose_getter" not in kwargs:
-            getter, (pos_scale_m, rot_scale_rad) = follower_pose_from_env(env, contract)
-            kwargs["follower_pose_getter"] = getter
-            kwargs.setdefault("pos_scale_m", pos_scale_m)
-            kwargs.setdefault("rot_scale_rad", rot_scale_rad)
-        kwargs.setdefault("safety_box", _safety_box_from_env(env, contract))
-        from real_world_rl.teleop.leader.cartesian import _find_in_wrapper_chain
-        from real_world_rl.envs.real_robot.env import RealRobotEnv
-        backend = _find_in_wrapper_chain(env, RealRobotEnv)
-        if backend is not None:
-            config = backend.config
-            local = config.robot or {}
-            kwargs.setdefault("workspace", config.workspace if config.workspace is not None else local.get("workspace"))
-            kwargs.setdefault("task_frame", config.task_frame if config.task_frame is not None else local.get("task_frame"))
+        follower_kwargs_from_env(env, kwargs)
+        workspace_from_env(env, kwargs)
         return cls(**kwargs)
 
     # -- source protocol -----------------------------------------------------------
@@ -286,10 +282,7 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
         self._previously_driving = False
         self._previous_buttons = None
         self._previous_event_toggle = False
-        self._last_advance_s = None
-        pose = self._follower_pose()
-        if pose is not None:
-            self._tracker.reset(pose)
+        self._driver.reset()
         try:
             self._part.reset()
         except DeviceNotConnected:
@@ -331,7 +324,7 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
         presses = self._button_presses(sample)
         if presses[TAKE_OVER_BUTTON]:
             self._driving = not self._driving
-        measured = self._measured_pose()
+        measured = self._driver.measured_pose()
         if not self._tracker.initialized:
             self._tracker.reset(measured)
         takeover = self._driving and not self._previously_driving
@@ -377,7 +370,7 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
         if not tracker.following:  # a take-over, or resuming after a stalled loop
             self._take_over(start_gripper=takeover)
         try:
-            dt = self._elapsed_s()
+            dt = self._driver.elapsed_s()
             update = tracker.advance(self._requested_pose(twist, dt), measured, dt)
             if update.workspace_violations:
                 self._driving = False
@@ -394,14 +387,14 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
                     update.missed_deadline_s,
                     tracker.config.max_dt_s,
                 )
-            return True, tracker.action_for(measured, self._pos_scale_m, self._rot_scale_rad)
+            return True, self._driver.action_for(measured)
         except BaseException:
             self._hand_back_after_failure()
             raise
 
     def _take_over(self, *, start_gripper: bool) -> None:
         self._tracker.take_over()
-        self._last_advance_s = None
+        self._driver.restart_clock()
         if start_gripper and self._env_gripper:
             self._gripper_action = held_gripper_action(self._last_gripper_action)
 
@@ -417,28 +410,11 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
             requested[3:] = (rotation * Rotation.from_quat(requested[3:])).as_quat()
         return requested
 
-    def _elapsed_s(self) -> float:
-        """Seconds since the previous advance; 0 for the first one of a take-over."""
-        now = float(self._clock())
-        elapsed = 0.0 if self._last_advance_s is None else now - self._last_advance_s
-        self._last_advance_s = now
-        return elapsed
-
-    def _measured_pose(self) -> np.ndarray:
-        pose = self._follower_pose()
-        if pose is None:
-            raise RuntimeError("spacemouse polled before the env was reset (no follower pose yet)")
-        return np.asarray(pose, dtype=np.float64)
-
     def _hand_back_after_failure(self) -> None:
         """Input or tracking failure: hand back and hold the measured pose."""
         self._driving = False
         self._previously_driving = False
-        if not self._tracker.following:
-            return
-        pose = self._follower_pose()
-        if pose is not None:
-            self._tracker.hold_at(pose)
+        self._driver.hold_after_failure()
 
     def _gripper(self, intervened: bool, pressed: bool) -> float:
         if not intervened:

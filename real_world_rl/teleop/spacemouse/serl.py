@@ -15,7 +15,10 @@ from real_world_rl.action_contract import (
 )
 from real_world_rl.teleop.core.contract import TeleopReading, TeleopSource
 from real_world_rl.teleop.core.part import DEFAULT_READ_TIMEOUT_S, teleop_contract_of
+from real_world_rl.teleop.spacemouse.options import SpaceMouseOptions
 
+# The teleop_control block's version string (compared on resume; never change it).
+SERL_CONTROL_VERSION = "spacemouse_serl_v1"
 MOTION_THRESHOLD = 0.001
 # These belong to the tracker path, never to native SERL intervention.
 TRACKER_OPTIONS = frozenset({
@@ -28,12 +31,27 @@ TRACKER_OPTIONS = frozenset({
 logger = logging.getLogger(__name__)
 
 
-class SpaceMouseSerlTeleopSource(TeleopSource):
+class SpaceMouseSerlTeleopSource(SpaceMouseOptions, TeleopSource):
     """Sample raw axes and levels each step, without toggle, deadzone or hold target.
 
     A caller-owned ``teleop`` is never connected or disconnected here. Its latched
     events and sticky gripper/intervention state have no control meaning in SERL.
+    Built by ``device="spacemouse"`` with ``mode="serl"``.
     """
+
+    REQUIRES_FULL_ACTION = True
+
+    @classmethod
+    def control_spec(cls, *, tracker_options, source_options) -> dict:
+        """The serl semantics: motion threshold, button gripper, inverted axes and the compared
+        input frame (the diagnostics filter)."""
+        options = source_options()
+        spec = {"version": SERL_CONTROL_VERSION, "mode": "serl",
+                "motion_threshold": MOTION_THRESHOLD, "gripper": "serl_buttons"}
+        if options.get("invert_axes"):
+            spec["invert_axes"] = list(options["invert_axes"])
+        spec.update(cls.compared_input_frame(options))
+        return spec
 
     def __init__(
         self,

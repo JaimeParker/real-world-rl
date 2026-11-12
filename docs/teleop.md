@@ -768,6 +768,31 @@ building the env. Built-in sources are imported on first use of their name, so i
 Actions are in the env's normalized `[-1, 1]` space, gripper last. For a cartesian device whose
 twist is in physical units (as the Pico's), see how the demo scripts normalize it.
 
+### Capabilities
+
+The intervention wrapper, the hold policy, the session gate and the training env builder learn
+what a source can do from its class, not from its name: they read the class through
+`real_world_rl.teleop.core.registry.source_class(name, options)`, which returns it without
+building a source. Set only the class attributes your source differs in:
+
+| Class attribute (default `False`) | Set it to `True` when the source | Effect |
+| --- | --- | --- |
+| `USES_LAST_GRIPPER_ACTION` | takes `last_gripper_action_getter` (holds or starts from the gripper actions last sent) | the wrapper passes the getter (a `composite` hands it on to such a motion half) |
+| `REQUIRES_FULL_ACTION` | drives every arm and gripper dimension at once | a partial `--teleop-selected-parts` is rejected |
+| `DRIVES_ONE_ARM` | drives exactly one arm | `--env-backend real_robot_bimanual` rejects it (use `--teleop-device bimanual`) |
+| `TRACKS_CARTESIAN_TARGET` | moves the follower through a `CartesianTargetTracker` and exposes it as `cartesian_tracker` | gets the `--teleop-lead-cap-*`/`--teleop-target-speed-*` kwargs; the hold policy shares its tracker |
+| `RECORDS_TELEOP_INPUT` | wants its resolved options frozen into the run's `teleop_input` | resume reuses the snapshot instead of rereading the options file |
+| `SUPPORTS_INPUT_DIAGNOSTICS` | accepts `diagnostic_axes`/`diagnostic_gain` | `--teleop-diagnostic-axes`/`--teleop-diagnostic-gain` are allowed |
+
+Three classmethods answer questions asked before a source exists: `resolved_class(options)`
+(the class `from_env` builds for these options; the SpaceMouse's `mode: serl` builds the serl
+source), `options_from_station(station_path, station, robot=, profile=, provenance=)` (the
+source kwargs a station yaml configures; by default a source takes none) and
+`control_spec(tracker_options=, source_options=)` (the `teleop_control` block a run compares on
+resume; `None` by default). The episode-boundary session gate (`--episode-end-behavior hold`)
+needs a motion source with `session_input()` (the `SessionInputSource` protocol: one fresh
+`(axes, buttons)` reading that does not move the target).
+
 ## EETwist TeleOp Interface (Pico)
 
 `PicoTeleopSource` wraps `EETwistTeleOpWrapper` in `real_world_rl/teleop/pico/bridge.py`

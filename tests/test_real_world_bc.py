@@ -9,6 +9,8 @@ as a side effect) but fail if this file is run in isolation.
 from __future__ import annotations
 
 import pickle
+from pathlib import Path
+
 import pytest
 
 import gymnasium as gym
@@ -17,6 +19,39 @@ from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
 
 from real_world_rl.training.entrypoints.bc import RealWorldBCArgs, run_real_world_bc
+
+
+@pytest.mark.parametrize("teleop_flags", [
+    [],
+    ["--teleop-device", "None"],
+    ["--teleop-device", "spacemouse", "--spacemouse-mode", "serl"],
+])
+def test_bc_parses_gello_station_preset_without_resolving_teleop(monkeypatch, teleop_flags):
+    from real_world_rl.training import args as shared_args, env_building
+    from real_world_rl.training.registry import registry
+
+    def unexpected_teleop(*args, **kwargs):
+        raise AssertionError("offline BC must not require or resolve a teleop device")
+
+    monkeypatch.setattr(shared_args, "require_teleop_device", unexpected_teleop)
+    monkeypatch.setattr(env_building, "resolve_teleop_input", unexpected_teleop)
+    monkeypatch.setattr(env_building, "resolve_spacemouse_mode", unexpected_teleop)
+    preset = Path(__file__).resolve().parents[1] / "examples/presets/gello_cartesian.yaml"
+    command = registry.parse_command([
+        "real_world_bc", "--config", str(preset), "--buffer-device", "cpu", *teleop_flags,
+    ])
+
+    assert isinstance(command.args, RealWorldBCArgs)
+    expected_device = teleop_flags[1] if teleop_flags else "leader_cartesian"
+    assert command.args.teleop_device == (None if expected_device == "None" else expected_device)
+    assert command.args.teleop_event_device == "stdin"
+    assert command.args.teleop_options_yaml == "gello_leader.yaml"
+    assert command.args.teleop_lead_cap_m == 0.05
+    assert command.args.teleop_lead_cap_rad == 0.3
+    assert command.args.teleop_target_speed_m_s == 0.05
+    assert command.args.teleop_target_speed_rad_s == 0.3
+    assert command.args.env_backend == "real_robot"
+    assert command.args.real_robot.action_mode == "cartesian_delta"
 
 
 class _FakeEnv(gym.Env):

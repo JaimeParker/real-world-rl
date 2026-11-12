@@ -6,7 +6,7 @@ This legacy ROS1 server exposes the endpoints used by
 ``/getstate``, ``/jointreset``, ``/open_gripper``, ``/close_gripper``,
 ``/startimp`` and ``/stopimp``. It forwards to the ROS controller without
 computing a control law, keeping the ROS dependency in this module.
-See ``docs/devices/README.md`` for the device-layer setup and backend guide.
+See ``docs/devices.md`` for the device-layer setup and backend guide.
 
 It remains a standalone ``python -m real_world_rl.legacy.controller.real.franka_bridge``
 entry point and is intentionally excluded from the unified CLI registry.

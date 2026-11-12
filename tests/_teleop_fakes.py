@@ -1,7 +1,8 @@
 """Fakes shared by the teleop tests: a minimal env (one arm, or two arms), a cartesian env with a
-measured TCP pose, and mocked HID transports."""
+measured TCP pose, mocked HID transports and a mocked ZeroMQ (the Pico publisher)."""
 from __future__ import annotations
 
+import json
 import time
 import types
 from collections import deque
@@ -157,4 +158,73 @@ def make_hid() -> types.ModuleType:
             self.closed = True
 
     fake.device = Device
+    return fake
+
+
+def pico_record(position=(0.0, 0.0, 0.0), quat_xyzw=(0.0, 0.0, 0.0, 1.0), *, trigger=0.0, bind=False,
+                episode_end=False) -> list:
+    """One 13-value Pico hand record (``real_world_rl.teleop.pico.bridge``)."""
+    return [*map(float, position), 0.0, 0.0, 0.0, *map(float, quat_xyzw), float(trigger),
+            float(bool(bind)), float(bool(episode_end))]
+
+
+def make_zmq() -> types.ModuleType:
+    """pyzmq stand-in for a SUB socket: ``fake.publish(values)`` queues one JSON message on every
+    open socket (``topic`` adds a first frame); ``recv_multipart(NOBLOCK)`` pops the oldest or
+    raises ``Again``. ``fake.sockets`` keeps every socket (``address``, ``subscription``, ``closed``)."""
+    fake = types.ModuleType("zmq")
+    fake.SUB, fake.SUBSCRIBE, fake.LINGER, fake.NOBLOCK = 2, 6, 17, 1
+    fake.sockets = []
+    fake.terminated = 0
+
+    class Again(Exception):
+        pass
+
+    class Socket:
+        def __init__(self, kind):
+            assert kind == fake.SUB
+            self.address = None
+            self.subscription = None
+            self.options = {}
+            self.closed = False
+            self.queue = deque()
+            fake.sockets.append(self)
+
+        def setsockopt(self, option, value):
+            self.options[option] = value
+
+        def setsockopt_string(self, option, value):
+            assert option == fake.SUBSCRIBE
+            self.subscription = value
+
+        def connect(self, address):
+            self.address = address
+
+        def recv_multipart(self, flags=0):
+            assert flags == fake.NOBLOCK
+            if self.closed:
+                raise RuntimeError("recv on a closed socket")
+            if not self.queue:
+                raise Again()
+            return self.queue.popleft()
+
+        def close(self, linger=None):
+            self.closed = True
+
+    class Context:
+        def socket(self, kind):
+            return Socket(kind)
+
+        def term(self):
+            fake.terminated += 1
+
+    def publish(values, topic=None):
+        payload = values if isinstance(values, (bytes, str)) else json.dumps(list(values))
+        payload = payload.encode() if isinstance(payload, str) else payload
+        frames = [payload] if topic is None else [topic.encode(), payload]
+        for socket in fake.sockets:
+            if not socket.closed:
+                socket.queue.append(frames)
+
+    fake.Again, fake.Context, fake.publish = Again, Context, publish
     return fake

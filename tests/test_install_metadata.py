@@ -52,6 +52,7 @@ def test_extras():
         "jpeg": ["pillow", "opencv-python-headless"],
         "spacemouse": ["hidapi==0.14.0.post4"],
         "gello": ["dynamixel-sdk>=3.7.31,<3.9"],
+        "pico": ["pyzmq"],
         "gello-events": ["evdev"],
         "franka-gello": ["franky-control", "dynamixel-sdk>=3.7.31,<3.9", "evdev", "grpcio>=1.60", "websockets>=13"],
         "reward-collection": ["pynput"],

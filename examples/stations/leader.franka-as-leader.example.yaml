@@ -1,0 +1,19 @@
+# Second Franka as a read-only leader; needs hardware verification.
+# The outer fake arm is a daemon carrier. Only the teleop opens the real arm,
+# avoiding two libfranka sessions for the same robot.
+type: franka
+name: franka_leader_station
+arm_backend: fake
+gripper: null
+cameras: []
+teleop:
+  name: leader
+  backend: arm_leader
+  hold_s: 0.0
+  options:
+    arm:
+      type: franky
+      robot_ip: 172.16.0.2
+      realtime: ignore
+    gripper: false             # true reads the matching Franka Hand backend
+    intervention: always       # event emits active=false; composite events decide take-over

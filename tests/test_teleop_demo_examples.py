@@ -65,9 +65,14 @@ def test_spacemouse_kwargs_reach_the_device(example, monkeypatch):
         source.close()
 
 
-def test_pico_kwargs_only_carry_the_overrides_that_were_given(example):
-    args = _args(example, device="pico", pos_scale=2.0)
+def test_pico_twist_kwargs_only_carry_the_overrides_that_were_given(example):
+    args = _args(example, device="pico_twist", pos_scale=2.0)
     kwargs = example.build_teleop_kwargs(args)
     assert kwargs["pos_scale"] == 2.0 and "rot_scale" not in kwargs and "twist_limit" not in kwargs
     assert kwargs["zmq_url"] == args.zmq_url and kwargs["hand"] == args.hand
-    assert example.PHYSICAL_TWIST_DEVICES == ("pico",)
+    assert example.PHYSICAL_TWIST_DEVICES == ("pico_twist",)
+
+
+def test_the_sim_examples_default_to_the_raw_twist_pico(example):
+    # A real robot takes --teleop-device pico (the anchored pose tracker), never the raw twist.
+    assert example.Args.__dataclass_fields__["device"].default == "pico_twist"

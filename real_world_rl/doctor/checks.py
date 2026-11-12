@@ -26,7 +26,6 @@ from real_world_rl.devices.backends.arms.franky import (
     parse_libfranka_mismatch,
     server_version_cross_check,
 )
-from real_world_rl.teleop.spacemouse.hid import UDEV_HINT
 from real_world_rl.devices.claims import DeviceClaim, claim_key
 from real_world_rl.discovery import enumerate as probes
 from real_world_rl.doctor import probes as os_probes
@@ -38,8 +37,6 @@ LIBFRANKA_LIBRARY_VERSION = "libfranka_library_version"
 _FRANKA_FCI_PORT = 1337
 _CAMERA_READY_TIMEOUT_S = 2.0
 _HIDRAW_GLOB = "/dev/hidraw*"
-_SERIAL_GROUP = "dialout"
-_EVDEV_GROUP = "input"
 _UNREACHABLE_HINTS = {"franky": franka_unreachable_hint}
 _GENERIC_PING_HINT = "check the Ethernet cable to the robot's Control port and the robot IP in Desk"
 
@@ -190,25 +187,26 @@ def _os_checks(config: RobotConfig) -> list[tuple[str, Check]]:
             checks.append((name, _make_check(2, name, _camera_outcome(camera))))
     if config.teleop:
         name = f"os:teleop:{config.teleop.name}"
+        backend = Teleop.backends().get(config.teleop.backend)
         if _backend_needs_no_device(Teleop, config.teleop.backend):
             checks.append((name, _no_device_check(name, config.teleop.backend)))
-        elif config.teleop.backend == "spacemouse":
-            checks.append((name, _make_check(2, name, _spacemouse_outcome(config.teleop, name))))
+        elif backend is not None and backend.DEVICE_TABLE_DOC:
+            checks.append((name, _make_check(2, name, _table_teleop_outcome(config.teleop, name))))
         else:
             checks.append((name, _make_check(2, name, _teleop_outcome(config.teleop))))
-        if config.teleop.backend == "spacemouse":
-            checks.append(("os:hid", _make_check(2, "os:hid", _hid_outcome())))
-        if config.teleop.backend == "gello":
-            checks += _gello_device_checks(config.teleop)
+        if backend is not None and "hidraw" in backend.UDEV_SUBSYSTEMS:
+            checks.append(("os:hid", _make_check(2, "os:hid", _hid_outcome(permission_hint=backend.HID_PERMISSION_HINT))))
+        if backend is not None and backend.SERIAL_GROUP:
+            checks += _serial_device_checks(config.teleop, backend)
     return checks
 
 
-def _gello_device_checks(teleop) -> list[tuple[str, Check]]:
+def _serial_device_checks(teleop, backend) -> list[tuple[str, Check]]:
     """The serial port, the groups its devices need, brltty on CH340 adapters and the USB latency timer."""
     port = teleop.options.get("port")
-    event_device = teleop.options.get("event_device")
-    checks: list[tuple[str, Check]] = [("os:serial", _make_check(2, "os:serial", _serial_outcome(port)))]
-    group_devices = {group: device for group, device in ((_SERIAL_GROUP, port), (_EVDEV_GROUP, event_device)) if device}
+    event_device = teleop.options.get(backend.EVENT_DEVICE_OPTION)
+    checks: list[tuple[str, Check]] = [("os:serial", _make_check(2, "os:serial", _serial_outcome(port, backend.SERIAL_GROUP)))]
+    group_devices = {group: device for group, device in ((backend.SERIAL_GROUP, port), (backend.EVENT_DEVICE_GROUP, event_device)) if group and device}
     if group_devices:
         checks.append(("os:groups", _guarded(2, "os:groups", lambda: _group_membership_result(group_devices))))
     if port:
@@ -311,20 +309,17 @@ def _teleop_outcome(teleop) -> Callable[[], Outcome]:
     return outcome
 
 
-def _spacemouse_outcome(teleop, name: str) -> Callable[[], Outcome]:
-    """``_teleop_outcome`` against the teleop's device table, naming HID devices that look like a
-    SpaceMouse but are missing from it (WARN beside a supported one, FAIL without one)."""
+def _table_teleop_outcome(teleop, name: str) -> Callable[[], Outcome]:
+    """Discovery against the backend's site table, with its unknown-device diagnostics."""
 
     def outcome() -> Outcome:
-        from real_world_rl.teleop.spacemouse import hid as _spacemouse_hid
-
+        backend = Teleop.backend(teleop.backend)
         try:
-            table = _spacemouse_hid.load_device_specs(options=teleop.options)
+            table = backend.site_device_table(options=teleop.options)
         except ValueError as error:
-            return False, str(error), f"fix the device table entry; see {_spacemouse_hid.SITE_TABLE_DOC}"
-        discovered = sorted(Teleop.backend(teleop.backend).discover(table=table))
-        unknown = "; ".join(device["message"] + f" ({device['path']})"
-                            for device in _spacemouse_hid.unknown_hid_devices(table))
+            return False, str(error), f"fix the device table entry; see {backend.DEVICE_TABLE_DOC}"
+        devices, unknown = backend.discover_diagnostics(table)
+        discovered = sorted(devices)
         if discovered:
             message = f"teleop '{teleop.name}' devices: {discovered}"
             if unknown:
@@ -332,7 +327,7 @@ def _spacemouse_outcome(teleop, name: str) -> Callable[[], Outcome]:
             return True, message
         if unknown:
             return False, f"no supported '{teleop.backend}' teleop device found; {unknown}", (
-                f"add the device to the local device table; see {_spacemouse_hid.SITE_TABLE_DOC}")
+                f"add the device to the local device table; see {backend.DEVICE_TABLE_DOC}")
         return (
             False,
             f"no '{teleop.backend}' teleop device found",
@@ -342,7 +337,11 @@ def _spacemouse_outcome(teleop, name: str) -> Callable[[], Outcome]:
     return outcome
 
 
-def _hid_outcome(pattern: str | None = None) -> Callable[[], Outcome]:
+def _hid_outcome(pattern: str | None = None, *, permission_hint: str | None = None) -> Callable[[], Outcome]:
+    if permission_hint is None:
+        permission_hint = next((backend.HID_PERMISSION_HINT for backend in Teleop.backends().values()
+                                if backend.HID_PERMISSION_HINT), "")
+
     def outcome() -> Outcome:
         paths = sorted(glob.glob(pattern or _HIDRAW_GLOB))
         if not paths:
@@ -357,7 +356,7 @@ def _hid_outcome(pattern: str | None = None) -> Callable[[], Outcome]:
             return (
                 False,
                 f"no read/write access to {denied}",
-                UDEV_HINT + "; inside Docker pass the node with "
+                permission_hint + "; inside Docker pass the node with "
                 "`docker run --device=/dev/hidrawN`",
             )
         return True, f"{len(paths)} HID device(s) readable and writable: {paths}"
@@ -365,7 +364,10 @@ def _hid_outcome(pattern: str | None = None) -> Callable[[], Outcome]:
     return outcome
 
 
-def _serial_outcome(port: str | None) -> Callable[[], Outcome]:
+def _serial_outcome(port: str | None, group: str | None = None) -> Callable[[], Outcome]:
+    if group is None:
+        group = next(backend.SERIAL_GROUP for backend in Teleop.backends().values() if backend.SERIAL_GROUP)
+
     def outcome() -> Outcome:
         if not port:
             return False, "teleop option 'port' is unset", "set teleop.options.port to /dev/serial/by-id/..."
@@ -382,7 +384,7 @@ def _serial_outcome(port: str | None) -> Callable[[], Outcome]:
                 f"no read/write access to {port}",
                 f"grant this user access now: `setfacl -m u:$USER:rw {port}` (prefix sudo unless you own "
                 "the node; rwrl doctor --fix offers it; lost on replug); for good add the user to the "
-                f"'{_SERIAL_GROUP}' group (`sudo usermod -aG {_SERIAL_GROUP} $USER`, then log in again) or add "
+                f"'{group}' group (`sudo usermod -aG {group} $USER`, then log in again) or add "
                 'a udev rule giving the adapter MODE="0666"',
             )
         return True, f"serial port {port} readable and writable"

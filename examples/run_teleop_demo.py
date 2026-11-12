@@ -8,12 +8,13 @@ import tyro
 
 @dataclass
 class Args:
-    device: Literal["pico", "spacemouse_twist", "fake"] = "pico"
-    """spacemouse_twist: the SpaceMouse as a raw twist (sim only; button 0 gripper, button 1 episode end)."""
+    device: Literal["pico_twist", "spacemouse_twist", "fake"] = "pico_twist"
+    """pico_twist / spacemouse_twist: the Pico / SpaceMouse as a raw twist (sim only; a real robot
+    uses --teleop-device pico or spacemouse, over the command tracker)."""
     zmq_url: str = "tcp://192.168.6.2:7777"
-    """Pico only."""
+    """pico_twist only."""
     hand: Literal["left", "right"] = "right"
-    """Pico only."""
+    """pico_twist only."""
     env_id: str = "PegInsertionSidePegOnly-v1"
     control_mode: str = "pd_ee_twist"
     robot_uids: str = "panda_wristcam_gripper_closed_wo_norm"
@@ -35,11 +36,11 @@ class Args:
 
 # Only the Pico twist is in physical units; the SpaceMouse (and fake) actions are already in
 # the env's normalized [-1, 1] space.
-PHYSICAL_TWIST_DEVICES = ("pico",)
+PHYSICAL_TWIST_DEVICES = ("pico_twist",)
 
 
 def build_teleop_kwargs(args: Args) -> dict:
-    if args.device == "pico":
+    if args.device == "pico_twist":
         kwargs = dict(
             zmq_url=args.zmq_url,
             hand=args.hand,

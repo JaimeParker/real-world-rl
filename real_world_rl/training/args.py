@@ -20,10 +20,42 @@ field explicitly (e.g. ``SerlArgs.franka_real``), the same way
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, Optional, Sequence
+from typing import Any, Literal, Optional, Sequence, get_args
 
 from real_world_rl.envs.bimanual.config import BimanualRealRobotEnvConfig
 from real_world_rl.envs.real_robot.config import RealRobotEnvConfig
+
+# The --teleop-device choices, in the order the usage error lists them.
+TeleopDevice = Literal[
+    "spacemouse",
+    "gello",
+    "leader_arm",
+    "leader_cartesian",
+    "pico",
+    "keyboard",
+    "robot",
+    "bimanual",
+    "fake",
+    "spacemouse_twist",
+]
+TELEOP_DEVICE_CHOICES: tuple[str, ...] = get_args(TeleopDevice)
+
+
+def teleop_device_usage() -> str:
+    """``--teleop-device {spacemouse,gello,...}``, the flag with its choices."""
+    return "--teleop-device {" + ",".join(TELEOP_DEVICE_CHOICES) + "}"
+
+
+def require_teleop_device(args: Any) -> str:
+    """``args.teleop_device``; a usage error naming the choices when it is unset (it has no
+    default, so a run never opens a device the operator did not name)."""
+    device = getattr(args, "teleop_device", None)
+    if device is None:
+        raise ValueError(
+            f"the teleop device is required: pass {teleop_device_usage()} (or set teleop_device "
+            "in the --config preset); it no longer defaults to pico"
+        )
+    return device
 
 
 @dataclass
@@ -78,11 +110,8 @@ class FrankaRealConfig:
 
 
 @dataclass
-class HilEnvArgs:
-    """Fields shared by HIL-style real-robot entrypoints (hil_serl, residual,
-    SiLRI): what ``env_building.build_hil_env`` and the demo/snapshot paths of
-    ``HilSerlLearnerLoop`` read from the Args. Combine with ``RealWorldFrankaArgs``
-    and an rl-garden Args class, as ``HilSerlArgs`` does."""
+class _HilEnvArgsBeforeTeleop:
+    """HIL-only fields preceding TeleopArgs; preserves the public field order."""
 
     episode_end_behavior: Literal["auto", "hold"] = "auto"
     neutral_threshold: float = .05
@@ -117,27 +146,23 @@ class HilEnvArgs:
     # not a correctness change, for long image-heavy real-world sessions.
     memory_efficient_buffer: bool = False
 
+
+@dataclass
+class TeleopArgs:
+    """Teleop source settings shared by station presets and real-robot entrypoints."""
+
     # "robot": the teleop part of the real_robot env's robot (robot yaml ``teleop:`` section).
     # "leader_arm": the same part read as a joint-space leader arm (GELLO over the daemon), with
     # the --teleop-onset policy. "gello": a GELLO on this machine. "fake": a scripted source for
     # dry runs without hardware. "bimanual": one --teleop-arm-device per arm of a
     # real_robot_bimanual env. "spacemouse": a SpaceMouse over the cartesian command tracker
-    # (button 0 takes over); "spacemouse_twist": the old raw twist, sim only, not for real robots.
-    # See docs/teleop.md for every device.
+    # (button 0 takes over); "pico": a Pico VR controller over the same tracker (bind takes over);
+    # "spacemouse_twist": the old raw twist, sim only, not for real robots.
+    # See docs/teleop.md for every device. No default: every process that builds a teleop source
+    # (actor, eval, record, collect, deploy with a task) needs it (require_teleop_device).
     teleop_selected_parts: list[str] = field(default_factory=list)
     teleop_idle_behavior: Literal["hold", "policy"] = "hold"
-    teleop_device: Literal[
-        "pico",
-        "spacemouse",
-        "spacemouse_twist",
-        "robot",
-        "fake",
-        "gello",
-        "leader_arm",
-        "keyboard",
-        "leader_cartesian",
-        "bimanual",
-    ] = "pico"
+    teleop_device: Optional[TeleopDevice] = None
     # tracker: button toggles and a persistent velocity-limited target (default).
     # serl: raw twist, per-step motion/button takeover and neutral idle gripper.
     spacemouse_mode: Literal["tracker", "serl"] = "tracker"
@@ -185,6 +210,15 @@ class HilEnvArgs:
     # Resolved numeric input and profile provenance; reused verbatim on restore.
     teleop_input: Optional[dict] = None
     teleop_robot: Optional[str] = None
+
+
+@dataclass
+class HilEnvArgs(TeleopArgs, _HilEnvArgsBeforeTeleop):
+    """Fields shared by HIL-style real-robot entrypoints (hil_serl, residual,
+    SiLRI): what ``env_building.build_hil_env`` and the demo/snapshot paths of
+    ``HilSerlLearnerLoop`` read from the Args. Combine with ``RealWorldFrankaArgs``
+    and an rl-garden Args class, as ``HilSerlArgs`` does."""
+
     # Converts FrankaRealEnv's raw quaternion state slice to a rotation
     # vector (matching the action side's own rotvec convention). Off by
     # default -- changes "state"'s observation shape (20 -> 19), so it's an

@@ -1,7 +1,7 @@
-"""GELLO teleop commands: the guided leader-arm calibration (``teleop calibrate --backend gello``).
+"""GELLO teleop commands: guided leader-arm calibration and supervised recording.
 
-``real_world_rl.cli.teleop_dispatch`` finds ``calibrate`` and ``add_calibrate_arguments`` here by
-name; unset flags fall back to the station ``teleop.options``."""
+``real_world_rl.cli.teleop_dispatch`` finds handlers and their argument adders here by name;
+unset calibration flags fall back to the station ``teleop.options``."""
 from __future__ import annotations
 
 import sys
@@ -12,6 +12,7 @@ from real_world_rl.cli.station_edit import station_document, confirm_write, atom
 
 GROUP_DESCRIPTIONS = {
     "calibrate": "leader-arm flags; only with --backend gello; unset values come from the station teleop",
+    "run": "leader_cartesian session flags; only with --backend gello; toggle takes over",
 }
 SHARED_FLAG_HELP = {"calibrate": {"--use": "write the calibrated options into the station teleop.options"}}
 # Value flags default to None: a flag given for another backend is refused, and an unset one
@@ -42,6 +43,89 @@ GELLO_GRIPPER_OPTIONS = ("gripper_id", "gripper_open_rad", "gripper_closed_rad",
 def add_calibrate_arguments(parser):
     for flag, options in _CALIBRATE_FLAGS:
         parser.add_argument(flag, **options)
+
+
+def add_run_arguments(parser):
+    from real_world_rl.teleop.core.run_session import add_common_run_arguments
+    add_common_run_arguments(parser)
+    parser.add_argument("--neutral-stable-s", type=float,
+                        help="seconds with takeover released before starting an episode (default: 0.2)")
+
+
+def _leader_teleop_yaml(raw, document, node):
+    """Copy the selected teleop stanza's text; expand aliases that need station context."""
+    import textwrap
+    import yaml
+
+    def child(tree, name):
+        return next((key, value) for key, value in tree.value if key.value == name)
+
+    def end(value):
+        if isinstance(value, (yaml.MappingNode, yaml.SequenceNode)) and not value.flow_style and value.value:
+            last = value.value[-1]
+            return end(last[1] if isinstance(value, yaml.MappingNode) else last)
+        return value.end_mark.index
+
+    source = raw.decode("utf-8")
+    tree = yaml.compose(source, Loader=yaml.SafeLoader)
+    try:
+        if "robots" in document:
+            name = next(name for name, robot in document["robots"].items() if robot is node)
+            tree = child(child(tree, "robots")[1], str(name))[1]
+        elif "robot" in document:
+            tree = child(tree, "robot")[1]
+        key, value = child(tree, "teleop")
+    except StopIteration:  # The section can be inherited through a YAML merge key.
+        return yaml.safe_dump({"teleop": node["teleop"]}, sort_keys=False)
+    # Flow-style stations and cross-section aliases are re-emitted with identical values.
+    if not tree.flow_style and value.start_mark.index >= key.start_mark.index:
+        start = key.start_mark.index - key.start_mark.column
+        stop = source.find("\n", end(value))
+        snippet = textwrap.dedent(source[start:stop + 1 if stop >= 0 else len(source)])
+        try:
+            if yaml.safe_load(snippet) == {"teleop": node["teleop"]}:
+                return snippet.rstrip("\n") + "\n"
+        except yaml.YAMLError:
+            pass
+    return yaml.safe_dump({"teleop": node["teleop"]}, sort_keys=False)
+
+
+def run_session(args, ctx):
+    """Give leader_cartesian its own robot YAML, without any follower hardware."""
+    import os
+    import yaml
+    from real_world_rl.teleop.core.run_session import SessionPlan, load_session_station, run_supervised_session
+    from real_world_rl.teleop.core.session import validate_neutral_options
+
+    _, raw, document, node, selected = load_session_station(args)
+    teleop = selected.config.teleop
+    if teleop is None or teleop.backend != "gello":
+        raise CliError("teleop run --backend gello requires a station teleop backend of gello",
+                       code=USAGE_EXIT_CODE)
+    stable_s = .2 if args.neutral_stable_s is None else args.neutral_stable_s
+    try:
+        validate_neutral_options(.5, stable_s)
+    except ValueError as error:
+        raise CliError(str(error), code=USAGE_EXIT_CODE) from error
+    teleop_yaml = _leader_teleop_yaml(raw, document, node)
+
+    def prepare_report(report, settings, files):
+        stub = report / "leader-robot.yaml"
+        stub.write_text("type: franka\nname: gello-leader\narm_backend: fake\ngripper: null\ncameras: []\n" + teleop_yaml)
+        options = report / "leader-options.yaml"
+        options.write_text(yaml.safe_dump({"robot_yaml": str(stub)}, sort_keys=False))
+        for path in (stub, options):
+            os.chmod(path, 0o600)
+        settings["teleop_options_yaml"] = str(options)
+        files.update(leader_robot=stub, leader_options=options)
+
+    plan = SessionPlan(
+        settings={"teleop_device": "leader_cartesian", "teleop_options_yaml": None,
+                  "episode_end_behavior": "hold", "neutral_threshold": .5, "neutral_stable_s": stable_s},
+        confirm_detail=(f"GELLO leader_cartesian session on {selected.config.name}; toggle takes over; "
+                        "s/f ends episode and holds; n next; q exits"),
+        prepare_report=prepare_report)
+    return run_supervised_session(args, ctx, plan)
 
 
 class _UsageErrors:

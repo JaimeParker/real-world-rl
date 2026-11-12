@@ -1,9 +1,30 @@
+"""The Pico controller's ZeroMQ message format, and the legacy twist bridge.
+
+The Pico side publishes JSON arrays: one hand record (13 values) or both (26, left first). A
+hand record holds the position ``[0:3]``, the orientation quaternion ``xyzw`` ``[6:10]``, the
+trigger ``[10]``, the bind button ``[11]`` and the episode-end button ``[12]``.
+``hand_record`` selects one hand's record from a message; ``device_sample`` reads it. The
+device layer's ``PicoTeleop`` (``real_world_rl.teleop.pico.backend``) uses both.
+
+``EETwistTeleOpWrapper`` is the legacy client: it opens its ZMQ subscriber at construction and
+turns hand-pose differences into a clipped EE twist (``HandPoseToEETwist``). Only the ManiSkill
+sim examples (``device="pico_twist"``) and ``examples/run_twist_input_inspector.py`` use it; a
+real robot takes ``device="pico"`` (the anchored pose tracker).
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
 
 import numpy as np
+
+HAND_RECORD_SIZE = 13
+POSITION_SLICE = slice(0, 3)
+QUATERNION_SLICE = slice(6, 10)
+TRIGGER_INDEX = 10
+BIND_INDEX = 11
+EPISODE_END_INDEX = 12
+HANDS = ("left", "right")
 
 TRACKING_RATIO = 0.39
 TRACKING_COMPENSATION = 1.0 / TRACKING_RATIO
@@ -102,6 +123,32 @@ class DeviceSample:
     episode_end_pressed: bool
 
 
+def hand_record(data: np.ndarray, hand: str) -> np.ndarray:
+    """The 13-value record of ``hand`` in a Pico message (13 values: the only hand; 26 or more:
+    left first, then right)."""
+    if hand not in HANDS:
+        raise ValueError(f"hand must be one of {list(HANDS)}, got {hand!r}")
+    data = np.asarray(data).reshape(-1)
+    if data.size == HAND_RECORD_SIZE:
+        return data
+    if data.size >= 2 * HAND_RECORD_SIZE:
+        return data[:HAND_RECORD_SIZE] if hand == "left" else data[HAND_RECORD_SIZE:2 * HAND_RECORD_SIZE]
+    raise ValueError(
+        f"Pico data must contain {HAND_RECORD_SIZE} or {2 * HAND_RECORD_SIZE} values, got {data.size}."
+    )
+
+
+def device_sample(record: np.ndarray) -> DeviceSample:
+    """One hand record read as positions, quaternion and button levels."""
+    return DeviceSample(
+        hand_pos=record[POSITION_SLICE],
+        hand_quat=record[QUATERNION_SLICE],
+        gripper_cmd=float(record[TRIGGER_INDEX]),
+        bind_pressed=bool(record[BIND_INDEX]),
+        episode_end_pressed=bool(record[EPISODE_END_INDEX]),
+    )
+
+
 @dataclass(frozen=True)
 class TeleOpSample:
     action: np.ndarray
@@ -158,6 +205,9 @@ class HandPoseToEETwist:
 
 
 class EETwistTeleOpWrapper:
+    """Legacy: a ZMQ subscriber opened at construction, polled into a clipped EE twist (module
+    docstring). For the sim examples and the inspector only; a real robot uses ``device="pico"``."""
+
     def __init__(
         self,
         zmq_url: str = "tcp://localhost:7777",
@@ -232,20 +282,7 @@ class EETwistTeleOpWrapper:
         return None if latest is None else np.asarray(latest, dtype=np.float32)
 
     def _parse_pico(self, data: np.ndarray) -> DeviceSample:
-        if data.size == 13:
-            hand_data = data
-        elif data.size >= 26:
-            hand_data = data[:13] if self.hand == "left" else data[13:26]
-        else:
-            raise ValueError(f"Pico data must contain 13 or 26 values, got {data.size}.")
-
-        return DeviceSample(
-            hand_pos=hand_data[:3],
-            hand_quat=hand_data[6:10],
-            gripper_cmd=float(hand_data[10]),
-            bind_pressed=bool(hand_data[11]),
-            episode_end_pressed=bool(hand_data[12]),
-        )
+        return device_sample(hand_record(data, self.hand))
 
     def _parse_device(self, data: np.ndarray) -> DeviceSample:
         if self.device == "pico":

@@ -11,6 +11,7 @@ from __future__ import annotations
 import glob
 import threading
 import time
+from pathlib import Path
 from types import ModuleType
 from typing import Any
 
@@ -63,8 +64,49 @@ class SpaceMouseTeleop(Teleop):
     # The distribution 'hid' also imports as hid; only trezor hidapi has hid.device().
     SDK_IMPORT_CHECK = "assert callable(getattr(m,'device',None)), 'wrong hid distribution; trezor hidapi required'"
     UDEV_SUBSYSTEMS = ("usb", "hidraw")
+    DOCTOR_COVERAGE = (1, "SpaceMouse")
+    USB_PROBE_NAME = "doctor-space"
     USB_IDS_SOURCE = "SpaceMouse device table"
     SYSTEM_LIBRARIES = (("usb-1.0", "libusb-1.0-0"), ("udev", "libudev1"))
+
+    DEVICE_TABLE_ERROR_HINT = (
+        "fix the reported spacemouse-devices.yaml entry, or repair the real-world-rl installation"
+    )
+    DEVICE_TABLE_DOC = _spacemouse_hid.SITE_TABLE_DOC
+    HID_PERMISSION_HINT = _spacemouse_hid.UDEV_HINT
+
+    @classmethod
+    def site_device_table(cls, station_dir=None, options=None):
+        return _spacemouse_hid.load_device_specs(station_dir, options)
+
+    @classmethod
+    def unknown_device_finding(cls, vid, pid, path, *, table=None, hid_interfaces=()):
+        if table is None:
+            return None
+        multi_axis = False
+        if vid == _spacemouse_hid.LOGITECH_VENDOR_ID:
+            for interface in hid_interfaces:
+                try:
+                    descriptor = (Path(interface) / "report_descriptor").read_bytes()
+                except OSError:
+                    continue
+                if _spacemouse_hid.describes_multi_axis_controller(descriptor):
+                    multi_axis = True
+                    break
+        if not _spacemouse_hid.is_unknown_spacemouse(vid, pid, table, multi_axis=multi_axis):
+            return None
+        filename = _spacemouse_hid.DEVICE_TABLE_FILENAME
+        return (
+            _spacemouse_hid.unknown_device_message(vid, pid),
+            f"the site table is local/{filename} (next to local/station.yaml) or ~/.config/rwrl/{filename}",
+        )
+
+    @classmethod
+    def discover_diagnostics(cls, table):
+        discovered = cls.discover(table=table)
+        unknown = "; ".join(device["message"] + f" ({device['path']})"
+                            for device in _spacemouse_hid.unknown_hid_devices(table))
+        return discovered, unknown
 
     @classmethod
     def require_sdk(cls) -> ModuleType:

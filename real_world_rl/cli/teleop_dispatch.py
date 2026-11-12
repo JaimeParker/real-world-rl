@@ -69,7 +69,8 @@ def implementers(operation: str) -> tuple[str, ...]:
 
 class _SliceArguments:
     """What a slice's ``add_<op>_arguments`` receives: ``add_argument`` goes to the slice's
-    argument group (and is recorded), anything else (``add_subparsers``) to the parser."""
+    argument group (and is recorded), ``add_shared_argument`` adds a common flag once to the
+    parser, and anything else (``add_subparsers``) goes to the parser."""
 
     def __init__(self, parser: argparse.ArgumentParser, group) -> None:
         self._parser = parser
@@ -80,6 +81,14 @@ class _SliceArguments:
         action = self._group.add_argument(*args, **kwargs)
         self.actions.append(action)
         return action
+
+    def add_shared_argument(self, *args, **kwargs):
+        """Add a common value flag once, outside backend ownership checks."""
+        shared = self._parser.__dict__.setdefault("_teleop_shared_arguments", {})
+        key = tuple(args)
+        if key not in shared:
+            shared[key] = self._parser.add_argument(*args, **kwargs)
+        return shared[key]
 
     def __getattr__(self, name):
         return getattr(self._parser, name)

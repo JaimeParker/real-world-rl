@@ -35,11 +35,14 @@ import torch
 import tyro
 
 from real_world_rl.common.tree import index_tree
+from real_world_rl.training.args import TeleopDevice
 
 
 @dataclass
 class Args:
     output_dir: str
+    # Required, no default: the operator names the device (TeleopInterventionWrapper's device).
+    teleop_device: TeleopDevice
     successes_needed: int = 200
     exp_name: str = "franka_real"
 
@@ -52,7 +55,6 @@ class Args:
     camera_height: int = 128
     camera_width: int = 128
 
-    teleop_device: str = "pico"
     spacemouse_mode: Literal["tracker", "serl"] = "tracker"
 
 

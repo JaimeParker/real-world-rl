@@ -17,7 +17,8 @@ from real_world_rl.cli import teleop_dispatch
 from real_world_rl.cli.command import Result
 
 ROOT = Path(__file__).resolve().parents[1]
-HANDLERS = {"spacemouse": ("calibrate", "diagnose", "run_session", "profiles", "probe_hid"), "gello": ("calibrate",)}
+HANDLERS = {"spacemouse": ("calibrate", "diagnose", "run_session", "profiles", "probe_hid"),
+            "gello": ("calibrate", "run_session")}
 
 
 def station(tmp_path, backend):
@@ -48,7 +49,8 @@ def error_of(capsys):
 
 def test_each_operation_lists_the_slices_that_implement_it():
     assert teleop_dispatch.implementers("calibrate") == ("spacemouse", "gello")
-    for operation in ("diagnose", "run", "profiles", "probe-hid"):
+    assert teleop_dispatch.implementers("run") == ("spacemouse", "gello")
+    for operation in ("diagnose", "profiles", "probe-hid"):
         assert teleop_dispatch.implementers(operation) == ("spacemouse",)
 
 
@@ -69,7 +71,6 @@ def test_backend_flag_overrides_the_station_teleop(tmp_path, calls):
     ("fake", ["diagnose"]),
     ("gello", ["diagnose"]),
     ("gello", ["profiles", "list"]),
-    ("gello", ["run", "--record", "unused.pkl"]),
 ])
 def test_an_unimplemented_operation_is_one_usage_error(tmp_path, calls, capsys, backend, command):
     assert main(["--json", "--station", str(station(tmp_path, backend)), "teleop", *command]) == 2

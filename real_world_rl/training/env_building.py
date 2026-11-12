@@ -289,7 +289,8 @@ def _single_arm_yaml_options(args, *, provenance=None) -> dict:
     reads from a station yaml (``TeleopSource.options_from_station``)."""
     source_cls = _motion_source_class(args)
     cached = getattr(args, "teleop_input", None)
-    if source_cls.RECORDS_TELEOP_INPUT and cached is not None:
+    if cached is not None and (source_cls.RECORDS_TELEOP_INPUT or
+                               (args.teleop_device == "leader_cartesian" and "kinematics" in cached)):
         import copy
         options = copy.deepcopy(cached["source_options"])
         table_file = _frozen_device_table_file(cached)
@@ -451,7 +452,11 @@ def teleop_control_spec(args) -> Optional[dict]:
 def teleop_wrapper_kwargs(args) -> dict:
     """``TeleopInterventionWrapper`` arguments: ``--teleop-device`` alone, or, with
     ``--teleop-event-device``, a composite taking motion from the former and intervention plus
-    events from the latter."""
+    events from the latter. ``--teleop-device`` has no default: unset, this is the usage error
+    naming its choices (``args.require_teleop_device``)."""
+    from real_world_rl.training.args import require_teleop_device
+
+    require_teleop_device(args)
     removed = _REMOVED_TELEOP_EVENT_DEVICES.get(args.teleop_event_device)
     if removed is not None:
         raise ValueError(f"--teleop-event-device {args.teleop_event_device} was removed: {removed}")
@@ -658,7 +663,29 @@ def reward_sources_spec(args, task=None):
 
 def resolve_teleop_input(args):
     """Explicitly freeze a validated numeric input snapshot before config persistence (for a
-    ``RECORDS_TELEOP_INPUT`` source)."""
+    ``RECORDS_TELEOP_INPUT`` source, or explicitly selected leader kinematics)."""
+    if getattr(args, "teleop_device", None) == "leader_cartesian":
+        # Preserve legacy snapshots (including an unread missing options path) unless
+        # the user explicitly selects kinematics. This is provenance, never control_spec.
+        if getattr(args, "teleop_input", None) is not None:
+            motion_teleop_kwargs(args)
+            return
+        from pathlib import Path
+        path = args.teleop_options_yaml
+        if path is None or not Path(path).is_file():
+            return
+        options = _single_arm_yaml_options(args)
+        if "kinematics" not in options:
+            return
+        import copy
+        from real_world_rl.kinematics.registry import kinematics_for
+        name = options["kinematics"]
+        if not isinstance(name, str):
+            raise ValueError("leader_cartesian kinematics option must be a registered name")
+        kinematics_for(name)
+        motion_teleop_kwargs(args, source_options=options)
+        args.teleop_input = {"kinematics": name.lower(), "source_options": copy.deepcopy(options)}
+        return
     if getattr(args, "teleop_device", None) is None or not _motion_source_class(args).RECORDS_TELEOP_INPUT:
         return
     if getattr(args, "teleop_input", None) is not None:

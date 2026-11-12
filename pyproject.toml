@@ -52,6 +52,8 @@ jpeg = ["pillow", "opencv-python-headless"]
 spacemouse = ["hidapi==0.14.0.post4"]
 # teleop/gello/backend.py: GELLO leader arm over Dynamixel Protocol 2.0 (also the calibration command).
 gello = ["dynamixel-sdk>=3.7.31,<3.9"]
+# teleop/pico/backend.py: the Pico VR controller's ZeroMQ publisher (import zmq).
+pico = ["pyzmq"]
 # teleop/gello/backend.py with options.event_device: pedal/keyboard toggle and events via evdev (Linux).
 gello-events = ["evdev"]
 # The Franka + GELLO station: the franky, gello, gello-events and grpc extras spelled out, not

@@ -237,7 +237,7 @@ def test_fake_device_accepts_scripted_readings():
     assert make_teleop_source("fake", FakeEnv(), readings=readings).poll() is readings[0]
 
 
-# -- PicoTeleopSource ---------------------------------------------------------------------
+# -- PicoTwistTeleopSource (pico_twist, the sim examples; device="pico" is in test_pico_teleop) --
 
 
 class _FakePicoWrapper:
@@ -266,10 +266,10 @@ class _FakePicoWrapper:
         self.closed = True
 
 
-def test_pico_source_wraps_the_twist_bridge(monkeypatch):
-    monkeypatch.setattr("real_world_rl.teleop.pico.source.EETwistTeleOpWrapper", _FakePicoWrapper)
+def test_pico_twist_source_wraps_the_twist_bridge(monkeypatch):
+    monkeypatch.setattr("real_world_rl.teleop.pico.twist_sim.EETwistTeleOpWrapper", _FakePicoWrapper)
     _FakePicoWrapper.instances = []
-    source = make_teleop_source("pico", FakeEnv(), zmq_url="tcp://h:1", hand="left")
+    source = make_teleop_source("pico_twist", FakeEnv(), zmq_url="tcp://h:1", hand="left")
     wrapper = _FakePicoWrapper.instances[0]
 
     assert wrapper.kwargs == {"device": "pico", "zmq_url": "tcp://h:1", "hand": "left"}
@@ -285,7 +285,7 @@ def test_pico_source_wraps_the_twist_bridge(monkeypatch):
     assert wrapper.closed
 
 
-def test_pico_source_tolerates_a_wrapper_without_reset_or_close(monkeypatch):
+def test_pico_twist_source_tolerates_a_wrapper_without_reset_or_close(monkeypatch):
     class _PollOnlyWrapper:
         def __init__(self, **kwargs):
             pass
@@ -293,8 +293,8 @@ def test_pico_source_tolerates_a_wrapper_without_reset_or_close(monkeypatch):
         def poll(self):
             return types.SimpleNamespace(intervened=False, episode_end=False)
 
-    monkeypatch.setattr("real_world_rl.teleop.pico.source.EETwistTeleOpWrapper", _PollOnlyWrapper)
-    source = make_teleop_source("pico", FakeEnv())
+    monkeypatch.setattr("real_world_rl.teleop.pico.twist_sim.EETwistTeleOpWrapper", _PollOnlyWrapper)
+    source = make_teleop_source("pico_twist", FakeEnv())
     source.reset()
     source.reset(episode_end_pressed=True)
     source.close()

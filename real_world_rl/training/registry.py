@@ -12,6 +12,12 @@ class RealWorldAlgorithmRegistry(BaseAlgorithmRegistry):
     ) -> tuple[object, dict[str, object]]:
         """Finalize SpaceMouse semantics before preflight or run config serialization."""
         normalized, derived = super()._normalize_runtime(parsed, sources)
+        from real_world_rl.training.entrypoints.bc import RealWorldBCArgs
+
+        # Offline BC accepts shared station presets without resolving teleop settings.
+        if isinstance(normalized, RealWorldBCArgs):
+            return normalized, derived
+
         from real_world_rl.training.env_building import resolve_teleop_input
 
         if getattr(normalized, "spacemouse_mode", "tracker") == "tracker":

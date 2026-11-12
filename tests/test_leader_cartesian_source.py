@@ -575,7 +575,11 @@ def test_tracker_flags_reach_the_source_and_the_contract_block():
                      "speed_m_s": 0.03, "speed_rad_s": 0.1}
     source = _source(_Leader(), _Follower(_ee_pose(READY_Q)), **_TRACKER_KWARGS)
     assert source.cartesian_tracker.describe() == block
-    assert "teleop_control" not in env_building.reward_sources_spec(HilSerlArgs(teleop_device="pico"))
+    # The Pico drives the same tracker (its flags at the field defaults); a raw-twist device has no block.
+    assert env_building.reward_sources_spec(HilSerlArgs(teleop_device="pico"))["teleop_control"] == {
+        "version": "cartesian_tracker_v1", "lead_cap_m": 0.05, "lead_cap_rad": 0.3,
+        "speed_m_s": 0.05, "speed_rad_s": 0.3}
+    assert "teleop_control" not in env_building.reward_sources_spec(HilSerlArgs(teleop_device="spacemouse_twist"))
 
 
 def test_options_yaml_may_not_override_the_tracker(tmp_path):
@@ -1009,3 +1013,163 @@ def test_gello_station_example_yaml_is_a_stub_robot_with_every_gello_option():
     assert config.teleop.backend == "gello"
     assert set(config.teleop.options) == GELLO_OPTION_KEYS
     assert len(config.teleop.options["joint_ids"]) == 7
+
+
+# -- station geometry, selectable FK and the episode-boundary neutral gate ------------------
+
+
+@pytest.mark.parametrize("requested", [False, True])
+@pytest.mark.parametrize("mapping", ["anchored", "absolute"])
+def test_session_input_is_neutral_only_when_toggle_is_released(requested, mapping):
+    from real_world_rl.teleop.core.contract import provides_session_input
+
+    leader = _Leader(intervening=requested)
+    follower = _Follower(_offset_pose(READY_Q, [0.2, -0.1, 0.05], [0.2, 0.3, -0.1]))
+    source = _source(leader, follower, mapping=mapping)
+    assert provides_session_input(source)
+    axes, buttons = source.session_input()
+    assert leader._seq == 1
+    assert axes.shape == (6,) and np.isfinite(axes).all()
+    assert np.max(np.abs(axes)) <= 1.0
+    assert buttons == {"toggle": requested}
+    if requested:
+        expected = _expected_twist(KINEMATICS.ee_transform(leader.q), follower.pose)
+        np.testing.assert_allclose(axes, np.clip(expected, -1.0, 1.0), atol=1e-7)
+    else:
+        np.testing.assert_array_equal(axes, np.zeros(6))
+    assert not source.cartesian_tracker.initialized
+    assert source._anchor is None and not source._previously_requested
+
+
+def test_session_input_uses_the_existing_anchor_without_advancing_it_or_the_clock():
+    leader = _Leader()
+    follower = _Follower(_ee_pose(READY_Q))
+    clock = _Clock()
+    source = _source(leader, follower, clock=clock)
+    source.poll()
+    command = source.cartesian_tracker.command
+    anchor = tuple(part.copy() for part in source._anchor)
+    now = clock.now
+    leader.q += SMALL_DQ
+    axes, buttons = source.session_input()
+    target = _transform(source._requested_pose(leader.q))
+    np.testing.assert_allclose(axes, np.clip(_expected_twist(target, follower.pose), -1.0, 1.0))
+    assert buttons == {"toggle": True}
+    np.testing.assert_array_equal(source.cartesian_tracker.command, command)
+    for actual, previous in zip(source._anchor, anchor):
+        np.testing.assert_array_equal(actual, previous)
+    assert clock.now == now and source.cartesian_tracker.following
+
+
+def test_session_input_propagates_bad_samples_without_changing_the_tracker():
+    leader = _Leader()
+    source = _source(leader, _Follower(_ee_pose(READY_Q)))
+    source.poll()
+    command = source.cartesian_tracker.command
+    leader.action_space = "cartesian_delta"
+    with pytest.raises(DeviceFault, match="action_space"):
+        source.session_input()
+    np.testing.assert_array_equal(source.cartesian_tracker.command, command)
+    assert source.cartesian_tracker.following
+
+
+def test_kinematics_registry_names_factories_and_unknown_names(monkeypatch):
+    from real_world_rl.kinematics import registry
+
+    monkeypatch.setattr(registry, "_REGISTRY", dict(registry._REGISTRY))
+    assert "panda" in registry.kinematics_names()
+    assert isinstance(registry.kinematics_for("panda"), PandaKinematics)
+    assert registry.kinematics_for("panda") is not registry.kinematics_for("panda")
+
+    @registry.register("test_three_joint")
+    class ThreeJointKinematics:
+        NUM_JOINTS = 3
+
+        def ee_transform(self, q):
+            transform = np.eye(4)
+            transform[:3, 3] = q
+            return transform
+
+    leader = _Leader(q=[0.0, 0.0, 0.0])
+    leader.action_dim = 3
+    follower = _Follower([0, 0, 0, 0, 0, 0, 1])
+    for kinematics in ("test_three_joint", ThreeJointKinematics()):
+        source = _source(leader, follower, kinematics=kinematics)
+        assert source.poll().intervened
+    with pytest.raises(ValueError, match="3 joints for test_three_joint"):
+        _source(_Leader(), follower, kinematics="test_three_joint")
+    with pytest.raises(ValueError, match="already registered"):
+        registry.register("panda")(ThreeJointKinematics)
+    with pytest.raises(ValueError, match="registered:.*panda"):
+        registry.kinematics_for("missing")
+
+
+def test_explicit_kinematics_is_provenance_and_defaults_keep_legacy_snapshots(tmp_path):
+    options_file = tmp_path / "leader.yaml"
+    options_file.write_text("remote_address: leader-host:50052\n")
+    args = HilSerlArgs(teleop_device="leader_cartesian", teleop_options_yaml=str(options_file))
+    control = env_building.teleop_control_spec(args)
+    env_building.resolve_teleop_input(args)
+    assert args.teleop_input is None
+    options_file.write_text("remote_address: leader-host:50052\nkinematics: panda\n")
+    env_building.resolve_teleop_input(args)
+    assert args.teleop_input == {
+        "kinematics": "panda",
+        "source_options": {"remote_address": "leader-host:50052", "kinematics": "panda"},
+    }
+    assert env_building.teleop_control_spec(args) == control
+    options_file.unlink()
+    restored = HilSerlArgs(teleop_device="leader_cartesian", teleop_input=args.teleop_input)
+    env_building.resolve_teleop_input(restored)
+    assert env_building.motion_teleop_kwargs(restored)["kinematics"] == "panda"
+
+
+@pytest.mark.parametrize("local_geometry", [False, True])
+def test_from_env_inherits_station_workspace_and_frame_with_explicit_overrides(local_geometry):
+    from real_world_rl.envs.real_robot.config import RealRobotEnvConfig
+    from real_world_rl.envs.real_robot.env import RealRobotEnv
+
+    transform = np.eye(4)
+    transform[:3, 3] = [0.1, 0.2, 0.3]
+    frame = {"name": "table", "base_T_frame": transform.tolist()}
+    workspace = {"frame": "table", "low": [-1.0] * 3, "high": [1.0] * 3}
+    geometry = {"workspace": workspace, "task_frame": frame}
+    config = RealRobotEnvConfig(
+        robot={"type": "franka", "arm_backend": "fake", "gripper": None, "cameras": [],
+               **(geometry if local_geometry else {})},
+        xyz_scale_m=SCALE_M, rot_scale_rad=SCALE_RAD,
+        **({} if local_geometry else geometry),
+    )
+    env = RealRobotEnv(config)
+    source = LeaderArmCartesianSource.from_env(env, leader=_Leader())
+    np.testing.assert_array_equal(source.cartesian_tracker.workspace.origin, transform[:3, 3])
+    override = {"low": [-2.0] * 3, "high": [2.0] * 3}
+    source = LeaderArmCartesianSource.from_env(env, leader=_Leader(), workspace=override, task_frame=None)
+    np.testing.assert_array_equal(source.cartesian_tracker.workspace.low, [-2.0] * 3)
+    np.testing.assert_array_equal(source.cartesian_tracker.workspace.origin, [0.0] * 3)
+
+
+@pytest.mark.parametrize("limit", ["workspace", "safety_box"])
+def test_station_workspace_and_safety_box_both_hand_back_until_another_toggle(limit, caplog):
+    leader = _Leader()
+    follower = _Follower(_ee_pose(READY_Q))
+    workspace = {"low": [-10.0] * 3, "high": [10.0] * 3}
+    box = [-10.0] * 3 + [10.0] * 3
+    if limit == "workspace":
+        workspace["high"][0] = follower.pose[0] + 0.001
+    else:
+        box[3] = follower.pose[0] + 0.001
+    source = _source(leader, follower, workspace=workspace, safety_box=box)
+    assert source.poll().intervened
+    leader.q[1] += 0.1  # moves the requested TCP beyond the selected x boundary
+    with caplog.at_level(logging.WARNING):
+        reading = source.poll()
+    assert not reading.intervened and not source.cartesian_tracker.following
+    assert "WORKSPACE HOLD:" in caplog.text
+    assert "the leader handed back; toggle again to take over" in caplog.text
+    leader.q = np.asarray(READY_Q, dtype=np.float32)
+    assert not source.poll().intervened
+    leader.intervening = False
+    source.poll()
+    leader.intervening = True
+    assert source.poll().intervened

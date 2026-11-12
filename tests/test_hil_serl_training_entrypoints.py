@@ -42,25 +42,12 @@ class _FakeEnv(gym.Env):
         self.action_space = batch_space(self.single_action_space, 1)
 
 
-class _FakeTeleop:
-    def __init__(self, *args, **kwargs):
-        pass
-
-    def reset(self):
-        pass
-
-    def poll(self):
-        return _NoInterventionSample()
-
-
-class _NoInterventionSample:
-    intervened = False
-    episode_end = False
-
-
 def _base_args(**overrides) -> HilSerlArgs:
+    # The composition tests do not depend on the device: the scripted ``fake`` source follows any
+    # env. (They used the raw-twist pico with a patched bridge; the Pico now needs a follower pose,
+    # see test_hil_actor_env_with_the_pico_takes_over_on_bind for the Pico over the device layer.)
     kwargs = dict(
-        teleop_device="pico",
+        teleop_device="fake",
         hidden_dim=8,
         discrete_hidden_dim=8,
         buffer_device="cpu",
@@ -73,9 +60,6 @@ def test_build_env_skips_reward_classifier_wrapper_when_no_checkpoint_given(monk
     monkeypatch.setattr(
         "rl_garden.envs.backend_registry.make_training_envs",
         lambda backend, req: (_FakeEnv(), None),
-    )
-    monkeypatch.setattr(
-        "real_world_rl.teleop.pico.source.EETwistTeleOpWrapper", _FakeTeleop
     )
     args = _base_args(classifier_checkpoint=None)
     env = _build_env(args, env_request=None)
@@ -94,9 +78,6 @@ def test_build_env_composes_reward_classifier_wrapper_when_checkpoint_given(monk
     monkeypatch.setattr(
         "rl_garden.envs.backend_registry.make_training_envs",
         lambda backend, req: (_WristFakeEnv(), None),
-    )
-    monkeypatch.setattr(
-        "real_world_rl.teleop.pico.source.EETwistTeleOpWrapper", _FakeTeleop
     )
 
     captured = {}
@@ -130,9 +111,6 @@ def test_build_env_skips_frame_stack_wrapper_by_default(monkeypatch):
         "rl_garden.envs.backend_registry.make_training_envs",
         lambda backend, req: (_FakeEnv(), None),
     )
-    monkeypatch.setattr(
-        "real_world_rl.teleop.pico.source.EETwistTeleOpWrapper", _FakeTeleop
-    )
     args = _base_args()
     assert args.obs.frame_stack == 1
     env = _build_env(args, env_request=None)
@@ -154,9 +132,6 @@ def test_build_env_composes_image_frame_stack_wrapper_when_frame_stack_set(monke
         "rl_garden.envs.backend_registry.make_training_envs",
         lambda backend, req: (_WristFakeEnv(), None),
     )
-    monkeypatch.setattr(
-        "real_world_rl.teleop.pico.source.EETwistTeleOpWrapper", _FakeTeleop
-    )
     args = _base_args(obs=ObservationConfig(frame_stack=3), classifier_checkpoint=None)
     env = _build_env(args, env_request=None)
     from real_world_rl.envs.wrappers.experiment import ExperimentContractWrapper
@@ -177,9 +152,6 @@ def test_build_env_skips_grasp_penalty_wrapper_by_default(monkeypatch):
         "rl_garden.envs.backend_registry.make_training_envs",
         lambda backend, req: (_FakeEnv(), None),
     )
-    monkeypatch.setattr(
-        "real_world_rl.teleop.pico.source.EETwistTeleOpWrapper", _FakeTeleop
-    )
     args = _base_args()
     assert args.use_grasp_penalty is False
     env = _build_env(args, env_request=None)
@@ -199,9 +171,6 @@ def test_build_env_composes_grasp_penalty_wrapper_outside_teleop_when_enabled(mo
         "rl_garden.envs.backend_registry.make_training_envs",
         lambda backend, req: (_FakeEnv(), None),
     )
-    monkeypatch.setattr(
-        "real_world_rl.teleop.pico.source.EETwistTeleOpWrapper", _FakeTeleop
-    )
     args = _base_args(use_grasp_penalty=True, grasp_penalty_value=-0.1)
     env = _build_env(args, env_request=None)
     from real_world_rl.envs.wrappers.experiment import ExperimentContractWrapper
@@ -220,9 +189,6 @@ def test_build_env_wraps_fwbw_outermost_when_fwbw_enabled(monkeypatch):
     monkeypatch.setattr(
         "rl_garden.envs.backend_registry.make_training_envs",
         lambda backend, req: (_FakeEnv(), None),
-    )
-    monkeypatch.setattr(
-        "real_world_rl.teleop.pico.source.EETwistTeleOpWrapper", _FakeTeleop
     )
     args = _base_args(fwbw=True)
     env = _build_env(args, env_request=None)
@@ -245,9 +211,6 @@ def _patch_real_robot_build(monkeypatch):
     monkeypatch.setattr(
         "rl_garden.envs.backend_registry.make_training_envs",
         lambda backend, req: (_FakeEnv(), None),
-    )
-    monkeypatch.setattr(
-        "real_world_rl.teleop.pico.source.EETwistTeleOpWrapper", _FakeTeleop
     )
 
 
@@ -281,9 +244,6 @@ def test_run_actor_builds_scratch_agent_and_starts_actor_loop(monkeypatch):
         "rl_garden.envs.backend_registry.make_training_envs",
         lambda backend, req: (_FakeEnv(), None),
     )
-    monkeypatch.setattr(
-        "real_world_rl.teleop.pico.source.EETwistTeleOpWrapper", _FakeTeleop
-    )
 
     class _FakeActorLoop:
         def __init__(self, env, policy, sync_client, **kwargs):
@@ -311,9 +271,6 @@ def test_run_actor_fwbw_builds_two_agents_and_starts_fwbw_actor_loop(monkeypatch
     monkeypatch.setattr(
         "rl_garden.envs.backend_registry.make_training_envs",
         lambda backend, req: (_FakeEnv(), None),
-    )
-    monkeypatch.setattr(
-        "real_world_rl.teleop.pico.source.EETwistTeleOpWrapper", _FakeTeleop
     )
 
     class _FakeFWBWActorLoop:
@@ -345,9 +302,6 @@ def test_run_learner_builds_full_agent_and_starts_learner_loop(monkeypatch, tmp_
     monkeypatch.setattr(
         "rl_garden.envs.backend_registry.make_training_envs",
         lambda backend, req: (_FakeEnv(), None),
-    )
-    monkeypatch.setattr(
-        "real_world_rl.teleop.pico.source.EETwistTeleOpWrapper", _FakeTeleop
     )
 
     class _FakeLearnerLoop:
@@ -392,9 +346,6 @@ def test_run_learner_fwbw_backward_binds_to_backward_port(monkeypatch, tmp_path)
     monkeypatch.setattr(
         "rl_garden.envs.backend_registry.make_training_envs",
         lambda backend, req: (_FakeEnv(), None),
-    )
-    monkeypatch.setattr(
-        "real_world_rl.teleop.pico.source.EETwistTeleOpWrapper", _FakeTeleop
     )
 
     class _FakeLearnerLoop:
@@ -498,9 +449,6 @@ def test_run_eval_runs_deterministic_episodes_and_reports_success_rate(monkeypat
         "rl_garden.envs.backend_registry.make_training_envs",
         lambda backend, req: (_FakeEvalEnv(), None),
     )
-    monkeypatch.setattr(
-        "real_world_rl.teleop.pico.source.EETwistTeleOpWrapper", _FakeTeleop
-    )
 
     captured = {}
     fake_agent = _FakeEvalAgent()
@@ -545,9 +493,6 @@ def _patch_backend(monkeypatch, captured):
 
     monkeypatch.setattr(
         "rl_garden.envs.backend_registry.make_training_envs", _fake_make_training_envs
-    )
-    monkeypatch.setattr(
-        "real_world_rl.teleop.pico.source.EETwistTeleOpWrapper", _FakeTeleop
     )
 
 
@@ -724,6 +669,59 @@ def test_hil_actor_env_with_the_spacemouse_takes_over_on_button_0(_fake_robot_cl
     assert hid_sdk.devices[0].closed
 
 
+def test_hil_actor_env_with_the_pico_takes_over_on_bind(_fake_robot_claims, monkeypatch):
+    """One HIL actor env (fake robot, real_robot cartesian_delta) with --teleop-device pico over a
+    mocked ZeroMQ publisher (the device layer's pico part, its poll thread included): moving the
+    hand alone does not intervene; a bind press takes over through the intervention wrapper, a
+    hand displacement moves the follower the same way, the gripper starts from the last sent
+    action. The publisher streams: one message before every step."""
+    import dataclasses
+    import sys
+
+    from _teleop_fakes import make_zmq, pico_record
+
+    import real_world_rl.envs.backends.real_robot  # noqa: F401  (registers the backend)
+    from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
+    from real_world_rl.teleop.pico.source import PicoTeleopSource
+    from real_world_rl.training.entrypoints.hil_serl import _hil_serl_env_request
+
+    zmq_sdk = make_zmq()
+    monkeypatch.setitem(sys.modules, "zmq", zmq_sdk)
+    args = _fake_robot_args(teleop_device="pico")
+    # The env scales must reach the tracker's lead cap (0.05 m / 0.3 rad).
+    args = dataclasses.replace(
+        args, real_robot=dataclasses.replace(args.real_robot, xyz_scale_m=0.05, rot_scale_rad=0.3)
+    )
+    env = _build_env(args, _hil_serl_env_request(args, run_name="t"))
+
+    def step(record):
+        zmq_sdk.publish(record)
+        return env.step(torch.zeros(1, 7))[4]
+
+    try:
+        (wrapper,) = [layer for layer in _chain(env) if isinstance(layer, TeleopInterventionWrapper)]
+        source = wrapper.source
+        assert isinstance(source, PicoTeleopSource)
+        env.reset()
+        for z in (0.0, 0.01, 0.02):
+            assert step(pico_record((0.0, 0.0, z)))["intervened"] is False  # the hand alone
+        assert step(pico_record((0.0, 0.0, 0.02), bind=True))["intervened"]
+        for _ in range(50):
+            info = step(pico_record((0.0, 0.0, 0.04)))  # +2 cm along base z since the take-over
+            assert info["intervened"]
+            if info["intervene_action"][0, 2] > 0:
+                break
+        else:
+            raise AssertionError("the hand displacement never reached the follower")
+        executed = info["intervene_action"].reshape(-1)
+        assert executed.abs().max() <= 1.0
+        assert executed[6] == 0.0  # the policy's last gripper action (zeros here), kept at the take-over
+        assert source.cartesian_tracker.following
+    finally:
+        env.close()
+    assert zmq_sdk.sockets[0].closed
+
+
 def test_robot_teleop_device_requires_real_robot_backend():
     from real_world_rl.training.entrypoints.hil_serl import _robot_teleop_kwargs
 
@@ -751,9 +749,6 @@ def test_real_robot_frame_stack_is_stacked_by_the_wrapper_not_the_backend(
 ):
     import real_world_rl.envs.backends.real_robot  # noqa: F401  (registers the backend)
 
-    monkeypatch.setattr(
-        "real_world_rl.teleop.pico.source.EETwistTeleOpWrapper", _FakeTeleop
-    )
     from real_world_rl.training.entrypoints.hil_serl import _hil_serl_env_request
 
     args = _fake_robot_args(frame_stack=2)

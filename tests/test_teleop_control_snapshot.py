@@ -60,8 +60,13 @@ def test_spacemouse_serl_teleop_control(isolated_site):
 
 
 def test_non_tracker_devices_have_no_teleop_control():
-    for device in ("pico", "gello", "leader_arm", "robot", "fake"):
+    for device in ("gello", "leader_arm", "robot", "fake"):
         assert env_building.teleop_control_spec(HilSerlArgs(teleop_device=device)) is None
+
+
+def test_without_a_teleop_device_there_is_no_teleop_control():
+    # A learner may run without --teleop-device: it builds no source and compares no block.
+    assert env_building.teleop_control_spec(HilSerlArgs()) is None
 
 
 def test_spacemouse_teleop_input(isolated_site):

@@ -46,6 +46,6 @@ Current limitations:
 - Controller diagnostics are opt-in and should not be added to task
   observations by default.
 
-See [`docs/devices/robot-infra-roadmap.md`](../../docs/devices/robot-infra-roadmap.md) for
+See [`docs/devices-roadmap.md`](../../docs/devices-roadmap.md) for
 planned backend, dynamics, safety, and observability work.
 

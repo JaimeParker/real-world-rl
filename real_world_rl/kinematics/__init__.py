@@ -1,5 +1,6 @@
 """Robot kinematics (numpy only)."""
 from real_world_rl.kinematics.panda import PandaKinematics
+from real_world_rl.kinematics.registry import Kinematics, kinematics_for, kinematics_names, register
 from real_world_rl.kinematics.transforms import (
     invert_transform,
     matrix_to_quat_xyzw,
@@ -10,6 +11,10 @@ from real_world_rl.kinematics.transforms import (
 )
 
 __all__ = [
+    "Kinematics",
+    "kinematics_for",
+    "kinematics_names",
+    "register",
     "PandaKinematics",
     "invert_transform",
     "matrix_to_quat_xyzw",

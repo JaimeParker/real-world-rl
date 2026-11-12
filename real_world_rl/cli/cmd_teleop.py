@@ -7,8 +7,8 @@ Importing this module imports no device slice: ``rwrl`` registers every command 
 OPERATION_PARSERS = {
     "calibrate": dict(help="calibrate the station teleop (SpaceMouse or GELLO)"),
     "diagnose": dict(help="inspect SpaceMouse input without robot motion (SpaceMouse)", allow_abbrev=False),
-    "run": dict(help="supervised SpaceMouse recording; labels end episodes, n requests next, "
-                     "q releases control (SpaceMouse)", allow_abbrev=False),
+    "run": dict(help="supervised recording session (SpaceMouse or GELLO leader); labels end episodes, "
+                     "n requests next, q releases control", allow_abbrev=False),
     "profiles": dict(help="list, show and select direction profiles (SpaceMouse)"),
     "probe-hid": dict(help="record a SpaceMouse-like HID device's descriptor and raw reports and draft its "
                            "device table entry; no robot motion (SpaceMouse)", allow_abbrev=False),

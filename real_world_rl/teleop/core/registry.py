@@ -18,6 +18,7 @@ class UnknownTeleopSourceError(ValueError):
 _REGISTRY: Dict[str, Type[TeleopSource]] = {}
 _BUILTIN_MODULES: Dict[str, str] = {
     "pico": "real_world_rl.teleop.pico.source",
+    "pico_twist": "real_world_rl.teleop.pico.twist_sim",
     "robot": "real_world_rl.teleop.core.part",
     "spacemouse": "real_world_rl.teleop.spacemouse.source",
     "spacemouse_twist": "real_world_rl.teleop.spacemouse.twist_sim",

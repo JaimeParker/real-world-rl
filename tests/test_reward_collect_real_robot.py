@@ -143,9 +143,21 @@ def test_the_real_robot_collector_takes_no_camera_capture():
         collect_data.main(camera_capture=lambda: None, argv=["--env-backend", "real_robot"])
 
 
+def test_the_legacy_collector_requires_the_teleop_device(tmp_path, capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        collect_data.main(argv=["--output-dir", str(tmp_path)])
+    assert exit_info.value.code != 0
+    captured = capsys.readouterr()
+    assert "--teleop-device" in captured.err + captured.out
+    assert collect_data.Args(output_dir="x", teleop_device="pico").teleop_device == "pico"
+    with pytest.raises(TypeError):
+        collect_data.Args(output_dir="x")  # no default device
+
+
 def test_legacy_serl_mode_error_names_a_command_the_collector_parses(tmp_path, monkeypatch):
     with pytest.raises(ValueError) as error:
-        collect_data.main(argv=["--output-dir", str(tmp_path), "--spacemouse-mode", "serl"])
+        collect_data.main(argv=["--output-dir", str(tmp_path), "--teleop-device", "spacemouse",
+                                "--spacemouse-mode", "serl"])
     assert collect_data.SERL_REAL_ROBOT_COMMAND in str(error.value)
 
     preset = tmp_path / "preset.yaml"

@@ -323,7 +323,10 @@ class GelloTeleop(Teleop):
     ACTION_SPACE = "joint_abs"
     PIP_REQUIREMENTS = (DYNAMIXEL_SDK_REQUIREMENT,)
     OPTIONAL_SDKS = {"gello-events": OptionalSdk(option="event_device", module=EVDEV_SDK, requirements=(EVDEV_SDK,))}
+    PRESET_ALIASES = ("leader_arm", "leader_cartesian")
+    DOCTOR_COVERAGE = (2, "GELLO")
     SERIAL_GROUP = "dialout"
+    EVENT_DEVICE_GROUP = "input"
 
     @classmethod
     def require_sdk(cls) -> ModuleType:

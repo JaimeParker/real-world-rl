@@ -401,7 +401,7 @@ COMPACT_ENTRY = {"vendor_id": 0x256F, "product_id": 0xC635, "path": b"/dev/hidra
 def run_teleop_check(monkeypatch, entries, **options):
     monkeypatch.setitem(sys.modules, "hid", fake_hid(entries))
     teleop = TeleopConfig(name="sm", backend="spacemouse", options=options)
-    return checks._make_check(2, "os:teleop:sm", checks._spacemouse_outcome(teleop, "os:teleop:sm"))()
+    return checks._make_check(2, "os:teleop:sm", checks._table_teleop_outcome(teleop, "os:teleop:sm"))()
 
 
 def test_teleop_check_fails_naming_an_unknown_3dconnexion_device_without_a_supported_one(monkeypatch):

@@ -68,7 +68,9 @@ def _blocks(args) -> tuple[str, str]:
         pytest.param({"teleop_device": "gello"}, NONE, NONE, id="gello"),
         pytest.param({"teleop_device": "leader_arm"}, NONE, NONE, id="leader_arm"),
         pytest.param({"teleop_device": "robot"}, NONE, NONE, id="robot"),
-        pytest.param({"teleop_device": "pico"}, NONE, NONE, id="pico"),
+        # Since the Pico drives the command tracker (pico_anchored_v1, provenance only) it compares
+        # the tracker's block; it compared none as the raw-twist source.
+        pytest.param({"teleop_device": "pico"}, TRACKER_DEFAULT, NONE, id="pico"),
         pytest.param({"teleop_device": "keyboard"}, NONE, NONE, id="keyboard"),
         pytest.param({"teleop_device": "spacemouse_twist"}, NONE, NONE, id="spacemouse_twist"),
         pytest.param({"teleop_device": "fake"}, NONE, NONE, id="fake"),
@@ -83,6 +85,8 @@ def _blocks(args) -> tuple[str, str]:
                      SERL_DEFAULT, NONE, id="composite-serl-keyboard"),
         pytest.param({"teleop_device": "leader_cartesian", "teleop_event_device": "keyboard"},
                      TRACKER_DEFAULT, NONE, id="composite-leader_cartesian-keyboard"),
+        pytest.param({"teleop_device": "pico", "teleop_event_device": "stdin"}, TRACKER_DEFAULT, NONE,
+                     id="composite-pico-stdin"),
     ],
 )
 def test_every_device_with_defaults(isolated_site, fields, control, frozen_input):
@@ -104,6 +108,12 @@ def test_every_device_with_defaults(isolated_site, fields, control, frozen_input
             '"speed_m_s": 0.04, "speed_rad_s": 0.3}',
             id="spacemouse",
         ),
+        pytest.param(
+            {"teleop_device": "pico", "teleop_lead_cap_m": 0.03, "teleop_target_speed_m_s": 0.02},
+            '{"version": "cartesian_tracker_v1", "lead_cap_m": 0.03, "lead_cap_rad": 0.3, '
+            '"speed_m_s": 0.02, "speed_rad_s": 0.3}',
+            id="pico",
+        ),
     ],
 )
 def test_tracker_flags_enter_the_block(isolated_site, fields, control):
@@ -113,7 +123,7 @@ def test_tracker_flags_enter_the_block(isolated_site, fields, control):
 @pytest.mark.parametrize("device", ["leader_cartesian", "gello", "leader_arm", "pico", "fake"])
 def test_devices_whose_block_ignores_their_options_never_read_the_options_file(isolated_site, device):
     missing = str(isolated_site / "missing.yaml")
-    expected = TRACKER_DEFAULT if device == "leader_cartesian" else NONE
+    expected = TRACKER_DEFAULT if device in ("leader_cartesian", "pico") else NONE
     args = HilSerlArgs(teleop_device=device, teleop_options_yaml=missing)
     assert json.dumps(env_building.teleop_control_spec(args)) == expected
     env_building.resolve_teleop_input(args)
@@ -177,7 +187,7 @@ _CAPABILITIES = (
     "SUPPORTS_INPUT_DIAGNOSTICS",
 )
 _BUILTIN = ("robot", "leader_arm", "gello", "leader_cartesian", "spacemouse", "spacemouse_twist", "pico",
-            "bimanual", "composite", "fake", "keyboard", "stdin", "jsonl")
+            "pico_twist", "bimanual", "composite", "fake", "keyboard", "stdin", "jsonl")
 
 
 def _declared(name, options=None):
@@ -197,7 +207,8 @@ def _declared(name, options=None):
         ("spacemouse", {"mode": "serl"}, {"REQUIRES_FULL_ACTION", "DRIVES_ONE_ARM", "RECORDS_TELEOP_INPUT",
                                           "SUPPORTS_INPUT_DIAGNOSTICS"}),
         ("spacemouse_twist", None, {"DRIVES_ONE_ARM"}),
-        ("pico", None, {"DRIVES_ONE_ARM"}),
+        ("pico", None, {"USES_LAST_GRIPPER_ACTION", "DRIVES_ONE_ARM", "TRACKS_CARTESIAN_TARGET"}),
+        ("pico_twist", None, {"DRIVES_ONE_ARM"}),
         ("bimanual", None, {"USES_LAST_GRIPPER_ACTION"}),
         ("composite", None, {"USES_LAST_GRIPPER_ACTION"}),
         ("fake", None, set()),
@@ -214,14 +225,16 @@ def test_declarations_reproduce_the_former_device_tables():
     def having(capability):
         return {name for name in _BUILTIN if getattr(source_class(name), capability)}
 
-    # env_building._SINGLE_ARM_TELEOP_DEVICES
+    # env_building._SINGLE_ARM_TELEOP_DEVICES (pico_twist: the former pico, which was in it)
     assert having("DRIVES_ONE_ARM") == {
-        "robot", "leader_arm", "gello", "leader_cartesian", "spacemouse", "spacemouse_twist", "pico"}
-    # env_building._CARTESIAN_TRACKER_TELEOP_DEVICES
-    assert having("TRACKS_CARTESIAN_TARGET") == {"leader_cartesian", "spacemouse"}
-    # intervention.GRIPPER_HOLDING_DEVICES, plus the composite that hands the getter on
+        "robot", "leader_arm", "gello", "leader_cartesian", "spacemouse", "spacemouse_twist", "pico",
+        "pico_twist"}
+    # env_building._CARTESIAN_TRACKER_TELEOP_DEVICES, plus the Pico since it drives the tracker
+    assert having("TRACKS_CARTESIAN_TARGET") == {"leader_cartesian", "spacemouse", "pico"}
+    # intervention.GRIPPER_HOLDING_DEVICES, plus the composite that hands the getter on, plus the
+    # Pico (its take-over starts from the last sent gripper action)
     assert having("USES_LAST_GRIPPER_ACTION") == {
-        "robot", "leader_arm", "gello", "leader_cartesian", "spacemouse", "bimanual", "composite"}
+        "robot", "leader_arm", "gello", "leader_cartesian", "spacemouse", "bimanual", "composite", "pico"}
     # the teleop_device == "spacemouse" checks (teleop_input, input diagnostics)
     assert having("RECORDS_TELEOP_INPUT") == having("SUPPORTS_INPUT_DIAGNOSTICS") == {"spacemouse"}
 
@@ -252,7 +265,8 @@ class _Built(Exception):
         ("spacemouse", {"mode": "serl"}, False),
         ("bimanual", {}, True),
         ("composite", {"motion": "spacemouse", "events": "stdin"}, True),
-        ("pico", {}, False),
+        ("pico", {}, True),
+        ("pico_twist", {}, False),
         ("spacemouse_twist", {}, False),
         ("fake", {}, False),
         ("keyboard", {}, False),
@@ -285,7 +299,8 @@ def test_the_wrapper_passes_the_last_gripper_action_to_sources_that_use_it(monke
         ("leader_arm", {}, True),
         ("gello", {}, True),
         ("bimanual", {}, True),
-        ("pico", {}, False),
+        ("pico", {}, True),
+        ("pico_twist", {}, False),
         ("spacemouse_twist", {}, False),
         ("fake", {}, False),
     ],

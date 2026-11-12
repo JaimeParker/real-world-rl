@@ -6,7 +6,7 @@ import importlib.util
 import sys
 from dataclasses import dataclass
 
-from real_world_rl.devices import RobotConfig
+from real_world_rl.devices import RobotConfig, Teleop
 from real_world_rl.devices.backends.arms.franky import FRANKY_DISTRIBUTION, FRANKY_WHEEL_INDEX_URL
 
 # extra -> modules; the extra counts as installed when any of them imports.
@@ -15,9 +15,6 @@ EXTRA_MODULES: dict[str, tuple[str, ...]] = {
     "pyagxarm": ("pyAgxArm",),
     "piper-sdk": ("piper_sdk",),
     "realsense": ("pyrealsense2",),
-    "spacemouse": ("hid",),
-    "gello": ("dynamixel_sdk",),
-    "gello-events": ("evdev",),
     "grpc": ("grpc",),
     "jpeg": ("PIL", "cv2"),
 }
@@ -25,8 +22,14 @@ EXTRA_MODULES: dict[str, tuple[str, ...]] = {
 ARM_BACKEND_EXTRAS = {"franky": "franky", "pyagxarm": "pyagxarm", "piper_sdk": "piper-sdk"}
 GRIPPER_BACKEND_EXTRAS = {"franky": "franky", "pyagxarm": "pyagxarm", "piper_sdk": "piper-sdk"}
 CAMERA_BACKEND_EXTRAS = {"realsense": "realsense"}
-TELEOP_BACKEND_EXTRAS = {"spacemouse": "spacemouse", "gello": "gello"}
-GELLO_EVENTS_EXTRA = "gello-events"
+TELEOP_BACKEND_EXTRAS = {
+    name: name for name, backend in Teleop.backends().items() if backend.SDK and backend.PIP_REQUIREMENTS
+}
+for _name, _backend in Teleop.backends().items():
+    if _backend.SDK and _backend.PIP_REQUIREMENTS:
+        EXTRA_MODULES[_name] = (_backend.SDK,)
+    for _extra, _optional in _backend.OPTIONAL_SDKS.items():
+        EXTRA_MODULES[_extra] = (_optional.module,)
 # The daemon's only transport: required when the station declares a ``daemon:`` block, else optional.
 TRANSPORT_EXTRA = "grpc"
 TRANSPORT_PURPOSE = "daemon route"
@@ -50,9 +53,12 @@ def required_extras(config: RobotConfig, *, serves_daemon: bool = False) -> list
         extras.append(GRIPPER_BACKEND_EXTRAS.get(config.gripper.backend))
     extras += [CAMERA_BACKEND_EXTRAS.get(camera.backend) for camera in config.cameras]
     if config.teleop is not None:
-        extras.append(TELEOP_BACKEND_EXTRAS.get(config.teleop.backend))
-        if config.teleop.backend == "gello" and config.teleop.options.get("event_device"):
-            extras.append(GELLO_EVENTS_EXTRA)
+        backend = Teleop.backends().get(config.teleop.backend)
+        if backend is not None:
+            if backend.SDK and backend.PIP_REQUIREMENTS:
+                extras.append(config.teleop.backend)
+            extras.extend(extra for extra, optional in backend.OPTIONAL_SDKS.items()
+                          if config.teleop.options.get(optional.option))
     needed = [extra for extra in extras if extra]
     if serves_daemon:
         needed.append(TRANSPORT_EXTRA)
@@ -67,7 +73,13 @@ def _importable(module: str) -> bool:
 
 
 def extra_installed(extra: str) -> bool:
-    return any(_importable(module) for module in EXTRA_MODULES[extra])
+    # Include backends registered after this module was loaded, without importing their SDKs.
+    modules = dict(EXTRA_MODULES)
+    for name, backend in Teleop.backends().items():
+        if backend.SDK and backend.PIP_REQUIREMENTS:
+            modules[name] = (backend.SDK,)
+        modules.update({name: (optional.module,) for name, optional in backend.OPTIONAL_SDKS.items()})
+    return any(_importable(module) for module in modules[extra])
 
 
 def missing_extras(extras: list[str]) -> list[str]:

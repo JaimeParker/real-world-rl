@@ -15,12 +15,13 @@ from real_world_rl.common.tree import index_tree
 @dataclass
 class Args:
     output_path: str
-    device: Literal["pico", "spacemouse_twist", "fake"] = "pico"
-    """spacemouse_twist: the SpaceMouse as a raw twist (sim only; button 0 gripper, button 1 episode end)."""
+    device: Literal["pico_twist", "spacemouse_twist", "fake"] = "pico_twist"
+    """pico_twist / spacemouse_twist: the Pico / SpaceMouse as a raw twist (sim only; a real robot
+    uses --teleop-device pico or spacemouse, over the command tracker)."""
     zmq_url: str = "tcp://192.168.6.2:7777"
-    """Pico only."""
+    """pico_twist only."""
     hand: Literal["left", "right"] = "right"
-    """Pico only."""
+    """pico_twist only."""
     dt: float = 1 / 30
 
     env_id: str = "PegInsertionSidePegOnly-v1"
@@ -55,11 +56,11 @@ class Args:
 
 # Only the Pico twist is in physical units; the SpaceMouse (and fake) actions are already in
 # the env's normalized [-1, 1] space.
-PHYSICAL_TWIST_DEVICES = ("pico",)
+PHYSICAL_TWIST_DEVICES = ("pico_twist",)
 
 
 def build_teleop_kwargs(args: Args) -> dict:
-    if args.device == "pico":
+    if args.device == "pico_twist":
         kwargs = dict(
             zmq_url=args.zmq_url,
             hand=args.hand,
@@ -82,9 +83,9 @@ def build_teleop_kwargs(args: Args) -> dict:
 def reset_teleop(teleop, *, episode_end_pressed: bool = False) -> None:
     """Resets the source; after a manual episode end the Pico button is still held, so it is told
     not to report it again (other sources have no such state)."""
-    from real_world_rl.teleop.pico.source import PicoTeleopSource
+    from real_world_rl.teleop.pico.twist_sim import PicoTwistTeleopSource
 
-    if episode_end_pressed and isinstance(teleop, PicoTeleopSource):
+    if episode_end_pressed and isinstance(teleop, PicoTwistTeleopSource):
         teleop.reset(episode_end_pressed=True)
     else:
         teleop.reset()

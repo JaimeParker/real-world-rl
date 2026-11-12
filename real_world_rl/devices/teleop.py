@@ -182,6 +182,42 @@ class Teleop(Part, BackendRegistry, ABC):
     #: Shared libraries its SDK loads: ``(ctypes library name, Debian package)``.
     SYSTEM_LIBRARIES: ClassVar[tuple[tuple[str, str], ...]] = ()
 
+    #: Legacy preset aliases, in addition to the backend's registry name.
+    PRESET_ALIASES: ClassVar[tuple[str, ...]] = ()
+    #: Opt into the historical coverage summary and its ordering (None: no summary row).
+    DOCTOR_COVERAGE: ClassVar[tuple[int, str] | None] = None
+    #: Name for a standalone USB read probe (None: no standalone read).
+    USB_PROBE_NAME: ClassVar[str | None] = None
+    #: Optional event-device group and its options key (None: no event device).
+    EVENT_DEVICE_GROUP: ClassVar[str | None] = None
+    EVENT_DEVICE_OPTION: ClassVar[str] = "event_device"
+    #: Device-table diagnostics; empty for backends without a site table.
+    DEVICE_TABLE_ERROR_HINT: ClassVar[str] = ""
+    DEVICE_TABLE_DOC: ClassVar[str] = ""
+    #: Permission repair text for a HID backend (empty: no backend-specific hint).
+    HID_PERMISSION_HINT: ClassVar[str] = ""
+
+    @classmethod
+    def site_device_table(cls, station_dir: Any = None, options: Mapping[str, Any] | None = None) -> Any:
+        """Load a backend-private site table without importing its SDK; None when unused."""
+        return None
+
+    @classmethod
+    def unknown_device_finding(
+        cls, vid: int, pid: int, path: Any, *, table: Any = None, hid_interfaces=(),
+    ) -> tuple[str, str] | None:
+        """Unknown USB device's (message, hint suffix), or None. No SDK or device opens.
+
+        ``path`` is its sysfs directory; ``hid_interfaces`` are its HID sysfs directories.
+        The host supplies the loaded ``table`` and prefixes the hint with the USB product.
+        """
+        return None
+
+    @classmethod
+    def discover_diagnostics(cls, table: Any) -> tuple[set[str], str]:
+        """Discovered identities and an optional description of unknown devices."""
+        return cls.discover(), ""
+
     @classmethod
     def usb_ids(cls, station_dir: Any = None, options: Mapping[str, Any] | None = None) -> frozenset[tuple[int, int]]:
         """The ``(vendor_id, product_id)`` pairs of the USB devices this backend drives, for a

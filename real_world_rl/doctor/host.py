@@ -10,6 +10,7 @@ import re
 import shutil
 import sys
 from pathlib import Path
+from typing import Any, Mapping
 
 try:
     import grp
@@ -103,16 +104,6 @@ def teleop_usb_ids(station_dir=None, options_by_backend=None) -> dict:
     return declared
 
 
-def spacemouse_device_table(station_dir=None, options=None):
-    """The SpaceMouse device table this host's USB devices are matched against, the one the
-    device layer uses: ``_spacemouse_hid.load_device_specs(station_dir, options)`` (without a
-    station, the site table in ``./local`` or the user config directory). It needs no HID
-    SDK; a failure to load raises."""
-    from real_world_rl.teleop.spacemouse import hid as _spacemouse_hid
-
-    return _spacemouse_hid.load_device_specs(station_dir, options)
-
-
 
 
 class Host:
@@ -125,10 +116,9 @@ class Host:
         dev: Path = Path("/dev"),
         etc: Path = Path("/etc"),
         station_dir: Path | None = None,
-        spacemouse_options: dict | None = None,
+        teleop_options: Mapping[str, Mapping[str, Any]] | None = None,
     ):
-        """``station_dir``/``spacemouse_options`` select the SpaceMouse device table (see
-        ``spacemouse_device_table``)."""
+        """Select each backend's site table using its station directory and options."""
         self.root, self.report, self.sysfs, self.dev, self.etc = (
             root,
             report,
@@ -139,17 +129,21 @@ class Host:
         self.capabilities = Capabilities.detect(etc=etc, sysfs=sysfs)
         self.user = pwd.getpwuid(os.getuid()).pw_name if pwd else getpass.getuser()
         self.findings: list[Finding] = []
-        self.spacemouse_table = None
-        try:
-            self.spacemouse_table = spacemouse_device_table(station_dir, spacemouse_options)
-        except Exception as error:  # host diagnosis must go on when the device layer is broken
-            self.add(
-                "usb.spacemouse.table",
-                "FAIL",
-                f"cannot load the SpaceMouse device table: {error}",
-                "fix the reported spacemouse-devices.yaml entry, or repair the real-world-rl installation",
-            )
-        self.teleop_usb = teleop_usb_ids(station_dir, {"spacemouse": spacemouse_options})
+        self.teleop_tables = {}
+        self.teleop_backends = teleop_backends()
+        for name, backend in self.teleop_backends.items():
+            try:
+                table = backend.site_device_table(station_dir, (teleop_options or {}).get(name))
+                if table is not None:
+                    self.teleop_tables[name] = table
+            except Exception as error:  # diagnosis continues when a backend table is broken
+                self.add(
+                    f"usb.{name}.table",
+                    "FAIL",
+                    f"cannot load the {backend.USB_IDS_SOURCE}: {error}",
+                    backend.DEVICE_TABLE_ERROR_HINT,
+                )
+        self.teleop_usb = teleop_usb_ids(station_dir, teleop_options)
         self.usb = self.discover_usb()
         self.ports: list[str] = []
         self.actions: list[Action] = []
@@ -209,27 +203,16 @@ class Host:
             if usb in (entry / "device").resolve().parents
         ]
 
-    def describes_multi_axis_hid(self, usb_path):
-        """Whether a hidraw interface of this USB device has a multi-axis controller descriptor."""
-        from real_world_rl.teleop.spacemouse.hid import (
-            describes_multi_axis_controller,
-        )
-
+    def hid_interfaces(self, usb_path):
+        """HID sysfs directories belonging to this USB device, without reading devices."""
         usb = Path(usb_path).resolve()
-        for entry in (self.sysfs / "class/hidraw").glob("*"):
-            device = entry / "device"
-            if usb not in device.resolve().parents:
-                continue
-            try:
-                descriptor = (device / "report_descriptor").read_bytes()
-            except OSError:
-                continue
-            if describes_multi_axis_controller(descriptor):
-                return True
-        return False
+        return [
+            entry / "device"
+            for entry in (self.sysfs / "class/hidraw").glob("*")
+            if usb in (entry / "device").resolve().parents
+        ]
 
     def discover_usb(self):
-        table = self.spacemouse_table
         devices = []
         for path in sorted((self.sysfs / "bus/usb/devices").glob("*")):
             vid, pid = read(path / "idVendor"), read(path / "idProduct")
@@ -246,19 +229,14 @@ class Host:
                 if vid.lower() == "8086" and "realsense" in product.lower()
                 else ""
             )
-            unknown_spacemouse = False
-            if table is not None and not kind:
-                from real_world_rl.teleop.spacemouse.hid import (
-                    LOGITECH_VENDOR_ID,
-                    is_unknown_spacemouse,
-                )
-
-                unknown_spacemouse = is_unknown_spacemouse(
-                    *pair,
-                    table,
-                    multi_axis=pair[0] == LOGITECH_VENDOR_ID
-                    and self.describes_multi_axis_hid(path),
-                )
+            unknown = {}
+            if not kind:
+                for name, table in self.teleop_tables.items():
+                    finding = self.teleop_backends[name].unknown_device_finding(
+                        *pair, path, table=table, hid_interfaces=self.hid_interfaces(path),
+                    )
+                    if finding is not None:
+                        unknown[name] = finding
             bus, number = read(path / "busnum"), read(path / "devnum")
             node = (
                 str(self.dev / f"bus/usb/{int(bus):03}/{int(number):03}")
@@ -274,7 +252,7 @@ class Host:
                     node=node,
                     sysfs=str(path),
                     serial=read(path / "serial"),
-                    unknown_spacemouse=unknown_spacemouse,
+                    unknown_teleops=unknown,
                 )
             )
         return devices
@@ -444,21 +422,14 @@ class Host:
         self.propose(action)
 
     def inspect_usb(self):
-        # Set only when the device table loaded, so the device layer is importable here.
-        unknown = [device for device in self.usb if device.get("unknown_spacemouse")]
-        if unknown:
-            from real_world_rl.teleop.spacemouse.hid import (
-                DEVICE_TABLE_FILENAME,
-                unknown_device_message,
-            )
-        for device in unknown:
-            self.add(
-                f"usb.spacemouse.unknown.{device['vid']}:{device['pid']}",
-                "WARN",
-                unknown_device_message(int(device["vid"], 16), int(device["pid"], 16)),
-                f'product "{device["product"]}"; the site table is local/{DEVICE_TABLE_FILENAME} '
-                f"(next to local/station.yaml) or ~/.config/rwrl/{DEVICE_TABLE_FILENAME}",
-            )
+        for device in self.usb:
+            for name, (message, hint) in device.get("unknown_teleops", {}).items():
+                self.add(
+                    f"usb.{name}.unknown.{device['vid']}:{device['pid']}",
+                    "WARN",
+                    message,
+                    f'product "{device["product"]}"; {hint}',
+                )
         for kind in (*self.teleop_usb, "realsense"):
             if kind not in self.expected:
                 continue
@@ -508,7 +479,8 @@ class Host:
             backend = backends.get(teleop.backend) if teleop is not None else None
             if backend is not None and backend.SERIAL_GROUP:
                 candidates.append(
-                    (teleop.options.get("port"), teleop.options.get("event_device"), backend.SERIAL_GROUP)
+                    (teleop.options.get("port"), teleop.options.get(backend.EVENT_DEVICE_OPTION),
+                     backend.SERIAL_GROUP, backend.EVENT_DEVICE_GROUP)
                 )
                 self.expected.add(teleop.backend)
                 for extra, optional in backend.OPTIONAL_SDKS.items():
@@ -528,7 +500,7 @@ class Host:
                     "uncommissioned serial candidates: " + ", ".join(ports),
                     "select the GELLO port and calibration in a station/preset before device reads or repairs",
                 )
-        for index, (port, event, serial_group) in enumerate(candidates):
+        for index, (port, event, serial_group, event_group) in enumerate(candidates):
             check = f"gello.{index}"
             if not port:
                 self.add(
@@ -571,8 +543,8 @@ class Host:
                 self.add(
                     check + ".events", "PASS" if ok else "FAIL", f"event device {event}"
                 )
-                if Path(event).exists() and not ok:
-                    self.groups("input", check + ".events")
+                if Path(event).exists() and not ok and event_group:
+                    self.groups(event_group, check + ".events")
             timer = (
                 self.sysfs / "bus/usb-serial/devices" / device.name / "latency_timer"
             )

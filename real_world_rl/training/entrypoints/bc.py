@@ -155,16 +155,19 @@ from rl_garden.training.offline.entrypoints.bc import BCArgs  # noqa: E402
 from real_world_rl.training.args import (  # noqa: E402
     FrankaRealConfig,
     RealWorldFrankaArgs,
+    TeleopArgs,
 )
 from real_world_rl.training.registry import registry  # noqa: E402
 
 
 @dataclass
-class RealWorldBCArgs(RealWorldFrankaArgs, BCArgs):
+class RealWorldBCArgs(TeleopArgs, RealWorldFrankaArgs, BCArgs):
     """RealWorldFrankaArgs is composed for its env-backend fields
     (franka_real, env_backend) only -- role/sync_host/sync_port/control_hz/
     deterministic_actor/train_freq/publish_freq are inherited but unused:
-    BC has no actor/learner split to apply them to."""
+    BC has no actor/learner split to apply them to. TeleopArgs is included
+    to share station presets; BC ignores its fields and never requires or
+    constructs a teleop source."""
 
     franka_real: FrankaRealConfig = field(default_factory=FrankaRealConfig)
     demo_dataset_paths: Sequence[str] = field(default_factory=tuple)

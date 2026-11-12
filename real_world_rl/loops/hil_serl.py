@@ -228,7 +228,7 @@ class HilSerlLearnerLoop(LearnerLoop):
     uses RLPD's existing static ``offline_dataset`` loading, not a
     continuously growing on-disk dataset. So ``_refresh_offline_data()`` stays
     the base class's no-op default here too; HG-DAgger's growing-dataset problem
-    is out of scope for this round (see ``docs/devices/robot-infra-roadmap.md`` in this repository).
+    is out of scope for this round (see ``docs/devices-roadmap.md`` in this repository).
 
     Overrides ``_on_transition`` to route transitions the way HIL-SERL's own
     actor loop does (``3rd_party/hil-serl/examples/train_rlpd.py:178-193``):

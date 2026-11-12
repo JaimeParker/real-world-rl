@@ -305,10 +305,10 @@ def test_spacemouse_rules_include_the_products_of_the_local_table(isolated_site,
 def test_usb_discovery_takes_a_local_table_product_for_a_spacemouse(isolated_site, report):
     usb_device(isolated_site / "sys", "1-1", "256f", "c63a", "SpaceMouse Wireless BT")
     (device,) = site_host(isolated_site, report).usb
-    assert device["kind"] == "" and device["unknown_spacemouse"]
+    assert device["kind"] == "" and bool(device["unknown_teleops"].get("spacemouse"))
     write_site_table(isolated_site)
     (device,) = site_host(isolated_site, report).usb
-    assert device["kind"] == "spacemouse" and not device["unknown_spacemouse"]
+    assert device["kind"] == "spacemouse" and not bool(device["unknown_teleops"].get("spacemouse"))
 
 
 def test_an_unknown_3dconnexion_usb_device_is_a_warn_finding(isolated_site, report):
@@ -340,7 +340,7 @@ def test_a_logitech_usb_device_is_unknown_only_with_a_multi_axis_descriptor(isol
         (sysfs / "class/hidraw" / node).mkdir(parents=True)
         (sysfs / "class/hidraw" / node / "device").symlink_to(interface)
     host = site_host(isolated_site, report)
-    assert {d["pid"]: d["unknown_spacemouse"] for d in host.usb} == {"c542": False, "c6ff": True}
+    assert {d["pid"]: bool(d["unknown_teleops"].get("spacemouse")) for d in host.usb} == {"c542": False, "c6ff": True}
 
 
 def test_an_invalid_local_table_fails_and_blocks_the_spacemouse_rules(isolated_site, report):
@@ -377,10 +377,10 @@ def test_station_device_table_reaches_the_host_udev_rules(isolated_site, report,
     action = next(a for a in host.actions if a.target)
     assert 'ATTRS{idVendor}=="256f", ATTRS{idProduct}=="c63a"' in action.content
     # Without the station, ./local (empty here) and the user directory apply: built-in only.
-    assert (0x256F, 0xC63A) not in site_host(isolated_site, report).spacemouse_table.specs
+    assert (0x256F, 0xC63A) not in site_host(isolated_site, report).teleop_tables["spacemouse"].specs
 
 
-def test_spacemouse_table_inputs_follow_the_selected_robot(isolated_site, monkeypatch):
+def test_teleop_table_inputs_follow_the_selected_robot(isolated_site, monkeypatch):
     monkeypatch.delenv("RWRL_STATION", raising=False)
     station = isolated_site / "station.yaml"
     station.write_text(yaml.safe_dump({"robots": {
@@ -389,12 +389,12 @@ def test_spacemouse_table_inputs_follow_the_selected_robot(isolated_site, monkey
                   "teleop": {"backend": "spacemouse", "options": {"device_table": "tables/sm.yaml"}}},
     }}))
     args = SimpleNamespace(config=str(station), robot=None, preset=None)
-    station_dir, options = doctor.spacemouse_table_inputs(args)
+    station_dir, options = doctor.teleop_table_inputs(args)
     assert station_dir == isolated_site.resolve()
-    assert options["device_table"] == str(isolated_site.resolve() / "tables/sm.yaml")
-    assert doctor.spacemouse_table_inputs(SimpleNamespace(config=str(station), robot="left", preset=None)) == (
-        isolated_site.resolve(), None)
-    assert doctor.spacemouse_table_inputs(SimpleNamespace(config=None, robot=None, preset=None)) == (None, None)
+    assert options["spacemouse"]["device_table"] == str(isolated_site.resolve() / "tables/sm.yaml")
+    assert doctor.teleop_table_inputs(SimpleNamespace(config=str(station), robot="left", preset=None)) == (
+        isolated_site.resolve(), {"fake": {}})
+    assert doctor.teleop_table_inputs(SimpleNamespace(config=None, robot=None, preset=None)) == (None, {})
 
 
 def test_managed_rules_are_idempotent(host):

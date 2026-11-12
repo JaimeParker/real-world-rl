@@ -32,7 +32,7 @@ from real_world_rl.common.station_paths import (
     station_path_from_env,
 )
 
-from real_world_rl.doctor.host import Host
+from real_world_rl.doctor.host import Host, teleop_backends
 from real_world_rl.doctor.platform import find_checkout
 from real_world_rl.doctor.preset import preset_station_checks
 from real_world_rl.doctor.repair import Action, Finding, Report, execute, exit_status, payload, redact
@@ -170,13 +170,13 @@ def inspect_legacy_station_names(host: Host) -> None:
         host.add("configuration.legacy." + key, "WARN", message, hint)
 
 
-def spacemouse_table_inputs(args):
-    """``(station directory, spacemouse teleop options)`` for the host-level SpaceMouse device
-    table, so USB classification and udev rules use the device layer's table: the station that
-    ``load_targets`` checks and the options of its first selected spacemouse teleop. ``(None,
-    None)`` without a station, or when it cannot be loaded (``load_targets`` reports why)."""
+def teleop_table_inputs(args):
+    """Station directory and first selected options per teleop backend.
+
+    An unavailable station returns (None, {}); load_targets reports the error.
+    """
     if not station_configured(args):
-        return None, None
+        return None, {}
     try:
         from real_world_rl.station import load_station
         from real_world_rl.discovery.autoconfig import resolve_station_config_path
@@ -184,13 +184,14 @@ def spacemouse_table_inputs(args):
         path = resolve_station_config_path(args.config)
         station = load_station(path)
     except Exception:
-        return None, None
+        return None, {}
+    options = {}
     for name in [args.robot] if args.robot else list(station.robots):
         robot = station.robots.get(name)
         teleop = robot.config.teleop if robot is not None else None
-        if teleop is not None and teleop.backend == "spacemouse":
-            return Path(path).resolve().parent, dict(teleop.options)
-    return Path(path).resolve().parent, None
+        if teleop is not None:
+            options.setdefault(teleop.backend, dict(teleop.options))
+    return Path(path).resolve().parent, options
 
 
 def load_targets(args):
@@ -235,10 +236,12 @@ def load_targets(args):
         if not isinstance(values, dict):
             raise ValueError("preset must be a YAML mapping")
         mode = values.get("teleop_device")
-        if mode == "spacemouse":
-            expected.add("spacemouse")
-        if mode in ("gello", "leader_arm", "leader_cartesian"):
-            expected.add("gello")
+        backends = teleop_backends()
+        selected_backend = next(
+            (name for name, backend in backends.items() if mode in (name, *backend.PRESET_ALIASES)), None
+        )
+        if selected_backend is not None:
+            expected.add(selected_backend)
         if values.get("teleop_event_device") == "keyboard":
             expected.add("keyboard")
         robot = (values.get("real_robot") or {}).get("robot")
@@ -260,7 +263,8 @@ def load_targets(args):
                     ("preset", Robot.from_dict(robot).config, args.preset, False, "")
                 )
         options = values.get("teleop_options_yaml")
-        if "gello" in expected and options and str(options).lower() != "none":
+        if (selected_backend is not None and backends[selected_backend].SERIAL_GROUP
+                and options and str(options).lower() != "none"):
             leader = yaml.safe_load(Path(options).read_text(encoding="utf-8")) or {}
             if leader.get("robot_yaml"):
                 station = load_station(leader["robot_yaml"])
@@ -405,7 +409,10 @@ def inspect(args, host: Host):
             "no station configured; arm handshake not performed",
             "run rwrl setup when ready; software/USB success is not robot acceptance",
         )
-    for kind in ("spacemouse", "realsense"):
+    standalone_teleops = {
+        name: backend.USB_PROBE_NAME for name, backend in teleop_backends().items() if backend.USB_PROBE_NAME
+    }
+    for kind in (*standalone_teleops, "realsense"):
         if (
             args.mock
             or not host.capabilities.device_probes
@@ -442,8 +449,8 @@ def inspect(args, host: Host):
             "gripper": None,
             "cameras": [],
         }
-        if kind == "spacemouse":
-            config["teleop"] = {"backend": kind, "name": "doctor-space"}
+        if kind in standalone_teleops:
+            config["teleop"] = {"backend": kind, "name": standalone_teleops[kind]}
         else:
             config["cameras"] = [
                 {"name": "doctor-camera", "backend": kind, "serial": d["serial"]}
@@ -473,10 +480,13 @@ def inspect(args, host: Host):
             "enumeration alone is not evidence of successful reading",
         )
     if not args.mock:
+        coverage = sorted(
+            (backend.DOCTOR_COVERAGE[0], name, backend.DOCTOR_COVERAGE[1])
+            for name, backend in teleop_backends().items() if backend.DOCTOR_COVERAGE is not None
+        )
         for kind, title in (
             ("franky", "Franka/Hand"),
-            ("spacemouse", "SpaceMouse"),
-            ("gello", "GELLO"),
+            *((name, title) for _, name, title in coverage),
             ("realsense", "RealSense"),
         ):
             if kind not in host.expected:
@@ -516,9 +526,9 @@ def run(ctx, usage_error):
         raise usage_error(
             f"cannot create private doctor report: {error}; use --report-dir with a writable directory"
         )
-    station_dir, spacemouse_options = spacemouse_table_inputs(args)
+    station_dir, teleop_options = teleop_table_inputs(args)
     try:
-        host = Host(root, report, station_dir=station_dir, spacemouse_options=spacemouse_options)
+        host = Host(root, report, station_dir=station_dir, teleop_options=teleop_options)
         results = inspect(args, host)
     except Exception as error:
         report.save("error.json", {"error": str(error)})
@@ -573,7 +583,7 @@ def run(ctx, usage_error):
                 sdk_only=args.install_sdk and not args.fix,
                 capabilities=host.capabilities,
             )
-            after_host = Host(root, report, station_dir=station_dir, spacemouse_options=spacemouse_options)
+            after_host = Host(root, report, station_dir=station_dir, teleop_options=teleop_options)
             try:
                 results = inspect(args, after_host)
                 host = after_host

@@ -1,4 +1,4 @@
-"""Cartesian intervention from a joint-space leader arm (GELLO) through Panda forward kinematics
+"""Cartesian intervention from a joint-space leader arm through selectable forward kinematics
 (registered as ``device="leader_cartesian"``).
 
 For envs that only take a cartesian twist: ``franka_real`` (the SERL HTTP bridge has no joint
@@ -27,7 +27,8 @@ The take-over is the rising edge of the operator's intervention signal (the part
 falling edge (hand-back), an input or tracking failure and an episode end put the tracker in
 hold at the measured pose. A stalled control loop (more than ``max_dt_s`` between two intervened
 polls) counts as an input loss: the follower holds, a warning gives the gap, and the next poll
-re-anchors the leader as at a take-over. A requested position outside ``safety_box`` does too, logs
+re-anchors the leader as at a take-over. A request outside ``safety_box`` or the station's
+``workspace`` (in ``task_frame`` when configured) does too, logs
 ``WORKSPACE HOLD: <axes>`` once, and reads as not intervened until the operator hands back and
 takes over again. The tracker (``cartesian_tracker``) is shared with the recorder's hold policy
 (``real_world_rl.teleop.core.hold``), which keeps the follower on the hold pose while nobody drives.
@@ -48,9 +49,10 @@ from typing import Any, Callable, Mapping, Optional, Sequence, Union
 
 import numpy as np
 
-from real_world_rl.kinematics.panda import PandaKinematics
+from real_world_rl.kinematics.registry import Kinematics, kinematics_for
 from real_world_rl.kinematics.transforms import (
     matrix_to_quat_xyzw,
+    matrix_to_rotvec,
     pose_to_transform,
 )
 from real_world_rl.teleop.core.contract import TeleopReading, held_gripper_action
@@ -64,6 +66,7 @@ from real_world_rl.teleop.core.targets.follower import (
     PoseGetter,
     follower_kwargs_from_env,
     follower_pose_from_env,
+    workspace_from_env,
 )
 from real_world_rl.teleop.core.composite import ToggleableTeleopSource
 from real_world_rl.teleop.core.part import (
@@ -120,7 +123,7 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
         leader_robot: Optional[Any] = None,
         env_contract: Optional[Mapping[str, Any]] = None,
         teleop_contract: Optional[Sequence] = None,
-        kinematics: Optional[PandaKinematics] = None,
+        kinematics: Union[Kinematics, str] = "panda",
         mapping: str = "anchored",
         pos_scale_m: float = 0.05,
         rot_scale_rad: float = 0.3,
@@ -130,6 +133,8 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
         target_speed_rad_s: float = 0.3,
         max_dt_s: float = 0.3,
         safety_box: Optional[Sequence[float]] = None,
+        workspace=None,
+        task_frame=None,
         gripper_binarize_threshold: Optional[float] = 0.5,
         last_gripper_action_getter: Optional[Callable[[], Any]] = None,
         read_timeout_s: float = DEFAULT_READ_TIMEOUT_S,
@@ -151,12 +156,15 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
             target_speed_rad_s=target_speed_rad_s,
             max_dt_s=max_dt_s,
         )
-        self._tracker = CartesianTargetTracker(tracker_config, safety_box=safety_box)
+        self._tracker = CartesianTargetTracker(
+            tracker_config, safety_box=safety_box, workspace=workspace, task_frame=task_frame,
+        )
         self._driver = CartesianTrackerDriver(
             self._tracker, source_name="leader_cartesian", follower_pose_getter=follower_pose_getter,
             pos_scale_m=pos_scale_m, rot_scale_rad=rot_scale_rad, clock=clock,
         )
-        self._kinematics = PandaKinematics() if kinematics is None else kinematics
+        self._kinematics = kinematics_for(kinematics) if isinstance(kinematics, str) else kinematics
+        self._kinematics_name = kinematics.lower() if isinstance(kinematics, str) else type(kinematics).__name__
         self._mapping = mapping
         self._gripper_binarize_threshold = gripper_binarize_threshold
         self._last_gripper_action = last_gripper_action_getter
@@ -238,7 +246,8 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
         ``FrankaRealEnv`` found down the wrapper chain (``last_tcp_pose``, ``cfg.action_scale``,
         ``cfg.safety_box_low/high``), else a ``real_robot`` env in ``cartesian_delta`` mode
         (``last_observation["state"]["tcp_pose"]``, ``xyz_scale_m``/``rot_scale_rad`` of its
-        action contract, the configured ``safety_box`` of its experiment).
+        action contract, the configured ``safety_box`` of its experiment). A ``real_robot``
+        env also supplies its station ``workspace`` and ``task_frame``, as for Pico.
         """
         candidates = {"leader": leader, "remote_address": remote_address, "robot_yaml": robot_yaml}
         given = [name for name, value in candidates.items() if value is not None]
@@ -249,6 +258,7 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
                 f"part) or robot_yaml=<path> (a local robot yaml with a teleop: section); got {given}"
             )
         follower_kwargs_from_env(env, kwargs)
+        workspace_from_env(env, kwargs)
         if leader is not None:
             return cls(leader, **kwargs)
         if remote_address is not None:
@@ -305,22 +315,46 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
     def poll_with_toggle(self, toggle: bool) -> TeleopReading:
         return self._poll(toggle=bool(toggle))
 
+    def session_input(self) -> tuple[np.ndarray, Mapping[str, bool]]:
+        """Toggle released = neutral; while requested, axes are the normalized current lead.
+
+        Consume one sample without advancing the tracker or changing the leader anchor.
+        Before the first anchor, FK itself supplies the requested pose.
+        """
+        teleop = self._require_part()
+        sample = self._read_sample(teleop)
+        requested = bool(sample.intervening)
+        axes = np.zeros(_CARTESIAN_ARM_DIM, dtype=np.float64)
+        if requested:
+            q = np.asarray(sample.action, dtype=np.float64)
+            target = (self._kinematics.ee_transform(q) if self._mapping == "anchored" and self._anchor is None
+                      else pose_to_transform(self._requested_pose(q)))
+            measured = pose_to_transform(self._driver.measured_pose())
+            axes[:3] = (target[:3, 3] - measured[:3, 3]) / self._tracker.config.lead_cap_m
+            axes[3:] = matrix_to_rotvec(target[:3, :3] @ measured[:3, :3].T) / self._tracker.config.lead_cap_rad
+            axes = np.clip(axes, -1.0, 1.0)
+        return axes, {"toggle": requested}
+
     def close(self) -> None:
         if self._leader_robot is not None:
             self._leader_robot.disconnect()
 
     # -- polling -------------------------------------------------------------------
 
+    def _read_sample(self, teleop: Any) -> Any:
+        sample = teleop.read(self._read_timeout_s)
+        if sample.action_space != _LEADER_ACTION_SPACE:
+            raise self._device_fault(
+                f"leader sample has action_space {sample.action_space!r}, expected "
+                f"{_LEADER_ACTION_SPACE!r}",
+                teleop,
+            )
+        return sample
+
     def _poll(self, toggle: Optional[bool]) -> TeleopReading:
         teleop = self._require_part()
         try:
-            sample = teleop.read(self._read_timeout_s)
-            if sample.action_space != _LEADER_ACTION_SPACE:
-                raise self._device_fault(
-                    f"leader sample has action_space {sample.action_space!r}, expected "
-                    f"{_LEADER_ACTION_SPACE!r}",
-                    teleop,
-                )
+            sample = self._read_sample(teleop)
         except BaseException:
             self._hold_after_failure()
             raise
@@ -369,8 +403,8 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
             if update.workspace_violations:
                 self._needs_new_takeover = True
                 logger.warning(
-                    "WORKSPACE HOLD: %s; the follower holds its pose, hand back and take over "
-                    "again to continue",
+                    "WORKSPACE HOLD: %s; the follower holds its pose and the leader handed back; "
+                    "toggle again to take over",
                     ", ".join(update.workspace_violations),
                 )
                 return False, idle
@@ -462,7 +496,7 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
         if contract.arm_action_dim != self._kinematics.NUM_JOINTS:
             return (
                 f"the leader must have {self._kinematics.NUM_JOINTS} joints for "
-                f"{type(self._kinematics).__name__}, got {contract}"
+                f"{self._kinematics_name}, got {contract}"
             )
         if self._env_gripper and not contract.has_gripper and self._last_gripper_action is None:
             return (
@@ -496,8 +530,8 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
 
         return DeviceFault(
             message,
-            hint="check the leader robot yaml's teleop: section (backend gello, action_space "
-            "joint_abs with 7 joints)",
+            hint="check the leader robot yaml's teleop: section (backend gello or arm_leader, "
+            "action_space joint_abs with a joint count matching the selected kinematics)",
             device=getattr(teleop, "name", "leader"),
         )
 

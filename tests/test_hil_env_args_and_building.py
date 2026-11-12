@@ -60,7 +60,7 @@ HIL_SERL_OWN_DEFAULTS = {
     "grasp_penalty_value": -0.05,
     "record_video_dir": None,
     "memory_efficient_buffer": False,
-    "teleop_device": "pico",
+    "teleop_device": None,  # was "pico": --teleop-device has no default since the Pico became a tracker device
     "spacemouse_mode": "tracker",
     "teleop_diagnostic_axes": "all",
     "teleop_diagnostic_gain": 1.0,
@@ -267,7 +267,7 @@ def test_build_hil_env_names_the_request_after_the_role_unless_given(fake_backen
         names.append(run_name)
 
     monkeypatch.setattr(env_building, "hil_env_request", _record)
-    args = HilSerlArgs()
+    args = HilSerlArgs(teleop_device="fake")
     env_building.build_hil_env(args, role="actor")
     env_building.build_hil_env(args, role="eval")
     env_building.build_hil_env(args, role="learner", enable_teleop=False, run_name="my_run")
@@ -286,7 +286,7 @@ def test_hil_serl_keeps_its_private_aliases():
 def test_compose_hil_env_with_teleop_matches_the_hil_serl_alias(fake_backend):
     from real_world_rl.training.entrypoints.hil_serl import _build_env
 
-    env = _build_env(HilSerlArgs(), env_request=None)
+    env = _build_env(HilSerlArgs(teleop_device="fake"), env_request=None)
     from real_world_rl.envs.wrappers.experiment import ExperimentContractWrapper
     assert isinstance(env, ExperimentContractWrapper)
     env = env.env
@@ -314,6 +314,7 @@ def test_teleop_event_reward_sits_right_outside_the_intervention_wrapper(fake_ba
         lambda checkpoint, observation_space, image_keys, device: (lambda obs: torch.zeros(1)),
     )
     args = HilSerlArgs(
+        teleop_device="fake",
         classifier_checkpoint="/tmp/classifier.pt",
         reward_from_teleop_events=True,
         teleop_success_reward=2.0,
@@ -341,7 +342,7 @@ def test_teleop_event_reward_is_off_by_default(fake_backend, monkeypatch):
     from real_world_rl.envs.wrappers import TeleopEventRewardWrapper
 
     monkeypatch.setattr(env_building, "hil_env_request", lambda args, run_name: None)
-    env = env_building.build_hil_env(HilSerlArgs(), role="actor")
+    env = env_building.build_hil_env(HilSerlArgs(teleop_device="fake"), role="actor")
     assert not any(isinstance(wrapper, TeleopEventRewardWrapper) for wrapper in _chain(env))
 
 
@@ -356,17 +357,40 @@ def _onset_args(**overrides) -> HilSerlArgs:
     )
 
 
-@pytest.mark.parametrize("device", ["pico", "fake", "keyboard"])
+@pytest.mark.parametrize("device", ["fake", "keyboard"])
 def test_devices_without_arguments_get_the_device_alone(device):
     assert env_building.teleop_wrapper_kwargs(HilSerlArgs(teleop_device=device)) == {"device": device}
 
 
-def test_spacemouse_gets_the_command_tracker_arguments():
-    args = HilSerlArgs(teleop_device="spacemouse")
+@pytest.mark.parametrize("device", ["spacemouse", "pico"])
+def test_tracker_devices_get_the_command_tracker_arguments(device):
+    args = HilSerlArgs(teleop_device=device)
     assert env_building.teleop_wrapper_kwargs(args) == {
-        "device": "spacemouse",
+        "device": device,
         **env_building.cartesian_tracker_kwargs(args),
     }
+
+
+def test_the_teleop_device_is_required_and_the_error_lists_the_choices():
+    from real_world_rl.training.args import TELEOP_DEVICE_CHOICES
+
+    assert HilSerlArgs().teleop_device is None
+    with pytest.raises(ValueError, match="teleop device is required") as error:
+        env_building.teleop_wrapper_kwargs(HilSerlArgs())
+    assert "--teleop-device {spacemouse,gello,leader_arm,leader_cartesian,pico,keyboard," in str(error.value)
+    assert all(name in str(error.value) for name in TELEOP_DEVICE_CHOICES)
+    with pytest.raises(ValueError, match="--teleop-device"):
+        env_building.teleop_wrapper_kwargs(HilSerlArgs(teleop_event_device="stdin"))
+
+
+def test_the_teleop_device_choices_are_the_cli_literal():
+    import typing
+
+    from real_world_rl.training.args import TELEOP_DEVICE_CHOICES, HilEnvArgs
+
+    (literal, _none) = typing.get_args(typing.get_type_hints(HilEnvArgs)["teleop_device"])
+    assert typing.get_args(literal) == TELEOP_DEVICE_CHOICES
+    assert "pico" in TELEOP_DEVICE_CHOICES and "pico_twist" not in TELEOP_DEVICE_CHOICES  # sim only
 
 
 def test_robot_device_keeps_its_part_arguments_and_no_onset():
@@ -432,10 +456,12 @@ def test_build_hil_env_wraps_a_composite_when_an_event_device_is_set(fake_backen
     }
 
 
-def test_build_hil_env_passes_no_teleop_arguments_for_the_default_device(fake_backend, monkeypatch):
+def test_an_actor_env_without_a_teleop_device_is_a_usage_error_and_a_learner_needs_none(fake_backend, monkeypatch):
     monkeypatch.setattr(env_building, "hil_env_request", lambda args, run_name: None)
-    env = env_building.build_hil_env(HilSerlArgs(), role="actor")
-    assert env.device == "pico" and env.kwargs == {}
+    with pytest.raises(ValueError, match="--teleop-device"):
+        env_building.build_hil_env(HilSerlArgs(), role="actor")
+    assert _RecordingTeleopWrapper.instances == []
+    env_building.build_hil_env(HilSerlArgs(), role="learner", enable_teleop=False)
 
 
 # -- --teleop-options-yaml -----------------------------------------------------------------

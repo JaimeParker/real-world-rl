@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 import sys
-import uuid
 import json
 from pathlib import Path
 
@@ -62,15 +61,13 @@ def add_diagnose_arguments(parser):
 
 
 def add_run_arguments(parser):
-    parser.add_argument("--mode", choices=("tracker", "serl"), default="tracker")
+    from real_world_rl.teleop.core.run_session import add_common_run_arguments
+    parser.add_argument("--mode", choices=("tracker", "serl"))
     parser.add_argument("--profile")
-    parser.add_argument("--events-file", help="append-only JSONL file, or - for piped stdin")
-    parser.add_argument("--record", required=True, help="new output .pkl path")
-    parser.add_argument("--num-successes", type=int, help="default: 20; 1 with --diagnose")
-    parser.add_argument("--max-episodes", type=int)
+    add_common_run_arguments(parser)
     parser.add_argument("--diagnose", choices=("translation", "rotation", "all"))
-    parser.add_argument("--gain", type=float, default=.2, help="diagnostic input gain; ignored without --diagnose")
-    parser.add_argument("--duration-s", type=float, default=5., help="diagnostic duration; ignored without --diagnose")
+    parser.add_argument("--gain", type=float, help="diagnostic input gain; ignored without --diagnose")
+    parser.add_argument("--duration-s", type=float, help="diagnostic duration; ignored without --diagnose")
 
 
 def add_probe_hid_arguments(parser):
@@ -212,107 +209,26 @@ def diagnose(args, ctx):
 
 
 def run_session(args, ctx):
-    """Prepare a normal recorder configuration, then supervise its owning child."""
-    import dataclasses
-    import subprocess
-    import yaml
-    from real_world_rl.cli.connect import client_address, probe_daemon
-    from real_world_rl.cli.preset_edit import Preset
+    """Resolve the SpaceMouse profile and supervise the common recorder session."""
+    from real_world_rl.teleop.core.run_session import SessionPlan, load_session_station, run_supervised_session
     from real_world_rl.teleop.spacemouse.profiles import resolve_profile
 
-    if args.preset is None:
-        raise CliError("teleop run requires --preset with home and task limits", code=USAGE_EXIT_CODE, required_fields=["--preset"])
-    if os.environ.get("RWRL_HEARTBEAT_FD"):
-        raise CliError("teleop run starts its own supervisor; invoke it directly", code=USAGE_EXIT_CODE)
-    path, _, _, _, selected = station_document(args)
-    config = selected.config
-    if args.diagnose:
-        if config.workspace is None:
-            raise CliError("motion diagnostics require a reviewed station workspace", code=USAGE_EXIT_CODE)
-        if not 0 < args.gain <= 1 or not 0 < args.duration_s <= 300:
-            raise CliError("gain must be in (0,1] and duration in (0,300]", code=USAGE_EXIT_CODE)
-    if args.num_successes is None:
-        args.num_successes = 1 if args.diagnose else 20
-    if args.max_episodes is None and args.diagnose:
-        args.max_episodes = 1
+    mode = args.mode or "tracker"
+    diagnostic = ({"axes": args.diagnose, "gain": .2 if args.gain is None else args.gain,
+                   "duration_s": 5. if args.duration_s is None else args.duration_s} if args.diagnose else None)
+    path, _, _, _, selected = load_session_station(args, diagnostic)
     resolved = resolve_profile(path, selected, args.profile)
-    output = Path(args.record).resolve()
-    if output.suffix != ".pkl" or output.exists():
-        raise CliError("--record must be a new .pkl path", code=USAGE_EXIT_CODE)
-    if args.num_successes < 1 or (args.max_episodes is not None and args.max_episodes < 1):
-        raise CliError("episode limits must be positive", code=USAGE_EXIT_CODE)
-    preset = Preset.load(args.preset)
-    env = dict(preset.env)
-    for name in ("stop_trace_path", "diagnostics_path", "session_events_path"):
-        env.pop(name, None)
-    env.update(task_frame=config.task_frame, workspace=config.workspace)
-    if selected.daemon_declared and not args.direct:
-        env.update(robot=None, remote=client_address(selected.bind), token=selected.token)
-    else:
-        if selected.daemon_declared and probe_daemon(client_address(selected.bind)):
-            raise CliError("daemon owns arm; omit --direct", code=USAGE_EXIT_CODE)
-        robot = {"type": config.TYPE, **dataclasses.asdict(config)}
-        if args.mock:
-            from real_world_rl.doctor.checks import mocked_config
-            robot = {"type": config.TYPE, **dataclasses.asdict(mocked_config(config))}
-        env.update(robot=robot, remote=None, token=None)
-    settings = {**preset.document, "real_robot": env, "env_backend": "real_robot",
-                "teleop_device": "spacemouse",
-                "teleop_event_device": "jsonl" if args.events_file else "stdin",
-                "teleop_events_file": (str(Path(args.events_file).resolve())
-                                       if args.events_file and args.events_file != "-" else "-"),
-                "spacemouse_mode": args.mode, "teleop_options_yaml": str(path),
-                "teleop_robot": args.robot, "teleop_profile": resolved["name"],
-                "episode_end_behavior": "hold", "neutral_threshold": resolved["profile"]["neutral_threshold"],
-                "num_successes": args.num_successes, "max_episodes": args.max_episodes,
-                "output_path": str(output)}
-    if args.mode == "serl":
-        env["cartesian_semantics"] = "serl"
-    if args.diagnose:
-        import math
-        settings.update(teleop_diagnostic_axes=args.diagnose, teleop_diagnostic_gain=args.gain,
-                        max_episode_steps=max(1, math.ceil(args.duration_s * settings.get("control_hz", env.get("control_hz", 10.)))))
-    # Resolve all typed configuration before asking for hardware execution.
-    output.parent.mkdir(parents=True, exist_ok=True)
-    report = output.parent / (output.stem + ".session-" + uuid.uuid4().hex)
-    report.mkdir(mode=0o700)
-    child_environment = {**os.environ,
-        "RWRL_STOP_TRACE_PATH": str(report / "stop-trace.json"),
-        "RWRL_DIAGNOSTICS_PATH": str(report / "diagnostics.jsonl"),
-        "RWRL_SESSION_EVENTS_PATH": str(report / "session-events.jsonl")}
-    config_path = report / "resolved-config.yaml"
-    config_path.write_text(yaml.safe_dump(settings, sort_keys=False))
-    os.chmod(config_path, 0o600)
-    from real_world_rl.demos.record import parse_record_args
-    parsed = parse_record_args(["--config", str(config_path)])
-    from real_world_rl.training.env_building import resolve_teleop_input
-    resolve_teleop_input(parsed)
-    settings["teleop_input"] = parsed.teleop_input
-    config_path.write_text(yaml.safe_dump(settings, sort_keys=False))
-    ctx.confirm("proceed? [y/N] ", detail=(
-        f"target SpaceMouse {args.mode} session on {config.name}; task reset may home; "
-        "s/f ends episode and holds; n resets next; q exits; max delta 0.0000 session"))
-    from real_world_rl.common.provenance import runtime_provenance
-    from real_world_rl.teleop.spacemouse.diagnostics import write_json
-    write_json(report / "provenance.json", runtime_provenance(config=settings, files={
-        "station": path, "preset": args.preset, "profiles": resolved["file"],
-        "resolved_config": config_path}))
-    command = [sys.executable, "-m", "real_world_rl.cli", "supervise", "--", sys.executable,
-               "-m", "real_world_rl.demos", "--config", str(config_path)]
-    completed = subprocess.run(command, stdout=sys.stderr if args.json else None, check=False, env=child_environment)
-    import hashlib
-    result = {"schema_version": 1, "report_directory": str(report), "returncode": completed.returncode,
-              "resolved_config_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
-              "profile": resolved["name"], "output": str(output)}
-    assessments = sorted(report.glob("stop-trace-*.assessment.json"))
-    if assessments:
-        result["stop_assessment"] = json.loads(assessments[-1].read_text())
-    else:
-        result["stop_assessment"] = {"status": "BLOCKED", "reason": "no normal-stop evidence was exported"}
-    (report / "summary.json").write_text(json.dumps(result, indent=2))
-    if completed.returncode:
-        raise CliError(f"session exited {completed.returncode}; report: {report}")
-    return Result(result, json.dumps(result, indent=2))
+    plan = SessionPlan(
+        settings={"teleop_device": "spacemouse", "spacemouse_mode": mode,
+                  "teleop_options_yaml": str(path), "teleop_robot": args.robot,
+                  "teleop_profile": resolved["name"], "episode_end_behavior": "hold",
+                  "neutral_threshold": resolved["profile"]["neutral_threshold"]},
+        env_overrides={"cartesian_semantics": "serl"} if mode == "serl" else {},
+        confirm_detail=(f"target SpaceMouse {mode} session on {selected.config.name}; task reset may home; "
+                        "s/f ends episode and holds; n resets next; q exits; max delta 0.0000 session"),
+        provenance_files={"profiles": resolved["file"]}, summary_extra={"profile": resolved["name"]},
+        diagnose=diagnostic)
+    return run_supervised_session(args, ctx, plan)
 
 
 def _probe_station_directory(args):

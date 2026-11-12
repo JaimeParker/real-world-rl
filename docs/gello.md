@@ -77,41 +77,24 @@ pip install -e ".[gello-events]"             # evdev, only for an event_device (
 
 ## 2. Calibration
 
-The calibration CLI finds the per-unit joint signs, the joint offsets and the trigger range, and
-prints the `teleop:` yaml block. (`rwrl setup` runs these steps inline per arm and
-writes the result into the station yaml, so with the wizard you can skip the paste below; see the
-[device-layer guide](devices/README.md#setup-wizard).)
+For the guided sign, pose, trigger and readback steps, follow
+[05 Teleop: GELLO](tutorial/05-teleop-gello.md). The calibration command prints a `teleop:`
+block; `--use` writes the calibrated `teleop.options` after a reviewed station diff, dropping
+gripper keys when there is no gripper channel.
 
-```bash
-rwrl --station robot.yaml teleop calibrate --backend gello \
-    --port /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_XXXXXXXX-if00-port0 \
-    --joint-ids 1 2 3 4 5 6 7 --gripper-id 8
-```
+| Flag | Default / purpose |
+|---|---|
+| `--port` | station `teleop.options.port` |
+| `--joint-ids` | station `teleop.options.joint_ids` |
+| `--gripper-id` | station `teleop.options.gripper_id`; absent: no gripper channel |
+| `--baudrate` | station value, otherwise 57600 |
+| `--joint-signs` | station value, otherwise all `+1` |
+| `--calibration-pose` | seven-joint Franka pose `0 0 0 -pi/2 0 pi/2 0` (rad) |
+| `--joint-limits-yaml` | alternate robot YAML for wrap centres; otherwise station `joint_limits` |
+| `--skip-sign-check` | keep initial signs; off by default |
+| `--use` | save calibrated options into the station; off by default |
 
-Run it in a terminal on the machine the GELLO is plugged into, project environment active; it
-prompts at every step. Unset flags come from the station's `teleop.options` (`--port`,
-`--joint-ids`, `--gripper-id`, `--baudrate`, else 57600, and `--joint-signs`) and the wrap centres
-from the station's `joint_limits`, so once the station has a GELLO `teleop:` section
-`rwrl --station robot.yaml teleop calibrate --backend gello` alone recalibrates it. `--use` writes
-the calibrated options into the station's `teleop.options` after a reviewed diff (dropping the
-gripper keys for a leader without a gripper channel) instead of the paste below. Without a station
-file, pass `--port` and `--joint-ids` to `rwrl teleop calibrate --backend gello`.
-
-1. **Sign check.** For each joint the CLI asks you to move that joint in the robot's positive
-   direction and press Enter, shows the observed sign and takes it unless you answer `n`. A joint
-   moved by less than 0.1 rad keeps its current sign (`--joint-signs` gives the initial signs,
-   default all `+1`; `--skip-sign-check` takes them as they are).
-2. **Offsets.** Hold the leader in the calibration pose and press Enter. The default pose is the
-   Franka pose `0 0 0 -pi/2 0 pi/2 0`; pass `--calibration-pose` for another one. Each offset is
-   solved on the quarter-turn grid (servo horns mount in 90 degree steps); a residual above pi/8 is
-   reported and means the leader was not in the pose or a sign is wrong.
-3. **Trigger.** Hold the trigger fully open, press Enter, then fully closed, press Enter.
-4. **Wrap centres.** With the station's `joint_limits` (or `--joint-limits-yaml`, another robot
-   yaml with `joint_limits`), each joint wraps around the midpoint of its limits; without limits
-   the centres are zeros and the CLI warns (wrong for Panda joint 6, whose range reaches past pi).
-
-Paste the printed block into the robot yaml (section 3), unless you passed `--use`. Every option,
-with its default:
+The resulting robot YAML fields (placeholder angles must be replaced by the unit's calibration):
 
 ```yaml
 teleop:
@@ -134,20 +117,6 @@ teleop:
     event_keys: {toggle: KEY_SPACE, episode_end: KEY_ESC, success: KEY_S, failure: KEY_F, rerecord: KEY_R}
     poll_interval_s: 0.0
 ```
-
-Check the result before using it on the robot: read the leader in the calibration pose and in a
-few other poses and compare the joint angles with the follower's. On the machine the GELLO is
-plugged into, project environment active:
-
-```bash
-rwrl --station robot.yaml teleop read --duration-s 30
-```
-
-Each line shows the leader joints (`q=`, rad), `gripper=`, `intervening=` and fired `events=`;
-without a daemon only the GELLO is opened, never the arm (pass `--direct` if the station declares
-a daemon that is not running). When the station declares a `daemon:` and it is running, add
-`--with-follower` (daemon route only): each line
-then also shows the follower's `follower_q` and the per-joint `delta` (leader minus follower).
 
 ## 3. The robot yaml (`real_robot`, franky)
 
@@ -249,21 +218,11 @@ tracker, gripper and the DH check are in
 
 ## 5. Recording demos
 
-`examples/record_real_demos.py` builds the env exactly like the actor and records only the
-intervened steps, in the demo pkl format the learners load (`--demo-dataset-paths`), with the
-action-contract sidecar. Record in the action mode of the run that will load the demos: the
-learner rejects a pkl whose sidecar does not match its env (`joint_delta` demos for every stage of
-a `joint_delta` pipeline, a separate `joint_abs` set for a `joint_abs` one; [tutorial 04](tutorial/04-record-demos.md)).
-
-```bash
-rwrl record --config hil.yaml \
-    --teleop-device leader_arm --robot-teleop-action-mode joint_delta \
-    --teleop-event-device keyboard --output-path demos/task.pkl --num-successes 20
-```
-
-Unlike the HIL actor, the recorder leaves the ramp's syncing steps out by default
-(`--keep-syncing-steps` keeps them). The other flags (`--start-tolerance-rad`, the episode-start
-sync, events) are in [recording-demos.md](recording-demos.md).
+Follow [08 Record demos](tutorial/08-record-demos.md) for supervised recording, operator
+labels, archive inspection and action-contract compatibility. Use the same action mode for
+the demonstrations and the run that loads them; joint-space syncing/export details are in
+[07 leader-follower](tutorial/07-teleop-leader-follower.md#2-record-with-joint-space-leader_arm)
+and the [recorder reference](recording-demos.md).
 
 ## 6. HIL training
 
@@ -273,8 +232,8 @@ name a joint space, the env's `action_mode` decides what is emitted.
 
 The full learner and actor commands for `hil_serl`, `residual_hil_serl` (BC or ACT base) and
 `silri`, with `--teleop-device leader_arm --robot-teleop-action-mode joint_delta
---teleop-event-device keyboard`, are in [tutorial 07](tutorial/07-hil-training.md); the operator's
-keys and the onset choice are in [tutorial 06](tutorial/06-intervening.md).
+--teleop-event-device keyboard`, are in [tutorial 10](tutorial/10-hil-training.md); the operator's
+keys and the onset choice are on the [operator page](intervening.md).
 
 Where the intervention toggle comes from:
 
@@ -294,7 +253,7 @@ For a two-arm station (`--env-backend real_robot_bimanual`, [bimanual.md](bimanu
 robot its own GELLO. `rwrl setup` writes the station yaml for both: it probes the
 GELLO buses, runs the calibration of each unit inline and writes `robots: {left, right}`, each with
 its `teleop:` section and daemon port (the device-layer guide's
-[Setup wizard](devices/README.md#setup-wizard);
+[Setup wizard](tutorial/02-setup.md);
 `examples/stations/station.bimanual.example.yaml` is an annotated example). Then train or record
 with `--teleop-device bimanual`: `--teleop-arm-device leader_arm` reads each GELLO through its
 arm's daemon; `--teleop-arm-device gello --teleop-options-yaml <station.yaml>` opens both GELLOs on

@@ -1,4 +1,6 @@
-# 3. Process layout and optional daemon
+# Remote actor over the robot daemon
+
+For device RPCs and RemoteRobot on the GPU machine, see the [robot daemon](daemon.md).
 
 The main workflow runs the recorder or HIL actor on the NUC with a local
 `real_robot.robot` mapping and `arm_backend: franky`. That process opens the arm,
@@ -13,7 +15,7 @@ machine**, using `real_robot.remote` instead of `real_robot.robot`.
 |---|---|---|
 | Hardware processes, one arm | one recorder or actor process | NUC daemon plus recorder or actor on the other machine |
 | Connection config | `real_robot.robot` mapping | `real_robot.remote: NUC_ADDRESS:50051`; omit `robot` |
-| Operator keyboard | attached to the NUC; target terminal keys in [00](00-overview.md#operator-keys) | read on the actor machine; current `pynput` route needs its desktop session |
+| Operator keyboard | attached to the NUC; target terminal keys in [00](tutorial/00-overview.md#operator-keys) | read on the actor machine; current `pynput` route needs its desktop session |
 | Action watchdog | application checks share the hardware process | daemon can stop the arm when client actions stop arriving |
 | External stop | supervisor can kill a stuck process; firmware then handles lost control communication | a live daemon can issue stop independently of the actor |
 
@@ -25,7 +27,7 @@ physical emergency stop available in both layouts.
 
 ## Start a daemon only for a remote actor
 
-First finish the [real doctor handshake](01-install.md#5-configure-once-then-run-doctor).
+First finish the [real doctor handshake](tutorial/03-franka-bringup.md).
 Run every command in this section on the **NUC**, from the **repository root**,
 with the **project environment active**. Ensure no other process owns these devices.
 The remote route needs the `grpc` extra installed on both NUC and actor.
@@ -44,7 +46,7 @@ robot parts. Leave the terminal open. Ctrl-C stops the daemon. A multi-arm stati
 starts one daemon process per configured robot, on separate ports; the launcher
 can start both from the station file.
 
-*If not:* follow the named preflight hint in [01](01-install.md). Do not run doctor
+*If not:* follow the named preflight hint in [03](tutorial/03-franka-bringup.md). Do not run doctor
 against the same devices while a recorder, actor or daemon owns them: the device
 claim and handshake will conflict. Doctor lists such a process as `BLOCKED`; only
 commands holding a hardware connection count, so offline `rwrl` commands such as
@@ -62,7 +64,7 @@ With `daemon:` declared in `local/station.yaml`, expect
 `connection: daemon HOST:PORT`. On the main route, with no daemon declaration
 and no recorder/actor holding the arm, the same command reports
 `connection: direct franky`. A declared but unreachable daemon is an error;
-see [rwrl connection ownership](../cli.md#connection-ownership).
+see [rwrl connection ownership](cli.md#connection-ownership).
 
 ## Point the remote actor at the NUC
 
@@ -84,7 +86,7 @@ Check that configuration without connecting, on the actor machine, repository
 root, project environment active:
 
 ```bash
-rwrl train hil_serl --config hil.yaml --print-config
+rwrl train hil_serl --config hil.yaml --teleop-device leader_cartesian --print-config
 ```
 
 *You should see:* exactly one connection source (`remote`), the correct camera
@@ -97,5 +99,5 @@ Keyboard events belong to the actor's event source; a keyboard attached only to
 the NUC does not automatically become the remote actor's keyboard. Avoid opening
 the same GELLO independently in both processes: use the daemon's teleop part.
 
-Next: [04 Record demos](04-record-demos.md), with the workflow and key migration
-limitations described in [00](00-overview.md#known-limits).
+Next: [08 Record demos](tutorial/08-record-demos.md), with the workflow and key migration
+limitations described in [00](tutorial/00-overview.md#known-limits).

@@ -128,9 +128,9 @@ def test_device_layer_lives_in_real_world_rl():
     root = PYPROJECT.parent
     assert Path(real_world_rl.devices.__file__).resolve().parent == root / "real_world_rl" / "devices"
     assert not (root / "robot_infra").exists()
-    assert (root / "docs" / "devices" / "README.md").is_file()
+    assert (root / "docs" / "devices.md").is_file() and (root / "docs" / "daemon.md").is_file()
     assert sorted(path.name for path in (root / "examples" / "stations").glob("*.example.yaml")) == [
-        "robot.franka.example.yaml", "robot.gello_station.example.yaml",
+        "leader.franka-as-leader.example.yaml", "robot.franka.example.yaml", "robot.gello_station.example.yaml",
         "robot.piper.example.yaml", "station.bimanual.example.yaml",
     ]
 

@@ -35,8 +35,8 @@ TRANSLATION_MANIFEST = Path("docs/zh-CN/translation-manifest.json")
 # section lists go to "Other", so a new page can never silently vanish from navigation.
 START_HERE_PAGES = ("Home", "docs")
 REFERENCE_PAGES = (
-    "cli", "doctor", "teleop", "gello", "spacemouse-commissioning", "bimanual",
-    "robot-infra", "control-profiles", "recording-demos", "real-world-experiments",
+    "cli", "doctor", "devices", "daemon", "teleop", "gello", "spacemouse-commissioning", "bimanual",
+    "control-profiles", "recording-demos", "real-world-experiments",
     "residual", "silri", "hil-serl-roadmap", "known-issues",
 )
 
@@ -61,9 +61,6 @@ def page_mapping(root: Path) -> dict[Path, str]:
         for source in sorted((root / "docs" / section).glob("*.md")):
             name = section if source.stem == "README" else f"{section}-{source.stem}"
             add(source.relative_to(root), name)
-    # The device-layer pages keep their wiki names, so existing wiki links stay valid.
-    add(Path("docs/devices/README.md"), "robot-infra")
-    add(Path("docs/devices/control-profiles.md"), "control-profiles")
     chinese_root = root / "docs/zh-CN"
     for source in sorted(chinese_root.rglob("*.md")):
         relative = source.relative_to(chinese_root)

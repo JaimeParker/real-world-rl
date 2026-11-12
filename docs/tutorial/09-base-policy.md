@@ -1,21 +1,27 @@
-# 5. Base policy: BC or ACT
+# 9. Base policy: BC or ACT
 
-A base policy trained on the demos is useful twice: deployed on its own ([08](08-deploy.md)) it is
-the baseline, and in [07](07-hil-training.md) `residual_hil_serl` trains a bounded correction on top
-of it. Train either or both, on the GPU machine, from the pkl of [04](04-record-demos.md). Neither
-connects to the robot. Run all commands from the repository root on the GPU
-machine, with the project environment active. Use the same station-specific
-cartesian action/observation settings as recording. Offline training does not
-open a motion device.
+**Goal:** train an offline BC or ACT base from [08](08-record-demos.md), and keep the
+checkpoint with the metadata needed by HIL and deployment. BC can deploy on its own;
+[10](10-hil-training.md) can train a bounded residual over either base.
+
+## Before you start
+
+All commands run on the **GPU host**, from the **repository root**, with the **project
+environment active** ([01](01-install.md)). Neither trainer connects to the robot.
+
+- Copy the pkl and its contract sidecar from [08](08-record-demos.md) to the same relative
+  paths on this host.
+- Bring the commissioned `local/gello_cartesian.yaml` from the NUC, preserving its action,
+  observation, task and control settings. Keep the NUC’s full preset for recording and HIL.
 
 | | BC (`real_world_bc`) | ACT |
 |---|---|---|
 | Model | rl-garden's BC actor, one action per observation | action-chunking transformer (CVAE), predicts `--num-queries` actions per step |
-| Trained by | `examples/train_real_world.py real_world_bc` | `python -m rl_garden.models.act.train_trajectories` (in rl-garden) |
+| Trained by | `rwrl train real_world_bc` | `python -m rl_garden.models.act.train_trajectories` (in rl-garden) |
 | Residual base spec | `checkpoint:<path>?algo=real_world_bc` | `act:<path>?temporal_agg=1` |
 | Deploy on its own | yes, `--algo real_world_bc` | no (only as a residual base) |
 
-## BC
+## 1. Train BC
 
 `real_world_bc` trains offline from demo pkls or trajectory archives, without connecting to the
 robot. The `--config` preset defines the target action/observation and experiment contracts.
@@ -23,16 +29,13 @@ The loader validates the recorded contract before training. Partial demonstratio
 only `human_action_mask` dimensions; idle hold supplements are not expert labels. Old demos
 without intervention metadata retain full-action supervision; explicit empty masks remain empty.
 
-Prepare an **offline-only `hil.yaml`** in the repository root on the GPU machine:
-copy the station-specific `examples/presets/gello_cartesian.yaml`, then remove
-all root `teleop_*` keys (device, event device, options path and four tracker
-values). Keep `env_backend`, `env_id`, `obs` and the full `real_robot` mapping
-unchanged. BC does not accept the online teleop CLI fields. Its offline loader
-restores the recorded tracker contract from the demo metadata; keep the sidecar
-with the pkl. This copy is for BC only; 04 and 07 use the full cartesian preset.
+`real_world_bc` accepts the same `local/gello_cartesian.yaml` used for recording, HIL and
+deployment. Its teleop settings are ignored during offline BC training.
+
+On the GPU host, repository root, project environment active:
 
 ```bash
-rwrl train real_world_bc --config hil.yaml \
+rwrl train real_world_bc --config local/gello_cartesian.yaml \
     --demo-dataset-paths demos/pick-and-place.pkl \
     --log-dir runs --exp-name bc-pick-and-place --buffer-size 100000 \
     --num-offline-steps 20000 --no-tanh-squash
@@ -48,20 +51,19 @@ rwrl train real_world_bc --config hil.yaml \
 - `--log-freq` (default 1000) is how often the BC losses are logged to `--log-type` (TensorBoard by
   default).
 
-*You should see* a metrics line every `--log-freq` steps; the run is done when the process exits and
+*You should see:* BC loss metrics logged every `--log-freq` steps; the run is done when the process exits and
 `runs/bc-pick-and-place/checkpoints/final.pt` and `runs/bc-pick-and-place/config.json` exist. The
 `config.json` next to `checkpoints/` is what deploy and the residual base provider read to rebuild
 the policy.
 
 *If not:* `ValueError: ... recorded action contract does not match the env's (differs in [...])`
 means the demos were recorded with different settings than the preset (action mode, joint limits,
-scales, state fields): record again, or fix the preset. `No demo transitions loaded` means the path
-or glob matched nothing.
+scales, state fields): record again, or fix the preset. `No demo transitions or restored replay available` means the path
+or glob matched nothing. For environment failures, use [If it fails](#if-it-fails).
 
-## ACT
+## 2. Alternative: train ACT
 
-rl-garden trains ACT from the same pkls, without a simulator. With rl-garden installed
-([01](01-install.md#4-install-the-project-environment)) run it from the repository root:
+rl-garden trains ACT from the same pkls, without a simulator. On the GPU host, repository root, project environment active:
 
 ```bash
 python -m rl_garden.models.act.train_trajectories --demo-paths demos/pick-and-place.pkl \
@@ -80,7 +82,8 @@ python -m rl_garden.models.act.train_trajectories --demo-paths demos/pick-and-pl
   training.
 
 *You should see* `runs/act-pick-and-place/checkpoints/final.pt` when the process exits. Details:
-`rl-garden/rl_garden/models/act/README.md`, "Training from trajectory pkls". ACT training from real
+`rl-garden/rl_garden/models/act/README.md`, "Training from trajectory pkls". If training fails, check the demo path and observation keys first, then
+[If it fails](#if-it-fails). ACT training from real
 demos has not been exercised yet ([00](00-overview.md#known-limits)).
 
 ### The ACT checkpoint contract
@@ -91,18 +94,14 @@ The residual actor loads the checkpoint with the `act:` provider:
   checked when the provider is built): train on demos recorded with the same `state_fields` (here
   `[tcp_pose, tcp_vel, joint_pos, joint_vel]`, 27 values).
 - A visual checkpoint reads the env's `rgb_<camera>` keys in sorted order; record and run with the
-  same `obs.rgb` in `examples/presets/gello_cartesian.yaml`.
+  same `obs.rgb` in `local/gello_cartesian.yaml`.
 - The provider uses the `ema_agent` weights by default (`state_dict_key=ema_agent`) and rebuilds the
   model from the `act_config` stored in the checkpoint; the actions are de-normalised with the
   checkpoint's statistics and clipped to `[-1, 1]`, so they mean what the demos' actions meant (same
   `action_mode` and scales).
 
-The spec for [07](07-hil-training.md), quoted on the shell (`?` globs, `&` backgrounds):
-
-<!-- tutorial-test: skip -->
-```bash
---base-provider 'act:runs/act-pick-and-place/checkpoints/final.pt?temporal_agg=1'
-```
+For [10](10-hil-training.md), use `--base-provider` with the quoted value
+`'act:runs/act-pick-and-place/checkpoints/final.pt?temporal_agg=1'` (`?` globs, `&` backgrounds).
 
 Options, joined with `&`: `temporal_agg=1` (default; ensembles the overlapping chunks with weights
 `exp(-temporal_agg_k * i)`) or `0` (replays each chunk open loop), `temporal_agg_k=0.01`,
@@ -134,4 +133,17 @@ preprocessing, camera order and action interpretation are checked along with sha
 them before recording and preserve them through the residual run. See
 [experiment contracts](../real-world-experiments.md#trajectory-archives-and-training-views).
 
-Next: [06 Intervening](06-intervening.md), then [07 HIL training](07-hil-training.md).
+## If it fails
+
+On the GPU host, repository root, project environment active:
+
+```bash
+rwrl doctor
+```
+
+Start with the first red row and its hint; see
+[Python environment and extras](../doctor.md#python-environment-and-extras). An absent
+station on an offline GPU host is `SKIPPED`, not a training failure. For contract errors,
+compare the named differences against the recording preset; keep the sidecar intact.
+
+Next: the [operator page](../intervening.md), then [10 HIL training](10-hil-training.md).

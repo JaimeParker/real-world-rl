@@ -1,7 +1,7 @@
-# 6. Intervening: the operator page
+# Operator page: intervening
 
-Use this page beside the robot for [recording](04-record-demos.md) and
-[HIL training](07-hil-training.md). The hardware process runs directly on the NUC,
+Use this page beside the robot for [recording](tutorial/08-record-demos.md) and
+[HIL training](tutorial/10-hil-training.md). The hardware process runs directly on the NUC,
 under `rwrl supervise`, with the 50 Hz state-only cartesian preset.
 GELLO uses `--teleop-device leader_cartesian --teleop-event-device stdin`.
 SpaceMouse uses `--teleop-device spacemouse --teleop-event-device stdin`.
@@ -13,7 +13,7 @@ returns to the policy (or the recorder's hold). Hold button 0 to close or button
 to open, with button 0 priority and neutral gripper `0` when neither is held.
 There is no takeover toggle. Terminal `t`/`h` remain ignored; labels/end/quit work.
 Select this mode on the NUC, repository root, project environment active, using
-the same mode and preset as recording and training. See [mode details](../teleop.md#spacemouse).
+the same mode and preset as recording and training. See [mode details](teleop.md#spacemouse).
 
 `stdin` reads the terminal running the supervised command, including over SSH;
 `keyboard` uses the same keys through `pynput` and needs a desktop session.
@@ -42,7 +42,7 @@ the **project environment active**, use `rwrl recover` to request error recovery
 connection selection. On this direct workflow, finish the recorder/actor and
 release its connection first; a second FCI connection cannot stop a directly
 owned arm. With a declared live daemon, the commands use that daemon. Keep the
-physical stop accessible during a run. See [rwrl](../cli.md#connection-ownership).
+physical stop accessible during a run. See [rwrl](cli.md#connection-ownership).
 
 ## The sequence
 
@@ -82,7 +82,7 @@ takeover. At the episode quota, n is disabled and q still exits. Within a
 trajectory, repeated human/policy handovers continue normally. SERL keeps its
 motion-based takeover threshold; the neutral threshold does not replace it.
 
-During [evaluation](07-hil-training.md#evaluate), leave action control with the
+During [evaluation](tutorial/10-hil-training.md#evaluate), leave action control with the
 policy to measure autonomous success. An assisted success counts in
 `task_success_rate`, while the primary `success_rate` is
 `autonomous_success_rate`. Label-only `s`/`f` events do not count as action
@@ -121,7 +121,7 @@ The four `--teleop-lead-cap-m`, `--teleop-lead-cap-rad`,
 `experiment.teleop_control`. Keep them and the selected teleop device consistent
 through this tutorial's recording, training and deployment. Current HEAD
 compares the shared tracker block rather than physical device identity; see
-[04's compatibility note](04-record-demos.md#files-and-compatibility).
+[08's compatibility note](tutorial/08-record-demos.md#files-and-compatibility).
 
 <details>
 <summary>Other modes: Onset arm or ramp (joint-space leader_arm only)</summary>
@@ -174,8 +174,8 @@ intervened step is always the executed one, the human's. What each method does w
 The gripper heads (`hil_serl`'s DQN, `--residual-variant hybrid`, `silri`'s discrete head) label each
 stored gripper action with the nearest of `-1`/`0`/`+1`; with `gripper_binarize_threshold: 0.5` (the
 wizard's default) the trigger gives exactly `+1` or `-1`. Details:
-[residual.md](../residual.md#human-intervention), [silri.md](../silri.md#data-flow),
-[teleop.md](../teleop.md#interventionwrapper).
+[residual.md](residual.md#human-intervention), [silri.md](silri.md#data-flow),
+[teleop.md](teleop.md#interventionwrapper).
 
 ## Where the reward comes from
 
@@ -186,7 +186,7 @@ explicit outcomes and reset/termination rules; a TCP-position proxy remains a se
 - **Recorder**: the reward comes from your keys by default (`--no-reward-from-teleop-events` turns it
   off). `s` stores the step as a terminal success with reward 1.
 - **HIL training** (`hil_serl`, `residual_hil_serl`, `silri`): without `--classifier-checkpoint`,
-  pass `--reward-from-teleop-events` to the actor (the commands of [07](07-hil-training.md) do). The
+  pass `--reward-from-teleop-events` to the actor (the commands of [10](tutorial/10-hil-training.md) do). The
   actor and learner log a warning when neither is set.
 
 The rule for `s`: press it **while you still hold control** in the recorder, because only intervened
@@ -226,4 +226,4 @@ gripper. On two arms use `left.arm`, `right.arm`, `left.gripper` or `right.gripp
 `--teleop-idle-behavior hold` holds unselected parts during a takeover; `policy` leaves them
 with the policy. Only `human_action_mask` dimensions supply expert supervision; `override_mask`
 also covers held parts. Set the same part selection and idle behavior when recording and
-training, because they enter the experiment contract. See [partial takeover](../real-world-experiments.md#part-takeover-and-imitation).
+training, because they enter the experiment contract. See [partial takeover](real-world-experiments.md#part-takeover-and-imitation).

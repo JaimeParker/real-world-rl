@@ -41,6 +41,9 @@ PRESET_COPY = "hil.yaml"
 PRESET_ABS_COPY = "hil_abs.yaml"
 # The testing page's commissioned local copy; parse its CLI against the source preset.
 BIMANUAL_PRESET_COPY = "local/bimanual.smoke.yaml"
+# The tutorial's local copy of the GELLO preset (08-11); parse its CLI against the source preset.
+GELLO_PRESET_COPY = "local/gello_cartesian.yaml"
+GELLO_PRESET = REPO_ROOT / "examples" / "presets" / "gello_cartesian.yaml"
 HOST_PLACEHOLDERS = {"ROBOT_PC": "127.0.0.1", "LEARNER_IP": "127.0.0.1"}
 # The tutorial must keep at least this many commands under test (guards the extractor).
 MIN_PARSED_COMMANDS = 30
@@ -165,6 +168,8 @@ def substitute_placeholders(argv: Sequence[str]) -> tuple[str, ...]:
             token = str(joint_abs_preset())
         elif token == BIMANUAL_PRESET_COPY:
             token = str(REPO_ROOT / "examples" / "presets" / "bimanual_gello_smoke.yaml")
+        elif token == GELLO_PRESET_COPY:
+            token = str(GELLO_PRESET)
         for placeholder, value in HOST_PLACEHOLDERS.items():
             token = token.replace(placeholder, value)
         substituted.append(token)

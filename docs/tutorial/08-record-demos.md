@@ -1,97 +1,79 @@
-# 4. Record demos
+# 8. Record demos
 
-`examples/record_real_demos.py` builds the same env as the HIL actor. It archives
-all attempts in SQLite and exports human-supervised steps of successful episodes
-to a demo pkl for BC, ACT and HIL. Read [06 Intervening](06-intervening.md) first.
+**Goal:** record successful human demonstrations and inspect their archive before training a
+base policy or HIL learner. The recorder builds the same env as the HIL actor, archives every
+attempt in SQLite and exports successful human-supervised steps to a demo pkl.
 
-## Prepare the NUC
+<a id="prepare-the-nuc"></a>
 
-Run every command on this page on the **NUC**, from the **repository root**, with the
-**project environment active**. Finish the station and real doctor checks first. Keep a clear
-workspace and the physical stop accessible. Inspect the physical arm's FCI IP,
-Hand presence, home, joint limits and workspace before reset, which may move the
-arm and open the gripper.
+## Before you start
 
-The main preset is
-[`examples/presets/gello_cartesian.yaml`](../../examples/presets/gello_cartesian.yaml):
-state-only, `cartesian_delta`, 50 Hz, `xyz_scale_m: 0.05`, `rot_scale_rad: 0.3`.
-Its robot mapping connects directly through franky on this NUC. Supply the
-station-specific values before running: the example workspace is not a cell
-approval. Without a physical Hand, set `gripper: null` in the robot mapping and
-`gripper_in_action: false` in the env.
+All commands run on the **NUC**, from the **repository root**, with the **project environment
+active**, unless stated otherwise.
 
-The preset's `teleop_options_yaml` points to `gello_leader.yaml` in the repository
-root. Create that local options file with `robot_yaml: gello_station.yaml`. Make
-`gello_station.yaml` a local leader-only robot YAML: `type: franka`, a distinct
-`name`, `arm_backend: fake`, `gripper: null`, `cameras: []`, and the commissioned
-GELLO `teleop:` section with its serial port and calibration. Do not point this
-source at a physical-follower station: it connects the whole leader robot YAML,
-which would open a second connection to the follower. Calibration and alternative local
-leader configurations are in [gello.md](../gello.md).
+- Finish [03 Bring up the Franka](03-franka-bringup.md) and
+  [04 Home, gripper, cameras](04-first-motion.md). Nothing else may hold the arm.
+- Commission the leader and its options file using [05 Teleop: GELLO](05-teleop-gello.md).
+- Read the [operator page](../intervening.md). Keep the workspace clear and the physical stop
+  accessible. Reset may move the arm and open the gripper.
+- Check the physical arm’s FCI IP, Hand, home, joint limits and safety box in the local preset.
+  Without a Hand, set `real_robot.robot.gripper: null` and `real_robot.gripper_in_action: false`.
 
-Write both files by hand. The calibration values can come from the command below: it reads the
-leader port and servo ids from `gello_station.yaml`'s `teleop.options` (or `--port` and
-`--joint-ids`), takes the wrap centres from the follower station's `joint_limits`, opens only the
-GELLO, and writes the calibrated options into `gello_station.yaml` after a reviewed diff (`--use`):
+`rwrl record` is the hardware process; `rwrl supervise` starts it as a child and watches its
+heartbeats. Wrap each recording command below so a silent or stalled child triggers
+SIGINT → SIGTERM → SIGKILL. The heartbeat timeout defaults to **2.0 s**; a final kill loses
+the libfranka connection and relies on firmware stopping. The supervisor cannot issue an
+independent robot stop. The recorder commands also enable an in-process StepWatchdog at
+**0.3 s**, which detects missing steps while that process can still run. Terminal keys reach
+the child; stdin needs neither a desktop session nor evdev keyboard permissions. See
+[supervision](../daemon.md#supervising-a-single-process-robot-run).
 
-```bash
-rwrl --station gello_station.yaml teleop calibrate --backend gello --joint-limits-yaml local/station.yaml --use
-```
+| Flag | Value here | Meaning |
+|---|---|---|
+| `--config` | `local/gello_cartesian.yaml` | commissioned env and teleop preset |
+| `--teleop-device` | `leader_cartesian` | explicit motion source; no default |
+| `--teleop-event-device` | `stdin` | operator keys in this terminal |
+| `--real_robot.watchdog_s` | `0.3` | in-process step timeout, seconds |
+| `--output-path` | `demos/pick-and-place.pkl` | new pkl path; existing files are refused |
+| `--num-successes` | `20` (also the default) | stop after this many kept episodes |
+| `--teleop-lead-cap-m` / `--teleop-lead-cap-rad` | `0.05` / `0.3` | maximum lead over measured TCP |
+| `--teleop-target-speed-m-s` / `--teleop-target-speed-rad-s` | `0.05` / `0.3` | maximum target speed |
 
-Before recording, on this NUC, repository root, project environment active, finish
-any process directly holding the arm. Run `rwrl status`, manually guide the arm
-to the desired home, then leave guiding mode. Save and verify home in the same
-preset used by the recorder below:
+## 1. Prepare the local preset and home
+
+If [04](04-first-motion.md#1-home) already created and commissioned this copy, keep it.
+Otherwise, on the NUC, repository root, no environment needed, copy the example once:
 
 <!-- tutorial-test: skip -->
 ```bash
-rwrl --preset examples/presets/gello_cartesian.yaml home set
-rwrl --preset examples/presets/gello_cartesian.yaml --yes home go
+cp examples/presets/gello_cartesian.yaml local/gello_cartesian.yaml
 ```
 
-This is the same home that `env.reset()` resolves. The verification moves the
-arm and applies `task.reset.gripper`, while skipping other reset phases.
-`home set` changes only the `home_joints` value in this preset; comments, quotes
-and key order are preserved. The previous file is saved beside it as
-`examples/presets/gello_cartesian.yaml.<id>.bak` (mode 0600, a new `<id>` per
-save). See
-[rwrl home](../cli.md#home-resolve-save-and-move).
+*You should see:* `local/gello_cartesian.yaml`. It starts with state-only observations,
+`cartesian_delta`, 50 Hz, `xyz_scale_m: 0.05` and `rot_scale_rad: 0.3`. Complete the local
+hardware/leader settings and save and verify home as in [04](04-first-motion.md#1-home).
+Copying again would replace that saved home. If home or device checks fail, use
+[If it fails](#if-it-fails) before recording.
 
-## Record with GELLO
+## 2. Start the GELLO recorder
 
 On the NUC, repository root, project environment active:
 
 ```bash
 rwrl supervise --log runs/record-pick-and-place/supervise.jsonl -- \
-    rwrl record --config examples/presets/gello_cartesian.yaml \
+    rwrl record --config local/gello_cartesian.yaml \
     --teleop-device leader_cartesian --teleop-event-device stdin \
     --real_robot.watchdog_s 0.3 \
     --output-path demos/pick-and-place.pkl --num-successes 20
 ```
 
-The supervisor runs the hardware process as its child. Terminal keys go to that
-child; no desktop session or evdev keyboard permission is needed. The explicit
-StepWatchdog setting is **0.3 s**: current HEAD's preset does not yet contain it.
-It checks for missing steps inside the process. The separate supervisor detects
-missing heartbeats (default **2.0 s**) and escalates signals if cleanup stalls.
-Its final kill loses the libfranka connection and relies on a firmware reflex
-stop. It cannot issue a separate robot stop command. See
-[supervision](../devices/README.md#supervising-a-single-process-robot-run).
-
-The preset already sets these tracker flags; keep them unchanged through the
-pipeline:
-
-| Flag | Value | Meaning |
-|---|---|---|
-| `--teleop-lead-cap-m` | `0.05` | maximum translation lead over measured TCP, metres |
-| `--teleop-lead-cap-rad` | `0.3` | maximum rotation lead, radians |
-| `--teleop-target-speed-m-s` | `0.05` | maximum command translation speed, m/s |
-| `--teleop-target-speed-rad-s` | `0.3` | maximum command rotation speed, rad/s |
+*You should see:* reset followed by a fixed hold pose, ready for `t`. If startup fails,
+finish the recorder and follow [If it fails](#if-it-fails).
 
 The env scales must be at least the lead caps. The preset's 3000-step episode cap
 is 60 seconds at 50 Hz; `--max-episode-steps` overrides it for recording.
 
-## An episode
+## 3. Record one episode
 
 1. **Reset:** wait for any home motion and gripper opening to finish. The
    recorder holds a fixed pose while nobody drives.
@@ -128,7 +110,7 @@ episode, but its terminal step is absent from the human-only pkl view.
 source hands back and holds measured pose; clear the request, press `h`, then `t`
 to re-anchor. It is not a successful step or permission to widen the box.
 
-## Record with a SpaceMouse
+## 4. Alternative: record with a SpaceMouse
 
 Use the same NUC, repository root and project environment. Install the SpaceMouse extra as
 covered in [teleop.md](../teleop.md#spacemouse). Override the preset's GELLO
@@ -136,11 +118,14 @@ options file so that no leader options are passed to the SpaceMouse source:
 
 ```bash
 rwrl supervise --log runs/record-spacemouse/supervise.jsonl -- \
-    rwrl record --config examples/presets/gello_cartesian.yaml \
+    rwrl record --config local/gello_cartesian.yaml \
     --teleop-device spacemouse --teleop-event-device stdin --teleop-options-yaml None \
     --real_robot.watchdog_s 0.3 \
     --output-path demos/pick-and-place-spacemouse.pkl --num-successes 20
 ```
+
+*You should see:* the same episode outcomes and save line as with GELLO, at the SpaceMouse
+output path. If HID reads fail, follow [If it fails](#if-it-fails).
 
 Button **0** takes over; the next press hands back. Pushing the puck alone never
 counts as takeover. While driving, the puck requests velocity, at up to 0.05 m/s
@@ -170,7 +155,9 @@ episode handling unless `--episode-end-behavior hold` is selected. Use the
 [acceptance checklist](../testing/spacemouse-control-session.md) before treating
 direction mapping or normal-stop behavior as verified.
 
-## Files and compatibility
+<a id="files-and-compatibility"></a>
+
+## 5. Inspect the files and compatibility
 
 A successful run produces `demos/pick-and-place.pkl`,
 `demos/pick-and-place.contract.json` and `demos/pick-and-place.trajectory.sqlite3`.
@@ -191,17 +178,17 @@ physical input device. GELLO and SpaceMouse with equal tracker values can share
 data in the implementation. Requiring the same device is this tutorial's workflow
 rule; device-only mismatches are not currently rejected by that contract.
 
-*If not:*
+On the NUC, repository root, project environment active (this command opens no hardware):
 
-- The task times out: review the 60-second cap; increase `--max-episode-steps`
-  only for an appropriate task duration.
-- `t` does nothing: check terminal focus, the GELLO connection/calibration and
-  whether a workspace HOLD first needs `h` followed by `t`. On SpaceMouse use
-  button 0 instead.
-- Device reads fail: stop, inspect the serial/HID permissions and hardware,
-  then rerun doctor with no hardware process holding the station.
-- A contract mismatch appears: use the recorded preset, device and tracker
-  values rather than editing the data sidecar.
+```bash
+rwrl archive inspect demos/pick-and-place.trajectory.sqlite3
+```
+
+*You should see:* JSON with `records`, `episode_starts`, `episode_ends`, `transitions`,
+`human_mask_counts`, `outcomes` and per-episode measurements. The source is read-only.
+If the file is missing, check the recorder’s output stem and whether recording reached reset.
+
+## 6. Optional: joint-space recording
 
 <details>
 <summary>Other modes: joint-space leader_arm and joint_abs (not the main workflow)</summary>
@@ -231,9 +218,13 @@ retains them as ordinary supervised steps. Archive-derived training views still
 exclude syncing supervision. Joint-space gripper takeover does not have the
 cartesian latch; match the trigger to the current gripper state before takeover.
 
+*You should see:* episode outcomes and a save line for `demos/pick-and-place-abs.pkl`.
+If the initial gap is rejected, align the leader before trying again; do not raise the tolerance
+to bypass the check.
+
 </details>
 
-## Continue after an interruption
+## 7. Continue after an interruption
 
 The archive commits during recording. Reopening the output stem while its pkl
 does not yet exist retains the archive and marks unfinished attempts interrupted;
@@ -245,5 +236,36 @@ process-crash and power-loss boundaries are in
 Read the supervisor log before restarting a stopped process; verify the cell and
 clear any robot fault before another reset.
 
+Rerun the matching recorder command above only when its pkl does not exist. If a pkl was
+already saved, choose a new output path; there is no pkl append flag.
+
+*You should see:* new attempt IDs in the existing archive and, after keeping successes, a new
+save line. If restart fails, inspect the supervisor log and use the checks below.
+
+## If it fails
+
+On the NUC, repository root, project environment active, finish the hardware process first:
+
+```bash
+rwrl --station local/station.yaml doctor
+```
+
+Start with the first red row and its hint. See
+[Network and FCI](../doctor.md#network-and-fci),
+[Serial, input groups and USB latency](../doctor.md#serial-input-groups-and-usb-latency),
+[SpaceMouse and HID](../doctor.md#spacemouse-and-hid),
+[Cameras](../doctor.md#cameras), or
+[Busy devices](../doctor.md#busy-devices-blocked).
+
+- The task times out: review the 60-second cap; increase `--max-episode-steps`
+  only for an appropriate task duration.
+- `t` does nothing: check terminal focus, the GELLO connection/calibration and
+  whether a workspace HOLD first needs `h` followed by `t`. On SpaceMouse use
+  button 0 instead.
+- Device reads fail: stop, inspect the serial/HID permissions and hardware,
+  then rerun doctor with no hardware process holding the station.
+- A contract mismatch appears: use the recorded preset, device and tracker
+  values rather than editing the data sidecar.
+
 More detail: [recording-demos.md](../recording-demos.md).
-Next: [05 Base policy](05-base-policy.md).
+Next: [09 Base policy](09-base-policy.md).

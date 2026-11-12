@@ -10,8 +10,8 @@ The recorder builds the env exactly as the HIL actor does (`build_hil_env(args, 
 so it takes the same env, teleop and observation flags, and the same `--config` preset, as
 `train_real_world.py hil_serl`. Pass the flags of the run that will load the demos: the recorded
 observations and actions must match its env (the pkl's contract sidecar is checked on load).
-[Tutorial 04](tutorial/04-record-demos.md) walks through the first recording session, and
-[tutorial 06](tutorial/06-intervening.md) is the operator's page (keys, onset, what is recorded).
+[Tutorial 08](tutorial/08-record-demos.md) walks through the first recording session, and
+the [operator page](intervening.md) lists the keys, the onset and what is recorded.
 
 For SpaceMouse on a commissioned `real_robot` station, the supervised
 [`rwrl teleop run` workflow](spacemouse-commissioning.md#supervised-recording-sessions) adds explicit

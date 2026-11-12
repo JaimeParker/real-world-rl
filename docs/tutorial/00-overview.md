@@ -1,134 +1,121 @@
 # 0. Overview and safety
 
-This tutorial starts with a NUC and one Franka FR3, establishes a real doctor
-handshake, then prepares a pick-and-place experiment with a GELLO leader.
-The main workflow runs the recorder or HIL actor **in one hardware process on
-the NUC**, connecting directly through franky with `real_robot.robot`. A GPU
-learner can run separately. Use a robot daemon only when the actor runs on
-another machine, with `real_robot.remote` instead.
+This tutorial takes one Franka FR3 with a Franka Hand, a NUC and a GELLO leader arm from an
+empty NUC to a deployed pick-and-place policy. Every step is an `rwrl` command. This page has
+no commands to run: it shows the system, the roles of the machines, the order of the pages
+and the safety rules that hold on all of them.
 
-The control contract is **cartesian GELLO at 50 Hz**. Use the same action
-mode, frequency, cameras, state fields and gripper contract for demos, BC/ACT,
-HIL and deployment. Run names such as `runs/bc-pick-and-place` and
-`runs/hil-pick-and-place` identify separate experiments; reuse an identity and
-its local storage only when resuming that experiment.
-
-## The pipeline
+## The system
 
 ```text
-New cell: power --> Control network --> Desk control + FCI --> install
-                                                               |
-Already commissioned: take Desk control --> confirm FCI --------+
-                                                               v
-                     station.yaml --> real doctor handshake
-                                                               |
-                       gello_cartesian.yaml (NUC, direct) <-----+
-                            |                    |
-                   record GELLO demos     remote actor needed?
-                            |                    |
-                       BC or ACT          optional daemon + remote:
-                            |                    |
-                            +-----> HIL actor + learner --> deploy
+                 Ethernet (Control port, not the Arm port)
+  +-----------+  172.16.0.1  <------------->  172.16.0.2  +-----------------+
+  | NUC       |                                            | Franka control  |
+  | (robot    |                                            | box: Desk + FCI |
+  |  host)    |  USB: cameras, GELLO, SpaceMouse           +--------+--------+
+  |           |                                                     |
+  | rwrl      |                                              Franka arm + Hand
+  | recorder, |
+  | HIL actor |  network (optional): replay data out, policy weights in
+  +-----+-----+  <--------------------------------------->  +-----------------+
+                                                            | GPU host        |
+                                                            | rwrl train      |
+                                                            | --role learner  |
+                                                            +-----------------+
 ```
 
-| Page | What you do |
-|---|---|
-| [01 Install](01-install.md) | power, cabling, persistent networking, six Desk checks, install and doctor |
-| [02 Station](02-station.md) | select per-arm hardware, calibrate GELLO, verify limits and prepare direct `hil.yaml` |
-| [03 Process layout](03-daemon.md) | use one hardware process on the NUC; configure a daemon only for a remote actor |
-| [04 Record demos](04-record-demos.md) | supervised GELLO or SpaceMouse recording |
-| [05 Base policy](05-base-policy.md) | train BC or ACT from compatible demos |
-| [06 Intervening](06-intervening.md) | operator keys, bounded following, gripper latch and recorded data |
-| [07 HIL training](07-hil-training.md) | learner and actor for HIL-SERL, residual HIL-SERL or SiLRI |
-| [08 Deploy](08-deploy.md) | deploy a checkpoint with its saved observation/action contract |
+The recorder and the HIL actor run **in one hardware process on the NUC** and open the arm,
+Hand, cameras and GELLO directly through franky (`real_robot.robot`). The learner can run on
+a GPU host or on the NUC itself. A robot daemon is only needed when the actor runs on another
+machine; see [Remote actor over the robot daemon](../remote-actor.md).
 
-## Names used in the commands
+The control contract is **cartesian GELLO at 50 Hz** (`action_mode: cartesian_delta`). Use the
+same action mode, frequency, cameras, state fields and gripper contract for demos, BC/ACT, HIL
+and deployment.
+
+## Roles and names
 
 | Name | Meaning |
 |---|---|
-| NUC / robot PC | wired to the Control port, cameras and GELLO; runs the direct recorder/actor by default |
-| `ROBOT_PC` | the NUC's reachable address, needed only for remote daemon clients |
-| `LEARNER_IP` | GPU learner's reachable address; may be the NUC |
-| actor machine | NUC by default; another machine only for the optional remote route |
+| NUC / robot host | wired to the Control port, cameras and teleop devices; runs every hardware command |
+| GPU host | runs the learner; may be the NUC |
+| `ROBOT_PC` | the NUC's reachable address, needed only by remote daemon clients |
+| `LEARNER_IP` | the learner's reachable address; `127.0.0.1` when it is the NUC |
 
-Every command states its machine, working directory and environment. The default is the
-NUC, repository root (`real-world-rl/`), **project environment** active: the venv or conda
-env where [01 step 4](01-install.md#4-install-the-project-environment) installed the
-three local packages (`scripts/install.sh` creates `.venv` by default).
-For services on the same machine use `127.0.0.1`; a remote client must use a
-reachable address instead.
+Every command states its machine, working directory and environment. The default is the NUC,
+the repository root (`real-world-rl/`), with the **project environment** active: the venv or
+conda environment that [01 Install](01-install.md) creates (`.venv` by default). Commands for
+services on the same machine use `127.0.0.1`; a remote client uses a reachable address.
 
-## Action mode
+## Reading order
 
-The main workflow uses `action_mode: cartesian_delta`, `control_hz: 50` and
-`tcp_pose` feedback. GELLO's joint readings must pass through a cartesian mapping
-(`leader_cartesian`), not be sent as joint commands to a cartesian env.
-Calibrate signs and offsets and verify motion directions and scale before use.
-50 Hz is the requested application update rate, not a guarantee about SDK
-servo timing or measured USB sampling throughput.
+| Page | What you do | Commands |
+|---|---|---|
+| [01 Install](01-install.md) | install the project environment, check it without hardware | `bash scripts/install.sh`, `rwrl doctor --mock` |
+| [02 Set up the station](02-setup.md) | power, network and Desk; write `local/station.yaml` | `rwrl discover`, `rwrl setup`, `rwrl workspace show` |
+| [03 Bring up the Franka](03-franka-bringup.md) | real handshake; read the doctor; read state | `rwrl doctor`, `rwrl status`, `rwrl q`, `rwrl tcp`, `rwrl recover` |
+| [04 Home, gripper, cameras](04-first-motion.md) | first motion; check every device | `rwrl home`, `rwrl gripper`, `rwrl camera`, `rwrl stop` |
+| [05 Teleop: GELLO](05-teleop-gello.md) | check the leader arm | `rwrl teleop read`, `rwrl teleop calibrate` |
+| [06 Teleop: SpaceMouse](06-teleop-spacemouse.md) | check the SpaceMouse | `rwrl teleop diagnose`, `rwrl teleop profiles` |
+| [07 Teleop: leader-follower](07-teleop-leader-follower.md) | joint-space leader arms | `rwrl teleop read --with-follower` |
+| [08 Record demos](08-record-demos.md) | supervised GELLO or SpaceMouse recording | `rwrl supervise`, `rwrl record` |
+| [09 Base policy](09-base-policy.md) | train BC or ACT from the demos | `rwrl train real_world_bc` |
+| [10 HIL training](10-hil-training.md) | learner and actor for HIL-SERL, residual or SiLRI | `rwrl train` |
+| [11 Deploy](11-deploy.md) | run a checkpoint with its saved contract | `rwrl deploy` |
 
-Pages 04–07 use `examples/presets/gello_cartesian.yaml`: state-only, 50 Hz,
-`xyz_scale_m: 0.05`, `rot_scale_rad: 0.3`, with a direct robot mapping. Recording
-and hardware actor commands run under `rwrl supervise`. Joint-space
-examples are separate modes requiring their own compatible demos and base policies. Two-arm setup starts with
-[per-arm Desk and wizard checks](02-station.md#multiple-arms), then
+The [operator page](../intervening.md) is the page to keep open beside the robot while
+recording and training. Two arms: follow these pages with the changes in
 [bimanual.md](../bimanual.md).
 
-## Operator keys
+## Status words
 
-The NUC's terminal (`stdin`) and desktop (`keyboard`) event sources share these keys:
+`rwrl doctor`, `rwrl setup` and the daemon preflight report every check with one status word.
+On a terminal the word is coloured; piped output and `NO_COLOR=1` stay plain.
 
-| Key | Effect |
-|---|---|
-| `t` | GELLO takeover; anchor the relative mapping (not a toggle) |
-| `h` | GELLO hand-back; recorder holds measured pose, HIL returns to the policy |
-| `s` | label success and end the episode |
-| `f` | label failure and end the episode |
-| `r` | discard and rerecord the recorder episode |
-| Esc | end the current episode without a success label |
-| `q` | stop the run and close the devices |
+| Status | Meaning | Colour | Fails the run |
+|---|---|---|---|
+| `PASS` | checked and fine | green | no |
+| `WARN` | fine, but read the hint | yellow | no |
+| `SKIPPED` | not checked; not evidence that it works | grey | no |
+| `FAIL` | checked and broken | red | yes |
+| `BLOCKED` | could not be checked or repaired (busy device, missing permission) | magenta | yes |
+| `PENDING_ACTION` | a repair ran and needs a step from you (log in again, replug) | yellow | yes |
 
-SpaceMouse uses button 0 for takeover/hand-back and button 1 for the gripper;
-its terminal `t`/`h` are ignored. Puck movement alone never takes over. Outcome
-keys and quit still use the terminal. See [06](06-intervening.md).
-Terminal stdin needs no evdev permissions; a desktop keyboard source needs the
-actor's desktop session.
+Details and the list of checks: [rwrl doctor](../doctor.md).
 
 ## Safety
 
-Keep the workspace clear and the emergency stop accessible. Before any motion,
-check the station's `home_joints`, `joint_limits`, `safety_box` and
-`max_delta_per_step` against this physical arm and cell. Wizard defaults are
-starting points, not validated FR3 limits or a commissioned home path. The device
-layer enforces limits in both direct and daemon layouts; the env may tighten them.
-Never copy a recorded home pose to another arm.
+- Keep the workspace clear and the emergency stop within reach whenever the arm is powered.
+- Before the first motion, check the station's `home_joints`, `joint_limits`, `safety_box`
+  and `max_delta_per_step` against this physical arm and cell
+  ([02](02-setup.md#4-check-limits-and-home)). Wizard defaults are starting points, not
+  validated limits. Never copy a home pose to another arm.
+- Motion commands (`home go`, `gripper open/close/move`) print the target first and ask
+  `proceed? [y/N]`; `--yes` answers for you. Read the target before you confirm.
+- `rwrl stop` stops the arm without asking. On the direct route it needs the arm to be free:
+  finish the recorder or actor first, or use the physical stop.
+- The direct process has no independent watchdog if the whole process hangs: a supervisor can
+  kill it, and the firmware then handles the lost connection. A daemon watchdog can stop a
+  silent actor but does not cover a failed daemon or NUC.
+- `BLOCKED` in the doctor means another process holds a device. The doctor never stops, kills
+  or takes over that process; finish it yourself.
+- A station with a teleop device needs that device to connect. For unattended deployment use a
+  station without `teleop`.
 
-The direct process cannot issue an independent stop if it hangs as a whole.
-A supervisor can kill it, after which stopping relies on the firmware's loss-of-
-communication behavior. A separate live daemon can stop a silent actor, but its
-watchdog does not cover a failed daemon or NUC. See the
-[process comparison](03-daemon.md).
-
-A robot configured with a teleop device requires that device to connect. For
-unattended deployment use a matching station without `teleop`; for assisted
-deployment keep the operator devices and their contract.
+<a id="operator-keys"></a>
+Operator keys (takeover, hand-back, success, failure, rerecord, quit) are on the
+[operator page](../intervening.md).
 
 ## Known limits
 
-- Real hardware commissioning has established a left-arm FCI handshake and a
-  single-arm GELLO recording session, plus separate right-Hand checks. This is
-  not a full two-arm or online RL validation. Cartesian scale, following lag and
-  process-wide watchdog limitations still need attention.
-- Existing joint demos cannot be silently relabeled as cartesian demos. ACT training on physical recordings and
-  the complete online training/deployment path remain to be validated.
-- With `task.name: none`, the env returns zero reward and does not detect success;
-  use explicit operator labels or a reward classifier. A positive reward alone
-  does not establish an autonomous success.
-- Actor uploads and learner ingestion use local SQLite storage. Keep their
-  outbox, journal and checkpoint bundles on local storage; process-crash recovery
-  and power-loss durability have different guarantees. See
-  [Real-world experiments](../real-world-experiments.md) and
-  [known issues](../known-issues.md).
+- Hardware commissioning covers a single-arm FCI handshake and a GELLO recording session; full
+  two-arm and online RL runs, ACT training on physical recordings and the complete deployment
+  path are not yet validated.
+- Joint demos cannot be relabelled as cartesian demos.
+- With `task.name: none` the env returns reward 0; success comes from operator labels or a
+  reward classifier.
+- Keep the actor outbox, learner journal and checkpoint bundles on local storage.
 
-Next: [01 Power-on through doctor](01-install.md), or the
-[already commissioned shortcut](01-install.md#a-robot-someone-else-has-already-commissioned).
+Details: [known issues](../known-issues.md) and [real-world experiments](../real-world-experiments.md).
+
+Next: [01 Install](01-install.md).

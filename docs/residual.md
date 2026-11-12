@@ -4,8 +4,8 @@
 policy, an earlier RL checkpoint or an ACT model) on the real robot, with HIL-SERL's
 actor / learner split, demo buffer and human intervention. The hardware setup, the BC and
 ACT base policies and a first residual run are walked through in the tutorial:
-[05 Base policy](tutorial/05-base-policy.md) and
-[07 HIL training](tutorial/07-hil-training.md#residual_hil_serl-bc-base) (two arms:
+[09 Base policy](tutorial/09-base-policy.md) and
+[10 HIL training](tutorial/10-hil-training.md#residual_hil_serl-bc-base) (two arms:
 [bimanual.md](bimanual.md#two-arms-the-tutorial-steps)).
 
 ## Method
@@ -117,7 +117,7 @@ intervened row). On its `--log-freq` boundaries the learner logs, besides the SA
 `losses/actor/residual_bc` and the batch's share of intervened rows as
 `losses/actor/intervened_fraction` (both only on updates that train the actor, so not during
 `--critic-only-updates`). The actor's per-episode `actor/intervention_rate` is the share of
-intervened steps on the robot ([tutorial 07](tutorial/07-hil-training.md#what-to-watch)).
+intervened steps on the robot ([tutorial 10](tutorial/10-hil-training.md#what-to-watch)).
 
 ## Warm-up
 
@@ -131,8 +131,8 @@ intervened steps on the robot ([tutorial 07](tutorial/07-hil-training.md#what-to
 ## Commands
 
 The full commands (learner, actor and eval with a BC and with an ACT base, the env preset and the
-teleop flags) are in [tutorial 07](tutorial/07-hil-training.md#residual_hil_serl-bc-base); deployment
-is in [tutorial 08](tutorial/08-deploy.md). The minimal shape, for a GELLO served by the robot daemon
+teleop flags) are in [tutorial 10](tutorial/10-hil-training.md#residual_hil_serl-bc-base); deployment
+is in [tutorial 11](tutorial/11-deploy.md). The minimal shape, for a GELLO served by the robot daemon
 on a `joint_delta` env (every role, the learner included, takes `--base-provider`):
 
 ```bash

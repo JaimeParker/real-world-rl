@@ -4,6 +4,12 @@ Human-in-the-loop intervention in `real_world_rl`: a `TeleopSource` reads one op
 device, `InterventionWrapper` swaps the operator's action in for the policy's, and the demo
 scripts in `examples/` use the same sources.
 
+**Where to start:** follow [05 GELLO](tutorial/05-teleop-gello.md),
+[06 SpaceMouse](tutorial/06-teleop-spacemouse.md) or
+[07 leader-follower](tutorial/07-teleop-leader-follower.md) for input checks and first supervised
+sessions, then [08 Record demos](tutorial/08-record-demos.md). This page is the source contract
+and device reference.
+
 ## The `TeleopSource` contract
 
 `real_world_rl.teleop` (`teleop/core/contract.py`):
@@ -76,9 +82,10 @@ remote_address: <robot-host>:<port>
 With `--teleop-event-device` the file feeds the motion half of the composite.
 
 The wrapper passes its "last gripper action sent" to `robot`, `leader_arm`, `gello`,
-`leader_cartesian`, `spacemouse` and `bimanual` (and to the motion half of a composite built on
-one of them), so a leader part without a gripper holds the gripper instead of dropping a grasped
-object, and the SpaceMouse starts every take-over from the gripper's current command. The
+`leader_cartesian`, `spacemouse`, `pico` and `bimanual` (and to the motion half of a composite
+built on one of them), so a leader part without a gripper holds the gripper instead of dropping a
+grasped object, and the SpaceMouse and the Pico start every take-over from the gripper's current
+command. The
 env action ends with one gripper dim per arm (the action contract's layout), so the getter
 returns one entry per arm and a single-arm source reads entry 0 (`bimanual` hands each arm's
 source its own entry); a source drives one arm unless it declares `num_arms`, and the wrapper
@@ -87,7 +94,8 @@ them) are not the env's in the env's order.
 
 | `device` | Source | Reads | Action space | Notes |
 | --- | --- | --- | --- | --- |
-| `pico` | `PicoTeleopSource` | Pico VR controller over a ZeroMQ `SUB` socket (`EETwistTeleOpWrapper`) | cartesian_delta, 6 + gripper | kwargs: `zmq_url`, `hand`, `pos_scale`, `rot_scale`, `twist_limit`, `intervention_threshold`. Data format below. |
+| `pico` | `PicoTeleopSource` | a Pico VR controller through the device layer's `PicoTeleop` (a ZeroMQ subscriber), as a pose input anchored onto the cartesian command tracker | cartesian_delta, 6 + gripper | bind takes over / hands back, the trigger drives the gripper; see [Pico](#pico). kwargs: `address="tcp://localhost:7777"`, `topic=""`, `hand="right"`, `bind_button="bind"`, `poll_interval_s=0.005`, `hold_s=0.0`, `input_rotation`, `gripper_binarize_threshold=0.5`, `remote_address`, `read_timeout_s`, and the tracker's (the `--teleop-lead-cap-*`/`--teleop-target-speed-*` flags). Needs `pyzmq` (extra `pico`), imported at `start()`. |
+| `pico_twist` | `PicoTwistTeleopSource` | the Pico as a raw twist (`EETwistTeleOpWrapper`; the ManiSkill sim examples only, not for real robots) | cartesian_delta, 6 + gripper | the former `pico`: kwargs `zmq_url`, `hand`, `pos_scale`, `rot_scale`, `twist_limit`, `intervention_threshold`; the subscriber opens at construction. |
 | `spacemouse` | `SpaceMouseTeleopSource` | a SpaceMouse on this machine, through the device layer's `SpaceMouseTeleop`, as a velocity input over the cartesian command tracker | cartesian_delta, 6 + gripper | button 0 takes over / hands back, button 1 toggles the gripper; see [SpaceMouse](#spacemouse). kwargs: `device_index=0`, `deadzone=0.05`, `invert_axes=()`, `poll_interval_s=0.005`, `read_timeout_s`, and the tracker's (`lead_cap_m`, `lead_cap_rad`, `target_speed_m_s`, `target_speed_rad_s`: the `--teleop-lead-cap-*`/`--teleop-target-speed-*` flags). Needs `hidapi==0.14.0.post4` (import `hid`), imported at `start()`. |
 | `spacemouse_twist` | `SpaceMouseTwistTeleopSource` | the same SpaceMouse as a raw twist (the ManiSkill sim examples only; not for real robots) | cartesian_delta, 6 + gripper | the puck's twist goes to the env as is, moving the puck counts as intervening (`hold_s` extends it), button 0 toggles the sticky gripper (open after every reset), button 1 ends the episode. kwargs: `device_index=0`, `deadzone=1e-3`, `invert_axes=()`, `poll_interval_s=0.005`, `hold_s=0.0`, `read_timeout_s`. |
 | `robot` | `TeleopPartSource` | the teleop part of the robot behind a `real_robot` env (robot yaml `teleop:` section, local or daemon-served) | cartesian_delta, joint_abs or joint_delta, mapped into the env space | kwargs: `teleop_contract`, `joint_limits`, `joint_scale_rad`, `read_timeout_s` (hil_serl: `--robot-teleop-action-mode`, `--no-robot-teleop-has-gripper`). The robot owns the part, so `close()` leaves it connected. |
@@ -412,8 +420,8 @@ take-over on button 0 and takes only the events from the event device, see
 
 ### Leader arm on a cartesian robot (`leader_cartesian`)
 
-A GELLO leader arm reports joint angles. Envs that only accept a cartesian twist get those
-angles through Panda forward kinematics: `LeaderArmCartesianSource`
+A leader arm reports joint angles. Envs that only accept a cartesian twist get those
+angles through selectable forward kinematics (default `kinematics: panda`): `LeaderArmCartesianSource`
 (`real_world_rl/teleop/leader/cartesian.py`, `device="leader_cartesian"`) turns the
 leader's joints into a requested end-effector pose, and a `CartesianTargetTracker`
 (`real_world_rl/teleop/core/targets/cartesian_tracker.py`) turns that into the twist that moves the follower
@@ -440,7 +448,7 @@ The same source serves `real_robot` in `cartesian_delta` mode (for example a dae
 | Piece | Where | What |
 | --- | --- | --- |
 | `PandaKinematics` | `real_world_rl/kinematics/panda.py` | numpy forward kinematics, Craig modified DH; `flange_pose(q)`, `ee_pose(q)` (xyz, quat xyzw), `ee_transform(q)` (4x4). EE defaults: Franka Hand, 0.1034 m along the flange z and -pi/4 about it (`ee_offset_m`, `ee_yaw_rad`). |
-| `LeaderArmCartesianSource` | `real_world_rl/teleop/leader/cartesian.py` | the teleop source; any `joint_abs` 7-joint teleop part is a valid leader. |
+| `LeaderArmCartesianSource` | `real_world_rl/teleop/leader/cartesian.py` | the teleop source; any `joint_abs` part matching the selected kinematics' joint count is a valid leader. |
 | `FrankaRealEnv.last_tcp_pose` | `real_world_rl/envs/franka_real/env.py` | the measured TCP pose (`O_T_EE`, xyz + quat xyzw) of the latest reset/step; the source's follower pose. |
 | stub-robot yaml | `examples/stations/robot.gello_station.example.yaml` | serves the GELLO from the robot host through the robot daemon. |
 
@@ -475,13 +483,21 @@ The source needs exactly one leader:
 The follower pose, the per-step scales and the safety box come from the env:
 `FrankaRealEnv.last_tcp_pose`, `cfg.action_scale` and `cfg.safety_box_low/high`, found down the
 wrapper chain; on a `real_robot` cartesian env, `last_observation["state"]["tcp_pose"]`, the action
-contract's `xyz_scale_m`/`rot_scale_rad` and the configured `safety_box` (`None`: no workspace
-check in the source; the env and the device layer still clip). Pass `follower_pose_getter=`,
+contract's `xyz_scale_m`/`rot_scale_rad` and the configured `safety_box` (`None`: no legacy box
+check in the source). Pass `follower_pose_getter=`,
 `pos_scale_m=`, `rot_scale_rad=` and `safety_box=` to override them. The scales must be at least
 the lead caps (`xyz_scale_m >= lead_cap_m`, `rot_scale_rad >= lead_cap_rad`), else the source
 refuses to build: the default scales (0.02 m / 0.1 rad) need either larger ones
 (`--real-robot.xyz-scale-m 0.05 --real-robot.rot-scale-rad 0.3` as in the preset, or
 `--franka-real.action-scale-pos`/`--franka-real.action-scale-rot`) or lower caps.
+
+On `real_robot`, the station `workspace` and `task_frame` are read from the env config,
+falling back to its local robot YAML, as for Pico. Explicit source kwargs override them.
+The task frame defines the workspace's position axes and optional orientation constraint.
+Both `workspace` and the base-frame `safety_box` apply. A request outside either limit
+hands back and holds the follower's measured pose; returning inside does not resume following.
+The log reads `WORKSPACE HOLD: <axes>; the follower holds its pose and the leader handed back;
+toggle again to take over`. Release the take-over request, then request again to re-anchor.
 
 ```python
 from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
@@ -513,6 +529,76 @@ With the default `intervention: always` the operator drives on every step (pure 
 collection). For HIL, set `intervention: toggle` with an `event_device` on the robot host, or
 take the intervention from an actor-side event device (`--teleop-event-device stdin` or
 `keyboard`: `t` takes over, `h` hands back; see [Leader arms](#leader-arms-gello)).
+
+#### A second arm as the leader
+
+The device-layer `arm_leader` Part reads a second arm through `Arm.backend(arm.type)`.
+It reports `joint_abs` joint positions without sending motion commands. This path **needs
+hardware verification**, including manual guiding, FK/TCP agreement and gripper readings.
+Connecting the Part does not enable a guiding mode; arrange the leader's manual operation
+using its backend/vendor procedure.
+
+Use [`leader.franka-as-leader.example.yaml`](../examples/stations/leader.franka-as-leader.example.yaml)
+as the robot YAML on the second arm's host. Its outer `arm_backend: fake`, `gripper: null`
+and `cameras: []` make the robot a carrier; only the teleop Part opens the real leader:
+
+```yaml
+type: franka
+name: franka_leader_station
+arm_backend: fake
+gripper: null
+cameras: []
+teleop:
+  name: leader
+  backend: arm_leader
+  options:
+    arm: {type: franky, robot_ip: 172.16.0.2, realtime: ignore}
+    gripper: false
+    intervention: always
+```
+
+`arm` is required; its remaining nested keys go to that backend's constructor. `gripper`
+defaults to `false` (no channel). With `true`, the matching `Gripper` backend supplies its
+width normalized to `[0, 1]` (1 = open); shared constructor options such as `robot_ip` are
+forwarded, and integrated grippers borrow the arm session. `intervention: always` is the
+default and emits `active=True`. `intervention: event` emits `active=False`; the composite
+event device's toggle decides take-over. Neither mode supplies buttons or events itself.
+
+On the second arm's host, from the repository root in the venv with the arm SDK and daemon
+dependencies installed, after editing the example's IP:
+
+```bash
+rwrl daemon --station examples/stations/leader.franka-as-leader.example.yaml --bind 0.0.0.0:50052
+```
+
+On the follower's actor host, save these source options as `leader_cartesian.yaml` in the
+repository root (replace `leader-host` with the second arm's host):
+
+```yaml
+remote_address: leader-host:50052
+mapping: anchored
+kinematics: panda
+```
+
+In that host's learning venv, add `--teleop-device leader_cartesian
+--teleop-options-yaml leader_cartesian.yaml --teleop-event-device stdin` to the follower's
+training or recording command. The terminal's `t` takes over and `h` hands back. A leader
+without a gripper holds the follower's last commanded gripper action.
+
+`kinematics` accepts a registered name in YAML or a kinematics instance in Python. The
+registry exports `Kinematics` (`NUM_JOINTS`, `ee_transform(q)` returning a 4×4 transform),
+`register(name)`, `kinematics_for(name)` and `kinematics_names()` from
+`real_world_rl.kinematics`. Only `panda` is built in; register a zero-argument implementation
+for another arm and match its joint count. An explicitly configured name is saved as
+`teleop_input.kinematics` provenance and retained in `source_options`; it does not enter
+the compared `teleop_control` block. Omitting it preserves the existing default snapshot.
+
+For the episode-boundary session gate, **toggle released = neutral**. `session_input()`
+consumes one leader reading without advancing the tracker or changing its anchor. Its six
+axes are the normalized requested-pose lead while take-over is requested (position divided
+by `lead_cap_m`, rotation vector by `lead_cap_rad`, clipped to `[-1, 1]`), otherwise zeros;
+`buttons["toggle"]` carries the request level. Before the first anchor, the request uses
+the leader's FK pose. A held toggle remains non-neutral even when the lead is zero.
 
 #### Mapping
 
@@ -766,7 +852,7 @@ building the env. Built-in sources are imported on first use of their name, so i
 `real_world_rl.teleop` pulls in neither `zmq` nor `hid`.
 
 Actions are in the env's normalized `[-1, 1]` space, gripper last. For a cartesian device whose
-twist is in physical units (as the Pico's), see how the demo scripts normalize it.
+twist is in physical units (as `pico_twist`'s), see how the demo scripts normalize it.
 
 ### Capabilities
 
@@ -793,67 +879,178 @@ resume; `None` by default). The episode-boundary session gate (`--episode-end-be
 needs a motion source with `session_input()` (the `SessionInputSource` protocol: one fresh
 `(axes, buttons)` reading that does not move the target).
 
-## EETwist TeleOp Interface (Pico)
+## Pico
 
-`PicoTeleopSource` wraps `EETwistTeleOpWrapper` in `real_world_rl/teleop/pico/bridge.py`
-(legacy code kept in `real_world_rl/legacy/`). Its only device is `pico`; the wrapper receives device data
-from a ZeroMQ `SUB` socket. The Pico server is expected to publish JSON arrays to:
+`--teleop-device pico` (`PicoTeleopSource`, `real_world_rl/teleop/pico/source.py`) drives a
+`cartesian_delta` env (`real_robot` in `cartesian_delta` mode, or `franka_real`) from a Pico VR
+controller. The Pico is a **pose** device: the hand pose is anchored onto the same
+`CartesianTargetTracker` as `leader_cartesian` and `spacemouse` (see [Mapping](#mapping)), so the
+follower never jumps at a take-over, never leads its measured pose by more than the lead cap, and
+moves at most at the target speed. The device itself is a device-layer teleop part, `PicoTeleop`
+(`backend: pico`, `real_world_rl/teleop/pico/backend.py`), so it can also sit in a robot yaml's
+`teleop:` section, be served by the robot daemon, and show up in `rwrl doctor` (the `pico` extra,
+`pyzmq`).
 
-```python
-tcp://*:7777
-```
+`--teleop-device` has no default: every actor, eval, `rwrl record`, reward-collection and deploy
+command that builds a teleop source names its device (`--teleop-device
+{spacemouse,gello,leader_arm,leader_cartesian,pico,keyboard,robot,bimanual,fake,spacemouse_twist}`),
+or its `--config` preset sets `teleop_device`. Without either it stops with that usage error
+instead of opening a Pico (the former default). A learner builds no source and needs none.
 
-The client connects with `--zmq-url`, for example:
+The former raw-twist Pico source is `pico_twist` (`real_world_rl/teleop/pico/twist_sim.py`),
+for the ManiSkill sim examples only (see [Basic Usage](#basic-usage)).
 
-```bash
---zmq-url tcp://192.168.6.2:7777
-```
+### Message format
 
-`PicoTeleopSource.reset(*, episode_end_pressed=False)` forwards the flag to the wrapper, which
-keeps a still-held episode-end button from firing again; `examples/record_teleop_wsrl.py` uses it.
-
-### Pico Data Format
-
-Pico data can be either one hand (`13` values) or two hands (`26` values). For
-two hands, the first `13` values are the left hand, and the second `13` values
-are the right hand.
-
-For each hand:
+The Pico side publishes JSON arrays on a ZeroMQ `PUB` socket (for example `tcp://*:7777`): one hand
+(`13` values) or both hands (`26` values, left first). With a `topic`, it sends two frames,
+`[topic, json]`. Per hand:
 
 | Index | Meaning |
 | --- | --- |
-| `0:3` | hand position |
+| `0:3` | hand position (m, Pico tracking frame) |
 | `6:10` | hand quaternion, `[x, y, z, w]` |
-| `10` | gripper button |
-| `11` | bind / clutch button |
-| `12` | episode end button |
+| `10` | trigger (`0` released .. `1` pulled) |
+| `11` | bind button |
+| `12` | episode-end button |
 
-`bind` is held while choosing the current reference pose. During bind, twist is
-zero. After release, hand pose changes are converted to EE twist.
+The publisher must stream continuously: the part publishes a sample per received message, and a
+silence longer than `read_timeout_s` (1 s) makes the next read a `DeviceFault`, as for every
+teleop part.
 
-`EETwistTeleOpWrapper.poll()` returns a `TeleOpSample`, which `PicoTeleopSource` turns into a
-`TeleopReading` (`action` = twist + gripper, `intervened`, `episode_end`):
+### The device part (`backend: pico`)
 
-```python
-action       # twist + gripper
-twist        # shape (6,)
-gripper      # scalar gripper command
-bind_pressed
-episode_end
-intervened
+| Option (`TeleopConfig.options`) | Default | Meaning |
+| --- | --- | --- |
+| `address` | `tcp://localhost:7777` | the Pico publisher the `SUB` socket connects to |
+| `topic` | `""` | subscription prefix; empty takes every message |
+| `hand` | `right` | which record of a two-hand message |
+| `bind_button` | `bind` | which record button takes over (`bind`, index 11, or `episode_end`, index 12); the other one ends the episode |
+| `poll_interval_s` | `0.005` | the poll thread's period |
+
+`hold_s` (`TeleopConfig.hold_s`, default 0) extends `intervening` past the bind button's release.
+Every `poll_interval_s` the poll thread reads every message queued since the previous poll:
+presses are taken from all of them (a press shorter than the poll interval is not lost), the pose
+from the newest. Its sample (what `rwrl teleop read` reads) holds:
+
+| Sample field | Value |
+| --- | --- |
+| `diagnostics["hand_pose"]` | the hand pose `xyz + quat_xyzw`, Pico tracking frame (also over the daemon) |
+| `action` | the hand's displacement since the previous sample, `[dp, rotvec]`, unscaled and clipped to `[-1, 1]` (keeps the `cartesian_delta` shape of every part; the `pico` source does not read it) |
+| `gripper` | `1 - trigger`: `1` open (trigger released) .. `0` closed |
+| `buttons` | `bind`, `episode_end` and `trigger` levels |
+| `events` | `bind` and `episode_end` presses, latched until the next `read()` |
+| `intervening` | the bind button is held (plus `hold_s`) |
+
+The first message after a connect or `reset()` only sets the button baseline, so a button held
+through it is not a press. `pyzmq` is imported when the part connects; `discover()` finds nothing
+(a network publisher has no local device node).
+
+### Take-over and the anchored mapping
+
+| Input | Effect |
+| --- | --- |
+| bind press | takes over; the next press hands back. Moving the hand alone never intervenes. |
+| hand motion while driving | `p* = p_c + (p_l - p_l0)`, `R* = (R_l R_l0^T) R_c` (`pico_anchored_v1`): `(p_c, R_c)` is the tracker's command and `(p_l0, R_l0)` the hand pose at the take-over, `p_l = B p_hand`, `R_l = B R_hand` with `B = input_rotation` |
+| trigger | `+1` (open) when `1 - trigger > gripper_binarize_threshold` (0.5), else `-1`; `gripper_binarize_threshold: null` emits the continuous `2w - 1`. At a take-over a trigger that disagrees with the gripper's last command is ignored until it agrees, so taking over never drops a grasped object. |
+| episode-end press | ends the episode and hands back |
+| request outside the safety box or station workspace | logs `WORKSPACE HOLD: <axes>`, holds at the measured pose and hands back; the next bind press takes over again |
+| control loop stall (> `max_dt_s`) | holds at the measured pose; the next poll re-anchors the hand there |
+| read failure | propagates and hands back |
+
+A hand-back holds the measured pose, and the recorder's hold policy shares the tracker while nobody
+drives. Re-taking over anchors wherever the hand is then, so hand-back, move, take-over is the
+clutch. With `--teleop-event-device stdin` or `keyboard` the event device adds the outcome labels
+(`s`/`f`/`r`), episode end (Esc) and quit (`q`); bind stays the only take-over (`t`/`h` log a
+warning).
+
+`input_rotation` (`base_R_input`, a proper 3x3 rotation, default identity) turns the Pico
+tracking frame into the robot base frame. The tracking frame depends on the Pico-side app and on
+where the headset was recentred; commission it before the first real take-over: with a small
+`--teleop-target-speed-m-s` (for example 0.01), take over, move the hand about 5 cm forward, then
+left, then up, and check that the follower moves along base `+x`, `+y`, `+z`. Each column `i` of
+`input_rotation` is the base-frame direction of the Pico frame's axis `i`. Translation is 1:1
+(no motion scaling).
+
+The run compares the tracker's block (`teleop_control`, `cartesian_tracker_v1`, from the
+`--teleop-lead-cap-*`/`--teleop-target-speed-*` flags), as for `leader_cartesian`; the Pico's
+own options are not compared. Each reading's diagnostics name the mapping
+(`target_mapping: pico_anchored_v1`) and carry the raw hand pose; the `real_robot` env's
+diagnostics JSONL records them when it is enabled. Both are provenance, never compared.
+
+### Running it
+
+On the machine that runs the actor (or the recorder), repository root, project environment
+active: install the extra once.
+
+```bash
+pip install -e '.[pico]'
 ```
 
-When no new device data arrives, `twist=0`, `gripper` keeps the previous value,
-and `intervened=False`.
+Check the stream before touching the robot (no env, prints bind/episode-end and the hand twist of
+the legacy bridge):
+
+```bash
+python examples/run_twist_input_inspector.py --zmq-url tcp://192.168.6.2:7777
+```
+
+Write the Pico options to `local/pico.yaml` (a flat mapping of source kwargs; the tracker keys
+come from the flags, not from this file):
+
+```yaml
+# local/pico.yaml, for --teleop-device pico --teleop-options-yaml local/pico.yaml
+address: tcp://192.168.6.2:7777
+hand: right
+# base_R_input from the commissioning above; identity when omitted
+# input_rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+```
+
+Then, same machine, repository root, project environment active, with the station's `hil.yaml`
+configured for a `cartesian_delta` env (`xyz_scale_m >= 0.05` and `rot_scale_rad >= 0.3`, the
+default lead caps), with the operator's labels on the terminal:
+
+```bash
+rwrl record --config hil.yaml \
+    --teleop-device pico --teleop-options-yaml local/pico.yaml --teleop-event-device stdin \
+    --output-path demos/task_20.pkl --num-successes 20
+```
+
+The HIL actor takes the same three flags (`rwrl train hil_serl --role actor --config hil.yaml
+--teleop-device pico --teleop-options-yaml local/pico.yaml --teleop-event-device stdin`).
+
+**Through the robot daemon.** On a `real_robot` station, the Pico can be the `teleop:` part of
+the robot itself, read where the robot runs (locally, or on the robot PC served by `rwrl daemon`
+like any other part):
+
+```yaml
+# in the station robot's yaml
+teleop:
+  backend: pico
+  hold_s: 0.0
+  options:
+    address: tcp://192.168.6.2:7777
+    hand: right
+```
+
+and the actor's `local/pico.yaml` then says to read the env robot's part instead of opening its
+own subscriber:
+
+```yaml
+robot_teleop: true
+```
+
+On the `franka_real` stack, a robot daemon that serves the Pico as its teleop part is read with
+`remote_address: <robot-host>:<port>` (and `remote_token`), as for `leader_cartesian`.
 
 ## Basic Usage
 
-Visual teleoperation:
+Visual teleoperation in the ManiSkill sim, with the raw-twist Pico source `pico_twist` (the
+former `pico`; sim only, on a real robot use `--teleop-device pico`, [Pico](#pico)):
 
 ```bash
 python examples/run_teleop_demo.py \
   --env-id PegInsertionSidePegOnly-v1 \
-  --device pico \
+  --device pico_twist \
   --zmq-url tcp://192.168.6.2:7777
 ```
 
@@ -879,7 +1076,7 @@ the episode. It is for the sim only; on a real robot use `--teleop-device spacem
 
 `run_teleop_demo.py` creates the ManiSkill environment, builds the source with
 `make_teleop_source`, polls teleop actions, applies controller action normalization to the
-Pico's physical twist (SpaceMouse actions are already normalized), and steps the environment.
+`pico_twist` physical twist (SpaceMouse actions are already normalized), and steps the environment.
 
 ## Recording demos on the real robot
 
@@ -902,7 +1099,7 @@ python examples/record_teleop_wsrl.py \
   --env-id PegInsertionSidePegOnly-v1 \
   --obs-mode rgb \
   --control-mode pd_ee_twist \
-  --device pico \
+  --device pico_twist \
   --zmq-url tcp://192.168.6.2:7777
 ```
 
@@ -914,14 +1111,14 @@ Only `intervened=True` samples are stepped in the environment and saved. When
 `intervened=False`, the script keeps polling the device and does not record a
 transition.
 
-The operator's episode-end button (Pico episode-end button, `spacemouse_twist` button 1) ends the
+The operator's episode-end button (the Pico's episode-end button under `pico_twist`, `spacemouse_twist` button 1) ends the
 current episode. After each episode, the terminal prints the episode length, `max_episode_steps`, success flag, and
 return, then asks whether to save the episode.
 
 ### Important Arguments
 
 - `output_path`: H5 dataset file to write.
-- `device`: `pico`, `spacemouse_twist` or `fake` (with the same device-specific flags as the demo).
+- `device`: `pico_twist` (default), `spacemouse_twist` or `fake` (with the same device-specific flags as the demo).
 - `dt`: teleop polling period in seconds. The default is `1 / 30`, roughly
   `30 Hz`. Smaller values poll and step faster.
 - `env_id`: ManiSkill environment id.

@@ -128,7 +128,7 @@ rwrl --station local/station.yaml --preset local/task.yaml teleop run --mode tra
 D1: inside one trajectory perform human → hand-back → human → hand-back at least
 twice. Tracker uses button 0; SERL uses motion/buttons and returns on idle.
 Recording hand-back uses its hold policy. To verify **learned policy** restoration,
-repeat D1 using the reviewed [training workflow](../tutorial/07-hil-training.md)
+repeat D1 using the reviewed [training workflow](../tutorial/10-hil-training.md)
 with `episode_end_behavior: hold`; a recorder-only run cannot pass that subcheck.
 Record policy version, human masks and at least two ownership transitions in the
 same episode; no reset or neutral gate may occur at hand-back.

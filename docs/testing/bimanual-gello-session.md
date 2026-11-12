@@ -3,7 +3,7 @@ Reference only: the first hardware session followed the long form of this page; 
 # Bimanual Franka / GELLO session
 
 Run on the **NUC / Ubuntu control PC, repository root, Bash**; P01 needs no environment active; afterward, activate the environment the installer created (`.venv` by default), for example `source .venv/bin/activate`, and use the project environment for all subsequent commands/terminals. No learner or checkpoint. This reference is not evidence of hardware acceptance.
-Before P02, commission `local/station.smoke.yaml` with [setup](../devices/README.md#setup-wizard): actual left/right IPs, Hands, home, joint limits, safety boxes, per-step limits, distinct stable GELLO ports and complete calibrations; copy `examples/presets/bimanual_gello_smoke.yaml` to `local/bimanual.smoke.yaml` and supply per-arm joint_limits/tokens. Inspect static leader readings before connecting followers.
+Before P02, commission `local/station.smoke.yaml` with [setup](../tutorial/02-setup.md): actual left/right IPs, Hands, home, joint limits, safety boxes, per-step limits, distinct stable GELLO ports and complete calibrations; copy `examples/presets/bimanual_gello_smoke.yaml` to `local/bimanual.smoke.yaml` and supply per-arm joint_limits/tokens. Inspect static leader readings before connecting followers.
 Keep station daemons at 127.0.0.1:50051 / :50052, cameras empty, teleop.hold_s=0.0, intervention=toggle, one confirmed evdev keyboard event_device for both arms, toggle KEY_F1 left / KEY_F2 right, and episode_end/success/failure/rerecord KEY_ESC/KEY_S/KEY_F/KEY_R. Preserve preset device-side events (no stdin override), joint_delta, 10 Hz, joint_scale_rad=0.01, leader joint_abs and arm onset tolerance 0.1 rad.
 Confirm physical stop, clear both simultaneous home/reset paths and separate workspaces; there is no inter-arm collision check. Trigger and gripper must match before takeover; this joint-space route has no cartesian gripper latch. Reset opens grippers and clears takeover. Stop on unexpected motion or opening; retain evidence before retrying.
 Choose a fresh RUN_ROOT below; setup refuses an existing directory. Fill only its [record CSV](bimanual-gello-session-record.csv), with PASS/FAIL/BLOCKED/NOT_RUN; missing prerequisites/evidence mean BLOCKED. Keep configuration, software/device inventory and timestamped video with case IDs; command exit code is not the conclusion.
@@ -36,7 +36,7 @@ record_case() {
   mkdir "$trial_dir" || return
   cp local/station.smoke.yaml "$trial_dir/station.yaml" || return
   cp local/bimanual.smoke.yaml "$trial_dir/env.yaml" || return
-  rwrl supervise --log "$trial_dir/supervise.jsonl" -- rwrl record --config local/bimanual.smoke.yaml --output-path "$trial_dir/demo.pkl" --run-id "$(basename "$trial_dir")" --num-successes 1 --max-episodes 1 --max-episode-steps "$step_cap" 2>&1 | tee "$trial_dir/recorder.log"
+  rwrl supervise --log "$trial_dir/supervise.jsonl" -- rwrl record --config local/bimanual.smoke.yaml --teleop-device bimanual --output-path "$trial_dir/demo.pkl" --run-id "$(basename "$trial_dir")" --num-successes 1 --max-episodes 1 --max-episode-steps "$step_cap" 2>&1 | tee "$trial_dir/recorder.log"
   local status=("${PIPESTATUS[@]}")
   rc=${status[0]}; if [[ $rc == 0 && ${status[1]} != 0 ]]; then rc=${status[1]}; fi
   printf '%s\n' "$rc" > "$trial_dir/exit-code.txt"
@@ -68,7 +68,7 @@ rwrl daemon --station local/station.smoke.yaml --watchdog-s 5 2>&1 | tee "$RUN_R
 
 ```bash
 rwrl supervise --log "$RUN_ROOT/T00/supervise.jsonl" -- \
-    rwrl record --config local/bimanual.smoke.yaml \
+    rwrl record --config local/bimanual.smoke.yaml --teleop-device bimanual \
     --output-path "$RUN_ROOT/T00/demo.pkl" --run-id T00 \
     --num-successes 1 --max-episodes 1 --max-episode-steps 1200
 ```

@@ -78,7 +78,7 @@ Step `info` carries every arm's keys with its prefix (`left_tcp_pose`, `right_rt
 ## Running two daemons
 
 Each arm is served by its own robot daemon with its own robot yaml and port (see the
-device-layer guide, [How to Start](devices/README.md#how-to-start)), for example on two
+device-layer guide, [How to Start](daemon.md#serve-the-robot)), for example on two
 robot PCs or on one PC with two ports:
 
 ```bash
@@ -87,7 +87,7 @@ rwrl daemon --station right.yaml --bind 0.0.0.0:50052 --watchdog-s 5
 ```
 
 A station yaml with a `robots:` list describes both arms of a station.
-`rwrl setup` writes it (the [setup wizard](devices/README.md#setup-wizard))
+`rwrl setup` writes it (the [setup wizard](tutorial/02-setup.md))
 and `rwrl daemon --watchdog-s 5` with no `--station` starts one daemon process per
 robot on the ports in the file's `daemon.bind` entries, so the two commands above are only needed
 for separate yaml files. Point `left.remote` / `right.remote` at the two addresses.
@@ -193,7 +193,7 @@ one GELLO each. Everything else (keys, onset, reward rule, metrics) is the same.
 bus adapter and one wrist camera per arm. The second arm's FCI address must differ (the wizard also
 probes `172.16.1.2`).
 
-**Station ([02](tutorial/02-station.md)).** Answer `2` to `number of arms`; the default names are
+**Station ([02](tutorial/02-setup.md)).** Answer `2` to `number of arms`; the default names are
 `left right`. The wizard then asks every per-arm question twice (`-- arm 'left' (1/2) --`,
 `-- arm 'right' (2/2) --`):
 
@@ -254,7 +254,7 @@ real_robot_bimanual:
     state_fields: [joint_pos, gripper_pos]
 ```
 
-**Daemon ([03](tutorial/03-daemon.md)).** The doctor prints the device rows of both arms,
+**Daemon ([remote actor](remote-actor.md)).** The doctor prints the device rows of both arms,
 `left.*` and `right.*`, and one final `Result:` line; `--robot left` checks one.
 The same `rwrl daemon --watchdog-s 5` starts both daemons: it prints
 `starting 2 daemons from <path>: 'left' on 0.0.0.0:50051, 'right' on 0.0.0.0:50052`, then each daemon
@@ -263,15 +263,15 @@ prints its own preflight and `serving ...` line. The ports come from the file's 
 robot in the file). The dry run is `tests/test_bimanual_station_smoke.py`
 ([Verified hardware-free](#verified-hardware-free)).
 
-**Record demos ([04](tutorial/04-record-demos.md)).** Replace the device flags with
+**Record demos ([08](tutorial/08-record-demos.md)).** Replace the device flags with
 `--config bimanual.yaml --teleop-device bimanual --teleop-arm-device leader_arm
 --robot-teleop-action-mode joint_delta --teleop-event-device keyboard`; each arm reads its own GELLO
 and a step is recorded when either operator intervenes (the other arm is held still).
 `--max-episode-steps` replaces `--real_robot_bimanual.max_episode_steps`.
 
-**Base policy ([05](tutorial/05-base-policy.md)).** BC: the same command with `--config bimanual.yaml`.
+**Base policy ([09](tutorial/09-base-policy.md)).** BC: the same command with `--config bimanual.yaml`.
 
-**HIL training ([07](tutorial/07-hil-training.md)).** Only `ENV_FLAGS` changes; `num_grippers=2` is
+**HIL training ([10](tutorial/10-hil-training.md)).** Only `ENV_FLAGS` changes; `num_grippers=2` is
 derived from the env's action contract for all three agents (you do not pass it):
 
 ```bash
@@ -284,7 +284,7 @@ The BC base needs nothing extra (`checkpoint:...?algo=real_world_bc`). A two-arm
 `checkpoint:<path>?algo=rlpd_hybrid&num_grippers=2`
 ([provider table](residual.md#base-action-providers)).
 
-**Deploy ([08](tutorial/08-deploy.md)).** Add `--env-backend real_robot_bimanual` and give each arm's
+**Deploy ([11](tutorial/11-deploy.md)).** Add `--env-backend real_robot_bimanual` and give each arm's
 connection and cameras (the cameras are not filled from the training run for two arms):
 
 ```bash
@@ -298,7 +298,7 @@ rwrl deploy --checkpoint runs/bc/checkpoints/final.pt \
 
 For unattended deployment, use `--no-enable-teleop` and a station YAML without either robot's
 `teleop:` block. For assisted deployment, keep those devices configured and select the bimanual
-source; task runs may restore their saved setup. See [tutorial 08](tutorial/08-deploy.md).
+source; task runs may restore their saved setup. See [tutorial 11](tutorial/11-deploy.md).
 
 ## Limits
 

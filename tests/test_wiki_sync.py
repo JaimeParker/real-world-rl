@@ -40,9 +40,10 @@ def wiki_repo(tmp_path: Path) -> Path:
         "docs/README.zh-CN.md": "# 中文文档\n",
         "docs/internal/x.md": "# Private\n",
         "docs/design/x.md": "# Design\n",
-        "docs/devices/README.md": "# Device layer\n",
-        "docs/devices/control-profiles.md": "# Control profiles\n",
-        "docs/devices/robot-infra-roadmap.md": "# Excluded roadmap\n",
+        "docs/devices.md": "# Device layer\n",
+        "docs/daemon.md": "# Daemon\n",
+        "docs/control-profiles.md": "# Control profiles\n",
+        "docs/devices-roadmap.md": "# Device roadmap\n",
         "real_world_rl/legacy/controller/README.md": "# Excluded package notes\n",
         "rl-garden/rl_garden/models/act/README.md": "# Excluded\n",
     }
@@ -90,8 +91,10 @@ def test_mapping_and_generated_navigation(wiki_repo: Path, tmp_path: Path) -> No
         "docs/tutorial/01-install.md": "tutorial-01-install",
         "docs/testing/README.md": "testing",
         "docs/testing/x.md": "testing-x",
-        "docs/devices/README.md": "robot-infra",
-        "docs/devices/control-profiles.md": "control-profiles",
+        "docs/devices.md": "devices",
+        "docs/daemon.md": "daemon",
+        "docs/devices-roadmap.md": "devices-roadmap",
+        "docs/control-profiles.md": "control-profiles",
         "docs/README.zh-CN.md": "zh-docs",
         "docs/zh-CN/README.md": "zh-README",
         "docs/zh-CN/teleop.md": "zh-teleop",
@@ -115,8 +118,8 @@ def test_mapping_and_generated_navigation(wiki_repo: Path, tmp_path: Path) -> No
     sidebar = (out / "_Sidebar.md").read_text(encoding="utf-8")
     english, chinese = sidebar.split("## 中文 / Chinese")
     english_order = [
-        "Home", "docs", "tutorial-01-install", "teleop", "robot-infra", "control-profiles",
-        "testing", "testing-x",
+        "Home", "docs", "tutorial-01-install", "devices", "daemon", "teleop", "control-profiles",
+        "testing", "testing-x", "devices-roadmap",
     ]
     positions = [english.index(f"]({name})") for name in english_order]
     assert positions == sorted(positions)
@@ -233,7 +236,7 @@ def test_real_repository_check_has_no_link_warnings() -> None:
 
 
 REFERENCE_ORDER = [
-    "cli", "doctor", "teleop", "gello", "spacemouse-commissioning", "bimanual", "robot-infra",
+    "cli", "doctor", "devices", "daemon", "teleop", "gello", "spacemouse-commissioning", "bimanual",
     "control-profiles", "recording-demos", "real-world-experiments", "residual", "silri",
     "hil-serl-roadmap", "known-issues",
 ]
@@ -250,11 +253,12 @@ def test_sidebar_is_grouped_in_reading_order(tmp_path: Path) -> None:
         "docs/tutorial/01-install.md": "# 1. Install\n",
         "docs/testing/README.md": "# Testing\n",
         "docs/testing/a-session.md": "# Session\n",
-        "docs/devices/README.md": "# Device layer\n",
-        "docs/devices/control-profiles.md": "# Control profiles\n",
+        "docs/devices.md": "# Device layer\n",
+        "docs/daemon.md": "# Daemon\n",
+        "docs/control-profiles.md": "# Control profiles\n",
     }
     for name in REFERENCE_ORDER:
-        if name not in ("robot-infra", "control-profiles"):
+        if name not in ("devices", "control-profiles"):
             sources[f"docs/{name}.md"] = f"# {name}\n"
     repo = build_repo(tmp_path / "repo", sources)
     out = tmp_path / "wiki"

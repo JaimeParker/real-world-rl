@@ -2,6 +2,11 @@
 
 **Documentation:** [English](docs/README.md) · [中文文档入口](docs/README.zh-CN.md)
 
+**Start here:** the [hardware tutorial](docs/tutorial/00-overview.md) takes one Franka arm
+with a GELLO leader from an empty NUC to a deployed policy, one `rwrl` command at a time:
+[install](docs/tutorial/01-install.md), [set up the station](docs/tutorial/02-setup.md),
+[bring up the Franka](docs/tutorial/03-franka-bringup.md), record, train and deploy.
+
 Real-world RL orchestration split out of
 [rl-garden](https://github.com/JaimeParker/rl-garden): `ActorLoop`/
 `LearnerLoop`/sync (SERL, HIL-SERL, residual and SiLRI variants), the
@@ -13,7 +18,7 @@ buffers, policies, the `EnvBackend`/`BasePolicy` contracts) and registers
 `franka_real` through rl-garden's `rlgarden.env_backends` entry-point group
 — no file inside the `rl_garden` package itself needs editing to add it.
 Hardware/communication code lives in this repository in the torch-free device layer of
-`real_world_rl` ([device-layer guide](docs/devices/README.md)); the learning side (torch, rl-garden) is the `learning` extra, so a robot PC that
+`real_world_rl` ([device-layer guide](docs/devices.md)); the learning side (torch, rl-garden) is the `learning` extra, so a robot PC that
 only serves the daemon installs `pip install -e '.[franky,grpc]'`. `franka_real`'s own coupling
 to the device layer is HTTP/JSON only (`FrankaBridgeClient`), no shared Python types.
 
@@ -65,7 +70,7 @@ real-world-rl/                   repository real-world-rl (top level)
     setup/ supervise/            station setup wizard; process supervisor and heartbeat
     cli/                         the rwrl command
     legacy/                      legacy controllers, ROS1 Franka bridge and old teleop, kept for evaluation (no rwrl command)
-  docs/                          README.md (index), tutorial/ (00-overview ... 08-deploy), devices/ (device-layer guide), bimanual.md, teleop.md, spacemouse-commissioning.md, gello.md, recording-demos.md, residual.md, silri.md, hil-serl-roadmap.md
+  docs/                          README.md (index), tutorial/ (00-overview ... 11-deploy), cli.md, doctor.md, intervening.md (operator page), remote-actor.md, devices.md (device reference), daemon.md (robot daemon), bimanual.md, teleop.md, spacemouse-commissioning.md, gello.md, recording-demos.md, residual.md, silri.md, hil-serl-roadmap.md
   examples/                      train_real_world.py, deploy_real_robot.py, teleop demo and recording scripts; presets/hil_single_arm.yaml; stations/ (example station yamls)
   configs/                       RLinf config
   tests/                         tests/devices/ covers the device layer
@@ -81,55 +86,16 @@ Formerly `rlgarden-real-world` (package `rl_garden_real_world`, console scripts 
 
 ## Installation
 
-On the NUC or development machine, start in a parent directory with no environment active
-and clone with the pinned rl-garden submodule:
+On the NUC or development machine, in a parent directory with no environment active:
 
 ```bash
 git clone --recurse-submodules https://github.com/JaimeParker/real-world-rl.git
-cd real-world-rl
-```
-
-From the repository root on that same machine, with no environment active, run:
-
-```bash
-bash scripts/install.sh
+cd real-world-rl && bash scripts/install.sh
 source .venv/bin/activate
 ```
 
-The installer creates or reuses `.venv` using `python3.10` by default, clears inherited
-`PYTHONPATH`, and installs rl-garden and this project in editable mode with the
-`learning`, `franka-gello` and `test` extras. Without `--station`, the final doctor uses mock
-backends: this does not verify hardware. See the [hardware tutorial](docs/tutorial/01-install.md)
-for station setup; any venv or conda env works for the manual route in
-[step 4](docs/tutorial/01-install.md#4-install-the-project-environment). To check an
-existing station, run on the NUC, repository root, with the project environment active:
-
-```bash
-bash scripts/install.sh --station local/station.yaml
-```
-
-Doctor owns dependency checks (layer 0) and hardware diagnostics. For a libfranka
-mismatch, follow its `--install-sdk` hint to select the wheel for the robot server.
-The default `franka-gello` extra retains gRPC for the optional daemon route.
-Use `--extras learning,franka-gello,spacemouse` for both controllers, `--no-doctor` to skip
-the final check, or `--torch-index https://download.pytorch.org/whl/cpu` to install
-torch from the CPU index first. `bash scripts/install.sh --help` lists all options.
-
-`rl_garden==0.0.1` (in the `learning` extra) is supplied by the same pip invocation from the
-`rl-garden/` submodule; the version is not a commit lock. Development uses the pinned
-submodule. An isolated `pip install '.[learning]'` may not resolve it from a public index.
-For an existing checkout with an uninitialized submodule, run `git submodule update --init`
-on the NUC/development machine, from the repository root (no venv required), then retry the
-installer.
-
-A robot PC that only serves the daemon needs neither the submodule nor torch (see the
-[device-layer guide](docs/devices/README.md)). On that PC, from the repository root with no
-environment active, run `bash scripts/install.sh --daemon-only` (extras `franky,grpc`), or
-in an environment of your own `pip install -e '.[franky,grpc]'` plus the extras for your hardware.
-For SpaceMouse, on the NUC/device host, repository root, project environment active,
-run `pip install -e '.[spacemouse]'` to add `hidapi==0.14.0.post4` (import `hid`) for
-the in-tree reader; follow the [udev steps](docs/teleop.md#spacemouse-installation-and-linux-permissions).
-This path is not yet verified on hardware.
+Installer options, the daemon-only robot PC, the manual route and what to do when a step fails
+are in [tutorial 01 Install](docs/tutorial/01-install.md).
 
 ## Tests
 
@@ -161,14 +127,14 @@ Two arms as one env: `--env-backend real_robot_bimanual`, see [`docs/bimanual.md
 ### Robot daemon
 
 The robot daemon runs on the robot PC (see the device-layer guide,
-[How to Start](docs/devices/README.md#how-to-start)):
+[How to Start](docs/daemon.md#serve-the-robot)):
 
 ```bash
 rwrl setup                  # writes ./local/station.yaml (the setup wizard)
 rwrl daemon --watchdog-s 5  # serves it: no --station needed
 ```
 
-The [setup wizard](docs/devices/README.md#setup-wizard) writes the station yaml of a Franka station
+The [setup wizard](docs/tutorial/02-setup.md) writes the station yaml of a Franka station
 (one daemon process per robot for a two-arm station). A hand-written robot yaml is served with
 `rwrl daemon --station robot.yaml --bind 0.0.0.0:50051 --watchdog-s 5`.
 
@@ -190,7 +156,7 @@ express (it flattens them); give it in a YAML preset passed with `--config`, whi
 The single-arm preset is
 [`examples/presets/hil_single_arm.yaml`](examples/presets/hil_single_arm.yaml) (`joint_delta`, one
 128 x 128 `wrist` camera, the daemon at `127.0.0.1:50051`); copy it to `hil.yaml` and edit
-`remote` and `obs.rgb` ([tutorial 02](docs/tutorial/02-station.md#the-env-preset-hilyaml)). A
+`remote` and `obs.rgb` ([tutorial 10, appendix](docs/tutorial/10-hil-training.md#the-env-preset-localgello_cartesianyaml)). A
 `joint_abs` preset changes the mode and adds the limits:
 
 ```yaml
@@ -339,7 +305,7 @@ contract:
   true; an active task or explicit `--teleop-device` composes the operator setup. Use
   `--no-enable-teleop` for an unattended run. Classifiers/tasks can provide explicit outcomes;
   primary `success_rate` means autonomous success over completed episodes. See
-  [tutorial 08](docs/tutorial/08-deploy.md) for both deployment modes.
+  [tutorial 11](docs/tutorial/11-deploy.md) for both deployment modes.
 
 ### Residual RL (`residual_hil_serl`)
 
@@ -461,5 +427,5 @@ HIL configurations use continuous policies. Hardware validation remains pending.
 Current learner recovery uses `bundle_manifest.json` together with its checkpoint directory and
 SQLite journal. Actor uploads use a persistent outbox; keep actor identity/path across a restart.
 Selected parts and observation preprocessing enter the experiment contract. See
-[tutorial 07](docs/tutorial/07-hil-training.md#resume-an-interrupted-run) and
-[Arm control profiles](docs/devices/control-profiles.md).
+[tutorial 10](docs/tutorial/10-hil-training.md#9-resume-an-interrupted-run) and
+[Arm control profiles](docs/control-profiles.md).

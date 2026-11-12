@@ -7,7 +7,7 @@ off-policy actor-critic. Its actor is pulled towards a learned model of the huma
 but only as far as the human is consistent: a state-wise Lagrange multiplier enforces a
 distance constraint whose tolerance grows with the spread of the human model. The hardware setup
 and a first run are walked through in
-[tutorial 07](tutorial/07-hil-training.md#silri) (two arms: [bimanual.md](bimanual.md#two-arms-the-tutorial-steps)).
+[tutorial 10](tutorial/10-hil-training.md#silri) (two arms: [bimanual.md](bimanual.md#two-arms-the-tutorial-steps)).
 
 Code: `real_world_rl/policies/silri_policy.py` (`SiLRIPolicy`),
 `real_world_rl/algorithms/silri.py` (`SiLRI`), `real_world_rl/loops/silri.py`
@@ -152,8 +152,8 @@ Other differences:
 ## CLI
 
 The full commands (learner, actor and eval, the env preset and the teleop flags) are in
-[tutorial 07](tutorial/07-hil-training.md#silri); deployment is in
-[tutorial 08](tutorial/08-deploy.md) (`--algo silri`: the `silri` entry of rl-garden's online
+[tutorial 10](tutorial/10-hil-training.md#silri); deployment is in
+[tutorial 11](tutorial/11-deploy.md) (`--algo silri`: the `silri` entry of rl-garden's online
 registry rebuilds the agent). The minimal shape, for a GELLO served by the robot daemon on a
 `joint_delta` env:
 

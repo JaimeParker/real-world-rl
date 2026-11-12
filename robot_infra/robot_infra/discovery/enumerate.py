@@ -8,7 +8,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable, Mapping
 
 from robot_infra.devices import Camera, RobotConfig, Teleop
 
@@ -37,6 +37,9 @@ class DiscoveryReport:
     can_interfaces: dict[str, CanInfo] = field(default_factory=dict)
     hosts: dict[str, HostInfo] = field(default_factory=dict)
     hid_devices: list[str] = field(default_factory=list)
+    # HID devices that look like a SpaceMouse but are missing from the device table:
+    # {vid, pid, product, path, message} (``_spacemouse_hid.unknown_hid_devices``).
+    unknown_hid: list[dict] = field(default_factory=list)
 
     def format(self) -> str:
         lines = ["cameras:"]
@@ -71,6 +74,9 @@ class DiscoveryReport:
             lines.append("  none")
         lines.append("hid devices:")
         lines.extend(f"  {path}" for path in self.hid_devices or ["none"])
+        if self.unknown_hid:
+            lines.append("warnings:")
+            lines.extend(f"  WARN {device['message']} ({device['path']})" for device in self.unknown_hid)
         return "\n".join(lines)
 
 
@@ -156,22 +162,30 @@ def discover_cameras(hardware_only: bool = False) -> dict[str, set[str]]:
     return cameras
 
 
-def discover_teleops(hardware_only: bool = False) -> dict[str, set[str]]:
-    """Device ids per teleop backend; ``hardware_only`` skips backends without a vendor SDK (the fake)."""
+def discover_teleops(
+    hardware_only: bool = False, *, discover_kwargs: Mapping[str, Mapping[str, Any]] | None = None,
+) -> dict[str, set[str]]:
+    """Device ids per teleop backend; ``hardware_only`` skips backends without a vendor SDK (the
+    fake). ``discover_kwargs`` maps a backend name to keyword arguments of its ``discover``."""
     teleops: dict[str, set[str]] = {}
     for name, backend_cls in sorted(Teleop.backends().items()):
         if hardware_only and backend_cls.SDK is None:
             continue
         try:
-            teleops[name] = set(backend_cls.discover())
+            teleops[name] = set(backend_cls.discover(**dict((discover_kwargs or {}).get(name, {}))))
         except Exception:
             teleops[name] = set()
     return teleops
 
 
 def discover_all(
-    host_ips: Iterable[str] = (), ports: Iterable[int] = _DEFAULT_PORTS
+    host_ips: Iterable[str] = (), ports: Iterable[int] = _DEFAULT_PORTS, *, spacemouse_table=None,
 ) -> DiscoveryReport:
+    """Everything visible from this host. ``spacemouse_table`` is the SpaceMouse device table
+    the HID devices are matched against (default: ``_spacemouse_hid.load_device_specs()``)."""
+    from robot_infra.devices.backends.teleops import _spacemouse_hid
+
+    table = _spacemouse_hid.load_device_specs() if spacemouse_table is None else spacemouse_table
     ports = list(ports)
     hosts = {
         ip: HostInfo(ip, ping(ip), [port for port in ports if tcp_open(ip, port)])
@@ -179,10 +193,11 @@ def discover_all(
     }
     return DiscoveryReport(
         cameras=discover_cameras(hardware_only=True),
-        teleops=discover_teleops(hardware_only=True),
+        teleops=discover_teleops(hardware_only=True, discover_kwargs={"spacemouse": {"table": table}}),
         can_interfaces=list_can_interfaces(),
         hosts=hosts,
         hid_devices=sorted(glob.glob("/dev/hidraw*")),
+        unknown_hid=_spacemouse_hid.unknown_hid_devices(table),
     )
 
 

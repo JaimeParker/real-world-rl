@@ -309,6 +309,20 @@ def test_serl_missing_sdk_fails_at_start(monkeypatch):
         source.start()
 
 
+def test_serl_device_table_reaches_the_owned_device_part(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    table = tmp_path / "spacemouse-devices.yaml"
+    table.write_text("schema_version: 1\ndevices:\n  BT: {hid_id: [0x256F, 0xC63A], layout: SpaceMouse Wireless}\n")
+    source = SpaceMouseSerlTeleopSource(device_table=str(table))
+    assert source._part.config.options["device_table"] == str(table)
+    assert "device_table" not in SpaceMouseSerlTeleopSource()._part.config.options
+    options = tmp_path / "teleop.yaml"
+    options.write_text(f"device_table: {table}\n")
+    kwargs = env_building.motion_teleop_kwargs(_args(teleop_options_yaml=str(options)))
+    assert kwargs["mode"] == "serl" and kwargs["device_table"] == str(table)
+
+
 @pytest.mark.parametrize("contract", [
     {**LEGACY_ACTION_CONTRACT, "action_mode": "joint_delta"},
     {**LEGACY_ACTION_CONTRACT, "arm_action_dim": 7},

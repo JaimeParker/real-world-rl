@@ -189,6 +189,8 @@ def _os_checks(config: RobotConfig) -> list[tuple[str, Check]]:
         name = f"os:teleop:{config.teleop.name}"
         if _backend_needs_no_device(Teleop, config.teleop.backend):
             checks.append((name, _no_device_check(name, config.teleop.backend)))
+        elif config.teleop.backend == "spacemouse":
+            checks.append((name, _make_check(2, name, _spacemouse_outcome(config.teleop, name))))
         else:
             checks.append((name, _make_check(2, name, _teleop_outcome(config.teleop))))
         if config.teleop.backend == "spacemouse":
@@ -300,6 +302,37 @@ def _teleop_outcome(teleop) -> Callable[[], Outcome]:
         return (
             bool(discovered),
             message,
+            "plug in the teleop device and run `python -m robot_infra.discovery`",
+        )
+
+    return outcome
+
+
+def _spacemouse_outcome(teleop, name: str) -> Callable[[], Outcome]:
+    """``_teleop_outcome`` against the teleop's device table, naming HID devices that look like a
+    SpaceMouse but are missing from it (WARN beside a supported one, FAIL without one)."""
+
+    def outcome() -> Outcome:
+        from robot_infra.devices.backends.teleops import _spacemouse_hid
+
+        try:
+            table = _spacemouse_hid.load_device_specs(options=teleop.options)
+        except ValueError as error:
+            return False, str(error), f"fix the device table entry; see {_spacemouse_hid.SITE_TABLE_DOC}"
+        discovered = sorted(Teleop.backend(teleop.backend).discover(table=table))
+        unknown = "; ".join(device["message"] + f" ({device['path']})"
+                            for device in _spacemouse_hid.unknown_hid_devices(table))
+        if discovered:
+            message = f"teleop '{teleop.name}' devices: {discovered}"
+            if unknown:
+                return CheckResult(2, name, True, message, unknown, warning=True)
+            return True, message
+        if unknown:
+            return False, f"no supported '{teleop.backend}' teleop device found; {unknown}", (
+                f"add the device to the local device table; see {_spacemouse_hid.SITE_TABLE_DOC}")
+        return (
+            False,
+            f"no '{teleop.backend}' teleop device found",
             "plug in the teleop device and run `python -m robot_infra.discovery`",
         )
 

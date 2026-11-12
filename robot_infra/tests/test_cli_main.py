@@ -85,14 +85,14 @@ def test_unsupported_json_is_usage_error_before_run(monkeypatch, capsys, name):
     assert len(captured.out.splitlines()) == 1
 
 
-DISCOVERY_KEYS = {'schema_version', 'cameras', 'teleops', 'can_interfaces', 'hosts', 'hid_devices'}
+DISCOVERY_KEYS = {'schema_version', 'cameras', 'teleops', 'can_interfaces', 'hosts', 'hid_devices', 'unknown_hid'}
 
 
 def stub_discovery(monkeypatch, report):
     from robot_infra.discovery import __main__ as discovery_cli
 
     monkeypatch.setattr(discovery_cli, '_station_path', lambda explicit: None)
-    monkeypatch.setattr(discovery_cli, 'discover_all', lambda host_ips: report)
+    monkeypatch.setattr(discovery_cli, 'discover_all', lambda host_ips, spacemouse_table=None: report)
 
 
 def found_hardware():
@@ -101,7 +101,13 @@ def found_hardware():
     return DiscoveryReport(
         cameras={'realsense': {'B2', 'A1'}}, teleops={'gello': {'/dev/ttyUSB0'}, 'spacemouse': set()},
         can_interfaces={'can0': CanInfo('can0', 'up', 1000000)},
-        hosts={'172.16.0.2': HostInfo('172.16.0.2', True, [22, 80])}, hid_devices=['/dev/hidraw3'])
+        hosts={'172.16.0.2': HostInfo('172.16.0.2', True, [22, 80])}, hid_devices=['/dev/hidraw3'],
+        unknown_hid=[UNKNOWN_BT])
+
+
+UNKNOWN_BT = {'vid': '256f', 'pid': 'c63a', 'product': 'SpaceMouse BT', 'path': '/dev/hidraw6',
+              'message': 'unknown 3Dconnexion-vendor HID device 256f:c63a; add it to spacemouse-devices.yaml '
+                         '(see docs/spacemouse-commissioning.md#site-device-table)'}
 
 
 def test_discover_json_lists_every_category(monkeypatch, capsys):
@@ -116,6 +122,7 @@ def test_discover_json_lists_every_category(monkeypatch, capsys):
     assert payload['can_interfaces'] == [{'name': 'can0', 'operstate': 'up', 'bitrate': 1000000}]
     assert payload['hosts'] == [{'ip': '172.16.0.2', 'ping_ok': True, 'open_ports': [22, 80]}]
     assert payload['hid_devices'] == ['/dev/hidraw3']
+    assert payload['unknown_hid'] == [UNKNOWN_BT]
 
 
 def test_discover_json_gives_empty_lists_when_nothing_is_found(monkeypatch, capsys):

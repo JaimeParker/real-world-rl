@@ -21,6 +21,16 @@ def portable_path(filename):
     return os.path.relpath(path, root)
 
 
+def resolve_portable_path(portable) -> Path:
+    """This machine's path for a ``portable_path`` result: ``~/...`` under the home directory,
+    a relative path under the source root, an absolute path unchanged."""
+    text = str(portable)
+    if text.startswith("~/"):
+        return Path.home() / text[2:]
+    path = Path(text)
+    return path if path.is_absolute() else Path(__file__).resolve().parents[3] / path
+
+
 def sdk_artifacts(sdk, *, implementation_type=None):
     """Hash facade and implementation modules, including native superclass modules.
 

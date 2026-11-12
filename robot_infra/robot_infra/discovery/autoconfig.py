@@ -263,8 +263,24 @@ def parse_station(
 def load_station(
     path: str | Path, *, sections: Mapping[str, Callable[[Any], Any]] | None = None,
 ) -> Station:
-    """Parse a station yaml without building parts or reading the environment."""
-    return parse_station(yaml.safe_load(Path(path).read_text()), sections=sections)
+    """Parse a station yaml without building parts or reading the environment.
+
+    A spacemouse teleop's local device table is resolved against the station's directory here:
+    ``device_table`` becomes absolute, or is set to the station's ``spacemouse-devices.yaml``
+    when that file exists, so the daemon, direct ``rwrl`` routes and the training side read the
+    same table."""
+    station = parse_station(yaml.safe_load(Path(path).read_text()), sections=sections)
+    station_dir = Path(path).resolve().parent
+    for robot in station.robots.values():
+        teleop = robot.config.teleop
+        if teleop is not None and teleop.backend == "spacemouse":
+            from robot_infra.devices.backends.teleops._spacemouse_hid import station_teleop_options
+
+            options = station_teleop_options(teleop.options, station_dir)
+            if options != teleop.options:
+                robot.config = dataclasses.replace(
+                    robot.config, teleop=dataclasses.replace(teleop, options=options))
+    return station
 
 
 def load_station_with_env(

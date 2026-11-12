@@ -38,10 +38,24 @@ def main(argv: list[str] | None = None) -> int:
     return run(parser.parse_args(argv), None)
 
 
+def station_spacemouse_table(path: str | Path):
+    """The SpaceMouse device table of the station: its first spacemouse teleop's
+    ``device_table``, else the station's ``spacemouse-devices.yaml``, else the built-in table."""
+    from robot_infra.devices.backends.teleops._spacemouse_hid import load_device_specs
+
+    options = next(
+        (robot.config.teleop.options for robot in load_station(path).robots.values()
+         if robot.config.teleop is not None and robot.config.teleop.backend == "spacemouse"),
+        {},
+    )
+    return load_device_specs(Path(path).resolve().parent, options)
+
+
 def collect(args) -> DiscoveryReport:
     path = _station_path(args.config)
-    host_ips = host_ips_from_station(path) if path is not None else []
-    return discover_all(host_ips)
+    if path is None:
+        return discover_all([], spacemouse_table=None)
+    return discover_all(host_ips_from_station(path), spacemouse_table=station_spacemouse_table(path))
 
 
 def report_payload(report: DiscoveryReport) -> dict:
@@ -59,6 +73,9 @@ def report_payload(report: DiscoveryReport) -> dict:
         "can_interfaces": [dataclasses.asdict(info) for info in report.can_interfaces.values()],
         "hosts": [dataclasses.asdict(host) for host in report.hosts.values()],
         "hid_devices": list(report.hid_devices),
+        "unknown_hid": [
+            dict(device) for device in sorted(report.unknown_hid, key=lambda d: (d["vid"], d["pid"], d["path"]))
+        ],
     }
 
 

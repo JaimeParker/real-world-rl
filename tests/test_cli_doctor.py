@@ -243,17 +243,157 @@ def test_no_control_process_is_killed(tmp_path):
 
 
 def test_spacemouse_rules_cover_libusb_and_hidraw_and_all_supported_products(host):
-    from robot_infra.devices.backends.teleops._spacemouse_hid import device_specs
+    from robot_infra.devices.backends.teleops._spacemouse_hid import BUILTIN_DEVICE_SPECS
 
     host.rules("usb.spacemouse", "spacemouse", [])
     action = next(a for a in host.actions if a.target)
     assert (
         'SUBSYSTEM=="usb"' in action.content and 'SUBSYSTEM=="hidraw"' in action.content
     )
-    for spec in device_specs.values():
+    for spec in BUILTIN_DEVICE_SPECS.values():
         assert f'idProduct}}=="{spec.hid_id[1]:04x}"' in action.content
     assert action.pending and "replug" in action.pending
     assert all("trigger" not in a.argv for a in host.actions)
+
+
+@pytest.fixture
+def isolated_site(tmp_path, monkeypatch):
+    """A host whose only site device table is the one a test writes to ./local."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    return tmp_path
+
+
+WIRELESS_BT_TABLE = (
+    "schema_version: 1\ndevices:\n  SpaceMouse Wireless BT (USB cable):\n"
+    "    hid_id: [0x256F, 0xC63A]\n    layout: SpaceMouse Wireless\n"
+)
+
+
+def write_site_table(site, text=WIRELESS_BT_TABLE):
+    (site / "local").mkdir(exist_ok=True)
+    (site / "local/spacemouse-devices.yaml").write_text(text)
+
+
+def usb_device(sysfs, name, vid, pid, product, devnum="5"):
+    path = sysfs / "bus/usb/devices" / name
+    path.mkdir(parents=True)
+    for key, value in {
+        "idVendor": vid, "idProduct": pid, "product": product, "busnum": "1", "devnum": devnum,
+    }.items():
+        (path / key).write_text(value)
+    return path
+
+
+def site_host(site, report):
+    return Host(site, report, sysfs=site / "sys", dev=site / "dev", etc=site / "etc")
+
+
+def test_spacemouse_rules_include_the_products_of_the_local_table(isolated_site, report):
+    from robot_infra.devices.backends.teleops._spacemouse_hid import BUILTIN_DEVICE_SPECS
+
+    write_site_table(isolated_site)
+    host = site_host(isolated_site, report)
+    host.rules("usb.spacemouse", "spacemouse", [])
+    action = next(a for a in host.actions if a.target)
+    assert 'ATTRS{idVendor}=="256f", ATTRS{idProduct}=="c63a"' in action.content
+    for spec in BUILTIN_DEVICE_SPECS.values():
+        assert f'idProduct}}=="{spec.hid_id[1]:04x}"' in action.content
+
+
+def test_usb_discovery_takes_a_local_table_product_for_a_spacemouse(isolated_site, report):
+    usb_device(isolated_site / "sys", "1-1", "256f", "c63a", "SpaceMouse Wireless BT")
+    (device,) = site_host(isolated_site, report).usb
+    assert device["kind"] == "" and device["unknown_spacemouse"]
+    write_site_table(isolated_site)
+    (device,) = site_host(isolated_site, report).usb
+    assert device["kind"] == "spacemouse" and not device["unknown_spacemouse"]
+
+
+def test_an_unknown_3dconnexion_usb_device_is_a_warn_finding(isolated_site, report):
+    sysfs = isolated_site / "sys"
+    usb_device(sysfs, "1-1", "256f", "c63a", "SpaceMouse Wireless BT")
+    usb_device(sysfs, "1-2", "046d", "c542", "USB Receiver", devnum="6")
+    host = site_host(isolated_site, report)
+    host.inspect_usb()
+    rows = [row for row in host.findings if row.id.startswith("usb.spacemouse.unknown")]
+    assert [(row.id, row.status) for row in rows] == [("usb.spacemouse.unknown.256f:c63a", "WARN")]
+    assert rows[0].message == (
+        "unknown 3Dconnexion-vendor HID device 256f:c63a; add it to spacemouse-devices.yaml "
+        "(see docs/spacemouse-commissioning.md#site-device-table)"
+    )
+    assert "SpaceMouse Wireless BT" in rows[0].hint
+
+
+def test_a_logitech_usb_device_is_unknown_only_with_a_multi_axis_descriptor(isolated_site, report):
+    sysfs = isolated_site / "sys"
+    receiver = usb_device(sysfs, "1-2", "046d", "c542", "USB Receiver")
+    puck = usb_device(sysfs, "1-3", "046d", "c6ff", "SpaceMouse", devnum="7")
+    for usb, node, descriptor in (
+        (receiver, "hidraw0", [0x05, 0x01, 0x09, 0x06]),
+        (puck, "hidraw1", [0x05, 0x01, 0x09, 0x08]),
+    ):
+        interface = usb / f"{usb.name}:1.0/0003:046D:{usb.name}.0001"
+        interface.mkdir(parents=True)
+        (interface / "report_descriptor").write_bytes(bytes(descriptor))
+        (sysfs / "class/hidraw" / node).mkdir(parents=True)
+        (sysfs / "class/hidraw" / node / "device").symlink_to(interface)
+    host = site_host(isolated_site, report)
+    assert {d["pid"]: d["unknown_spacemouse"] for d in host.usb} == {"c542": False, "c6ff": True}
+
+
+def test_an_invalid_local_table_fails_and_blocks_the_spacemouse_rules(isolated_site, report):
+    write_site_table(isolated_site, "schema_version: 2\ndevices: {}\n")
+    host = site_host(isolated_site, report)
+    row = next(row for row in host.findings if row.id == "usb.spacemouse.table")
+    assert row.status == "FAIL" and "spacemouse-devices.yaml" in row.message
+    host.rules("usb.spacemouse", "spacemouse", [])
+    assert not any(action.target for action in host.actions)
+    assert any(r.id == "usb.spacemouse.rules" and r.status == "BLOCKED" for r in host.findings)
+
+
+def test_station_device_table_reaches_the_host_udev_rules(isolated_site, report, monkeypatch, capsys):
+    monkeypatch.delenv("ROBOT_INFRA_CONFIG", raising=False)
+    site = isolated_site / "site"
+    site.mkdir()
+    station = site / "left-station.yaml"
+    station.write_text(yaml.safe_dump({"type": "franka", "name": "left", "arm_backend": "fake",
+                                       "teleop": {"backend": "spacemouse"}}))
+    (site / "spacemouse-devices.yaml").write_text(WIRELESS_BT_TABLE)
+    created = []
+
+    def host_with_test_paths(*args, **kwargs):
+        created.append(Host(*args, sysfs=isolated_site / "sys", dev=isolated_site / "dev",
+                            etc=isolated_site / "etc", **kwargs))
+        return created[-1]
+
+    monkeypatch.setattr(doctor, "Host", host_with_test_paths)
+    monkeypatch.setattr(doctor, "inspect", lambda args, host: {})
+    main(["--station", str(station), "--json", "doctor"])
+    capsys.readouterr()
+    (host,) = created
+    host.rules("usb.spacemouse", "spacemouse", [])
+    action = next(a for a in host.actions if a.target)
+    assert 'ATTRS{idVendor}=="256f", ATTRS{idProduct}=="c63a"' in action.content
+    # Without the station, ./local (empty here) and the user directory apply: built-in only.
+    assert (0x256F, 0xC63A) not in site_host(isolated_site, report).spacemouse_table.specs
+
+
+def test_spacemouse_table_inputs_follow_the_selected_robot(isolated_site, monkeypatch):
+    monkeypatch.delenv("ROBOT_INFRA_CONFIG", raising=False)
+    station = isolated_site / "station.yaml"
+    station.write_text(yaml.safe_dump({"robots": {
+        "left": {"type": "franka", "arm_backend": "fake", "teleop": {"backend": "fake"}},
+        "right": {"type": "franka", "arm_backend": "fake",
+                  "teleop": {"backend": "spacemouse", "options": {"device_table": "tables/sm.yaml"}}},
+    }}))
+    args = SimpleNamespace(config=str(station), robot=None, preset=None)
+    station_dir, options = doctor.spacemouse_table_inputs(args)
+    assert station_dir == isolated_site.resolve()
+    assert options["device_table"] == str(isolated_site.resolve() / "tables/sm.yaml")
+    assert doctor.spacemouse_table_inputs(SimpleNamespace(config=str(station), robot="left", preset=None)) == (
+        isolated_site.resolve(), None)
+    assert doctor.spacemouse_table_inputs(SimpleNamespace(config=None, robot=None, preset=None)) == (None, None)
 
 
 def test_managed_rules_are_idempotent(host):

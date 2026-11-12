@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import ast
 import getpass
 import importlib.metadata as metadata
-import importlib.util
 import os
 import platform
 import re
@@ -69,28 +67,14 @@ def read(path: Path) -> str:
         return ""
 
 
-def spacemouse_ids(root: Path | None) -> set[tuple[int, int]]:
-    """Read the canonical table without importing numpy, drivers, or an absent SDK."""
-    candidates = (
-        [root / "robot_infra/robot_infra/devices/backends/teleops/_spacemouse_hid.py"]
-        if root
-        else []
-    )
-    spec = importlib.util.find_spec("robot_infra")
-    if spec and spec.submodule_search_locations:
-        candidates.extend(
-            Path(folder) / "devices/backends/teleops/_spacemouse_hid.py"
-            for folder in spec.submodule_search_locations
-        )
-    for candidate in candidates:
-        if candidate.is_file():
-            tree = ast.parse(candidate.read_text(encoding="utf-8"))
-            return {
-                tuple(ast.literal_eval(node.value))
-                for node in ast.walk(tree)
-                if isinstance(node, ast.keyword) and node.arg == "hid_id"
-            }
-    return set()
+def spacemouse_device_table(station_dir=None, options=None):
+    """The SpaceMouse device table this host's USB devices are matched against, the one the
+    device layer uses: ``_spacemouse_hid.load_device_specs(station_dir, options)`` (without a
+    station, the site table in ``./local`` or the user config directory). It needs no HID
+    SDK; a failure to load raises."""
+    from robot_infra.devices.backends.teleops import _spacemouse_hid
+
+    return _spacemouse_hid.load_device_specs(station_dir, options)
 
 
 
@@ -104,7 +88,11 @@ class Host:
         sysfs: Path = Path("/sys"),
         dev: Path = Path("/dev"),
         etc: Path = Path("/etc"),
+        station_dir: Path | None = None,
+        spacemouse_options: dict | None = None,
     ):
+        """``station_dir``/``spacemouse_options`` select the SpaceMouse device table (see
+        ``spacemouse_device_table``)."""
         self.root, self.report, self.sysfs, self.dev, self.etc = (
             root,
             report,
@@ -114,9 +102,19 @@ class Host:
         )
         self.capabilities = Capabilities.detect(etc=etc, sysfs=sysfs)
         self.user = pwd.getpwuid(os.getuid()).pw_name if pwd else getpass.getuser()
+        self.findings: list[Finding] = []
+        self.spacemouse_table = None
+        try:
+            self.spacemouse_table = spacemouse_device_table(station_dir, spacemouse_options)
+        except Exception as error:  # host diagnosis must go on when the device layer is broken
+            self.add(
+                "usb.spacemouse.table",
+                "FAIL",
+                f"cannot load the SpaceMouse device table: {error}",
+                "fix the reported spacemouse-devices.yaml entry, or repair the robot_infra installation",
+            )
         self.usb = self.discover_usb()
         self.ports: list[str] = []
-        self.findings: list[Finding] = []
         self.actions: list[Action] = []
         self.expected: set[str] = set()
         self.allowed = False
@@ -144,8 +142,27 @@ class Host:
         if all(item.id != action.id for item in self.actions):
             self.actions.append(action)
 
+    def describes_multi_axis_hid(self, usb_path):
+        """Whether a hidraw interface of this USB device has a multi-axis controller descriptor."""
+        from robot_infra.devices.backends.teleops._spacemouse_hid import (
+            describes_multi_axis_controller,
+        )
+
+        usb = Path(usb_path).resolve()
+        for entry in (self.sysfs / "class/hidraw").glob("*"):
+            device = entry / "device"
+            if usb not in device.resolve().parents:
+                continue
+            try:
+                descriptor = (device / "report_descriptor").read_bytes()
+            except OSError:
+                continue
+            if describes_multi_axis_controller(descriptor):
+                return True
+        return False
+
     def discover_usb(self):
-        mice = spacemouse_ids(self.root)
+        table = self.spacemouse_table
         devices = []
         for path in sorted((self.sysfs / "bus/usb/devices").glob("*")):
             vid, pid = read(path / "idVendor"), read(path / "idProduct")
@@ -157,13 +174,26 @@ class Host:
             pair = int(vid, 16), int(pid, 16)
             kind = (
                 "spacemouse"
-                if pair in mice
+                if table is not None and pair in table.specs
                 else (
                     "realsense"
                     if vid.lower() == "8086" and "realsense" in product.lower()
                     else ""
                 )
             )
+            unknown_spacemouse = False
+            if table is not None and not kind:
+                from robot_infra.devices.backends.teleops._spacemouse_hid import (
+                    LOGITECH_VENDOR_ID,
+                    is_unknown_spacemouse,
+                )
+
+                unknown_spacemouse = is_unknown_spacemouse(
+                    *pair,
+                    table,
+                    multi_axis=pair[0] == LOGITECH_VENDOR_ID
+                    and self.describes_multi_axis_hid(path),
+                )
             bus, number = read(path / "busnum"), read(path / "devnum")
             node = (
                 str(self.dev / f"bus/usb/{int(bus):03}/{int(number):03}")
@@ -179,6 +209,7 @@ class Host:
                     node=node,
                     sysfs=str(path),
                     serial=read(path / "serial"),
+                    unknown_spacemouse=unknown_spacemouse,
                 )
             )
         return devices
@@ -318,14 +349,14 @@ class Host:
     def rules(self, check, kind, devices):
         lines = ["# Managed by rwrl doctor; targeted at supported devices."]
         if kind == "spacemouse":
-            pairs = sorted(spacemouse_ids(self.root))
-            if not pairs:
+            if self.spacemouse_table is None:
                 self.add(
                     check + ".rules",
                     "BLOCKED",
-                    "canonical SpaceMouse device table not found; no rule generated",
+                    "SpaceMouse device table unavailable (see usb.spacemouse.table); no rule generated",
                 )
                 return
+            pairs = sorted(self.spacemouse_table.hid_ids)
         else:
             pairs = sorted({(int(d["vid"], 16), int(d["pid"], 16)) for d in devices})
         for vid, pid in pairs:
@@ -351,6 +382,21 @@ class Host:
         self.propose(action)
 
     def inspect_usb(self):
+        # Set only when the device table loaded, so the device layer is importable here.
+        unknown = [device for device in self.usb if device.get("unknown_spacemouse")]
+        if unknown:
+            from robot_infra.devices.backends.teleops._spacemouse_hid import (
+                DEVICE_TABLE_FILENAME,
+                unknown_device_message,
+            )
+        for device in unknown:
+            self.add(
+                f"usb.spacemouse.unknown.{device['vid']}:{device['pid']}",
+                "WARN",
+                unknown_device_message(int(device["vid"], 16), int(device["pid"], 16)),
+                f'product "{device["product"]}"; the site table is local/{DEVICE_TABLE_FILENAME} '
+                f"(next to local/station.yaml) or ~/.config/robot_infra/{DEVICE_TABLE_FILENAME}",
+            )
         for kind in ("spacemouse", "realsense"):
             if kind not in self.expected:
                 continue

@@ -717,3 +717,79 @@ def test_task_workspace_hands_back_and_button_can_retake():
     assert not session.poll().intervened
     session.part.press(0)
     assert session.poll().intervened
+
+
+# -- the local SpaceMouse device table ---------------------------------------------------
+
+_WIRELESS_BT_TABLE = (
+    "schema_version: 1\ndevices:\n  SpaceMouse Wireless BT (USB cable):\n"
+    "    hid_id: [0x256F, 0xC63A]\n    layout: SpaceMouse Wireless\n"
+)
+
+
+@pytest.fixture
+def isolated_site(tmp_path, monkeypatch):
+    """No local device table of this machine (./local or the user config directory) applies."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    return tmp_path
+
+
+def test_device_table_reaches_the_owned_device_part(isolated_site):
+    table = isolated_site / "tables/spacemouse-devices.yaml"
+    table.parent.mkdir()
+    table.write_text(_WIRELESS_BT_TABLE, encoding="utf-8")
+    tracker = SpaceMouseTeleopSource(
+        follower_pose_getter=_Follower(), last_gripper_action_getter=lambda: OPEN, device_table=str(table))
+    assert tracker._part.config.options["device_table"] == str(table)
+    assert SpaceMouseTwistTeleopSource(device_table=str(table))._part.config.options["device_table"] == str(table)
+    assert "device_table" not in SpaceMouseTwistTeleopSource()._part.config.options
+
+
+def test_teleop_input_keeps_the_device_table_path_out_of_source_options(isolated_site):
+    import hashlib
+
+    import yaml
+
+    from robot_infra.devices.provenance import portable_path
+
+    from real_world_rl.action_contract import compared_experiment
+
+    station = isolated_site / "local/station.yaml"
+    station.parent.mkdir()
+    station.write_text(yaml.safe_dump({"type": "franka", "name": "arm", "arm_backend": "fake",
+                                       "teleop": {"backend": "spacemouse", "options": {"device_index": 2}}}))
+    table = station.parent / "spacemouse-devices.yaml"
+    table.write_text(_WIRELESS_BT_TABLE, encoding="utf-8")
+    args = HilSerlArgs(teleop_device="spacemouse", teleop_options_yaml=str(station))
+    env_building.resolve_teleop_input(args)
+    frozen = args.teleop_input
+    assert frozen["source_options"] == {"device_index": 2}
+    assert frozen["device_table"] == {
+        "source": "local", "file": portable_path(table), "sha256": hashlib.sha256(table.read_bytes()).hexdigest(),
+        "entries": [{"name": "SpaceMouse Wireless BT (USB cable)", "hid_id": "256f:c63a"}],
+    }
+    # The run itself still opens its device with that table.
+    assert env_building._single_arm_yaml_options(args)["device_table"] == str(table.resolve())
+    assert "device_table" not in env_building.teleop_control_spec(args)
+    # Another table changes provenance only, never the compared contract.
+    before = env_building.reward_sources_spec(args)
+    table.write_text(_WIRELESS_BT_TABLE.replace("SpaceMouse Wireless BT", "BT unit 2"), encoding="utf-8")
+    fresh = dataclasses.replace(args, teleop_input=None)
+    env_building.resolve_teleop_input(fresh)
+    after = env_building.reward_sources_spec(fresh)
+    assert after["teleop_input"]["device_table"] != before["teleop_input"]["device_table"]
+    assert compared_experiment({"sources": before}) == compared_experiment({"sources": after})
+    # Restored where the recorded table is absent: the device looks its table up itself.
+    elsewhere = dataclasses.replace(args, teleop_input={
+        **frozen, "device_table": {**frozen["device_table"], "file": "local/no-such-table.yaml"}})
+    assert env_building._single_arm_yaml_options(elsewhere) == {"device_index": 2}
+
+
+def test_without_a_local_table_teleop_input_is_unchanged(isolated_site):
+    options = isolated_site / "spacemouse.yaml"
+    options.write_text("device_index: 2\n", encoding="utf-8")
+    args = HilSerlArgs(teleop_device="spacemouse", teleop_options_yaml=str(options))
+    env_building.resolve_teleop_input(args)
+    assert args.teleop_input["source_options"] == {"device_index": 2}
+    assert "device_table" not in args.teleop_input

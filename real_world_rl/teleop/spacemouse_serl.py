@@ -47,6 +47,7 @@ class SpaceMouseSerlTeleopSource(TeleopSource):
         diagnostic_axes="all",
         diagnostic_gain=1.,
         poll_interval_s: float = 0.005,
+        device_table: Optional[str] = None,
         read_timeout_s: float = DEFAULT_READ_TIMEOUT_S,
         rng: Optional[np.random.Generator] = None,
         **kwargs: Any,
@@ -73,6 +74,7 @@ class SpaceMouseSerlTeleopSource(TeleopSource):
                 name="spacemouse", backend="spacemouse", options={
                     "device_index": device_index, "invert_axes": list(invert_axes),
                     "poll_interval_s": poll_interval_s,
+                    **({} if device_table is None else {"device_table": str(device_table)}),
                 },
             ), read_timeout_s=read_timeout_s)
         else:

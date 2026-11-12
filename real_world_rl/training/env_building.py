@@ -288,7 +288,11 @@ def _single_arm_yaml_options(args, *, provenance=None) -> dict:
     cached = getattr(args, "teleop_input", None)
     if args.teleop_device == "spacemouse" and cached is not None:
         import copy
-        return copy.deepcopy(cached["source_options"])
+        options = copy.deepcopy(cached["source_options"])
+        table_file = _frozen_device_table_file(cached)
+        if table_file is not None:
+            options["device_table"] = table_file
+        return options
     path = args.teleop_options_yaml
     form, data = _load_teleop_options_yaml(path)
     if form == _FLAT_OPTIONS:
@@ -684,9 +688,34 @@ def resolve_teleop_input(args):
     provenance = {}
     options = _single_arm_yaml_options(args, provenance=provenance)
     motion_teleop_kwargs(args, source_options=options)
+    options = _without_device_table(options, provenance)
     if options or provenance:
         import copy
         args.teleop_input = {**provenance, "source_options": copy.deepcopy(options)}
+
+
+def _without_device_table(options, provenance) -> dict:
+    """The SpaceMouse source options without the machine-local ``device_table`` path; a local
+    table in effect is recorded as ``provenance["device_table"]`` (portable file, sha256 and
+    entries), which is provenance only: decoding tables never enter ``teleop_control``."""
+    from robot_infra.devices.backends.teleops._spacemouse_hid import DEVICE_TABLE_OPTION, load_device_specs
+
+    described = load_device_specs(options=options).provenance()
+    if described is not None:
+        provenance["device_table"] = described
+    return {key: value for key, value in options.items() if key != DEVICE_TABLE_OPTION}
+
+
+def _frozen_device_table_file(teleop_input) -> Optional[str]:
+    """This machine's copy of the local device table a frozen SpaceMouse input was resolved
+    with, or None: without it the device looks up the site table itself."""
+    recorded = (teleop_input.get("device_table") or {}).get("file")
+    if not recorded:
+        return None
+    from robot_infra.devices.provenance import resolve_portable_path
+
+    path = resolve_portable_path(recorded).resolve()
+    return str(path) if path.is_file() else None
 
 
 def build_offline_experiment_env(env, config, observation, saved_contract=None):

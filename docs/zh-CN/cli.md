@@ -94,7 +94,7 @@ Franka FCI 只允许一个控制连接。直连路线中，先结束 recorder/ac
 对于 setup，工作站输入提供已有默认值，**不是输出路径**。命令后的局部值优先于根级 `--station` 值；工作站查找顺序保持不变。
 `--mock` 和 `--robot` 保留适用的设备语义；其他不相关的全局选项不配置这些命令。`setup`、`daemon`、`supervise` 和 `gello-calibrate` 没有 JSON 输出，使用 `--json` 会报用法错误（退出码 2），而不是默默输出文本。supervisor 的 `--` 之后的参数属于子命令。
 
-`discover` 输出可见硬件，不连接机器人主机。使用 `--json` 时，它打印一个含 `schema_version: 1` 和五个列表的对象，未发现时各列表为空：`cameras`（`backend`、`serial`）、`teleops`（`backend`、`device`）、`can_interfaces`（`name`、`operstate`、`bitrate`）、`hosts`（`ip`、`ping_ok`、`open_ports`）和 `hid_devices`（路径）。其文本输出不变。
+`discover` 输出可见硬件，不连接机器人主机。使用 `--json` 时，它打印一个含 `schema_version: 1` 和六个列表的对象，未发现时各列表为空：`cameras`（`backend`、`serial`）、`teleops`（`backend`、`device`）、`can_interfaces`（`name`、`operstate`、`bitrate`）、`hosts`（`ip`、`ping_ok`、`open_ports`）、`hid_devices`（路径）和 `unknown_hid`（`vid`、`pid`、`product`、`path`、`message`；见[站点设备表](spacemouse-commissioning.md#site-device-table)）。仅当 `unknown_hid` 非空时，文本输出才多出 `warnings:` 一段。
 
 `setup` 接受三个逐臂相机流标志，每臂一个值或一个值用于全部臂：`--camera-resolution WIDTHxHEIGHT`（例如 `1280x720`）、`--camera-fps N` 和 `--camera-depth yes|no`。它们作用于该臂的相机；未设置时，新相机使用相机默认值，从 `--station` 保留的相机保持原值。它们不增加向导提问。
 

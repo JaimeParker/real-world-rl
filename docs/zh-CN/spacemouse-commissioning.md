@@ -6,6 +6,74 @@
 
 前置说明见 `rwrl` 的[全局选项](cli.md#global-options)与[连接归属](cli.md#connection-ownership)。
 
+<a id="site-device-table"></a>
+
+## 站点设备表
+
+HID 读取器按设备的厂商号与产品号（`vid:pid`）精确匹配条目来解码 SpaceMouse。内置表即 PySpaceMouse 1.0.3 的表：SpaceExplorer、SpaceNavigator、SpaceMouse USB、SpaceMouse Compact、SpaceMouse Pro Wireless、SpaceMouse Pro、SpaceMouse Wireless、3Dconnexion Universal Receiver、SpacePilot 和 SpacePilot Pro。站点使用的其他型号或固件变体写入该站点的 local 设备表 `spacemouse-devices.yaml`，该文件不进 git。当 `rwrl discover` 或 `rwrl doctor` 打印
+
+```text
+unknown 3Dconnexion-vendor HID device 256f:xxxx; add it to spacemouse-devices.yaml (see docs/spacemouse-commissioning.md#site-device-table)
+```
+
+时，说明所连设备不在表中，`open()` 会拒绝它。该警告覆盖所有不在表中的 3Dconnexion（`256f`）设备；Logitech（`046d`）设备只有在其 HID descriptor 声明为多轴控制器时才报告，因此键盘或鼠标接收器不会被报告。
+
+**位置。** 按以下规则取第一个适用的文件：
+
+1. 工作站机器人的 `teleop.options.device_table`。相对路径相对于工作站文件所在目录。
+2. 工作站文件旁的 `spacemouse-devices.yaml`：`local/station.yaml` 对应 `local/spacemouse-devices.yaml`，用户级工作站对应 `~/.config/robot_infra/spacemouse-devices.yaml`。
+3. 没有工作站时（setup 探测、按未指定设备表的选项构建的设备，以及未找到工作站时 `rwrl doctor` 的主机层 USB 检查与 udev 规则）：取 `./local/spacemouse-devices.yaml` 与 `$XDG_CONFIG_HOME/robot_infra/spacemouse-devices.yaml` 中第一个存在的文件。
+
+以上都没有时，只使用内置表。`hid_id` 与内置条目相同的 local 条目覆盖该内置条目；其他 local 条目作为新增。
+
+**格式。** 下例以内置 SpaceMouse Wireless 条目的解码方式声明 `256f:c63a`（这只是格式示例，不是对该产品的结论：请按下文检查实际设备的解码）：
+
+```yaml
+# local/spacemouse-devices.yaml (site-specific, not committed)
+schema_version: 1
+devices:
+  SpaceMouse Wireless BT (USB cable):
+    hid_id: [0x256F, 0xC63A]            # or "256f:c63a"
+    layout: SpaceMouse Wireless         # copy led_id, mappings, button_mapping, axis_scale
+    evidence:                           # free-form; never used for decoding
+      descriptor: evidence/256f-c63a/report-descriptor.txt
+      checked: YYYY-MM-DD
+      note: what the descriptor and the axis/button capture showed
+```
+
+`layout:` 只能引用内置条目，不能引用另一个 local 条目；与它并列写出的字段覆盖复制来的字段。不写 `layout:` 时，条目须完整写出解码方式：
+
+```yaml
+  My SpaceMouse:
+    hid_id: "256f:c6ff"                 # placeholder: the vid:pid that rwrl discover reports
+    led_id: null                        # or two integers, for example [0x8, 0x4B]
+    axis_scale: 350.0
+    mappings:                           # exactly x, y, z, roll, pitch, yaw
+      x:     {channel: 1, byte1: 1,  byte2: 2,  scale: 1}
+      y:     {channel: 1, byte1: 3,  byte2: 4,  scale: -1}
+      z:     {channel: 1, byte1: 5,  byte2: 6,  scale: -1}
+      pitch: {channel: 1, byte1: 7,  byte2: 8,  scale: -1}
+      roll:  {channel: 1, byte1: 9,  byte2: 10, scale: -1}
+      yaw:   {channel: 1, byte1: 11, byte2: 12, scale: 1}
+    button_mapping:                     # button_0 first; the teleop reads the first two
+      - {channel: 3, byte: 1, bit: 0}
+      - {channel: 3, byte: 1, bit: 1}
+```
+
+文件在加载时校验（构建 SpaceMouse 遥操作设备时，以及 `rwrl discover` 和 `rwrl doctor` 运行时）；任一条目无效即整表拒绝，错误信息写明文件和条目名。顶层键只能是 `schema_version: 1` 和非空的 `devices` 映射；条目键为 `hid_id`、`layout`、`led_id`、`mappings`、`button_mapping`、`axis_scale` 和 `evidence`。`hid_id` 为两个 0..0xFFFF 的整数（或文本 `"vvvv:pppp"`），在文件内唯一；local 条目只有在使用内置条目的同一 `hid_id` 时才能沿用该内置条目的名字。轴的 `channel` 为 0..255，`byte1`/`byte2` 为 1..63，`scale` 为 -1 或 1；按钮的 `channel`、`byte`（1..63）、`bit`（0..7）均为整数，或三者都为 `null`；`axis_scale` 为有限正数。
+
+**证据。** 把支持某条目的材料（HID report descriptor、每个轴和按钮的简短采集、日期）放在 `local/` 下设备表旁，并用 `evidence` 指向它，路径相对于设备表所在目录。`rwrl teleop diagnose` 在 summary 中记录解码该设备的条目（`device_spec`：名字、`hid_id`、`source` 为 `builtin` 或 `local`，local 条目另有设备表的 sha256）。录制和训练不把设备表放进参与比较的实验契约：`teleop_input` 只把 local 设备表的文件、sha256 和条目记作 provenance，`source_options` 中不含任何本机路径。
+
+**复核。** 编辑设备表后，在机器人主机的仓库根目录、激活项目环境的情况下运行：
+
+```bash
+rwrl --station local/station.yaml discover
+rwrl --station local/station.yaml doctor
+rwrl --station local/station.yaml --json teleop diagnose --duration-s 5
+```
+
+`discover` 在 `spacemouse:` 下列出该设备且没有警告，`doctor` 的 `usb.spacemouse` 和遥操作检查通过，诊断结果中每个推动的轴和按下的按钮都有预期的符号（见[实时输入标定与诊断](#live-input-calibration-and-diagnosis)）。
+
 <a id="spacemouse-profiles-and-task-frame-workspace"></a>
 
 ## SpaceMouse 标定档案与任务坐标系工作区

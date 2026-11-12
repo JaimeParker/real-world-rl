@@ -97,8 +97,8 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
     """A SpaceMouse driving the follower's command tracker (module docstring).
 
     The device is the SpaceMouse on this machine (``device_index``, ``deadzone``,
-    ``invert_axes``, ``poll_interval_s`` configure it; ``start()`` connects it and ``close()``
-    disconnects it), or ``teleop``: a ``cartesian_delta`` teleop part the caller owns (its
+    ``invert_axes``, ``poll_interval_s`` and ``device_table``, the local device table, configure
+    it; ``start()`` connects it and ``close()`` disconnects it), or ``teleop``: a ``cartesian_delta`` teleop part the caller owns (its
     ``buttons``/``events`` named ``button_0``/``button_1``).
 
     ``follower_pose_getter`` returns the follower's measured TCP pose ``xyz + quat_xyzw`` in the
@@ -125,6 +125,7 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
         diagnostic_axes="all",
         diagnostic_gain=1.,
         poll_interval_s: float = 0.005,
+        device_table: Optional[str] = None,
         pos_scale_m: float = 0.05,
         rot_scale_rad: float = 0.3,
         lead_cap_m: float = 0.05,
@@ -193,6 +194,7 @@ class SpaceMouseTeleopSource(ToggleableTeleopSource):
                     "deadzone": deadzone,
                     "invert_axes": list(invert_axes),
                     "poll_interval_s": poll_interval_s,
+                    **({} if device_table is None else {"device_table": str(device_table)}),
                 },
             )
             teleop = Teleop.backend("spacemouse")(config, read_timeout_s=read_timeout_s)
@@ -508,6 +510,7 @@ class SpaceMouseTwistTeleopSource(TeleopSource):
         poll_interval_s: float = 0.005,
         hold_s: float = 0.0,
         read_timeout_s: float = DEFAULT_READ_TIMEOUT_S,
+        device_table: Optional[str] = None,
     ) -> None:
         config = TeleopConfig(
             name="spacemouse",
@@ -518,6 +521,7 @@ class SpaceMouseTwistTeleopSource(TeleopSource):
                 "deadzone": deadzone,
                 "invert_axes": list(invert_axes),
                 "poll_interval_s": poll_interval_s,
+                **({} if device_table is None else {"device_table": str(device_table)}),
             },
         )
         self._part = Teleop.backend("spacemouse")(config, read_timeout_s=read_timeout_s)

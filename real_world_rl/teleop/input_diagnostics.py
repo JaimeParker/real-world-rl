@@ -46,7 +46,9 @@ def open_input(config):
     if owners:
         raise DeviceBusy('exclusive input diagnostic blocked: ' + '; '.join(owners),
                          hint='finish the owning session before running diagnostics')
-    reader = _spacemouse_hid.open(device_index=int(config.teleop.options.get('device_index', 0)), claim=config.claim)
+    table = _spacemouse_hid.load_device_specs(options=config.teleop.options)
+    reader = _spacemouse_hid.open(device_index=int(config.teleop.options.get('device_index', 0)),
+                                  table=table, claim=config.claim)
     try:
         yield reader
     finally:
@@ -104,6 +106,7 @@ def collect(config, *, duration_s, directory=None, labels=None, rotation=None, y
         write_json(report / 'provenance.json', runtime_provenance(config=asdict(config)))
         with open_input(config) as reader:
             identity = reader.identity
+            device_spec = reader.device_spec
             with (report / 'samples.jsonl').open('x', encoding='utf-8') as stream:
                 os.chmod(report / 'samples.jsonl', 0o600)
                 for label in labels if labels is not None else [None]:
@@ -122,7 +125,7 @@ def collect(config, *, duration_s, directory=None, labels=None, rotation=None, y
                     samples[label or 'unlabelled'] = [row['mapped'] for row in rows if row['fresh_report']]
         write_json(report / 'labelled-samples.json', samples)
         result = {'schema_version': 1, 'report_directory': str(report), 'device_identity': identity,
-                  'sample_counts': {key: len(value) for key, value in samples.items()}}
+                  'device_spec': device_spec, 'sample_counts': {key: len(value) for key, value in samples.items()}}
         write_json(report / 'summary.json', result)
         return samples, result
     except BaseException as error:

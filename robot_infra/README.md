@@ -63,7 +63,7 @@ Commands without JSON output (`setup`, `daemon`, `supervise`,
 `gello-calibrate`) reject the global `--json` option with usage exit code 2.
 `doctor` and `discover` support `--json`; `robot-infra --json discover` prints
 `schema_version: 1` and the lists `cameras`, `teleops`, `can_interfaces`,
-`hosts` and `hid_devices` (see [Plug in and discover](#2-plug-in-and-discover)).
+`hosts`, `hid_devices` and `unknown_hid` (see [Plug in and discover](#2-plug-in-and-discover)).
 `supervise` retains its `-- <child command...>` boundary; child flags are passed
 to the child unchanged. Each native command's `--help` lists its original
 module flags. `gello-calibrate` prints a teleop YAML block;
@@ -158,12 +158,14 @@ repository root, project environment active:
 pip install -e '.[spacemouse]'
 ```
 
-The in-tree reader ports all 10 models from the vendored PySpaceMouse 1.0.3 table and
-adds one: SpaceMouse Wireless BT (`0x256f:0xc63a`, the Bluetooth edition cabled over USB;
-checked against its HID descriptor). Enterprise is not in the table. `discover()`, doctor
-and `open()` match the exact vendor and product id pair, so other devices of the same
-vendor (for example a Logitech `046d` keyboard receiver) are not taken for a SpaceMouse.
-It uses `hid.device()` and does not import
+The in-tree reader ports all 10 models from the vendored PySpaceMouse 1.0.3 table;
+Enterprise is not in that table. Other models a site meets go into its local device table,
+`spacemouse-devices.yaml` next to the station file (or the path in the teleop option
+`device_table`), which adds entries or overrides the built-in entry of the same id; see
+[Site device table](../docs/spacemouse-commissioning.md#site-device-table). `discover()`,
+doctor and `open()` match the exact vendor and product id pair of that merged table, so
+other devices of the same vendor (for example a Logitech `046d` keyboard receiver) are not
+taken for a SpaceMouse. It uses `hid.device()` and does not import
 `pyspacemouse`/`easyhid`. Do not install the different distribution named `hid`.
 The legacy `real` extra and `SpaceMouseExpert` still use their existing API.
 For a fresh project environment use the installer on the NUC, repository root,
@@ -399,13 +401,15 @@ With hardware attached, the lines take the form `realsense: <serial>, <serial>`,
 `/dev/hidraw0`. The `fake` backends are not listed.
 
 `robot-infra --station robot.yaml --json discover` (or `rwrl --json discover`) prints the same
-report as one JSON object: `schema_version: 1` and five lists, each empty when nothing is found,
+report as one JSON object: `schema_version: 1` and six lists, each empty when nothing is found,
 `cameras` (`backend`, `serial`), `teleops` (`backend`, `device`), `can_interfaces` (`name`,
-`operstate`, `bitrate`), `hosts` (`ip`, `ping_ok`, `open_ports`) and `hid_devices` (paths). The
-machine above gives (derived from the same report, not a captured run):
+`operstate`, `bitrate`), `hosts` (`ip`, `ping_ok`, `open_ports`), `hid_devices` (paths) and
+`unknown_hid` (`vid`, `pid`, `product`, `path`, `message`: HID devices that look like a SpaceMouse
+but are missing from the device table). The machine above gives (derived from the same report,
+not a captured run):
 
 ```json
-{"schema_version": 1, "cameras": [], "teleops": [], "can_interfaces": [], "hosts": [{"ip": "172.16.0.2", "ping_ok": false, "open_ports": []}], "hid_devices": []}
+{"schema_version": 1, "cameras": [], "teleops": [], "can_interfaces": [], "hosts": [{"ip": "172.16.0.2", "ping_ok": false, "open_ports": []}], "hid_devices": [], "unknown_hid": []}
 ```
 
 | Section | Source | What to look for |
@@ -415,6 +419,7 @@ machine above gives (derived from the same report, not a captured run):
 | `can interfaces` | `/sys/class/net/*` with type CAN, bitrate from `ip -details link show` | `operstate=up` and the bitrate in your yaml |
 | `hosts` | `ping` and TCP connect to the config's `robot_ip` | `ping=ok`. For Franka, 1337 open usually means FCI is reachable. |
 | `hid devices` | `/dev/hidraw*` | SpaceMouse and other HID teleop devices |
+| `warnings` (only when there are any) | 3Dconnexion (`256f`) HID devices, and Logitech (`046d`) multi-axis controllers, whose id is missing from the SpaceMouse device table | `WARN unknown 3Dconnexion-vendor HID device <vid>:<pid>; add it to spacemouse-devices.yaml (see docs/spacemouse-commissioning.md#site-device-table) (<path>)`: add a [site device table](../docs/spacemouse-commissioning.md#site-device-table) entry |
 
 Without `--station` and without a station file, `hosts:` prints `none`.
 
@@ -1074,8 +1079,8 @@ A third-party backend that skips `_remember_state` still works but costs one ext
   connected, so a second daemon on the same robot gets `DeviceBusy`. It does not protect
   against other hosts or against code that does not take the claim. Set `claim: false`
   to opt out. The SpaceMouse reader also claims its HID endpoint by default and honors the
-  same `RobotConfig.claim` setting when built as a robot teleop part. Its supported device
-  table is PySpaceMouse 1.0.3 plus `0x256f:0xc63a` (SpaceMouse Wireless BT over USB).
+  same `RobotConfig.claim` setting when built as a robot teleop part. Its built-in device
+  table equals PySpaceMouse 1.0.3; a site's local device table adds or overrides models.
 
 ### Error model
 

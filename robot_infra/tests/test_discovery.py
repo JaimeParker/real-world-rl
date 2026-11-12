@@ -18,7 +18,8 @@ from robot_infra.discovery.autoconfig import fill_from_env
 def probed_hosts(monkeypatch):
     calls: list[list[str]] = []
     monkeypatch.setattr(
-        discovery_cli, "discover_all", lambda host_ips: calls.append(list(host_ips)) or enum.DiscoveryReport()
+        discovery_cli, "discover_all",
+        lambda host_ips, spacemouse_table=None: calls.append(list(host_ips)) or enum.DiscoveryReport(),
     )
     return calls
 
@@ -97,6 +98,44 @@ def test_discover_all_and_format(monkeypatch):
 
 def test_empty_report_formats_none_lines():
     assert enum.DiscoveryReport().format().count("none") == 5
+
+
+UNKNOWN_BT = {
+    "vid": "256f", "pid": "c63a", "product": "", "path": "/dev/hidraw6",
+    "message": "unknown 3Dconnexion-vendor HID device 256f:c63a; add it to spacemouse-devices.yaml "
+               "(see docs/spacemouse-commissioning.md#site-device-table)",
+}
+
+
+def test_unknown_hid_devices_are_formatted_as_warnings_only_when_present():
+    text = enum.DiscoveryReport(unknown_hid=[UNKNOWN_BT]).format()
+    assert text.endswith("warnings:\n  WARN " + UNKNOWN_BT["message"] + " (/dev/hidraw6)")
+    assert "warnings:" not in enum.DiscoveryReport().format()
+
+
+def test_discover_all_matches_hid_devices_against_the_given_table(monkeypatch):
+    from robot_infra.devices.backends.teleops import _spacemouse_hid
+
+    monkeypatch.setattr(enum, "list_can_interfaces", lambda: {})
+    table = _spacemouse_hid.builtin_device_table()
+    seen = []
+    monkeypatch.setattr(_spacemouse_hid, "unknown_hid_devices", lambda given: seen.append(given) or [UNKNOWN_BT])
+    report = enum.discover_all([], spacemouse_table=table)
+    assert seen[0] is table and report.unknown_hid == [UNKNOWN_BT]
+
+
+def test_cli_matches_hid_devices_against_the_station_device_table(tmp_path, monkeypatch):
+    received = []
+    monkeypatch.setattr(
+        discovery_cli, "discover_all",
+        lambda host_ips, spacemouse_table=None: received.append(spacemouse_table) or enum.DiscoveryReport(),
+    )
+    path = tmp_path / "station.yaml"
+    path.write_text(yaml.safe_dump({"type": "franka", "arm_backend": "fake", "teleop": {"backend": "spacemouse"}}))
+    (tmp_path / "spacemouse-devices.yaml").write_text(
+        "schema_version: 1\ndevices:\n  BT: {hid_id: [0x256F, 0xC63A], layout: SpaceMouse Wireless}\n")
+    assert discovery_cli.main(["--config", str(path)]) == 0
+    assert (0x256F, 0xC63A) in received[0].specs and received[0].path == (tmp_path / "spacemouse-devices.yaml").resolve()
 
 
 def test_discover_teleops_and_format():

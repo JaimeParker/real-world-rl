@@ -2,6 +2,107 @@
 
 For prerequisites, see the `rwrl` [global options](cli.md#global-options) and [connection ownership](cli.md#connection-ownership).
 
+## Site device table
+
+The HID reader decodes a SpaceMouse with the entry of its exact vendor and product id
+(`vid:pid`). The built-in table is the PySpaceMouse 1.0.3 table: SpaceExplorer,
+SpaceNavigator, SpaceMouse USB, SpaceMouse Compact, SpaceMouse Pro Wireless, SpaceMouse Pro,
+SpaceMouse Wireless, 3Dconnexion Universal Receiver, SpacePilot and SpacePilot Pro. Any other
+model or firmware variant a site uses goes into that site's local device table,
+`spacemouse-devices.yaml`, which stays out of git. When `rwrl discover` or `rwrl doctor` prints
+
+```text
+unknown 3Dconnexion-vendor HID device 256f:xxxx; add it to spacemouse-devices.yaml (see docs/spacemouse-commissioning.md#site-device-table)
+```
+
+the connected device is not in the table, and `open()` refuses it. The warning covers every
+unlisted 3Dconnexion (`256f`) device, and Logitech (`046d`) devices only when their HID
+descriptor declares a multi-axis controller, so a keyboard or mouse receiver is not reported.
+
+**Location.** The first rule that applies selects the file:
+
+1. `teleop.options.device_table` of the station robot. A relative path is relative to the
+   directory of the station file.
+2. `spacemouse-devices.yaml` next to the station file: `local/spacemouse-devices.yaml` for
+   `local/station.yaml`, `~/.config/robot_infra/spacemouse-devices.yaml` for the user-scope
+   station.
+3. Without a station (setup probes, a device built from options that name no table, and the
+   host-level USB checks and udev rules of `rwrl doctor` when no station is found): the first
+   existing of
+   `./local/spacemouse-devices.yaml` and `$XDG_CONFIG_HOME/robot_infra/spacemouse-devices.yaml`.
+
+With none of these, only the built-in table applies. A local entry with the `hid_id` of a
+built-in entry replaces it; any other local entry is added.
+
+**Format.** An example that declares `256f:c63a` with the decoding of the built-in
+SpaceMouse Wireless entry (an example of the format, not a statement about that product: check
+the decoding of the actual unit as described below):
+
+```yaml
+# local/spacemouse-devices.yaml (site-specific, not committed)
+schema_version: 1
+devices:
+  SpaceMouse Wireless BT (USB cable):
+    hid_id: [0x256F, 0xC63A]            # or "256f:c63a"
+    layout: SpaceMouse Wireless         # copy led_id, mappings, button_mapping, axis_scale
+    evidence:                           # free-form; never used for decoding
+      descriptor: evidence/256f-c63a/report-descriptor.txt
+      checked: YYYY-MM-DD
+      note: what the descriptor and the axis/button capture showed
+```
+
+`layout:` names a built-in entry, never another local one; fields written next to it
+override the copied ones. Without `layout:` the entry spells out its decoding in full:
+
+```yaml
+  My SpaceMouse:
+    hid_id: "256f:c6ff"                 # placeholder: the vid:pid that rwrl discover reports
+    led_id: null                        # or two integers, for example [0x8, 0x4B]
+    axis_scale: 350.0
+    mappings:                           # exactly x, y, z, roll, pitch, yaw
+      x:     {channel: 1, byte1: 1,  byte2: 2,  scale: 1}
+      y:     {channel: 1, byte1: 3,  byte2: 4,  scale: -1}
+      z:     {channel: 1, byte1: 5,  byte2: 6,  scale: -1}
+      pitch: {channel: 1, byte1: 7,  byte2: 8,  scale: -1}
+      roll:  {channel: 1, byte1: 9,  byte2: 10, scale: -1}
+      yaw:   {channel: 1, byte1: 11, byte2: 12, scale: 1}
+    button_mapping:                     # button_0 first; the teleop reads the first two
+      - {channel: 3, byte: 1, bit: 0}
+      - {channel: 3, byte: 1, bit: 1}
+```
+
+The file is checked when it is loaded (when a SpaceMouse teleop is built, and by `rwrl
+discover` and `rwrl doctor`), and one invalid entry rejects the whole file with an error that
+names the file and the entry. Top-level keys are exactly `schema_version: 1` and a nonempty
+`devices` mapping; entry keys are `hid_id`, `layout`, `led_id`, `mappings`, `button_mapping`,
+`axis_scale` and `evidence`. `hid_id` is two integers 0..0xFFFF (or the text `"vvvv:pppp"`),
+unique in the file; a local
+name may reuse a built-in name only with that entry's `hid_id`. Axis `channel` is 0..255,
+`byte1`/`byte2` 1..63 and `scale` -1 or 1; a button has integer `channel`, `byte` (1..63) and
+`bit` (0..7), or all three `null`; `axis_scale` is finite and positive.
+
+**Evidence.** Keep what justified an entry next to the table under `local/` (the HID report
+descriptor, a short capture of each axis and button, the date) and point `evidence` at it,
+relative to the table's directory. `rwrl teleop diagnose` records in its summary which entry
+decoded the device (`device_spec`: name, `hid_id`, `source` `builtin` or `local`, and the
+table's sha256 for a local entry). Recording and training runs keep the table out of the
+compared experiment contract: `teleop_input` records the local table's file, sha256 and entries
+as provenance only, and no machine path enters its `source_options`.
+
+**Check.** On the robot host, repository root, project environment active, after editing the
+table:
+
+```bash
+rwrl --station local/station.yaml discover
+rwrl --station local/station.yaml doctor
+rwrl --station local/station.yaml --json teleop diagnose --duration-s 5
+```
+
+`discover` lists the device under `spacemouse:` with no warning, `doctor` passes
+`usb.spacemouse` and the teleop checks, and the diagnosis shows each pushed axis and pressed
+button with the expected sign (see [Live input calibration and
+diagnosis](#live-input-calibration-and-diagnosis)).
+
 ## SpaceMouse profiles and task-frame workspace
 
 A station robot can declare `task_frame` with `name` and a proper 4×4

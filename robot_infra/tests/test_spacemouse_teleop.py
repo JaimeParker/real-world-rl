@@ -48,6 +48,29 @@ def make_hid() -> types.ModuleType:
     return fake
 
 
+@pytest.fixture(autouse=True)
+def isolated_site_tables(tmp_path, monkeypatch):
+    """No local device table of this machine (./local or the user config directory) applies."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+
+
+WIRELESS_BT_TABLE = """\
+schema_version: 1
+devices:
+  SpaceMouse Wireless BT (USB cable):
+    hid_id: [0x256F, 0xC63A]
+    layout: SpaceMouse Wireless
+"""
+
+
+def write_table(directory, text=WIRELESS_BT_TABLE):
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / spacemouse_backend._spacemouse_hid.DEVICE_TABLE_FILENAME
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
 @pytest.fixture
 def hid_sdk(monkeypatch):
     fake = make_hid()
@@ -116,7 +139,58 @@ def test_open_failure_is_device_not_found(monkeypatch):
 
 def test_device_index_is_forwarded(spacemouse, hid_sdk):
     spacemouse(device_index=2)
-    assert hid_sdk.devices[0].kwargs == {"device_index": 2}
+    kwargs = hid_sdk.devices[0].kwargs
+    assert set(kwargs) == {"device_index", "table"} and kwargs["device_index"] == 2
+    assert kwargs["table"].path is None  # the built-in table alone
+
+
+def test_the_device_table_option_is_loaded_at_construction_and_used_to_open(spacemouse, hid_sdk, tmp_path):
+    path = write_table(tmp_path / "tables")
+    spacemouse(device_table=str(path))
+    table = hid_sdk.devices[0].kwargs["table"]
+    assert table.path == path and (0x256F, 0xC63A) in table.specs
+    path.write_text("schema_version: 1\ndevices: {a: {hid_id: [1, 2], layout: Nope}}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="is not a built-in entry"):
+        SpaceMouseTeleop(TeleopConfig(backend="spacemouse", options={"device_table": str(path)}))
+    with pytest.raises(ValueError, match="cannot be read"):
+        SpaceMouseTeleop(TeleopConfig(backend="spacemouse", options={"device_table": str(tmp_path / "absent.yaml")}))
+
+
+def test_without_the_option_the_site_table_of_the_working_directory_applies(spacemouse, hid_sdk, tmp_path):
+    path = write_table(tmp_path / "local")
+    spacemouse()
+    assert hid_sdk.devices[0].kwargs["table"].path.resolve() == path.resolve()
+
+
+def test_device_spec_names_the_decoding_entry_of_the_open_device(monkeypatch, tmp_path):
+    from robot_infra.devices.backends.teleops import _spacemouse_hid
+
+    class Handle:
+        def open_path(self, path):
+            pass
+
+        def set_nonblocking(self, enabled):
+            pass
+
+        def read(self, size):
+            return []
+
+        def close(self):
+            pass
+
+    fake = types.ModuleType("hid")
+    fake.device = Handle
+    fake.enumerate = lambda: [{"vendor_id": 0x256F, "product_id": 0xC63A, "path": b"bt"}]
+    monkeypatch.setitem(sys.modules, "hid", fake)
+    path = write_table(tmp_path / "tables")
+    teleop = SpaceMouseTeleop(TeleopConfig(backend="spacemouse", options={"device_table": str(path)}), claim=False)
+    teleop.connect()
+    try:
+        assert teleop.device_spec == {"name": "SpaceMouse Wireless BT (USB cable)", "hid_id": "256f:c63a",
+                                      "source": "local", "table_sha256": _spacemouse_hid.parse_device_table(path).sha256}
+        assert teleop.device_identity["model"] == "SpaceMouse Wireless BT (USB cable)"
+    finally:
+        teleop.disconnect()
 
 
 def test_axis_mapping_signs_and_order(spacemouse, hid_sdk):
@@ -255,22 +329,34 @@ def fake_hid(entries):
     return module
 
 
-def test_discover_matches_vendor_and_product_pairs_of_the_device_table(monkeypatch):
-    entries = [
-        {"vendor_id": 0x256F, "product_id": 0xC635, "path": b"/dev/hidraw3"},
-        {"vendor_id": 0x046D, "product_id": 0xC626, "path": b"/dev/hidraw4"},
-        {"vendor_id": 0x256F, "product_id": 0xC63A, "path": b"/dev/hidraw6"},
-        {"vendor_id": 0x1234, "product_id": 0x0001, "path": b"/dev/hidraw5"},
-    ]
-    monkeypatch.setitem(sys.modules, "hid", fake_hid(entries))
-    assert SpaceMouseTeleop.discover() == {
-        "256f:c635:/dev/hidraw3", "046d:c626:/dev/hidraw4", "256f:c63a:/dev/hidraw6"}
+DISCOVER_ENTRIES = [
+    {"vendor_id": 0x256F, "product_id": 0xC635, "path": b"/dev/hidraw3"},
+    {"vendor_id": 0x046D, "product_id": 0xC626, "path": b"/dev/hidraw4"},
+    {"vendor_id": 0x256F, "product_id": 0xC63A, "path": b"/dev/hidraw6"},
+    {"vendor_id": 0x1234, "product_id": 0x0001, "path": b"/dev/hidraw5"},
+]
+
+
+def test_discover_matches_vendor_and_product_pairs_of_the_builtin_table(monkeypatch):
+    monkeypatch.setitem(sys.modules, "hid", fake_hid(DISCOVER_ENTRIES))
+    assert SpaceMouseTeleop.discover() == {"256f:c635:/dev/hidraw3", "046d:c626:/dev/hidraw4"}
+
+
+def test_discover_also_matches_the_local_table(monkeypatch, tmp_path):
+    from robot_infra.devices.backends.teleops._spacemouse_hid import load_device_specs
+
+    monkeypatch.setitem(sys.modules, "hid", fake_hid(DISCOVER_ENTRIES))
+    write_table(tmp_path / "site")
+    expected = {"256f:c635:/dev/hidraw3", "046d:c626:/dev/hidraw4", "256f:c63a:/dev/hidraw6"}
+    assert SpaceMouseTeleop.discover(table=load_device_specs(tmp_path / "site")) == expected
+    write_table(tmp_path / "local")  # the default lookup without a station: ./local
+    assert SpaceMouseTeleop.discover() == expected
 
 
 def test_discover_ignores_logitech_receiver_and_unlisted_3dconnexion_products(monkeypatch):
-    from robot_infra.devices.backends.teleops._spacemouse_hid import device_specs
+    from robot_infra.devices.backends.teleops._spacemouse_hid import BUILTIN_DEVICE_SPECS
 
-    listed = {tuple(spec.hid_id) for spec in device_specs.values()}
+    listed = {tuple(spec.hid_id) for spec in BUILTIN_DEVICE_SPECS.values()}
     assert (0x046D, 0xC542) not in listed and (0x256F, 0xFFFF) not in listed
     entries = [
         {"vendor_id": 0x046D, "product_id": 0xC542, "path": b"/dev/hidraw0"},
@@ -294,6 +380,60 @@ def test_discover_falls_back_to_hidraw_nodes_without_hidapi(monkeypatch, tmp_pat
 def test_discover_teleops_includes_spacemouse(monkeypatch):
     monkeypatch.setitem(sys.modules, "hid", fake_hid([]))
     assert probes.discover_teleops(hardware_only=True)["spacemouse"] == set()
+
+
+def test_discover_teleops_passes_backend_discover_kwargs(monkeypatch, tmp_path):
+    from robot_infra.devices.backends.teleops._spacemouse_hid import load_device_specs
+
+    monkeypatch.setitem(sys.modules, "hid", fake_hid(DISCOVER_ENTRIES))
+    write_table(tmp_path / "site")
+    found = probes.discover_teleops(
+        hardware_only=True, discover_kwargs={"spacemouse": {"table": load_device_specs(tmp_path / "site")}})
+    assert "256f:c63a:/dev/hidraw6" in found["spacemouse"]
+
+
+# -- doctor os:teleop for a spacemouse ---------------------------------------
+
+BT_ENTRY = {"vendor_id": 0x256F, "product_id": 0xC63A, "path": b"/dev/hidraw6"}
+COMPACT_ENTRY = {"vendor_id": 0x256F, "product_id": 0xC635, "path": b"/dev/hidraw3"}
+
+
+def run_teleop_check(monkeypatch, entries, **options):
+    monkeypatch.setitem(sys.modules, "hid", fake_hid(entries))
+    teleop = TeleopConfig(name="sm", backend="spacemouse", options=options)
+    return checks._make_check(2, "os:teleop:sm", checks._spacemouse_outcome(teleop, "os:teleop:sm"))()
+
+
+def test_teleop_check_fails_naming_an_unknown_3dconnexion_device_without_a_supported_one(monkeypatch):
+    result = run_teleop_check(monkeypatch, [BT_ENTRY])
+    assert not result.ok
+    assert ("unknown 3Dconnexion-vendor HID device 256f:c63a; add it to spacemouse-devices.yaml "
+            "(see docs/spacemouse-commissioning.md#site-device-table) (/dev/hidraw6)") in result.message
+    assert "site-device-table" in result.hint
+
+
+def test_teleop_check_warns_about_an_unknown_device_beside_a_supported_one(monkeypatch):
+    result = run_teleop_check(monkeypatch, [COMPACT_ENTRY, BT_ENTRY])
+    assert result.ok and result.warning and "256f:c635:/dev/hidraw3" in result.message
+    assert "256f:c63a" in result.hint
+
+
+def test_teleop_check_passes_with_the_device_in_the_local_table(monkeypatch, tmp_path):
+    path = write_table(tmp_path / "tables")
+    result = run_teleop_check(monkeypatch, [BT_ENTRY], device_table=str(path))
+    assert result.ok and not result.warning and "256f:c63a:/dev/hidraw6" in result.message
+
+
+def test_teleop_check_reports_an_invalid_local_table(monkeypatch, tmp_path):
+    path = write_table(tmp_path / "tables", "schema_version: 2\ndevices: {}\n")
+    result = run_teleop_check(monkeypatch, [BT_ENTRY], device_table=str(path))
+    assert not result.ok and str(path) in result.message and "site-device-table" in result.hint
+
+
+def test_teleop_check_without_any_device_keeps_the_plug_in_hint(monkeypatch):
+    result = run_teleop_check(monkeypatch, [])
+    assert not result.ok and result.message == "no 'spacemouse' teleop device found"
+    assert "python -m robot_infra.discovery" in result.hint
 
 
 # -- doctor os:hid -----------------------------------------------------------

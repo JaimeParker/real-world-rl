@@ -21,16 +21,12 @@ from robot_infra.devices.errors import DeviceError
 from robot_infra.devices.teleop import RawReading, Teleop, TeleopConfig
 
 HIDRAW_GLOB = "/dev/hidraw*"
-# Exact (vendor_id, product_id) pairs of the HID reader's device table. Matching the vendor
-# alone is wrong: older 3Dconnexion units enumerate under Logitech 0x046d, which also makes
-# keyboard and mouse receivers.
-SPACEMOUSE_HID_IDS = frozenset(tuple(spec.hid_id) for spec in _spacemouse_hid.device_specs.values())
 GRIPPER_BUTTON = 0
 _OPEN_GRIPPER, _CLOSED_GRIPPER = 1.0, 0.0
 _NUM_BUTTONS = 2
 # Each button's ``buttons`` level key and latched press event, by index.
 BUTTON_NAMES = tuple(f"button_{index}" for index in range(_NUM_BUTTONS))
-_OPTION_KEYS = {"device_index", "deadzone", "invert_axes", "poll_interval_s"}
+_OPTION_KEYS = {"device_index", "deadzone", "invert_axes", "poll_interval_s", _spacemouse_hid.DEVICE_TABLE_OPTION}
 _sleep = time.sleep  # module-level so tests can observe the poll cadence
 
 
@@ -52,7 +48,10 @@ class SpaceMouseTeleop(Teleop):
     """Options: ``device_index`` (default 0), ``deadzone`` (default 1e-3, twist norm below which
     the puck counts as idle), ``invert_axes`` (indices 0-5 of the output twist whose sign is
     flipped), ``poll_interval_s`` (default 0.005 = 200 Hz; device poll cadence so a non-blocking
-    ``read()`` does not spin a core, may be 0 once ``read()`` is confirmed to block).
+    ``read()`` does not spin a core, may be 0 once ``read()`` is confirmed to block),
+    ``device_table`` (a local device table that extends the built-in one; without it the
+    site's ``spacemouse-devices.yaml``, see ``_spacemouse_hid.load_device_specs``; loaded and
+    validated here, at construction).
     The twist uses fixed device input axes ``[-y, x, z, -roll, -pitch, -yaw]``
     from the HID state, as in HIL-SERL. Mounting and operator orientation are
     applied by the higher-level teleop source, not this device reader."""
@@ -84,6 +83,7 @@ class SpaceMouseTeleop(Teleop):
             if not 0 <= axis < self.action_dim:
                 raise ValueError(f"invert_axes entries must be in [0, {self.action_dim}), got {axis}")
         self._invert_axes = invert_axes
+        self._device_table = _spacemouse_hid.load_device_specs(options=options)
         self._state_lock = threading.Lock()
         self._gripper = _OPEN_GRIPPER
         self._previous_buttons = [False] * _NUM_BUTTONS
@@ -94,18 +94,28 @@ class SpaceMouseTeleop(Teleop):
         self._require_connected()
         return dict(getattr(self._live_device, "identity", {}))
 
+    @property
+    def device_spec(self) -> dict:
+        """The device-table entry decoding the open device (name, hid_id, source builtin|local
+        and, for a local entry, the table's sha256); no SDK access or polling."""
+        self._require_connected()
+        return dict(getattr(self._live_device, "device_spec", {}))
+
     @classmethod
-    def discover(cls) -> set[str]:
+    def discover(cls, table: _spacemouse_hid.DeviceTable | None = None) -> set[str]:
         """Device ids: ``vid:pid:path`` of every HID interface whose exact vendor and product id
-        is in the reader's device table, via hidapi when installed; else every ``/dev/hidraw*``
-        (which also lists non-SpaceMouse HID devices)."""
+        is in ``table`` (default: ``load_device_specs()``), via hidapi when installed; else every
+        ``/dev/hidraw*`` (which also lists non-SpaceMouse HID devices). Matching the vendor alone
+        is wrong: older 3Dconnexion units enumerate under Logitech 0x046d, which also makes
+        keyboard and mouse receivers."""
         try:
             import hid
         except ImportError:
             return set(glob.glob(HIDRAW_GLOB))
+        table = _spacemouse_hid.load_device_specs() if table is None else table
         found = set()
         for info in hid.enumerate():
-            if (info["vendor_id"], info["product_id"]) in SPACEMOUSE_HID_IDS:
+            if (info["vendor_id"], info["product_id"]) in table.specs:
                 path = info["path"]
                 path = path.decode(errors="replace") if isinstance(path, bytes) else str(path)
                 found.add(f"{info['vendor_id']:04x}:{info['product_id']:04x}:{path}")
@@ -115,7 +125,7 @@ class SpaceMouseTeleop(Teleop):
 
     def _open_device(self) -> Any:
         try:
-            device = _spacemouse_hid.open(device_index=self._device_index,
+            device = _spacemouse_hid.open(device_index=self._device_index, table=self._device_table,
                                           **({"claim": False} if not self._claim else {}))
         except DeviceError as error:
             error.device = self.name

@@ -36,7 +36,7 @@ robot-infra doctor --station local/station.yaml --json
 两种 doctor 都接受 `--yes`，只跳过确认，仍运行预检查，即使没有修复标志。修复确认只接受 `y`，忽略大小写及两侧空白。共同退出策略为成功 0、运行/设备失败或未解决的检查结果 1、用法或配置错误 2。Setup 中断返回 130，supervisor 启动失败返回 127，停止升级返回 1，否则保留子进程状态。
 
 无 JSON 输出的命令（`setup`、`daemon`、`supervise`、`gello-calibrate`）拒绝全局 `--json`，用法退出码为 2。
-`doctor` 和 `discover` 支持 `--json`；`robot-infra --json discover` 打印 `schema_version: 1` 以及列表 `cameras`、`teleops`、`can_interfaces`、`hosts` 和 `hid_devices`（见[接入与发现](#2-plug-in-and-discover)）。
+`doctor` 和 `discover` 支持 `--json`；`robot-infra --json discover` 打印 `schema_version: 1` 以及列表 `cameras`、`teleops`、`can_interfaces`、`hosts`、`hid_devices` 和 `unknown_hid`（见[接入与发现](#2-plug-in-and-discover)）。
 `supervise` 保留 `-- <child command...>` 边界；子命令参数原样传给子进程。各原生命令的 `--help` 列出原模块参数。`gello-calibrate` 打印遥操作 YAML 块；`setup --only teleop --calibrate` 在向导内运行同一标定并写工作站 YAML。Python 模块入口继续作为兼容别名。
 
 <a id="install"></a>
@@ -111,7 +111,7 @@ robot-infra setup --non-interactive --mock --arms 1 --arm-names arm --robot-ip 1
 pip install -e '.[spacemouse]'
 ```
 
-自带的 HID 读取器移植了随仓库提供的 PySpaceMouse 1.0.3 表中的全部 10 款型号，并新增一款：SpaceMouse Wireless BT（`0x256f:0xc63a`，用 USB 线连接的蓝牙版；已对照其 HID descriptor 核实）。Enterprise 不在该表中。`discover()`、doctor 和 `open()` 都按厂商号与产品号的精确配对匹配，同厂商的其他设备（例如 Logitech `046d` 键盘接收器）不会被当成 SpaceMouse。它使用 `hid.device()`，不导入 `pyspacemouse`/`easyhid`。不要安装另一个名为 `hid` 的发行包。旧 `real` extra 和 `SpaceMouseExpert` 仍使用各自现有的 API。新建项目环境时，在 NUC、仓库根目录、未激活任何环境的情况下使用安装器：
+自带的 HID 读取器移植了随仓库提供的 PySpaceMouse 1.0.3 表中的全部 10 款型号；Enterprise 不在该表中。站点遇到的其他型号写入站点的 local 设备表：站点文件旁的 `spacemouse-devices.yaml`（或 teleop 选项 `device_table` 指定的路径），用于新增条目，或覆盖同一 id 的内置条目，见[站点设备表](spacemouse-commissioning.md#site-device-table)。`discover()`、doctor 和 `open()` 都按合并后设备表中厂商号与产品号的精确配对匹配，同厂商的其他设备（例如 Logitech `046d` 键盘接收器）不会被当成 SpaceMouse。它使用 `hid.device()`，不导入 `pyspacemouse`/`easyhid`。不要安装另一个名为 `hid` 的发行包。旧 `real` extra 和 `SpaceMouseExpert` 仍使用各自现有的 API。新建项目环境时，在 NUC、仓库根目录、未激活任何环境的情况下使用安装器：
 
 ```bash
 bash scripts/install.sh --extras franka-gello,spacemouse
@@ -289,10 +289,10 @@ hid devices:
 
 连接硬件后输出形式为 `realsense: <serial>, <serial>`、`spacemouse: <vid>:<pid>:<path>`，无 `hidapi` 时为 `/dev/hidrawN`，以及 `can0: operstate=up bitrate=1000000`、`172.16.0.2: ping=ok open ports=<list>`、`/dev/hidraw0`。不会列出 `fake` 后端。
 
-`robot-infra --station robot.yaml --json discover`（或 `rwrl --json discover`）将同一报告打印为一个 JSON 对象：`schema_version: 1` 和五个列表，未发现时各列表为空，即 `cameras`（`backend`、`serial`）、`teleops`（`backend`、`device`）、`can_interfaces`（`name`、`operstate`、`bitrate`）、`hosts`（`ip`、`ping_ok`、`open_ports`）和 `hid_devices`（路径）。上述机器的输出如下（由同一报告推导，不是实际运行捕获）：
+`robot-infra --station robot.yaml --json discover`（或 `rwrl --json discover`）将同一报告打印为一个 JSON 对象：`schema_version: 1` 和六个列表，未发现时各列表为空，即 `cameras`（`backend`、`serial`）、`teleops`（`backend`、`device`）、`can_interfaces`（`name`、`operstate`、`bitrate`）、`hosts`（`ip`、`ping_ok`、`open_ports`）、`hid_devices`（路径）和 `unknown_hid`（`vid`、`pid`、`product`、`path`、`message`：看起来像 SpaceMouse、但不在设备表中的 HID 设备）。上述机器的输出如下（由同一报告推导，不是实际运行捕获）：
 
 ```json
-{"schema_version": 1, "cameras": [], "teleops": [], "can_interfaces": [], "hosts": [{"ip": "172.16.0.2", "ping_ok": false, "open_ports": []}], "hid_devices": []}
+{"schema_version": 1, "cameras": [], "teleops": [], "can_interfaces": [], "hosts": [{"ip": "172.16.0.2", "ping_ok": false, "open_ports": []}], "hid_devices": [], "unknown_hid": []}
 ```
 
 | 部分 | 来源 | 检查要点 |
@@ -302,6 +302,7 @@ hid devices:
 | `can interfaces` | `/sys/class/net/*` 中 CAN 类型接口，通过 `ip -details link show` 取波特率。 | `operstate=up`，波特率与 YAML 一致。 |
 | `hosts` | 对配置 `robot_ip` 执行 `ping` 和 TCP 连接。 | `ping=ok`；Franka 1337 开放通常表示 FCI 可访问。 |
 | `hid devices` | `/dev/hidraw*`。 | SpaceMouse 和其他 HID 遥操作设备。 |
+| `warnings`（仅在有内容时出现） | id 不在 SpaceMouse 设备表中的 3Dconnexion（`256f`）HID 设备，以及 Logitech（`046d`）多轴控制器。 | `WARN unknown 3Dconnexion-vendor HID device <vid>:<pid>; add it to spacemouse-devices.yaml (see docs/spacemouse-commissioning.md#site-device-table) (<path>)`：在[站点设备表](spacemouse-commissioning.md#site-device-table)中加一条。 |
 
 没有 `--station` 也没有工作站文件时，`hosts:` 显示 `none`。
 
@@ -761,7 +762,7 @@ GPU side:   RemoteRobot ── GrpcClient (msgpack over gRPC, token metadata, re
   - `safety_box` 和笛卡尔单步上限只限制位置。工作区还可通过 `orientation_xyzw`（工作区坐标系内）与 `max_angle_rad`（SO(3) 测地半径，避开欧拉角分支切割）约束姿态。设备侧没有姿态单步上限。关节命令不检查笛卡尔工作区边界：这些限制无法证明关节轨迹、整臂净空或运动无碰撞。
   - 目标检查使用 `1e-9` 数值容差。反馈检查使用工作区键 `measured_margin_m`（默认 `0.003 m`）与 `measured_margin_rad`（默认 `0.03 rad`），两者均须为有限非负值。环境和遥操作跟踪器使用这些反馈余量，但绝不放宽目标准入。没有工作区时，`task_frame`（任务坐标系，task frame）只作为显示/采样参考，不增加空间约定。配置工作区时，重置前会将两者的几何定义与守护进程核对。
 - **Watchdog。** 客户端静默后，守护进程让伺服机械臂进入空闲，见第 4 步。
-- **`DeviceClaim`。** 基于 `~/.cache/robot_infra/claims/` 的节点本地建议性文件锁，键为 `<type>:<robot_ip | can_interface | name>`。客户端连接期间由守护进程持有，同机器人第二进程收到 `DeviceBusy`。它不防护其他主机或不取得锁的代码，可用 `claim: false` 有意退出。SpaceMouse 读取器默认也会占用其 HID 端点，作为机器人遥操作部件构建时遵循同一个 `RobotConfig.claim` 设置。其支持设备表为 PySpaceMouse 1.0.3 加上 `0x256f:0xc63a`（USB 连接的 SpaceMouse Wireless BT）。
+- **`DeviceClaim`。** 基于 `~/.cache/robot_infra/claims/` 的节点本地建议性文件锁，键为 `<type>:<robot_ip | can_interface | name>`。客户端连接期间由守护进程持有，同机器人第二进程收到 `DeviceBusy`。它不防护其他主机或不取得锁的代码，可用 `claim: false` 有意退出。SpaceMouse 读取器默认也会占用其 HID 端点，作为机器人遥操作部件构建时遵循同一个 `RobotConfig.claim` 设置。其内置设备表与 PySpaceMouse 1.0.3 相同；站点的 local 设备表可新增或覆盖型号。
 
 <a id="error-model"></a>
 

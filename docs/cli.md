@@ -126,10 +126,12 @@ output: `--json` is a usage error (exit 2), rather than silently producing text.
 Supervisor child arguments after `--` belong to the child.
 
 `discover` prints visible hardware without connecting to robot hosts. With
-`--json` it prints one object with `schema_version: 1` and five lists, each empty
+`--json` it prints one object with `schema_version: 1` and six lists, each empty
 when nothing is found: `cameras` (`backend`, `serial`), `teleops` (`backend`,
 `device`), `can_interfaces` (`name`, `operstate`, `bitrate`), `hosts` (`ip`,
-`ping_ok`, `open_ports`) and `hid_devices` (paths). Its text output is unchanged.
+`ping_ok`, `open_ports`), `hid_devices` (paths) and `unknown_hid` (`vid`, `pid`,
+`product`, `path`, `message`; see [site device table](spacemouse-commissioning.md#site-device-table)).
+Its text output adds a `warnings:` section only when `unknown_hid` is not empty.
 
 `setup` takes three per-arm camera stream flags, one value per arm or one for all
 arms: `--camera-resolution WIDTHxHEIGHT` (for example `1280x720`),

@@ -86,3 +86,40 @@ def test_change_only_reports_keep_cached_polls_distinct():
     assert sum(row['fresh_report'] for row in rows) == 1
     assert rows[-1]['mapped'] == rows[0]['mapped']
     assert rows[-1]['monotonic_s'] - rows[-1]['last_report_monotonic'] > .5
+
+
+def test_open_input_decodes_with_the_station_device_table(tmp_path, monkeypatch):
+    import sys
+    import types
+
+    import yaml
+
+    from real_world_rl.station import load_station
+    from real_world_rl.teleop.input_diagnostics import open_input
+
+    class Handle:
+        def open_path(self, path):
+            self.path = path
+        def set_nonblocking(self, enabled):
+            pass
+        def read(self, size):
+            return []
+        def close(self):
+            pass
+
+    sdk = types.ModuleType('hid')
+    sdk.device = Handle
+    sdk.enumerate = lambda: [{'vendor_id': 0x256F, 'product_id': 0xC63A, 'path': b'bt'}]
+    monkeypatch.setitem(sys.modules, 'hid', sdk)
+    monkeypatch.setattr('real_world_rl.common.device_ownership.process_owners', lambda *a, **k: [])
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path / 'xdg'))
+    station = tmp_path / 'station.yaml'
+    station.write_text(yaml.safe_dump({'type': 'franka', 'name': 'arm', 'arm_backend': 'fake', 'claim': False,
+                                       'teleop': {'backend': 'spacemouse'}}))
+    (tmp_path / 'spacemouse-devices.yaml').write_text(
+        'schema_version: 1\ndevices:\n  BT: {hid_id: [0x256F, 0xC63A], layout: SpaceMouse Wireless}\n')
+    config = load_station(station).select().config
+    with open_input(config) as reader:
+        assert reader.identity['model'] == 'BT'
+        assert reader.device_spec['source'] == 'local' and reader.device_spec['hid_id'] == '256f:c63a'

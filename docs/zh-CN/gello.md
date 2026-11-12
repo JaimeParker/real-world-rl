@@ -1,31 +1,27 @@
-<!-- English source: docs/gello.md -->
-
 <a id="gello-leader-arm-hardware-to-hil-training"></a>
 
-# GELLO 主臂 从硬件到 HIL 训练
+# GELLO 主臂：从硬件到 HIL 训练
 
-[中文入口](../README.zh-CN.md) · [English](../gello.md)
+GELLO 是 Franka Panda 的被动式 3D 打印副本，关节采用 Dynamixel 舵机，读取绝对关节角。本指南从工作台介绍到人工介入训练：硬件与权限、标定、机器人 YAML、示范录制，以及 `hil_serl`、`residual_hil_serl`、`silri` 命令。遥操作源语义（设备表、接管起始策略、介入包装器的 `info` 键）见 [teleop.md](teleop.md)；示范录制另见 [recording-demos.md](recording-demos.md)。首次操作可按[教程](tutorial/00-overview.md)使用配置向导（内联执行第 2 节标定并写入第 3 节 YAML），然后继续 BC、ACT、HIL 训练和部署。
 
-GELLO 是被动式、3D 打印的 Franka Panda 仿形主臂，以 Dynamixel 舵机读取绝对关节角。本指南从硬件台架走到人工介入训练，涵盖硬件与权限、标定、机器人 YAML、示范录制和 `hil_serl`、`residual_hil_serl`、`silri` 命令。遥操作输入源的设备表、接管起始策略及介入包装器 `info` 字段见 [teleop.md](teleop.md)；示范录制详见 [recording-demos.md](recording-demos.md)。首次上手建议阅读[教程](tutorial/00-overview.md)，其配置向导直接执行第 2 节标定并生成第 3 节 YAML，随后继续 BC、ACT、HIL 训练和部署。
-
-硬件设计来自 Philipp Wu 的 GELLO，采用 MIT 许可证：https://github.com/wuphilipp/gello_software 。`robot_infra` 的 `gello` 遥操作后端基于 ROBOTIS `dynamixel_sdk` 重新实现，未使用 GELLO 源码。
+硬件设计来自 GELLO（MIT 许可，Philipp Wu，https://github.com/wuphilipp/gello_software）。设备层的 `gello` 遥操作后端基于 ROBOTIS `dynamixel_sdk` 重新实现，未使用 GELLO 代码。
 
 接入路径选择：
 
-| 从臂软件栈 | 动作模式 | 遥操作设备 | GELLO 连接位置 |
+| 从臂技术栈 | 动作模式 | 遥操作设备 | GELLO 连接到 |
 | --- | --- | --- | --- |
-| `real_robot`（robot_infra、franky） | `joint_delta` 为教程各阶段主线，也支持 `joint_abs`；示范、基础策略和 HIL 必须一致。 | `--teleop-device leader_arm`，守护进程将 GELLO 作为机器人 `teleop:` 部件提供。 | 机器人 PC。 |
-| `real_robot` | 同上。 | `--teleop-device gello`，本地打开的 `GelloTeleopSource`。 | actor 机器。 |
-| `franka_real`（SERL HTTP 桥接，仅笛卡尔动作） | `cartesian_delta` | `--teleop-device leader_cartesian`，使用 Panda 正向运动学。 | 机器人主机，由占位机器人守护进程提供。 |
+| `real_robot`（设备层，franky） | `joint_delta`（教程各阶段统一使用）或 `joint_abs`；示范、基础策略和 HIL 必须统一 | `--teleop-device leader_arm`（机器人 daemon 将 GELLO 作为机器人 `teleop:` 部件提供） | 机器人 PC |
+| `real_robot` | 同上 | `--teleop-device gello`（本地打开的 `GelloTeleopSource`） | actor 机器 |
+| `franka_real`（SERL HTTP 桥接，仅笛卡尔） | `cartesian_delta` | `--teleop-device leader_cartesian`（Panda 正向运动学） | 机器人主机，经由占位机器人 daemon |
 
 <a id="1-hardware"></a>
 
 ## 1. 硬件
 
-- **总线适配器。** 可用 ROBOTIS U2D2，其 FTDI 芯片显示为 `/dev/serial/by-id/usb-FTDI_*`、`ttyUSB*`；或运行 USB-to-Dynamixel 透传固件的 OpenRB-150，显示为 `/dev/serial/by-id/usb-ROBOTIS_*`、`ttyACM*`。请配置稳定的 `/dev/serial/by-id/...` 路径，`ttyUSB0` 会随插拔顺序改变。
-- **舵机 ID 与波特率。** 下文默认关节 ID 为 1–7，扳机为 8。后端按 `baudrate` 打开串口，默认 57600，与 XL330 出厂值一致，不会写舵机 EEPROM。若通过 Dynamixel Wizard 改过波特率，例如提高到 1 Mbps，需同步修改 `baudrate:`。57600 波特下同步读取 8 个舵机约需 35 毫秒，适合 10 Hz 循环；更快循环需要提高波特率。
-- **先运行 doctor。** 工作站写明 GELLO `port` 后，在连接 GELLO 的机器上（激活项目环境）运行 `rwrl --station robot.yaml doctor --fix`。确认一次后，若端口不可读写，它将用户加入 `dialout` 并写入 `/etc/udev/rules.d/99-rwrl-gello-*.rules` 访问规则；若 FTDI 适配器的计时器不是 1 毫秒，写入持久的延迟规则，然后重新检查；重新拔插或重新登录可能作为待办操作保留（[cli.md](cli.md#robot-host-diagnosis-and-repair)）。下面的手动命令用于没有项目环境的机器，或手工查看这些值。
-- **FTDI 延迟计时器（U2D2）。** FTDI 驱动默认缓存串口数据 16 毫秒，可能给每次读取增加最多 16 毫秒。可设为 1 毫秒：
+- **总线适配器。** ROBOTIS U2D2（FTDI 芯片，显示为 `/dev/serial/by-id/usb-FTDI_*`、`ttyUSB*`），或运行 USB-to-Dynamixel 透传程序的 OpenRB-150（`/dev/serial/by-id/usb-ROBOTIS_*`、`ttyACM*`）。始终配置稳定的 `/dev/serial/by-id/...` 路径；`ttyUSB0` 会随插入顺序变化。
+- **舵机 ID 与波特率。** 下方默认关节 ID 为 1–7，扳机 ID 为 8。后端以 `baudrate`（默认 57600，XL330 出厂值）打开串口，绝不写舵机 EEPROM。若用 Dynamixel Wizard 改过波特率（如提高到 1 Mbps 加快读取），须相应设置 `baudrate:`。57600 下同步读取 8 个舵机约需 35 ms，适合 10 Hz 控制循环；更快循环应提高波特率。
+- **先运行 doctor。** 工作站指定 GELLO `port` 后，在 GELLO 所接机器的项目环境中运行 `rwrl --station robot.yaml doctor --fix`。确认一次后，若串口不可读写，会将用户加入 `dialout` 并写入 `/etc/udev/rules.d/99-rwrl-gello-*.rules` 访问规则；若 FTDI 延迟不是 1 ms，会写入持久延迟规则，再次检查；重新插拔或重新登录可能仍是待办动作（[cli.md](cli.md#robot-host-diagnosis-and-repair)）。下方手工命令适用于没有项目环境的机器，或用于手动核对。
+- **FTDI 延迟计时器（U2D2）。** FTDI 驱动默认缓存串口数据 16 ms，使每次读取增加最多 16 ms。设为 1 ms：
 
   ```bash
   cat /sys/bus/usb-serial/devices/ttyUSB0/latency_timer          # 16 by default
@@ -34,39 +30,38 @@ GELLO 是被动式、3D 打印的 Franka Panda 仿形主臂，以 Dynamixel 舵�
   # ACTION=="add", SUBSYSTEM=="usb-serial", DRIVER=="ftdi_sio", ATTR{latency_timer}="1"
   ```
 
-  OpenRB-150 是 USB CDC 设备，没有该延迟计时器。
-- **权限。** 用户需要加入 `dialout` 组，运行 `sudo usermod -aG dialout $USER` 后重新登录，或配置 udev；Docker 中通过 `--device=/dev/serial/by-id/...` 传入节点。`rwrl doctor --station robot.yaml` 检查端口存在及读写权限（`os:serial`）。后端不会终止其他进程或更改权限。
-- **供电。** 舵机需要供电才能读取。U2D2 无法通过 USB 给 Dynamixel 总线供电，应使用供电集线器或 OpenRB-150 电源。后端在连接和关闭时都向每个舵机写入力矩关闭命令，始终保持被动，由人工移动主臂。
+  OpenRB-150 是 USB CDC 设备，无延迟计时器。
+- **权限。** 用户需要 `dialout` 组（`sudo usermod -aG dialout $USER`，然后重新登录）或 udev 规则；Docker 中通过 `--device=/dev/serial/by-id/...` 传入节点。`rwrl doctor --station robot.yaml` 检查配置端口是否存在、可读写（`os:serial`）。后端从不终止进程或修改权限。
+- **供电。** 舵机必须通电才能读取（U2D2 不通过 USB 为 Dynamixel 总线供电；需电源集线器或 OpenRB-150 电源）。后端连接及关闭时都为所有舵机写入扭矩关闭，绝不使能扭矩：主臂仅由手动移动。
 
-> **使能力矩时的注意事项。** Dynamixel Wizard 测试或第 9 节未来主臂跟随功能启用 GELLO 舵机力矩后，主臂会自主运动。使用符合额定值的电源，XL330 标称 5 V，禁止使用 12 V；电源应能同时提供所有舵机的堵转电流，并设置较低的电流或 PWM 限制，保持手与线缆避开运动部件。该主臂的 XL330 力矩开启行为尚待验证。
+> **任何开启扭矩的用途都须注意。** 开启 GELLO 舵机扭矩（Dynamixel Wizard 测试，或第 9 节未来的主臂跟随）会使主臂自行运动。应使用额定电压（XL330 标称 5 V，绝不能用 12 V），电源须能同时提供所有舵机堵转电流，设置低电流或 PWM 限制，并让手和线缆远离运动区。该主臂 XL330 开启扭矩的行为尚未验证。
 
-在连接 GELLO 的机器上安装后端：
+在 GELLO 所接机器上安装后端：
 
 ```bash
-pip install -e "robot_infra[gello]"          # dynamixel-sdk
-pip install -e "robot_infra[gello-events]"   # evdev, only for an event_device (pedal/keyboard) on that machine
+pip install -e ".[gello]"                    # dynamixel-sdk
+pip install -e ".[gello-events]"             # evdev, only for an event_device (pedal/keyboard) on that machine
 ```
 
 <a id="2-calibration"></a>
 
 ## 2. 标定
 
-标定命令确定每台设备的关节方向、偏移和扳机范围，打印 `teleop:` YAML 配置块。`rwrl setup` 会逐臂直接执行并写入工作站文件，因此使用向导时可以跳过下方手动粘贴步骤，见 [robot_infra README](robot-infra.md#setup-wizard)。
+方向、位姿、扳机和读回的引导步骤见 [05 遥操作：GELLO](tutorial/05-teleop-gello.md)。标定命令输出 `teleop:` 块；`--use` 在工作站差异经审阅后写入标定的 `teleop.options`，无夹爪通道时移除夹爪键。
 
-```bash
-rwrl --station robot.yaml teleop calibrate --backend gello \
-    --port /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_XXXXXXXX-if00-port0 \
-    --joint-ids 1 2 3 4 5 6 7 --gripper-id 8
-```
+| 参数 | 默认值/用途 |
+|---|---|
+| `--port` | 工作站 `teleop.options.port` |
+| `--joint-ids` | 工作站 `teleop.options.joint_ids` |
+| `--gripper-id` | 工作站 `teleop.options.gripper_id`；缺省表示无夹爪通道 |
+| `--baudrate` | 工作站值，否则 57600 |
+| `--joint-signs` | 工作站值，否则全为 `+1` |
+| `--calibration-pose` | Franka 七关节位姿 `0 0 0 -pi/2 0 pi/2 0`（弧度） |
+| `--joint-limits-yaml` | 用于包裹中心的其他机器人 YAML；否则使用工作站 `joint_limits` |
+| `--skip-sign-check` | 保留初始符号；默认关闭 |
+| `--use` | 将标定选项保存到工作站；默认关闭 |
 
-在连接 GELLO 的机器上的终端中运行，并激活项目环境；每一步都会提示。未设置的标志取自工作站的 `teleop.options`（`--port`、`--joint-ids`、`--gripper-id`、`--baudrate`，否则 57600，以及 `--joint-signs`），环绕中心取自工作站的 `joint_limits`，因此工作站已有 GELLO `teleop:` 段后，单独运行 `rwrl --station robot.yaml teleop calibrate --backend gello` 即可重新标定。`--use` 在审阅差异后将标定选项写入工作站的 `teleop.options`（对没有夹爪通道的主臂去掉夹爪键），代替下文的粘贴。没有工作站文件时，`robot-infra gello-calibrate` 接受相同的主臂标志，`--port` 和 `--joint-ids` 必填；`rwrl gello-calibrate` 是 `teleop calibrate` 形式的已弃用别名。
-
-1. **方向检查。** 命令行逐关节要求沿机器人正方向移动并按 Enter，显示观测方向，除非回答 `n` 否则采用。移动不足 0.1 rad 时保留当前方向。`--joint-signs` 提供初始方向，默认全部 `+1`；`--skip-sign-check` 直接采用给定方向。
-2. **偏移。** 将主臂保持标定姿态并按 Enter。默认 Franka 姿态为 `0 0 0 -pi/2 0 pi/2 0`，可用 `--calibration-pose` 改变。偏移在四分之一圈网格上求解，因为舵盘以 90 度步长安装。残差大于 pi/8 时报告警告，表示姿态或方向有误。
-3. **扳机。** 完全打开后按 Enter，再完全闭合后按 Enter。
-4. **角度环绕中心。** 有工作站的 `joint_limits`（或 `--joint-limits-yaml` 提供另一份含 `joint_limits` 的机器人 YAML）时，以各关节范围中点为环绕中心；没有限位则用零并警告，这对范围超过 pi 的 Panda 第 6 关节不正确。
-
-除非传了 `--use`，将打印的配置块粘贴到第 3 节机器人 YAML。完整选项及默认值如下：
+生成的机器人 YAML 字段如下（占位角度须替换为该设备的标定值）：
 
 ```yaml
 teleop:
@@ -90,19 +85,11 @@ teleop:
     poll_interval_s: 0.0
 ```
 
-真机使用前检查结果：在标定姿态和其他几个姿态下读取主臂，对照主从臂关节角。在连接 GELLO 的机器上，激活项目环境：
-
-```bash
-rwrl --station robot.yaml teleop read --duration-s 30
-```
-
-每行显示主臂关节（`q=`，rad）、`gripper=`、`intervening=` 和已触发的 `events=`；没有守护进程时只打开 GELLO，从不打开机械臂（若工作站声明了未运行的守护进程，传入 `--direct`）。工作站声明了 `daemon:` 且其正在运行时，加上 `--with-follower`（仅守护进程路线）：每行还显示从臂的 `follower_q` 和逐关节 `delta`（主臂减从臂）。
-
 <a id="3-the-robot-yaml-real_robot-franky"></a>
 
 ## 3. 机器人 YAML（`real_robot`、franky）
 
-从 `robot_infra/docs/robot.franka.example.yaml` 开始，加入设备限制和 GELLO。也可以运行 `rwrl setup`，生成包含机器人、相机、GELLO 标定及守护进程端口的工作站 YAML，默认路径 `./local/station.yaml`，守护进程无需 `--config` 即可找到。向导写入 Panda `joint_limits`、`max_delta_per_step` 上限和请求的 `safety_box`。运动前按实际工作站核对数值；手写配置也需提供这些限制：
+从 `examples/stations/robot.franka.example.yaml` 开始，加入安全限制和 GELLO。也可使用 `rwrl setup`，生成包含机器人、相机、GELLO 标定和 daemon 端口的工作站 YAML（`./local/station.yaml`，daemon 无需 `--config` 即可找到）；它写入 Panda `joint_limits`、`max_delta_per_step` 上限和询问得到的 `safety_box`。运动前对照实际工作站检查这些值；手写文件也需相同限制：
 
 ```yaml
 type: franka
@@ -131,16 +118,16 @@ teleop:
   options: {...}                    # the calibration block of section 2
 ```
 
-- `max_delta_per_step.joint_rad` 限制每个伺服目标相对实测关节位置的距离。建议每步 0.03–0.05 rad，10 Hz 下为 0.3–0.5 rad/s；它约束策略和人工动作的单步幅度。`joint_abs` 缺少该项时拒绝运行。
-- actor 侧使用 `joint_scale_rad` 0.05，即 `real_robot` 默认值。`joint_delta` 动作 `+-1` 请求每步 `+-0.05` rad，守护进程继续按 `joint_rad` 裁剪。`state_fields` 必须含 `joint_pos`，主臂输入源要与它比较。
+- `max_delta_per_step.joint_rad` 将每个伺服目标限制在距实测关节该距离内。保持为每步 0.03–0.05 rad（10 Hz 下为 0.3–0.5 rad/s）：它限制任何策略或人工动作每步能做的事。无此项时 `joint_abs` 拒绝运行。
+- actor 侧使用 `joint_scale_rad` 0.05（`real_robot` 默认值）：`joint_delta` 的 `+-1` 表示每步请求 `+-0.05` rad，daemon 将超过 `joint_rad` 的部分裁剪。`state_fields` 必须包含 `joint_pos`（主臂源要与之比较）。
 
-在机器人 PC 上启动服务：
+在机器人 PC 提供服务：
 
 ```bash
-robot-infra daemon --station robot.yaml --bind 0.0.0.0:50051 --token T
+rwrl daemon --station robot.yaml --bind 0.0.0.0:50051 --token T
 ```
 
-actor 预设 `hil.yaml` 通过 `--config` 传入，完整字段见 README“真机运行”：
+actor 的预设（`hil.yaml`，通过 `--config` 传入；README 的“真机运行”节列出全部字段）：
 
 ```yaml
 env_backend: real_robot
@@ -160,86 +147,76 @@ real_robot:
   max_episode_steps: 200
 ```
 
-若 GELLO 连接 actor 机器，使用 `--teleop-device gello`，机器人 YAML 中移除 `teleop:` 段，将标定 `options` 以平面映射写入 `--teleop-options-yaml gello.yaml`，见 [teleop.md](teleop.md#devices)。
+若 GELLO 接在 actor 机器（`--teleop-device gello`），机器人 YAML 不配置 `teleop:`，将标定 `options` 作为平铺映射，经 `--teleop-options-yaml gello.yaml` 传入（[teleop.md](teleop.md#devices)）。
 
 <a id="4-franka_real-the-stub-robot-daemon"></a>
 
-## 4. `franka_real`：stub-robot 守护进程
+## 4. `franka_real`：占位机器人 daemon
 
-`franka_real` 连接只接受笛卡尔目标的 SERL HTTP 桥接。GELLO 接机器人主机，由 stub robot（`type: franka`、`arm_backend: fake`、无夹爪/相机）服务，只有 GELLO 是实体设备，配置参考 `robot_infra/docs/robot.gello_station.example.yaml`：
+`franka_real` 使用仅接受笛卡尔目标的 SERL HTTP 桥接。GELLO 接在机器人主机，由占位机器人（`type: franka`、`arm_backend: fake`、无夹爪、无相机）提供服务，其唯一真实设备是 GELLO，配置见 `examples/stations/robot.gello_station.example.yaml`：
 
 ```bash
 # on the robot host, next to the SERL bridge
-robot-infra daemon --station robot.gello_station.yaml --bind 0.0.0.0:50052
+rwrl daemon --station robot.gello_station.yaml --bind 0.0.0.0:50052
 ```
 
-actor 用 Panda 正向运动学将关节转为笛卡尔 twist，选择 `--teleop-device leader_cartesian --teleop-options-yaml station.yaml`，选项文件含 `remote_address: robot-host:50052`。follower 跟踪持续 command target：无人驱动时固定 hold，命令领先实测最多 `--teleop-lead-cap-m 0.05` / `--teleop-lead-cap-rad 0.3`，推进速度最多 `--teleop-target-speed-m-s 0.05` / `--teleop-target-speed-rad-s 0.3`。环境尺度至少等于上限，real_robot 用 0.05/0.3，franka_real 用其 action scales。同一输入源也支持 real_robot cartesian_delta，`examples/presets/gello_cartesian.yaml` 为单臂 50 Hz 仅状态预设。映射、tracker、夹爪及 DH 核对见 [teleop](teleop.md#leader-arm-on-a-cartesian-robot-leader_cartesian)。
+actor 用 Panda 正向运动学将主臂关节变成笛卡尔 twist（`--teleop-device leader_cartesian --teleop-options-yaml station.yaml`，`station.yaml` 中设 `remote_address: robot-host:50052`）。从臂跟踪持久命令目标：无人驱动时保持固定姿态；命令领先实测 TCP 不超过 `--teleop-lead-cap-m 0.05` / `--teleop-lead-cap-rad 0.3`，推进速度不超过 `--teleop-target-speed-m-s 0.05` / `--teleop-target-speed-rad-s 0.3`。环境缩放至少应等于领先上限（`--real-robot.xyz-scale-m 0.05 --real-robot.rot-scale-rad 0.3`，或 `franka_real` 动作缩放）。同一输入源也能驱动 `cartesian_delta` 的 `real_robot`；`examples/presets/gello_cartesian.yaml` 是其单臂 50 Hz、仅状态观测预设。映射、tracker、夹爪和 DH 检查见 [teleop.md](teleop.md#leader-arm-on-a-cartesian-robot-leader_cartesian)。
 
 <a id="5-recording-demos"></a>
 
 ## 5. 录制示范
 
-`examples/record_real_demos.py` 与 actor 使用相同的环境构建方式，仅记录介入步骤，输出 learner 通过 `--demo-dataset-paths` 加载的 pkl 和动作约定附属文件。录制动作模式必须与后续训练一致，附属文件不符时 learner 拒绝加载：`joint_delta` 全流程使用 `joint_delta` 示范，`joint_abs` 另录一套 `joint_abs` 数据，见[教程 04](tutorial/04-record-demos.md)。
-
-```bash
-rwrl record --config hil.yaml \
-    --teleop-device leader_arm --robot-teleop-action-mode joint_delta \
-    --teleop-event-device keyboard --output-path demos/task.pkl --num-successes 20
-```
-
-录制器默认排除 ramp 同步步骤，HIL actor 则保留；`--keep-syncing-steps` 可让录制器也保留。`--start-tolerance-rad`、回合起始同步和事件等参数见 [recording-demos.md](recording-demos.md)。
+受监督录制、操作员标记、归档检查和动作约定兼容性见 [08 录制示范](tutorial/08-record-demos.md)。示范与加载它的训练须使用同一动作模式；关节空间同步/导出细节见 [07 主从跟随](tutorial/07-teleop-leader-follower.md#2-record-with-joint-space-leader_arm)和[录制器参考](recording-demos.md)。
 
 <a id="6-hil-training"></a>
 
 ## 6. HIL 训练
 
-三种 HIL 方法接受同样参数。`--robot-teleop-action-mode joint_delta` 在远程连接前声明 teleop 部件；leader 只需声明某个关节空间，实际输出由环境 action_mode 决定。
+三种 HIL 方法使用相同的遥操作参数。`--robot-teleop-action-mode joint_delta` 在远程机器人连接前声明其 teleop 部件；对主臂只需声明一种关节空间，实际输出由环境 `action_mode` 决定。
 
-完整 learner/actor 命令见[教程 07](tutorial/07-hil-training.md)，该路线使用 `--teleop-device leader_arm --robot-teleop-action-mode joint_delta --teleop-event-device keyboard`；操作键与 onset 见[教程 06](tutorial/06-intervening.md)。
+`hil_serl`、`residual_hil_serl`（BC 或 ACT 基础策略）、`silri` 的完整 learner/actor 命令使用 `--teleop-device leader_arm --robot-teleop-action-mode joint_delta --teleop-event-device keyboard`，见[教程 10](tutorial/10-hil-training.md)；按键与接管起始方式见[操作员页](intervening.md)。
 
-模式和 `--teleop-onset` 说明见[教程 06](tutorial/06-intervening.md)。接管状态来自：
+介入切换的来源：
 
-- `--teleop-event-device keyboard`（教程路线）：actor 桌面的 pynput，`t` 接管、`h` 交还、Esc 结束、`s`/`f`/`r` 成功/失败/重录、`q` 回合后退出。`stdin` 从命令终端读取同样按键，无需桌面且支持 SSH。YAML 保留 `intervention: always`，事件状态覆盖它。
-- 机器人 PC evdev 键盘/脚踏：在 teleop options 配 `intervention: toggle` 和 `/dev/input/by-id/...` 的 `event_device`，安装 `gello-events`、用户在 input 组，去掉 CLI 事件设备；按键由 `event_keys` 决定。
-
-向导 `rwrl setup` 将 GELLO 选项、标定、teleop 和守护端口写入 station，见 [setup wizard](robot-infra.md#setup-wizard)，可直接用它代替手写机器人 YAML。
+- `--teleop-event-device keyboard`（教程路径）：通过 `pynput` 读取 actor 机器键盘（`t` 接管、`h` 交还、Esc 结束回合、`s`/`f`/`r` 产生成功/失败/重录，`q` 结束回合并在回合后停止运行；`pynput` 需要该机器桌面会话）。`--teleop-event-device stdin` 从运行命令的终端读取相同按键（无需桌面，可通过 SSH）。YAML 保持 `intervention: always`，事件设备状态会替代它。
+- 机器人 PC 上的 evdev 脚踏或键盘：在 YAML 的 `teleop:` 选项中设 `intervention: toggle`、`event_device: /dev/input/by-id/...`（扩展 `gello-events`，用户加入 `input` 组），省略 `--teleop-event-device`。按键由 `event_keys` 指定（默认值见上文）。
 
 <a id="two-gellos-two-arms"></a>
 
-### 两套 GELLO 与双臂
+### 两套 GELLO、双臂
 
-双臂 station 使用 `--env-backend real_robot_bimanual`，每台机器人各接一套 GELLO。向导探测两条总线并分别内联标定，写入 `robots: {left, right}`，各含 teleop 和守护端口；带注释示例为 `robot_infra/docs/station.bimanual.example.yaml`。用 `--teleop-device bimanual`；`--teleop-arm-device leader_arm` 读各臂服务的 GELLO，或 `--teleop-arm-device gello --teleop-options-yaml <station.yaml>` 在 actor 本机从同一 station 打开两套。一个 keyboard 或 stdin 事件设备可同时接管/交还两臂。规则见 [teleop](teleop.md#two-arms-bimanual)。
+双臂工作站（`--env-backend real_robot_bimanual`，[bimanual.md](bimanual.md)）为每台机器人配一套 GELLO。`rwrl setup` 生成双臂工作站 YAML：探测 GELLO 总线、内联标定每套设备，写入 `robots: {left, right}`，每台有自己的 `teleop:` 与 daemon 端口（设备层指南的[配置向导](tutorial/02-setup.md)；`examples/stations/station.bimanual.example.yaml` 是注释示例）。随后以 `--teleop-device bimanual` 训练或录制：`--teleop-arm-device leader_arm` 通过各臂 daemon 读取 GELLO；`--teleop-arm-device gello --teleop-options-yaml <station.yaml>` 在 actor 机器按同一文件选项打开两套 GELLO。一个 `--teleop-event-device keyboard`（或 `stdin`）同时接管/交还两臂；介入规则见 [teleop.md](teleop.md#two-arms-bimanual)。
 
 <a id="7-what-the-hil-rows-record"></a>
 
-## 7. HIL 数据记录内容
+## 7. HIL 数据行记录什么
 
-介入时 actor 执行主臂输入源动作，并作为 transition 的 `action` 推送。以下行为由 `tests/test_leader_arm_hil_loops.py` 的脚本化端到端检查覆盖：
+人工介入时，actor 执行主臂源动作，并将它作为 transition 的 `action` 上传。细节如下（对应 `tests/test_leader_arm_hil_loops.py` 的脚本化端到端检查）：
 
-- **`joint_delta`。** 动作为 `clip((q_leader - q_follower) / joint_scale_rad, -1, 1)`：主臂较远时每步以 `joint_scale_rad` 饱和跟随，对齐后动作为零。`ramp` 将最初追赶阶段标为同步，直到主从差距首次进入 `joint_scale_rad`；同一次接管后续的饱和教学步骤仍是普通监督数据。
-- **`joint_abs` 配合 `--teleop-onset ramp`。** 切换后的前几步限制速率：目标为 `q_follower + clip(q_leader - q_follower, +-ramp_step_rad)`，存储动作就是实际执行目标。这些步骤携带 `info["teleop_events"]["teleop_syncing"] = True`。归档保留实际动作和人工掩码，训练排除其中的专家监督。同步结束后，动作是归一化的主臂关节目标。
-- **`--teleop-onset arm`。** 主臂与从臂差距进入 `--teleop-arm-tolerance-rad`（0.1）前，接管开关不生效：策略继续动作，记录不标记介入，每秒记录一次逐关节误差。对齐后，每步均为介入，直到释放开关。
-- **`residual_hil_serl`。** 存储的 `action` 是人工总动作；`base_actions` 是相同观测下基础策略的动作，`policy_action` 是残差策略提议。
-- **`silri`。** `intervention_onset` 标记首次人工步骤前的 transition：`ramp` 下是按开关前的策略步骤；`arm` 下是主臂完成就绪前的最后一步，开关到就绪之间仍由策略执行。
-- **夹爪。** `[0, 1]` 中的扳机宽度 `w` 转为 `2w - 1`。混合夹爪头（`hil_serl` 的 DQN、`--residual-variant hybrid`、`silri` 离散夹爪）将存储的夹爪动作映射到最近的 `-1`/`0`/`+1`，半按扳机因此会得到“保持”标签。这些方法应在 GELLO 选项中设置 `gripper_binarize_threshold: 0.5`，使存储动作恰为 `+1`（打开）或 `-1`（闭合）。
+- **`joint_delta`。** 动作为 `clip((q_leader - q_follower) / joint_scale_rad, -1, 1)`：主臂较远时每步饱和至 `joint_scale_rad`，直到从臂追上，对齐后为零。`ramp` 下，主臂首次进入 `joint_scale_rad` 范围前的初始追赶标为 syncing；对齐后再次饱和的教学步骤仍是正常监督。
+- **`joint_abs` 与 `--teleop-onset ramp`。** 切换后最初几步限速：目标为 `q_follower + clip(q_leader - q_follower, +-ramp_step_rad)`，保存动作就是该目标（实际执行命令）。这些步骤带 `info["teleop_events"]["teleop_syncing"] = True`。归档保留实际动作和人工掩码，训练排除其专家监督。爬坡结束后，动作为主臂归一化关节目标。
+- **`--teleop-onset arm`。** 主臂与从臂距离进入 `--teleop-arm-tolerance-rad`（0.1）前，切换不生效：策略继续动作，数据行不算介入，每秒记录一次逐关节误差。随后每步算介入，直到交还。
+- **`residual_hil_serl`。** 保存的 `action` 是人工总动作（不是相对基础策略的偏移）；`base_actions` 是同一观测的基础策略动作，`policy_action` 是残差策略建议动作。
+- **`silri`。** `intervention_onset` 标记人工首个介入步骤之前的 transition：`ramp` 时为切换前的策略步，`arm` 时为主臂就绪前最后一步（切换到就绪之间仍是策略动作）。
+- **夹爪。** `[0, 1]` 内扳机宽度 `w` 变成 `2w - 1`。混合夹爪头（`hil_serl` DQN、`--residual-variant hybrid`、`silri` 离散夹爪）将保存夹爪动作标为最近的 `-1`/`0`/`+1`，因此半扣扳机会成为“保持”标签。对这些方法应在 GELLO 选项设 `gripper_binarize_threshold: 0.5`，保存动作便严格为 `+1`（开）或 `-1`（闭）。
 
 <a id="onset-ramp-or-arm"></a>
 
-### 接管起始方式 `ramp` 或 `arm`
+### 接管起始：`ramp` 或 `arm`
 
-默认 `ramp` 立即接管，按每步 `ramp_step_rad`（`joint_abs`）或 `joint_scale_rad`（`joint_delta`）追赶主臂。两种模式都标记初始同步，训练投影排除其专家监督。`arm` 在每次接管前要求操作员手动对齐主从臂，每次环境 reset 都会解除就绪状态，从而避免追赶过渡进入数据或机器人运动。需要从静止机器人开始示范时优先选 `arm`，快速修正可用 `ramp`。
+`ramp`（默认）立即接管，以每步 `ramp_step_rad`（`joint_abs`）或 `joint_scale_rad`（`joint_delta`）让从臂靠近主臂。两种模式均将追赶标为 syncing，训练投影排除其专家监督。`arm` 将过渡过程排除在数据与机器人动作之外，但要求操作员每次接管前先手动将主臂对齐从臂（每次环境 reset 均解除就绪）。示范应从静止机器人开始时优先用 `arm`，快速修正用 `ramp`。
 
 <a id="8-not-verified-yet"></a>
 
 ## 8. 尚待验证
 
-- 当前流程仅通过 fake 设备运行，CPU 测试使用脚本化主臂和 fake Dynamixel SDK；尚未在物理 GELLO 或机器人上执行。
-- 第 1 节的适配器、波特率、延迟、读取时间和每台设备偏移、方向为默认值或估计，应在实际设备上核对。
-- XL330 的力矩开启行为与供电要求仍待验证，见第 1 节；后端保持力矩关闭。
-- `leader_cartesian` 使用的 Panda DH 表尚未与真机比较，检查方式见 [teleop.md](teleop.md#verify-the-dh-table-on-the-robot)。
+- 流程仅使用 fake 验证（脚本化主臂部件和 fake Dynamixel SDK 的 CPU 测试），尚未在真实 GELLO 或机器人运行。
+- 第 1 节硬件信息（适配器、波特率、延迟、读取时间）及逐设备偏移/符号为默认值或估计，需在实际设备检查。
+- XL330 开启扭矩行为与供电（第 1 节警告）；后端保持扭矩关闭。
+- `leader_cartesian` 的 Panda DH 表尚未与真机比较（检查方法见 [teleop.md](teleop.md#verify-the-dh-table-on-the-robot)）。
 
 <a id="9-future-work-leader-tracking-wp8"></a>
 
-## 9. 后续工作 主臂跟随 WP8
+## 9. 后续工作：主臂跟随（WP8）
 
-开启力矩后，策略执行期间主臂可以跟踪从臂，使接管开始时两者已经对齐，无需额外接管起始策略。这需要先完成第 1 节的供电和安全工作，包括限流位置控制，以及操作员握住主臂时的柔顺交接；当前尚未实现。
+开启扭矩后，策略动作期间主臂可跟随从臂，接管时两臂已对齐，无需两种接管起始策略。这需要第 1 节的扭矩供电与安全工作（限流位置控制、操作员抓住主臂时柔顺交接），尚未实现。

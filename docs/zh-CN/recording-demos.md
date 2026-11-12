@@ -6,7 +6,7 @@
 
 `examples/record_real_demos.py` 将真机遥操作的完整回合归档到 SQLite，并将成功人工示范导出为 `--demo-dataset-paths` 接受的 pkl 格式（`hil_serl`、`residual_hil_serl`、`silri`、`real_world_bc`）。BC/HIL 加载器还接受 `.trajectory.sqlite3` 和 `.trajectory.pt`。ACT 轨迹训练器使用 pkl。实现位于 `real_world_rl/demos/record.py`。
 
-录制器与 HIL actor 使用完全相同的环境构建方式（`build_hil_env(args, role="actor")`），因此接受与 `train_real_world.py hil_serl` 相同的环境、遥操作、观测参数和 `--config` 预设。请采用后续加载示范的运行参数：录制的观测和动作必须与其环境匹配（加载时检查 pkl 的契约附属文件）。[教程 04](tutorial/04-record-demos.md) 讲解首次录制，[教程 06](tutorial/06-intervening.md) 是操作员指南（按键、接管起始和记录内容）。
+录制器与 HIL actor 使用完全相同的环境构建方式（`build_hil_env(args, role="actor")`），因此接受与 `train_real_world.py hil_serl` 相同的环境、遥操作、观测参数和 `--config` 预设。请采用后续加载示范的运行参数：录制的观测和动作必须与其环境匹配（加载时检查 pkl 的契约附属文件）。[教程 08](tutorial/08-record-demos.md) 讲解首次录制，[操作员指南](intervening.md) 是操作员指南（按键、接管起始和记录内容）。
 
 对于已调试 `real_robot` 工作站上的 SpaceMouse，受监督的 [`rwrl teleop run` 流程](spacemouse-commissioning.md#supervised-recording-sessions) 增加显式回合结束保持。标签封存轨迹；此后手柄运动不生效，直到 `n` 请求新回合且手柄稳定回中。`q` 释放控制，达到回合预算后也如此。仍支持同一轨迹内反复接管/交还，不触发此回中检查。检查后，录制和 actor 循环获取新观测；首个归档帧及策略输入均来自回中确认后，图像堆叠历史也用该新帧重新填充。Python 录制器默认仍为 `episode_end_behavior: auto`；直接使用时需显式选择 `hold`。
 

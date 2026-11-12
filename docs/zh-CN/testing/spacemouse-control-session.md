@@ -85,7 +85,7 @@ rwrl --station local/station.yaml --preset local/task.yaml teleop run --mode tra
 rwrl --station local/station.yaml --preset local/task.yaml teleop run --mode tracker --record local/check-session.pkl --num-successes 2 --max-episodes 3
 ```
 
-D1：在同一轨迹内至少两次执行人工 → 交还 → 人工 → 交还。tracker 用按钮 0；SERL 用运动/按钮，空闲时返回。录制交还使用其保持策略。验证**已学习策略**恢复时，使用已审阅的[训练流程](../tutorial/07-hil-training.md)和 `episode_end_behavior: hold` 重复 D1；仅录制器运行不能通过此子项。记录策略版本、人工掩码及同一回合中至少两次控制权转换；交还时不得发生 reset 或回中检查。
+D1：在同一轨迹内至少两次执行人工 → 交还 → 人工 → 交还。tracker 用按钮 0；SERL 用运动/按钮，空闲时返回。录制交还使用其保持策略。验证**已学习策略**恢复时，使用已审阅的[训练流程](../tutorial/10-hil-training.md)和 `episode_end_behavior: hold` 重复 D1；仅录制器运行不能通过此子项。记录策略版本、人工掩码及同一回合中至少两次控制权转换；交还时不得发生 reset 或回中检查。
 
 D2：标记成功/失败，再移动手柄。最后接受的目标必须保持固定，不得增加轨迹转移，新轨迹只能在 n 和稳定回中输入后开始。默认六轴最大幅值 ≤0.05、按钮释放持续 0.2 秒；记录任何覆盖值。达到回合配额时，n 必须保持禁用，q 可退出。用新输出在 SERL 模式重复。
 

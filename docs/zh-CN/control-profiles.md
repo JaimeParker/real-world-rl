@@ -2,8 +2,6 @@
 
 # 机械臂控制配置
 
-[中文入口](../README.zh-CN.md) · [English](../devices/control-profiles.md)
-
 工作站 YAML 可为每个机械臂分别声明阻抗配置：
 
 ```yaml
@@ -19,7 +17,7 @@ control:
 
 以下是示意设置。操作硬件前应按实际负载、工具、任务和已安装 SDK 选择并验证数值。自动测试覆盖 fake SDK 与本地 RPC；机器人稳定性需要上机测量。
 
-`robot_infra.control.ArmControlConfig` 无需导入 torch 即可验证有限数值和向量大小。笛卡尔增益使用 tracker 的标量平移/旋转刚度参数、六轴阻尼向量和三轴误差裁剪。关节控制具有独立 `joint_stiffness`、`joint_damping` 向量，长度与机械臂关节数一致。`max_delta_tau` 和 `gains_time_constant` 传给两类 tracker。
+`real_world_rl.devices.control.ArmControlConfig` 无需导入 torch 即可验证有限数值和向量大小。笛卡尔增益使用 tracker 的标量平移/旋转刚度参数、六轴阻尼向量和三轴误差裁剪。关节控制具有独立 `joint_stiffness`、`joint_damping` 向量，长度与机械臂关节数一致。`max_delta_tau` 和 `gains_time_constant` 传给两类 tracker。
 
 实验配置可覆盖工作站增益，但只能减小已声明的扭矩变化速率限制与误差裁剪。现有工作空间和伺服步长上限继续由 `ArmSafety` 独立执行，控制配置与这些限制共同生效。
 

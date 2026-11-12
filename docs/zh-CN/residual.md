@@ -4,7 +4,7 @@
 
 [中文入口](../README.zh-CN.md) · [English](../residual.md)
 
-`residual_hil_serl` 在真机上基于冻结的基础策略（BC、较早的 RL checkpoint 或 ACT）学习有界修正，沿用 HIL-SERL 的 actor / learner 分离、示范缓冲区与人工介入。硬件配置、BC 和 ACT 基础策略，以及首次残差训练见教程 [05 基础策略](tutorial/05-base-policy.md) 和 [07 HIL 训练](tutorial/07-hil-training.md#residual_hil_serl-bc-base)；双臂修改见 [bimanual.md](bimanual.md#two-arms-the-tutorial-steps)。
+`residual_hil_serl` 在真机上基于冻结的基础策略（BC、较早的 RL checkpoint 或 ACT）学习有界修正，沿用 HIL-SERL 的 actor / learner 分离、示范缓冲区与人工介入。硬件配置、BC 和 ACT 基础策略，以及首次残差训练见教程 [09 基础策略](tutorial/09-base-policy.md) 和 [10 HIL 训练](tutorial/10-hil-training.md#residual_hil_serl-bc-base)；双臂修改见 [bimanual.md](bimanual.md#two-arms-the-tutorial-steps)。
 
 <a id="method"></a>
 
@@ -74,7 +74,7 @@ learner 无需加载基础策略。actor 为每条 transition 保存 `obs` 和 `
 L_bc = mean over intervened rows of  sum_d ( u_d - clip((a_human_d - a_base_d) / scale_d, -1, 1) )^2
 ```
 
-对非零缩放维度求和，批次没有介入数据时会保护分母。在 `--log-freq` 边界，learner 除 SAC 损失（`losses/critic_loss`、`losses/actor_loss`、`entropy/alpha`、`q/predicted` 等）外，还将该项记录为 `losses/actor/residual_bc`，批次介入占比记录为 `losses/actor/intervened_fraction`。两项只在训练 actor 的更新中记录，因此 `--critic-only-updates` 阶段不会出现。actor 每回合的 `actor/intervention_rate` 是机器人执行步骤中的介入比例，见[教程 07](tutorial/07-hil-training.md#what-to-watch)。
+对非零缩放维度求和，批次没有介入数据时会保护分母。在 `--log-freq` 边界，learner 除 SAC 损失（`losses/critic_loss`、`losses/actor_loss`、`entropy/alpha`、`q/predicted` 等）外，还将该项记录为 `losses/actor/residual_bc`，批次介入占比记录为 `losses/actor/intervened_fraction`。两项只在训练 actor 的更新中记录，因此 `--critic-only-updates` 阶段不会出现。actor 每回合的 `actor/intervention_rate` 是机器人执行步骤中的介入比例，见[教程 10](tutorial/10-hil-training.md#what-to-watch)。
 
 <a id="warm-up"></a>
 
@@ -87,7 +87,7 @@ L_bc = mean over intervened rows of  sum_d ( u_d - clip((a_human_d - a_base_d) /
 
 ## 命令
 
-完整的 BC / ACT 基础策略下 learner、actor、eval 命令、环境预设和遥操作参数见[教程 07](tutorial/07-hil-training.md#residual_hil_serl-bc-base)，部署见[教程 08](tutorial/08-deploy.md)。GELLO 由机器人守护进程提供、环境采用 `joint_delta` 时，最简形式如下；包括 learner 在内的每个角色都需要 `--base-provider`：
+完整的 BC / ACT 基础策略下 learner、actor、eval 命令、环境预设和遥操作参数见[教程 10](tutorial/10-hil-training.md#residual_hil_serl-bc-base)，部署见[教程 11](tutorial/11-deploy.md)。GELLO 由机器人守护进程提供、环境采用 `joint_delta` 时，最简形式如下；包括 learner 在内的每个角色都需要 `--base-provider`：
 
 ```bash
 rwrl train residual_hil_serl --role actor --config hil.yaml \

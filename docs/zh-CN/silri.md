@@ -4,7 +4,7 @@
 
 [中文入口](../README.zh-CN.md) · [English](../silri.md)
 
-`silri` 从可能次优的人工介入中训练真机策略，依据论文《Real-world Reinforcement Learning from Suboptimal Interventions》（HIL-RL，arXiv 2512.24288）及其参考实现 github.com/nuomizai/HIL-RL 的 `silri` 策略。它采用离策略 actor-critic：actor 被拉向学习得到的人工动作模型，约束强度取决于人工行为一致性。随状态变化的拉格朗日乘子施加距离约束，容许范围随人工模型分散程度增大。硬件配置与首次运行见[教程 07](tutorial/07-hil-training.md#silri)，双臂修改见 [bimanual.md](bimanual.md#two-arms-the-tutorial-steps)。
+`silri` 从可能次优的人工介入中训练真机策略，依据论文《Real-world Reinforcement Learning from Suboptimal Interventions》（HIL-RL，arXiv 2512.24288）及其参考实现 github.com/nuomizai/HIL-RL 的 `silri` 策略。它采用离策略 actor-critic：actor 被拉向学习得到的人工动作模型，约束强度取决于人工行为一致性。随状态变化的拉格朗日乘子施加距离约束，容许范围随人工模型分散程度增大。硬件配置与首次运行见[教程 10](tutorial/10-hil-training.md#silri)，双臂修改见 [bimanual.md](bimanual.md#two-arms-the-tutorial-steps)。
 
 代码：`real_world_rl/policies/silri_policy.py`（`SiLRIPolicy`）、`real_world_rl/algorithms/silri.py`（`SiLRI`）、`real_world_rl/loops/silri.py`（`SilriActorLoop`、`SilriLearnerLoop`）、`real_world_rl/training/entrypoints/silri.py`（`SilriArgs`、`build_silri`、`run_silri`）。
 
@@ -123,7 +123,7 @@ SilriActorLoop                                      SilriLearnerLoop
 
 ## 命令行
 
-learner、actor、eval 的完整命令、环境预设和遥操作参数见[教程 07](tutorial/07-hil-training.md#silri)；部署见[教程 08](tutorial/08-deploy.md)。`--algo silri` 通过 rl-garden 在线注册表的 `silri` 条目重建智能体。GELLO 由机器人守护进程提供、环境采用 `joint_delta` 时的最简形式如下：
+learner、actor、eval 的完整命令、环境预设和遥操作参数见[教程 10](tutorial/10-hil-training.md#silri)；部署见[教程 11](tutorial/11-deploy.md)。`--algo silri` 通过 rl-garden 在线注册表的 `silri` 条目重建智能体。GELLO 由机器人守护进程提供、环境采用 `joint_delta` 时的最简形式如下：
 
 ```bash
 rwrl train silri --role learner --config hil.yaml --demo-dataset-paths 'demos/*.pkl'

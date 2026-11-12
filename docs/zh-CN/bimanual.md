@@ -76,14 +76,14 @@ real_robot_bimanual:
 
 ## 运行两个守护进程
 
-每臂使用独立 `robot_infra` 守护进程、机器人 YAML 和端口，见 robot_infra README 的[如何开始](robot-infra.md#how-to-start)。可以在两台机器人 PC 上运行，也可以在一台 PC 上使用两个端口：
+每臂使用独立 `robot_infra` 守护进程、机器人 YAML 和端口，见机器人守护进程参考的[开始服务](daemon.md#serve-the-robot)。可以在两台机器人 PC 上运行，也可以在一台 PC 上使用两个端口：
 
 ```bash
-robot-infra daemon --station left.yaml --bind 0.0.0.0:50051 --watchdog-s 5
-robot-infra daemon --station right.yaml --bind 0.0.0.0:50052 --watchdog-s 5
+rwrl daemon --station left.yaml --bind 0.0.0.0:50051 --watchdog-s 5
+rwrl daemon --station right.yaml --bind 0.0.0.0:50052 --watchdog-s 5
 ```
 
-含 `robots:` 列表的 robot_infra 工作站 YAML 描述两臂。`rwrl setup` 的[配置向导](robot-infra.md#setup-wizard)会生成该文件；不传 `--station` 运行 `robot-infra daemon --watchdog-s 5`，会按文件中每臂的 `daemon.bind` 启动一个进程。因此仅在使用独立 YAML 文件时才需要上面的两条命令。将 `left.remote` / `right.remote` 指向对应地址。
+含 `robots:` 列表的 robot_infra 工作站 YAML 描述两臂。`rwrl setup` 的[配置向导](tutorial/02-setup.md)会生成该文件；不传 `--station` 运行 `rwrl daemon --watchdog-s 5`，会按文件中每臂的 `daemon.bind` 启动一个进程。因此仅在使用独立 YAML 文件时才需要上面的两条命令。将 `left.remote` / `right.remote` 指向对应地址。
 
 <a id="teleop-and-demo-recording"></a>
 
@@ -136,7 +136,7 @@ rwrl deploy --checkpoint runs/<bc run>/checkpoints/final.pt \
 
 ## 已完成的无硬件验证
 
-`tests/test_bimanual_station_smoke.py` 使用 fake 设备验证完整双臂流程。工作站 YAML 的 `robots: {left, right}` 为每臂配置 fake 机械臂、夹爪、两台相机和脚本化 `joint_abs` 主臂部件，其中一个守护进程设置令牌。通过 `robot_infra.discovery.autoconfig.load_station` 加载，每臂由回环地址上的独立 gRPC 守护进程服务，构建函数为 `robot_infra.server.daemon.build_daemon`，与 `robot-infra daemon` 每臂启动的实现相同。测试通过后端注册表构建 `real_robot_bimanual` 环境，每臂独立 `remote`，采用 `joint_delta` 和四台 `--obs.rgb` 相机，然后依次运行下列命令对应的流程：
+`tests/test_bimanual_station_smoke.py` 使用 fake 设备验证完整双臂流程。工作站 YAML 的 `robots: {left, right}` 为每臂配置 fake 机械臂、夹爪、两台相机和脚本化 `joint_abs` 主臂部件，其中一个守护进程设置令牌。通过 `robot_infra.discovery.autoconfig.load_station` 加载，每臂由回环地址上的独立 gRPC 守护进程服务，构建函数为 `robot_infra.server.daemon.build_daemon`，与 `rwrl daemon` 每臂启动的实现相同。测试通过后端注册表构建 `real_robot_bimanual` 环境，每臂独立 `remote`，采用 `joint_delta` 和四台 `--obs.rgb` 相机，然后依次运行下列命令对应的流程：
 
 ```bash
 rwrl train hil_serl --role actor --config bimanual.yaml \
@@ -168,7 +168,7 @@ rwrl deploy --checkpoint runs/<bc run>/checkpoints/final.pt \
 
 **硬件（[01](tutorial/01-install.md)）。** 每臂需要一台 Franka Panda 与 Hand、一套 GELLO 与总线适配器，以及一台腕部相机。第二臂的 FCI 地址必须不同，向导还会探测 `172.16.1.2`。
 
-**工作站（[02](tutorial/02-station.md)）。** 在 `number of arms` 处回答 `2`，默认名称为 `left right`。向导会对每臂提问一次，分别显示 `-- arm 'left' (1/2) --` 和 `-- arm 'right' (2/2) --`：
+**工作站（[02](tutorial/02-setup.md)）。** 在 `number of arms` 处回答 `2`，默认名称为 `left right`。向导会对每臂提问一次，分别显示 `-- arm 'left' (1/2) --` 和 `-- arm 'right' (2/2) --`：
 
 - 第二臂的机器人 IP、GELLO 串口和守护进程端口必须不同；重复选择会被拒绝，已选设备标记为 `(used by another arm)`。默认端口为 50051 和 50052。
 - 向导为每臂分配下一台可用相机作为腕部相机，命名 `wrist_left`、`wrist_right`；最后一臂还会分配其余相机，例如 `front`。
@@ -217,13 +217,13 @@ real_robot_bimanual:
     state_fields: [joint_pos, gripper_pos]
 ```
 
-**守护进程（[03](tutorial/03-daemon.md)）。** doctor 分别打印 `== robot 'left' ==`、`== robot 'right' ==` 和最终 `overall: 2 robots, all passed`；`--robot left` 只检查一臂。运行相同的 `robot-infra daemon --watchdog-s 5` 会启动两个守护进程，先显示 `starting 2 daemons from <path>: 'left' on 0.0.0.0:50051, 'right' on 0.0.0.0:50052`，随后各进程输出自己的预检查与 `serving ...`。端口来自文件的 `daemon.bind`。`--robot left` 只启动一臂；多机器人时 `--bind` 和 `--token` 会报错，应逐臂写入文件。无硬件演练由 `tests/test_bimanual_station_smoke.py` 完成，见[无硬件验证](#verified-hardware-free)。
+**守护进程（[03](tutorial/03-franka-bringup.md)）。** doctor 分别打印 `== robot 'left' ==`、`== robot 'right' ==` 和最终 `overall: 2 robots, all passed`；`--robot left` 只检查一臂。运行相同的 `rwrl daemon --watchdog-s 5` 会启动两个守护进程，先显示 `starting 2 daemons from <path>: 'left' on 0.0.0.0:50051, 'right' on 0.0.0.0:50052`，随后各进程输出自己的预检查与 `serving ...`。端口来自文件的 `daemon.bind`。`--robot left` 只启动一臂；多机器人时 `--bind` 和 `--token` 会报错，应逐臂写入文件。无硬件演练由 `tests/test_bimanual_station_smoke.py` 完成，见[无硬件验证](#verified-hardware-free)。
 
-**录制示范（[04](tutorial/04-record-demos.md)）。** 设备参数改为 `--config bimanual.yaml --teleop-device bimanual --teleop-arm-device leader_arm --robot-teleop-action-mode joint_delta --teleop-event-device keyboard`。每臂读取自己的 GELLO，任一操作员介入就记录该步，另一臂保持静止。`--max-episode-steps` 覆盖 `--real_robot_bimanual.max_episode_steps`。
+**录制示范（[08](tutorial/08-record-demos.md)）。** 设备参数改为 `--config bimanual.yaml --teleop-device bimanual --teleop-arm-device leader_arm --robot-teleop-action-mode joint_delta --teleop-event-device keyboard`。每臂读取自己的 GELLO，任一操作员介入就记录该步，另一臂保持静止。`--max-episode-steps` 覆盖 `--real_robot_bimanual.max_episode_steps`。
 
-**基础策略（[05](tutorial/05-base-policy.md)）。** BC 使用相同命令，将配置换为 `--config bimanual.yaml`。
+**基础策略（[09](tutorial/09-base-policy.md)）。** BC 使用相同命令，将配置换为 `--config bimanual.yaml`。
 
-**HIL 训练（[07](tutorial/07-hil-training.md)）。** 仅修改 `ENV_FLAGS`。三个智能体都会从环境动作约定推断 `num_grippers=2`，无需手动传入：
+**HIL 训练（[10](tutorial/10-hil-training.md)）。** 仅修改 `ENV_FLAGS`。三个智能体都会从环境动作约定推断 `num_grippers=2`，无需手动传入：
 
 ```bash
 ENV_FLAGS="--config bimanual.yaml --teleop-device bimanual --teleop-arm-device leader_arm \
@@ -232,7 +232,7 @@ ENV_FLAGS="--config bimanual.yaml --teleop-device bimanual --teleop-arm-device l
 
 BC 基础策略无需额外设置，描述为 `checkpoint:...?algo=real_world_bc`。双臂 `hil_serl`（`rlpd_hybrid`）checkpoint 作为基础策略时需要显式指定夹爪数量：`checkpoint:<path>?algo=rlpd_hybrid&num_grippers=2`，见[提供器表](residual.md#base-action-providers)。
 
-**部署（[08](tutorial/08-deploy.md)）。** 增加 `--env-backend real_robot_bimanual`，并提供每臂连接与相机；双臂相机列表不会从训练记录自动填入：
+**部署（[11](tutorial/11-deploy.md)）。** 增加 `--env-backend real_robot_bimanual`，并提供每臂连接与相机；双臂相机列表不会从训练记录自动填入：
 
 ```bash
 rwrl deploy --checkpoint runs/bc/checkpoints/final.pt \
@@ -243,7 +243,7 @@ rwrl deploy --checkpoint runs/bc/checkpoints/final.pt \
     --real_robot_bimanual.right.cameras wrist_right front
 ```
 
-无人接管部署使用 `--no-enable-teleop`，并从工作站 YAML 删除两个机器人的 `teleop:` 块。辅助部署保留这些设备配置并选择双臂输入源；任务运行可恢复已保存设置。见[教程 08](tutorial/08-deploy.md)。
+无人接管部署使用 `--no-enable-teleop`，并从工作站 YAML 删除两个机器人的 `teleop:` 块。辅助部署保留这些设备配置并选择双臂输入源；任务运行可恢复已保存设置。见[教程 11](tutorial/11-deploy.md)。
 
 <a id="limits"></a>
 

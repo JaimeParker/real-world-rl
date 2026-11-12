@@ -7,7 +7,7 @@ Reference only: the first hardware session followed the long form of this page; 
 # 双臂 Franka / GELLO 测试
 
 所有命令在 **NUC / Ubuntu 控制机、仓库根目录、Bash** 执行；P01 无需激活环境；之后激活安装器创建的环境（默认为 `.venv`），例如执行 `source .venv/bin/activate`；后续命令和其它终端均使用项目环境（project environment）。不启动 learner、无需 checkpoint。本页不代表实机通过。
-P02 前按 [setup](../robot-infra.md) 配好 `local/station.smoke.yaml`：实际左右 IP、Hand、home、关节限位、安全框、每步限幅、独立稳定 GELLO 串口及完整标定；复制 `examples/presets/bimanual_gello_smoke.yaml` 为 `local/bimanual.smoke.yaml`，填写逐臂 joint_limits/token。连接从臂前核对 leader 静态读数。
+P02 前按 [setup](../devices.md) 配好 `local/station.smoke.yaml`：实际左右 IP、Hand、home、关节限位、安全框、每步限幅、独立稳定 GELLO 串口及完整标定；复制 `examples/presets/bimanual_gello_smoke.yaml` 为 `local/bimanual.smoke.yaml`，填写逐臂 joint_limits/token。连接从臂前核对 leader 静态读数。
 设备服务绑定 127.0.0.1:50051 / :50052，相机为空，teleop.hold_s=0.0、intervention=toggle；两侧使用同一已确认 evdev 键盘 event_device，左 toggle KEY_F1、右 KEY_F2；episode_end/success/failure/rerecord 分别 KEY_ESC/KEY_S/KEY_F/KEY_R。保留预设设备端事件（不加 stdin 覆盖）、joint_delta、10 Hz、joint_scale_rad=0.01、leader joint_abs 及 arm 对齐容差 0.1 rad。
 确认实体停止可用、双臂同时 home/reset 路径清空、工作区分离；仓库没有双臂互碰检查。接管前扳机须匹配夹爪；此关节路线没有 cartesian 夹爪锁存保护。reset 会开爪并清除接管状态。非预期运动或开爪立即停止，保留证据再重测。
 选一个全新 RUN_ROOT；准备命令拒绝已有目录。只填写其中的[记录 CSV](bimanual-gello-session-record.csv)，结论限 PASS/FAIL/BLOCKED/NOT_RUN；缺前置条件/证据为 BLOCKED。保留配置、软件/设备盘点及带项目编号的时间视频；退出码不等于检查结论。

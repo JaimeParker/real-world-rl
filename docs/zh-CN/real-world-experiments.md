@@ -52,7 +52,7 @@ learner 不可达时，例如重启或断网，actor 继续运行；上传按 0.
 
 | 层 | 所在位置 | 检测 | 动作 |
 |---|---|---|---|
-| 守护 watchdog，`robot-infra daemon --watchdog-s 0.5` | 机器人 PC 守护进程，仅该路线 | 伺服时超过 watchdog_s 无动作 | arm.stop，切 IDLE |
+| 守护 watchdog，`rwrl daemon --watchdog-s 0.5` | 机器人 PC 守护进程，仅该路线 | 伺服时超过 watchdog_s 无动作 | arm.stop，切 IDLE |
 | Step watchdog，环境 watchdog_s，默认关闭 | 机器人进程内线程 | reset 后超过阈值无 step | stop 一次，下个 step 抛 StepWatchdogTripped |
 | Supervisor，`rwrl supervise` | 独立父进程 | 超过 heartbeat-timeout-s 无心跳 | 对子进程组依次 SIGINT、SIGTERM、SIGKILL |
 

@@ -142,10 +142,9 @@ git clone --recurse-submodules https://github.com/JaimeParker/real-world-rl.git
 cd real-world-rl
 ```
 
-**Delivery dependency:** the installer and `franka-gello`/`test` extras below are
-provided by WO-2; they are not available in the current checkout until that work
-lands. This is the target installation procedure, not a claim that WO-1 adds them.
-It requires Python 3.10 with venv support and package-download access.
+The installer `scripts/install.sh` and the `franka-gello` and `test` extras
+(defined in `pyproject.toml`) are part of this checkout. The installer requires
+Python 3.10 with venv support and package-download access.
 
 On the NUC, repository root, no environment active:
 
@@ -162,7 +161,7 @@ that success does not establish a hardware handshake. RealSense stations also
 need the `robot_infra[realsense]` extra in this same project environment.
 
 <details>
-<summary>Manual equivalent of the default installation (after WO-2 lands)</summary>
+<summary>Manual equivalent of the default installation (what the installer does)</summary>
 
 On the NUC, repository root, run the pip commands in any activated venv or conda
 environment. Create and activate an environment, for example:
@@ -255,10 +254,8 @@ steps 1–3: power, Control cable, IP/route, refreshed Desk control and active F
 For UDP timeouts inspect firewall rules on this link. An occupied device claim
 means another process may still own the robot; stop that process first.
 
-For a libfranka/server mismatch, the target guided repair is below. **Delivery
-dependency:** `--install-sdk` is pending the doctor implementation; the current
-CLI does not accept it. This block is excluded from current CLI parsing until
-that feature lands. On the NUC, repository root, project environment active:
+For a libfranka/server mismatch, use the guided repair `--install-sdk`. On the
+NUC, repository root, project environment active:
 
 <!-- tutorial-test: skip -->
 ```bash
@@ -269,17 +266,26 @@ The guided repair reads the robot server version from libfranka's handshake
 error, asks you to cross-check it (system version in Desk → Settings → System,
 mapped through the compatibility matrix), and installs the matching wheel only
 after confirmation. Use the **robot server version**, not `FCI 1.0.0`, to choose
-a wheel. Rerun the normal doctor command after installation. Until this feature lands, retain the Desk version record and
-resolve the compatible SDK before proceeding; do not repeatedly install the same
-default wheel expecting a different handshake result.
+a wheel. Rerun the normal doctor command after installation. Retain the Desk
+version record; do not repeatedly install the same default wheel expecting a
+different handshake result.
 
 ## 6. Fix serial and keyboard checks
 
-Doctor reports missing or inaccessible GELLO serial devices. The planned expanded
-OS diagnostics also report CH340/brltty conflicts, input permissions and USB
-latency; those specific diagnostics are a pending doctor dependency. On the
-current CLI, inspect these OS conditions manually if the hint is absent.
-All commands below run on the NUC, repository root; system commands do not need
+Doctor reports missing or inaccessible GELLO serial devices, and also diagnoses
+CH340/brltty conflicts, input permissions and USB latency. Start with the
+guided repair, which previews each change and asks for confirmation before it
+touches the OS. On the NUC, repository root, project environment active:
+
+<!-- tutorial-test: skip -->
+```bash
+rwrl doctor --station local/station.yaml --fix
+```
+
+Log out and back in if doctor changed group membership, then rerun the plain
+`rwrl doctor` command. The manual commands below are the fallback when
+`--fix` does not offer a repair for your case or you prefer to apply it by hand.
+All of them run on the NUC, repository root; system commands do not need
 a venv, and the final doctor command uses the project environment.
 
 For a `dialout` permission failure:

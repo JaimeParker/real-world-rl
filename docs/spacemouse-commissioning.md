@@ -44,9 +44,10 @@ rwrl --station local/station.yaml --json teleop calibrate \
 Add `--save --output profiles.yaml` to save after confirmation. The output path
 is relative to the station file. The result includes the `station_reference`
 to configure as that robot's `teleop_profiles`. Saving preserves the previous
-file in a uniquely named backup with mode `0600`; YAML comments are not retained.
-Before confirmation, stderr shows a unified diff against the exact file read,
-including removed comments. Changes detected during review or staging reject the
+file in a uniquely named `<file>.<id>.bak` backup with mode `0600`; YAML comments,
+quotes and key order outside the edited profile are preserved.
+Before confirmation, stderr shows a unified diff against the exact file read.
+Changes detected during review or staging reject the
 save. This is optimistic conflict detection, not a lock against external editors;
 avoid editing the same file during a save. Noninteractive saving requires global
 `--yes`.

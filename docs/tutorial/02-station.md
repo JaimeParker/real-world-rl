@@ -89,7 +89,7 @@ without `--station`, taking the first of:
 2. `./local/station.yaml`
 3. `$XDG_CONFIG_HOME/robot_infra/station.yaml` (default `~/.config/robot_infra/station.yaml`)
 
-`--station <yaml>` always wins. Run all later `robot_infra` commands from the same directory, or set
+`--station <yaml>` always wins. Run all later `rwrl` commands from the same directory, or set
 `ROBOT_INFRA_CONFIG`.
 
 ## Multiple arms

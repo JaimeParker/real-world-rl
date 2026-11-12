@@ -1,12 +1,14 @@
 """Conservative read-only Linux device ownership evidence shared by API and CLI."""
 from __future__ import annotations
 
+from collections.abc import Sequence
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
 
+# Programs whose whole process holds the hardware connection.
 CONTROL_PROGRAMS = {
     "robot_infra.server",
     "robot_infra.server.daemon",
@@ -19,10 +21,64 @@ CONTROL_PROGRAMS = {
     "real-world-rl-record",
     "real-world-rl-train",
     "real-world-rl-deploy",
-    # rwrl runs the daemon and direct connections in its own process (rwrl daemon, rwrl --direct ...).
-    "rwrl",
-    "real_world_rl.cli",
 }
+
+# Command-line entry points that only own hardware while running a connecting subcommand;
+# offline subcommands (`rwrl --help`, `rwrl workspace show`, `rwrl teleop inspect-stop`) do not.
+SUBCOMMAND_PROGRAMS = {"rwrl", "robot-infra", "real_world_rl.cli", "robot_infra.cli"}
+CONNECTING_SUBCOMMANDS = {
+    "status", "q", "tcp", "home", "gripper", "camera", "stop", "recover", "daemon", "setup",
+    "gello-calibrate", "teleop", "workspace", "train", "record", "deploy", "collect-reward",
+}
+# Subcommands that connect only for some of their own sub-subcommands.
+CONNECTING_SUB_SUBCOMMANDS = {
+    "teleop": {"run", "read", "calibrate", "diagnose"},
+    "workspace": {"capture"},
+}
+# Global options that consume the next token; the remaining global options are flags.
+GLOBAL_OPTIONS_WITH_VALUE = {"--station", "--robot", "--preset"}
+
+
+def _positionals(tokens: Sequence[str]) -> list[str] | None:
+    """Tokens without global options and their values; None when help was requested."""
+    found = []
+    skip_value = False
+    for token in tokens:
+        if skip_value:
+            skip_value = False
+        elif token in ("-h", "--help"):
+            return None
+        elif token.startswith("--"):
+            skip_value = "=" not in token and token in GLOBAL_OPTIONS_WITH_VALUE
+        else:
+            found.append(token)
+    return found
+
+
+def controlling_command(argv: Sequence[str]) -> str | None:
+    """Describe the hardware-controlling command in ``argv``, or None for an offline one.
+
+    A whole-program match (see CONTROL_PROGRAMS) is always controlling. For the subcommand
+    entry points the first token after the global options is the subcommand; ``teleop`` and
+    ``workspace`` additionally need a connecting sub-subcommand. Help requests never control.
+    """
+    for index, arg in enumerate(argv):
+        name = Path(arg).name
+        if arg in CONTROL_PROGRAMS or name in CONTROL_PROGRAMS:
+            return name
+        if arg in SUBCOMMAND_PROGRAMS or name in SUBCOMMAND_PROGRAMS:
+            positionals = _positionals(argv[index + 1:])
+            if not positionals or positionals[0] not in CONNECTING_SUBCOMMANDS:
+                return None
+            subcommand = positionals[0]
+            allowed = CONNECTING_SUB_SUBCOMMANDS.get(subcommand)
+            if allowed is None:
+                return f"{name} {subcommand}"
+            if len(positionals) > 1 and positionals[1] in allowed:
+                return f"{name} {subcommand} {positionals[1]}"
+            return None
+    return None
+
 
 def process_owners(paths=(), proc: Path = Path("/proc")) -> list[str]:
     """Conservative process evidence, never a signal or a kill. Do not report raw argv."""
@@ -36,14 +92,7 @@ def process_owners(paths=(), proc: Path = Path("/proc")) -> list[str]:
             )
         except OSError:
             continue
-        control = next(
-            (
-                Path(arg).name
-                for arg in argv
-                if arg in CONTROL_PROGRAMS or Path(arg).name in CONTROL_PROGRAMS
-            ),
-            None,
-        )
+        control = controlling_command(argv)
         try:
             maps = (folder / "maps").read_text(encoding="utf-8")
         except (OSError, UnicodeError):

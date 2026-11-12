@@ -42,8 +42,10 @@ rwrl --preset examples/presets/gello_cartesian.yaml --yes home go
 
 This is the same home that `env.reset()` resolves. The verification moves the
 arm and applies `task.reset.gripper`, while skipping other reset phases.
-`home set` rewrites this preset with PyYAML: comments are lost and the previous
-file is saved as `examples/presets/gello_cartesian.yaml.bak`. See
+`home set` changes only the `home_joints` value in this preset; comments, quotes
+and key order are preserved. The previous file is saved beside it as
+`examples/presets/gello_cartesian.yaml.<id>.bak` (mode 0600, a new `<id>` per
+save). See
 [rwrl home](../cli.md#home-resolve-save-and-move).
 
 ## Record with GELLO

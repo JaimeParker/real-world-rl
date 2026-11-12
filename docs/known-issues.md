@@ -1,8 +1,10 @@
 # Known issues and deferred work
 
-What a first real run on one Franka arm with a gripper (GELLO through the robot daemon,
-`--teleop-device leader_arm`, keys from `--teleop-event-device keyboard`) can run into, where it is
-in the code, and what to do about it today. Every `path:line` was checked against the code when the
+What a first real run on one Franka arm with a gripper can run into, where it is in the code, and
+what to do about it today. The tutorial's default route runs the hardware process directly on the NUC
+with GELLO as `--teleop-device leader_cartesian` and keys from `--teleop-event-device stdin`. The
+robot-daemon route (`--teleop-device leader_arm`, keys from `--teleop-event-device keyboard`) is also
+supported; entries name the teleop device they affect. Every `path:line` was checked against the code when the
 entry was written; line numbers drift, so search for the named function if one no longer matches.
 Numbers marked "static analysis, not measured" come from reading the code, not from a run.
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import re
 import shlex
 import io
 import sys
@@ -17,6 +18,21 @@ from .errors import SUCCESS_EXIT_CODE
 from .doctor_host import Host
 from .doctor_platform import find_checkout
 from .doctor_repair import Action, Report, execute, exit_status, payload, redact
+
+# Device-layer hints name `robot-infra doctor --fix`; `rwrl doctor --fix` never recovers or reopens devices.
+_DEVICE_FIX_HINTS = (
+    (re.compile(r"(?:run with )?--fix \(recover\)"), "run rwrl recover (or robot-infra doctor --fix)"),
+    (re.compile(r"(?:run with )?--fix to reopen"),
+     "rerun rwrl status after reconnecting the camera (or robot-infra doctor --fix)"),
+)
+
+
+def rwrl_device_hint(hint: str) -> str:
+    if not hint:
+        return hint
+    for pattern, replacement in _DEVICE_FIX_HINTS:
+        hint = pattern.sub(replacement, hint)
+    return hint
 
 
 def load_targets(args):
@@ -205,7 +221,10 @@ def inspect(args, host: Host):
             if "claimed by another process" in row.get("message", ""):
                 status = "BLOCKED"
             host.add(
-                name + "." + row["name"], status, row["message"], row.get("hint", "")
+                name + "." + row["name"],
+                status,
+                row["message"],
+                rwrl_device_hint(row.get("hint", "")),
             )
             details = row.get("details", {})
             if (

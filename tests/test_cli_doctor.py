@@ -480,6 +480,40 @@ def test_franky_conflicting_server_versions_never_generate_install(host, monkeyp
     assert not any(a.id.startswith("sdk:") for a in host.actions)
 
 
+@pytest.mark.parametrize(
+    "hint, expected",
+    [
+        (
+            "clear errors in Desk, then run with --fix (recover)",
+            "clear errors in Desk, then run rwrl recover (or robot-infra doctor --fix)",
+        ),
+        (
+            "try another port; run with --fix to reopen",
+            "try another port; rerun rwrl status after reconnecting the camera (or robot-infra doctor --fix)",
+        ),
+        ("check the cable", "check the cable"),
+        ("", ""),
+    ],
+)
+def test_device_fix_hints_name_rwrl_commands(hint, expected):
+    assert doctor.rwrl_device_hint(hint) == expected
+
+
+def test_device_rows_report_rwrl_hints(host, monkeypatch):
+    from robot_infra.devices import RobotConfig
+
+    config = RobotConfig.from_dict(
+        {"type": "franka", "arm_backend": "fake", "name": "left", "gripper": None}
+    )
+    monkeypatch.setattr(doctor, "load_targets", lambda args: ([("left", config, "unused", False, "")], set()))
+    monkeypatch.setattr(host, "inspect_system", lambda **kw: None)
+    rows = [{"name": "arm", "ok": False, "message": "reflex", "hint": "then run with --fix (recover)"}]
+    monkeypatch.setattr(host.report, "run", lambda argv, **kwargs: (0, json.dumps(rows)))
+    doctor.inspect(SimpleNamespace(mock=True), host)
+    finding = next(f for f in host.findings if f.id == "left.arm")
+    assert "rwrl recover" in finding.hint and "--fix (recover)" not in finding.hint
+
+
 def test_serial_identity_is_stable_and_targets_only_one_adapter(host):
     usb = host.sysfs / "bus/usb/devices/1-2"
     port = usb / "1-2:1.0/ttyUSB0"

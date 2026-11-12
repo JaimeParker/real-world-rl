@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -20,7 +21,7 @@ def wiki_repo(tmp_path: Path) -> Path:
         "README.md": "# Project\n\n[Documentation](docs/README.md)\n",
         "docs/README.md": "# Documentation\n",
         "docs/teleop.md": "# Teleop\n",
-        "docs/tutorial/01-install.md": "# Install \t\n\n# Later heading\n",
+        "docs/tutorial/01-install.md": "# Install \t\n\n# Later heading\n\n## Prepare\n",
         "docs/testing/README.md": (
             "# Testing\n\n[Prepare](../tutorial/01-install.md#prepare)\n"
             "[Record](x-record.csv)\n[Missing](absent.md)\n"
@@ -28,7 +29,7 @@ def wiki_repo(tmp_path: Path) -> Path:
             "[Anchor](#here)\n\n"
             "```markdown\n[a](b.md)\n```\n\n"
             "~~~~markdown\n[a](b.md)\n```\n~~~~\n\n"
-            "    [Indented](b.md)\n\n`[Inline](b.md)`\n"
+            "    [Indented](b.md)\n\n`[Inline](b.md)`\n\n## Here\n"
         ),
         "docs/testing/x.md": "## Test X\n",
         "docs/testing/x-record.csv": "result\n",
@@ -45,12 +46,30 @@ def wiki_repo(tmp_path: Path) -> Path:
         "real_world_rl/legacy/controller/README.md": "# Excluded package notes\n",
         "rl-garden/rl_garden/models/act/README.md": "# Excluded\n",
     }
-    repo = tmp_path / "repo"
+    return build_repo(tmp_path / "repo", sources)
+
+
+def build_repo(repo: Path, sources: dict[str, str]) -> Path:
     for source, text in sources.items():
         path = repo / source
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
     return repo
+
+
+def sidebar_sections(sidebar: str) -> dict[tuple[str, str], list[str]]:
+    """(language heading, section heading) -> page names, in sidebar order."""
+    sections: dict[tuple[str, str], list[str]] = {}
+    language = section = ""
+    for line in sidebar.splitlines():
+        if line.startswith("### "):
+            section = line[4:]
+            sections[(language, section)] = []
+        elif line.startswith("## "):
+            language = line[3:]
+        elif line.startswith("- ["):
+            sections[(language, section)].append(line.rsplit("](", 1)[1].rstrip(")"))
+    return sections
 
 
 def run_sync(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -96,8 +115,8 @@ def test_mapping_and_generated_navigation(wiki_repo: Path, tmp_path: Path) -> No
     sidebar = (out / "_Sidebar.md").read_text(encoding="utf-8")
     english, chinese = sidebar.split("## 中文 / Chinese")
     english_order = [
-        "Home", "docs", "tutorial-01-install", "teleop", "testing", "testing-x",
-        "robot-infra", "control-profiles",
+        "Home", "docs", "tutorial-01-install", "teleop", "robot-infra", "control-profiles",
+        "testing", "testing-x",
     ]
     positions = [english.index(f"]({name})") for name in english_order]
     assert positions == sorted(positions)
@@ -211,3 +230,250 @@ def test_real_repository_check_has_no_link_warnings() -> None:
     assert "README.md -> Home.md" in result.stdout.splitlines()
     assert "(generated sidebar) -> _Sidebar.md" in result.stdout.splitlines()
     assert result.stderr == "", result.stderr
+
+
+REFERENCE_ORDER = [
+    "cli", "doctor", "teleop", "gello", "spacemouse-commissioning", "bimanual", "robot-infra",
+    "control-profiles", "recording-demos", "real-world-experiments", "residual", "silri",
+    "hil-serl-roadmap", "known-issues",
+]
+
+
+def test_sidebar_is_grouped_in_reading_order(tmp_path: Path) -> None:
+    sources = {
+        "README.md": "# Project\n",
+        "docs/README.md": "# Documentation\n",
+        "docs/getting-started-hardware.md": "# Old entry\n",
+        "docs/zz-unlisted.md": "# Unlisted\n",
+        "docs/tutorial/02-setup.md": "# 2. Set up\n",
+        "docs/tutorial/00-overview.md": "# 0. Overview\n",
+        "docs/tutorial/01-install.md": "# 1. Install\n",
+        "docs/testing/README.md": "# Testing\n",
+        "docs/testing/a-session.md": "# Session\n",
+        "docs/devices/README.md": "# Device layer\n",
+        "docs/devices/control-profiles.md": "# Control profiles\n",
+    }
+    for name in REFERENCE_ORDER:
+        if name not in ("robot-infra", "control-profiles"):
+            sources[f"docs/{name}.md"] = f"# {name}\n"
+    repo = build_repo(tmp_path / "repo", sources)
+    out = tmp_path / "wiki"
+    result = run_sync(repo, "--out", str(out))
+    assert result.returncode == 0, result.stderr
+    sections = sidebar_sections((out / "_Sidebar.md").read_text(encoding="utf-8"))
+    assert {key: names for key, names in sections.items() if key[0] == "English"} == {
+        ("English", "Start here"): ["Home", "docs"],
+        ("English", "Tutorial"): [
+            "tutorial-00-overview", "tutorial-01-install", "tutorial-02-setup",
+        ],
+        ("English", "Reference"): REFERENCE_ORDER,
+        ("English", "Testing"): ["testing", "testing-a-session"],
+        ("English", "Other"): ["getting-started-hardware", "zz-unlisted"],
+    }
+    assert list(sections)[:5] == [
+        ("English", "Start here"), ("English", "Tutorial"), ("English", "Reference"),
+        ("English", "Testing"), ("English", "Other"),
+    ]
+
+
+def test_sidebar_labels_come_from_the_first_h1_outside_code(tmp_path: Path) -> None:
+    repo = build_repo(tmp_path / "repo", {
+        "docs/teleop.md": "```bash\n# a shell comment\n```\n\n## Section\n\n# Real title #\n\n# Second\n",
+        "docs/gello.md": "Text before.\n\n#hashtag is not a heading\n\n## Only a section\n",
+        "docs/tutorial/01-install.md": "# 1. Install the stack\n",
+    })
+    out = tmp_path / "wiki"
+    result = run_sync(repo, "--out", str(out))
+    assert result.returncode == 0, result.stderr
+    sidebar = (out / "_Sidebar.md").read_text(encoding="utf-8")
+    assert "- [Real title](teleop)" in sidebar
+    assert "- [gello](gello)" in sidebar  # no H1: falls back to the wiki page name
+    assert "- [1. Install the stack](tutorial-01-install)" in sidebar
+
+
+def test_chinese_sidebar_follows_the_english_order_through_the_manifest(tmp_path: Path) -> None:
+    manifest = {
+        "language": "zh-CN",
+        "documents": [
+            {"source": "README.md", "translation": "docs/zh-CN/project-readme.md"},
+            {"source": "docs/README.md", "translation": "docs/zh-CN/README.md"},
+            {"source": "docs/tutorial/00-overview.md", "translation": "docs/zh-CN/tutorial/00-overview.md"},
+            {"source": "docs/tutorial/01-install.md", "translation": "docs/zh-CN/tutorial/01-install.md"},
+            {"source": "docs/cli.md", "translation": "docs/zh-CN/cli.md"},
+            {"source": "docs/teleop.md", "translation": "docs/zh-CN/teleop.md"},
+            {"source": "docs/testing/x.md", "translation": "docs/zh-CN/testing/x.md"},
+            {"source": "docs/testing/x-record.csv", "translation": "docs/zh-CN/testing/x-record.csv"},
+            {"source": "docs/getting-started-hardware.md", "translation": "docs/zh-CN/getting-started-hardware.md"},
+        ],
+    }
+    repo = build_repo(tmp_path / "repo", {
+        "README.md": "# Project\n",
+        "docs/README.md": "# Documentation\n",
+        "docs/README.zh-CN.md": "# 中文文档\n",
+        "docs/cli.md": "# CLI\n",
+        "docs/teleop.md": "# Teleop\n",
+        "docs/getting-started-hardware.md": "# Old entry\n",
+        "docs/tutorial/00-overview.md": "# 0. Overview\n",
+        "docs/tutorial/01-install.md": "# 1. Install\n",
+        "docs/testing/x.md": "# X\n",
+        "docs/testing/x-record.csv": "result\n",
+        "docs/zh-CN/project-readme.md": "# 项目\n",
+        "docs/zh-CN/README.md": "# 文档索引\n",
+        "docs/zh-CN/cli.md": "# 命令行\n",
+        "docs/zh-CN/teleop.md": "# 遥操作\n",
+        "docs/zh-CN/getting-started-hardware.md": "# 旧入口\n",
+        "docs/zh-CN/tutorial/00-overview.md": "# 0. 总览\n",
+        "docs/zh-CN/tutorial/01-install.md": "# 1. 安装\n",
+        "docs/zh-CN/testing/x.md": "# 测试 X\n",
+        "docs/zh-CN/act.md": "# ACT\n",
+        "docs/zh-CN/translation-manifest.json": json.dumps(manifest),
+    })
+    out = tmp_path / "wiki"
+    result = run_sync(repo, "--out", str(out))
+    assert result.returncode == 0, result.stderr
+    sidebar = (out / "_Sidebar.md").read_text(encoding="utf-8")
+    sections = {key: names for key, names in sidebar_sections(sidebar).items() if key[0] != "English"}
+    assert sections == {
+        ("中文 / Chinese", "从这里开始"): ["zh-project-readme", "zh-README"],
+        ("中文 / Chinese", "教程"): ["zh-tutorial-00-overview", "zh-tutorial-01-install"],
+        ("中文 / Chinese", "参考"): ["zh-cli", "zh-teleop"],
+        ("中文 / Chinese", "测试"): ["zh-testing-x"],
+        # The translation of an "Other" page, then the Chinese pages that translate nothing.
+        ("中文 / Chinese", "其他"): ["zh-getting-started-hardware", "zh-act", "zh-docs"],
+    }
+    assert list(sections) == [
+        ("中文 / Chinese", title) for title in ("从这里开始", "教程", "参考", "测试", "其他")
+    ]
+    assert "- [1. 安装](zh-tutorial-01-install)" in sidebar
+
+
+def test_chinese_sidebar_without_a_manifest_lists_every_page_under_other(wiki_repo: Path, tmp_path: Path) -> None:
+    out = tmp_path / "wiki"
+    result = run_sync(wiki_repo, "--out", str(out))
+    assert result.returncode == 0, result.stderr
+    sections = sidebar_sections((out / "_Sidebar.md").read_text(encoding="utf-8"))
+    chinese = {key: names for key, names in sections.items() if key[0] != "English"}
+    assert chinese == {("中文 / Chinese", "其他"): sorted(
+        ["zh-README", "zh-docs", "zh-teleop", "zh-testing-x", "zh-tutorial-01-install"]
+    )}
+
+
+ANCHOR_HEADINGS = """# Anchors
+
+## Hello, World!
+
+## 4. Install the project environment
+
+## The env preset (`hil.yaml`)
+
+## Setup / Wizard
+
+## Leader arm (`leader_cartesian`)
+
+## [Link text](teleop.md) and *emphasis*
+
+## 安装 与 配置
+
+## 括号（全角）示例
+
+## Dup
+
+## Dup
+
+## Dup
+
+## A
+
+## A
+
+## A-1
+
+## C# & C++
+
+## Pre-flight check
+
+## Closed ##
+
+<a id="explicit-anchor"></a>
+
+```markdown
+## Not a heading
+```
+"""
+
+# The GitHub anchor of each heading above, in order, then the explicit anchor.
+GITHUB_ANCHORS = [
+    "anchors", "hello-world", "4-install-the-project-environment", "the-env-preset-hilyaml",
+    "setup--wizard", "leader-arm-leader_cartesian", "link-text-and-emphasis", "安装-与-配置",
+    "括号全角示例", "dup", "dup-1", "dup-2", "a", "a-1", "a-1-1", "c--c", "pre-flight-check",
+    "closed", "explicit-anchor",
+]
+
+
+def anchor_repo(tmp_path: Path, linking_page: str) -> Path:
+    return build_repo(tmp_path / "repo", {
+        "docs/anchors.md": ANCHOR_HEADINGS,
+        "docs/teleop.md": "# Teleop\n",
+        "docs/internal/x.md": "# Private\n",
+        "docs/linking.md": linking_page,
+        "docs/data.csv": "result\n",
+    })
+
+
+def test_anchor_check_accepts_github_anchors(tmp_path: Path) -> None:
+    links = [f"[{anchor}](anchors.md#{anchor})" for anchor in GITHUB_ANCHORS]
+    links += [
+        "[percent-encoded](anchors.md#%E5%AE%89%E8%A3%85-%E4%B8%8E-%E9%85%8D%E7%BD%AE)",
+        "[same page](#linking)",
+        "[same page, later heading](#second-heading)",
+        "[outside the wiki pages](internal/x.md#private)",
+        "[not a Markdown file](data.csv#row-3)",
+        "[titled](anchors.md#hello-world \"Title\")",
+        "`[in code](anchors.md#absent)`",
+    ]
+    page = "# Linking\n\n" + "\n".join(links) + "\n\n## Second heading\n"
+    repo = anchor_repo(tmp_path, page)
+    result = run_sync(repo, "--check")
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    out = tmp_path / "wiki"
+    assert run_sync(repo, "--out", str(out)).returncode == 0
+    assert "[hello-world](anchors#hello-world)" in (out / "linking.md").read_text(encoding="utf-8")
+
+
+def test_anchor_check_reports_missing_anchors_and_fails_check_only(tmp_path: Path) -> None:
+    page = (
+        "# Linking\n\n"
+        "[case matters](anchors.md#Hello-World)\n"
+        "[heading in a code block](anchors.md#not-a-heading)\n"
+        "[third duplicate is dup-2](anchors.md#dup-3)\n"
+        "[same page](#nowhere)\n"
+        "[outside the wiki pages](internal/x.md#missing)\n"
+        "[fine](anchors.md#dup-2)\n"
+    )
+    repo = anchor_repo(tmp_path, page)
+    expected = [
+        "warning: docs/linking.md: missing anchor target: anchors.md#Hello-World",
+        "warning: docs/linking.md: missing anchor target: anchors.md#not-a-heading",
+        "warning: docs/linking.md: missing anchor target: anchors.md#dup-3",
+        "warning: docs/linking.md: missing anchor target: #nowhere",
+        "warning: docs/linking.md: missing anchor target: internal/x.md#missing",
+    ]
+    checked = run_sync(repo, "--check")
+    assert checked.returncode == 1
+    assert checked.stderr.splitlines() == expected
+    assert "docs/linking.md -> linking.md" in checked.stdout.splitlines()
+    out = tmp_path / "wiki"
+    generated = run_sync(repo, "--out", str(out))
+    assert generated.returncode == 0
+    assert generated.stderr.splitlines() == expected
+    assert (out / "linking.md").is_file()
+
+
+def test_missing_link_target_alone_does_not_fail_check(tmp_path: Path) -> None:
+    repo = anchor_repo(tmp_path, "# Linking\n\n[gone](absent.md#anchor)\n")
+    result = run_sync(repo, "--check")
+    assert result.returncode == 0
+    assert result.stderr.splitlines() == [
+        "warning: docs/linking.md: missing link target: absent.md#anchor"
+    ]

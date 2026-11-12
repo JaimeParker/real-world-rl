@@ -433,3 +433,89 @@ def test_rwrl_learning_parser_hook(monkeypatch, name, parser_name, use_preset_al
     parse, argv = parser_for([*command, 'algo', '--help'])
     parse(argv)
     assert calls == [['--config', 'P.yaml', 'algo', '--help']]
+
+
+# -- command spelling guards --------------------------------------------------------------------
+# Every ```bash block counts here, the skipped ones too: a stale spelling in an install or
+# systemd snippet is as wrong as one in a parsed command.
+
+# `python -m real_world_rl.*` stays out of the pages (rwrl is the entry point) except these.
+SUPERVISED_CHILD_MODULES = frozenset({
+    "real_world_rl.training", "real_world_rl.demos", "real_world_rl.deploy",
+    "real_world_rl.reward.collect_data",
+})  # allowed only as the child of a supervise command
+LEGACY_MODULE = "real_world_rl.legacy.controller.real.franka_bridge"
+
+
+def _python_modules(tokens: Sequence[str]) -> list[tuple[int, str, str]]:
+    """(index of the interpreter, interpreter, module) for each ``python -m module`` in ``tokens``."""
+    return [
+        (index, token, tokens[index + 2]) for index, token in enumerate(tokens[:-2])
+        if token in _PYTHONS and tokens[index + 1] == "-m"
+    ]
+
+
+def retired_device_cli_forms(line: str) -> list[str]:
+    """``robot-infra ...`` and ``python -m robot_infra...`` in a shell ``line``: the device layer
+    is part of rwrl now."""
+    tokens = line.split()
+    found = ["robot-infra"] if "robot-infra" in tokens else []
+    found += [
+        f"{python} -m {module}" for _, python, module in _python_modules(tokens)
+        if module.split(".")[0] == "robot_infra"
+    ]
+    return found
+
+
+def disallowed_module_forms(line: str) -> list[str]:
+    """``python -m real_world_rl...`` in a shell ``line`` unless allowlisted: a supervised child
+    or the legacy franka bridge."""
+    tokens = line.split()
+    found = []
+    for index, python, module in _python_modules(tokens):
+        if module.split(".")[0] != "real_world_rl" or module.startswith(LEGACY_MODULE):
+            continue
+        if module in SUPERVISED_CHILD_MODULES and "supervise" in tokens[:index]:
+            continue
+        found.append(f"{python} -m {module}")
+    return found
+
+
+def _offending_lines(find: Callable[[str], list[str]]) -> list[str]:
+    offenders = []
+    for page in [*tutorial_pages(), *session_pages()]:
+        for block in bash_blocks(page):
+            for line in logical_lines(block.text):
+                offenders += [f"{block.page}:{block.line}: {form}: {line}" for form in find(line)]
+    return offenders
+
+
+def test_pages_use_no_retired_device_cli():
+    """A regression guard for the CLI merge: no ``robot-infra ...`` or ``python -m robot_infra...``."""
+    offenders = _offending_lines(retired_device_cli_forms)
+    assert not offenders, "\n".join(offenders)
+
+
+def test_pages_use_python_modules_only_from_the_allowlist():
+    offenders = _offending_lines(disallowed_module_forms)
+    assert not offenders, "\n".join(offenders)
+
+
+@pytest.mark.parametrize("line,retired,disallowed", [
+    ("robot-infra daemon --config robot.yaml", ["robot-infra"], []),
+    ("sudo robot-infra doctor", ["robot-infra"], []),
+    ("python -m robot_infra.setup", ["python -m robot_infra.setup"], []),
+    ("python3 -m robot_infra", ["python3 -m robot_infra"], []),
+    ("python -m real_world_rl.cli doctor", [], ["python -m real_world_rl.cli"]),
+    ("python -m real_world_rl.demos --config p.yaml", [], ["python -m real_world_rl.demos"]),
+    ("rwrl supervise --log s.log -- python -m real_world_rl.demos --config p.yaml", [], []),
+    ("rwrl supervise -- python -m real_world_rl.cli doctor", [], ["python -m real_world_rl.cli"]),
+    (f"python -m {LEGACY_MODULE} --port 5000", [], []),
+    ("rwrl doctor --station local/station.yaml", [], []),
+    ("python -m pip install -e '.[grpc]'", [], []),
+    ("python -m rl_garden.models.act.train_trajectories --demo-paths d.pkl", [], []),
+    ("export CONFIG=~/.config/robot_infra/station.yaml", [], []),
+])
+def test_command_spelling_detectors(line, retired, disallowed):
+    assert retired_device_cli_forms(line) == retired
+    assert disallowed_module_forms(line) == disallowed

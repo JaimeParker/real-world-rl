@@ -75,10 +75,30 @@ def test_hid_report_matches_native_axis_and_button_mapping(model):
     assert handle.sizes == [7] * 4
 
 
-def test_unverified_wireless_bt_id_is_not_supported(monkeypatch):
-    assert (0x256F, 0xC63A) not in {tuple(spec.hid_id) for spec in reader.device_specs.values()}
+def test_wireless_bt_usb_enumeration_motion_buttons_and_release(monkeypatch):
+    handle = Handle([
+        words(1, 350, -175, -70, 105, -140, 210),
+        [3, 1, 0], [3, 2, 0], [3, 0, 0], words(1, 0, 0, 0, 0, 0, 0),
+    ])
     fake_hid(monkeypatch, [
-        {"vendor_id": 0x256F, "product_id": 0xC63A, "path": b"unverified"},
+        {"vendor_id": 0x256F, "product_id": 0xC63A, "path": b"bt-usb"},
+    ], handle)
+    device = reader.open()
+    assert handle.path == b"bt-usb"
+    assert device.read()[:6] == pytest.approx((1, .5, .2, .4, -.3, .6))
+    assert device.read().buttons == [1, 0]
+    assert device.read().buttons == [0, 1]
+    assert device.read().buttons == [0, 0]
+    assert device.read()[:6] == (0,) * 6
+    device.close()
+    assert handle.closed
+
+
+def test_a_vendor_match_with_an_unlisted_product_is_not_supported(monkeypatch):
+    listed = {tuple(spec.hid_id) for spec in reader.device_specs.values()}
+    assert (0x256F, 0xFFFF) not in listed
+    fake_hid(monkeypatch, [
+        {"vendor_id": 0x256F, "product_id": 0xFFFF, "path": b"unlisted"},
     ], Handle())
     with pytest.raises(DeviceNotFound, match="no supported SpaceMouse"):
         reader.open()

@@ -158,8 +158,12 @@ repository root, project environment active:
 pip install -e '.[spacemouse]'
 ```
 
-The in-tree reader ports all 10 models from the vendored PySpaceMouse 1.0.3 table;
-Enterprise is not in that table. It uses `hid.device()` and does not import
+The in-tree reader ports all 10 models from the vendored PySpaceMouse 1.0.3 table and
+adds one: SpaceMouse Wireless BT (`0x256f:0xc63a`, the Bluetooth edition cabled over USB;
+checked against its HID descriptor). Enterprise is not in the table. `discover()`, doctor
+and `open()` match the exact vendor and product id pair, so other devices of the same
+vendor (for example a Logitech `046d` keyboard receiver) are not taken for a SpaceMouse.
+It uses `hid.device()` and does not import
 `pyspacemouse`/`easyhid`. Do not install the different distribution named `hid`.
 The legacy `real` extra and `SpaceMouseExpert` still use their existing API.
 For a fresh project environment use the installer on the NUC, repository root,
@@ -1071,7 +1075,7 @@ A third-party backend that skips `_remember_state` still works but costs one ext
   against other hosts or against code that does not take the claim. Set `claim: false`
   to opt out. The SpaceMouse reader also claims its HID endpoint by default and honors the
   same `RobotConfig.claim` setting when built as a robot teleop part. Its supported device
-  table equals PySpaceMouse 1.0.3; unverified product `0x256f:0xc63a` is not included.
+  table is PySpaceMouse 1.0.3 plus `0x256f:0xc63a` (SpaceMouse Wireless BT over USB).
 
 ### Error model
 

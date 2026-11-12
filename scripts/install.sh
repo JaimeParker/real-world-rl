@@ -16,7 +16,8 @@ Run from the repository root. Installs all three local projects into a venv.
   --no-doctor        Skip the final doctor call (default: run doctor).
   -h, --help         Show this help and exit.
 
-No station: doctor --mock checks software only, then prints the hardware next step.
+No station: doctor --mock checks software only, against a throwaway franka station
+whose arm and gripper are fake, then prints the hardware next step.
 With a station: doctor checks dependencies and hardware; no duplicate preflight here.
 This script never uses sudo or updates the git submodule automatically.
 HELP
@@ -103,7 +104,13 @@ if $run_doctor; then
     run_step 'Doctor (station dependencies and hardware)' "$venv_python" -m robot_infra.doctor --config "$station"
   else
     printf 'No --station supplied: mock doctor does not verify hardware.\n'
-    run_step 'Doctor (mock)' "$venv_python" -m robot_infra.doctor --mock
+    # The device doctor refuses to run without a station file, and none exists before the
+    # tutorial's station step; --mock swaps every backend for its fake, so this one is enough.
+    mock_station=$(mktemp "${TMPDIR:-/tmp}/rwrl-mock-station.XXXXXX")
+    trap 'rm -f "$mock_station"' EXIT
+    printf 'type: franka\narm_backend: fake\ngripper:\n  backend: fake\n' > "$mock_station"
+    run_step 'Doctor (mock)' "$venv_python" -m robot_infra.doctor --mock --station "$mock_station"
+    rm -f "$mock_station"
     printf 'Next, configure local/station.yaml, then run from this repository root:\n  '
     printf '%q doctor --station local/station.yaml\n' "$venv_dir/bin/rwrl"
   fi

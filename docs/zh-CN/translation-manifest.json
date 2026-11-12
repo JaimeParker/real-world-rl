@@ -74,7 +74,7 @@
     {
       "source": "docs/tutorial/01-install.md",
       "translation": "docs/zh-CN/tutorial/01-install.md",
-      "source_sha256": "da8d1e78bab8a72dee80e449811d6364fe839ea63d7e1fd6a82c121ef34b551f"
+      "source_sha256": "cd194e3cd31881c82acf1e1ea829622dde00e061343e48b26fe032166762a599"
     },
     {
       "source": "docs/tutorial/02-station.md",
@@ -119,7 +119,7 @@
     {
       "source": "robot_infra/README.md",
       "translation": "docs/zh-CN/robot-infra.md",
-      "source_sha256": "3c59ee05e2e2b30049be4c416e7e3f1f47dccabb0af3c60c10b9f8fe81f1d694"
+      "source_sha256": "127f15d1ee8ee7cbc8baaf10d79cb0e25866d9d774d6270c23dda5a51da140d8"
     },
     {
       "source": "rl-garden/rl_garden/models/act/README.md",

@@ -115,7 +115,7 @@ bash scripts/install.sh --extras franka-gello
 source .venv/bin/activate
 ```
 
-安装器创建或复用 `.venv`，默认解释器 `python3.10`，清除继承的 `PYTHONPATH`，以 editable 方式安装 rl-garden、robot_infra 和本包，然后运行 doctor。未提供 station 时最终为 **mock** 检查，成功不表示真实握手。RealSense 还需在同一项目环境安装 `robot_infra[realsense]`。
+安装器创建或复用 `.venv`，默认解释器 `python3.10`，清除继承的 `PYTHONPATH`，以 editable 方式安装 rl-garden、robot_infra 和本包，然后运行 doctor。未提供 station 时最终为 **mock** 检查，针对一个机械臂和夹爪都是 fake 的临时站点运行，成功不表示真实握手。RealSense 还需在同一项目环境安装 `robot_infra[realsense]`。
 
 <details>
 <summary>默认安装的手动等价命令（即安装器所做的事）</summary>

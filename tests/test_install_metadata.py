@@ -112,8 +112,13 @@ from pathlib import Path
 import sys
 
 args = sys.argv[1:]
+# The installer deletes its throwaway mock station, so capture it while it exists.
+station_text = None
+if "--mock" in args and "--station" in args:
+    station_text = Path(args[args.index("--station") + 1]).read_text()
 with open(os.environ["INSTALL_CALLS"], "a") as stream:
-    stream.write(json.dumps({"args": args, "pythonpath": os.environ.get("PYTHONPATH")}) + "\\n")
+    stream.write(json.dumps({"args": args, "pythonpath": os.environ.get("PYTHONPATH"),
+                             "station_text": station_text}) + "\\n")
 if args[:2] == ["-m", "venv"]:
     target = Path(args[2])
     (target / "bin").mkdir(parents=True)
@@ -143,11 +148,25 @@ def run_installer(checkout, *args):
 def test_default_installer_runs_mock_and_prints_hardware_next_step(installer_checkout):
     result, calls = run_installer(installer_checkout)
     assert result.returncode == 0, result.stderr
-    assert calls[-1] == ["-m", "robot_infra.doctor", "--mock"]
+    assert calls[-1][:4] == ["-m", "robot_infra.doctor", "--mock", "--station"] and len(calls[-1]) == 5
     assert ["-m", "pip", "install", "-e", "./rl-garden", "-e", "./robot_infra",
             "-e", ".[franka-gello,test]"] in calls
     assert "Next, configure local/station.yaml, then run from this repository root:" in result.stdout
     assert "rwrl doctor --station local/station.yaml" in result.stdout
+
+
+def test_default_mock_doctor_gets_a_loadable_throwaway_station(installer_checkout, tmp_path):
+    """A bare ``--mock`` exits 2 (the device doctor needs a station file), so the installer must
+    hand it one; the file must load and pass under ``--mock`` and must not outlive the run."""
+    from robot_infra.doctor import cli
+
+    result, calls = run_installer(installer_checkout)
+    assert result.returncode == 0, result.stderr
+    assert not Path(calls[-1][-1]).exists()
+    logged = [json.loads(line) for line in installer_checkout[2].read_text().splitlines()]
+    station = tmp_path / "recorded-station.yaml"
+    station.write_text(logged[-1]["station_text"])
+    assert cli.main(["--station", str(station), "--mock"]) == 0
 
 
 def test_custom_options_and_existing_venv(installer_checkout):

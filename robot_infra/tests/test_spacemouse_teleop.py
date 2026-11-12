@@ -255,14 +255,29 @@ def fake_hid(entries):
     return module
 
 
-def test_discover_filters_vendor_ids_via_hidapi(monkeypatch):
+def test_discover_matches_vendor_and_product_pairs_of_the_device_table(monkeypatch):
     entries = [
         {"vendor_id": 0x256F, "product_id": 0xC635, "path": b"/dev/hidraw3"},
         {"vendor_id": 0x046D, "product_id": 0xC626, "path": b"/dev/hidraw4"},
+        {"vendor_id": 0x256F, "product_id": 0xC63A, "path": b"/dev/hidraw6"},
         {"vendor_id": 0x1234, "product_id": 0x0001, "path": b"/dev/hidraw5"},
     ]
     monkeypatch.setitem(sys.modules, "hid", fake_hid(entries))
-    assert SpaceMouseTeleop.discover() == {"256f:c635:/dev/hidraw3", "046d:c626:/dev/hidraw4"}
+    assert SpaceMouseTeleop.discover() == {
+        "256f:c635:/dev/hidraw3", "046d:c626:/dev/hidraw4", "256f:c63a:/dev/hidraw6"}
+
+
+def test_discover_ignores_logitech_receiver_and_unlisted_3dconnexion_products(monkeypatch):
+    from robot_infra.devices.backends.teleops._spacemouse_hid import device_specs
+
+    listed = {tuple(spec.hid_id) for spec in device_specs.values()}
+    assert (0x046D, 0xC542) not in listed and (0x256F, 0xFFFF) not in listed
+    entries = [
+        {"vendor_id": 0x046D, "product_id": 0xC542, "path": b"/dev/hidraw0"},
+        {"vendor_id": 0x256F, "product_id": 0xFFFF, "path": b"/dev/hidraw1"},
+    ]
+    monkeypatch.setitem(sys.modules, "hid", fake_hid(entries))
+    assert SpaceMouseTeleop.discover() == set()
 
 
 def test_discover_falls_back_to_hidraw_nodes_without_hidapi(monkeypatch, tmp_path):

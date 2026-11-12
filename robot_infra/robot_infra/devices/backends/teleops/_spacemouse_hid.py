@@ -1,7 +1,10 @@
 """Nonblocking SpaceMouse HID reader using trezor/cython-hidapi (distribution ``hidapi``).
 
 Device table and decoder derived from PySpaceMouse 1.0.3, the HIL-SERL
-vendored version. Derived from PySpaceMouse by John Harrison et al., MIT.
+vendored version, plus one entry added in this repository: SpaceMouse Wireless BT
+(0x256F:0xC63A), the Bluetooth edition cabled over USB (report 1: six signed 16-bit
+axes; report 3: two button bits), checked against its HID descriptor on 2026-11-05.
+Derived from PySpaceMouse by John Harrison et al., MIT.
 No separate PySpaceMouse license was present in the reference tree.
 The HIL-SERL LICENSE carries this notice (copied verbatim):
 
@@ -20,7 +23,8 @@ The HIL-SERL LICENSE carries this notice (copied verbatim):
    limitations under the License.
 
 Modified for robot_infra: replace easyhid with hidapi, omit callbacks, add optional advisory device claims,
-guard short reports, and close failed opens. The device table is unchanged from 1.0.3.
+guard short reports, and close failed opens. Apart from the added entry, the device table is
+unchanged from 1.0.3.
 """
 from __future__ import annotations
 
@@ -256,6 +260,26 @@ device_specs = {
             ButtonSpec(channel=3, byte=1, bit=0),  # LEFT
             ButtonSpec(channel=3, byte=1, bit=1),  # RIGHT
         ],  # FIT
+        axis_scale=350.0,
+    ),
+    # USB-cabled BT edition: report 1 has six signed 16-bit axes;
+    # report 3 has two button bits (verified against its HID descriptor).
+    "SpaceMouse Wireless BT": DeviceSpec(
+        name="SpaceMouse Wireless BT",
+        hid_id=[0x256F, 0xC63A],
+        led_id=[0x8, 0x4B],
+        mappings={
+            "x": AxisSpec(channel=1, byte1=1, byte2=2, scale=1),
+            "y": AxisSpec(channel=1, byte1=3, byte2=4, scale=-1),
+            "z": AxisSpec(channel=1, byte1=5, byte2=6, scale=-1),
+            "pitch": AxisSpec(channel=1, byte1=7, byte2=8, scale=-1),
+            "roll": AxisSpec(channel=1, byte1=9, byte2=10, scale=-1),
+            "yaw": AxisSpec(channel=1, byte1=11, byte2=12, scale=1),
+        },
+        button_mapping=[
+            ButtonSpec(channel=3, byte=1, bit=0),
+            ButtonSpec(channel=3, byte=1, bit=1),
+        ],
         axis_scale=350.0,
     ),
     "3Dconnexion Universal Receiver": DeviceSpec(

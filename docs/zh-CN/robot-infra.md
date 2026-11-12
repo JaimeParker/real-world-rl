@@ -111,7 +111,7 @@ robot-infra setup --non-interactive --mock --arms 1 --arm-names arm --robot-ip 1
 pip install -e '.[spacemouse]'
 ```
 
-自带的 HID 读取器移植了随仓库提供的 PySpaceMouse 1.0.3 表中的全部 10 款型号；Enterprise 不在该表中。它使用 `hid.device()`，不导入 `pyspacemouse`/`easyhid`。不要安装另一个名为 `hid` 的发行包。旧 `real` extra 和 `SpaceMouseExpert` 仍使用各自现有的 API。新建项目环境时，在 NUC、仓库根目录、未激活任何环境的情况下使用安装器：
+自带的 HID 读取器移植了随仓库提供的 PySpaceMouse 1.0.3 表中的全部 10 款型号，并新增一款：SpaceMouse Wireless BT（`0x256f:0xc63a`，用 USB 线连接的蓝牙版；已对照其 HID descriptor 核实）。Enterprise 不在该表中。`discover()`、doctor 和 `open()` 都按厂商号与产品号的精确配对匹配，同厂商的其他设备（例如 Logitech `046d` 键盘接收器）不会被当成 SpaceMouse。它使用 `hid.device()`，不导入 `pyspacemouse`/`easyhid`。不要安装另一个名为 `hid` 的发行包。旧 `real` extra 和 `SpaceMouseExpert` 仍使用各自现有的 API。新建项目环境时，在 NUC、仓库根目录、未激活任何环境的情况下使用安装器：
 
 ```bash
 bash scripts/install.sh --extras franka-gello,spacemouse
@@ -761,7 +761,7 @@ GPU side:   RemoteRobot ── GrpcClient (msgpack over gRPC, token metadata, re
   - `safety_box` 和笛卡尔单步上限只限制位置。工作区还可通过 `orientation_xyzw`（工作区坐标系内）与 `max_angle_rad`（SO(3) 测地半径，避开欧拉角分支切割）约束姿态。设备侧没有姿态单步上限。关节命令不检查笛卡尔工作区边界：这些限制无法证明关节轨迹、整臂净空或运动无碰撞。
   - 目标检查使用 `1e-9` 数值容差。反馈检查使用工作区键 `measured_margin_m`（默认 `0.003 m`）与 `measured_margin_rad`（默认 `0.03 rad`），两者均须为有限非负值。环境和遥操作跟踪器使用这些反馈余量，但绝不放宽目标准入。没有工作区时，`task_frame`（任务坐标系，task frame）只作为显示/采样参考，不增加空间约定。配置工作区时，重置前会将两者的几何定义与守护进程核对。
 - **Watchdog。** 客户端静默后，守护进程让伺服机械臂进入空闲，见第 4 步。
-- **`DeviceClaim`。** 基于 `~/.cache/robot_infra/claims/` 的节点本地建议性文件锁，键为 `<type>:<robot_ip | can_interface | name>`。客户端连接期间由守护进程持有，同机器人第二进程收到 `DeviceBusy`。它不防护其他主机或不取得锁的代码，可用 `claim: false` 有意退出。SpaceMouse 读取器默认也会占用其 HID 端点，作为机器人遥操作部件构建时遵循同一个 `RobotConfig.claim` 设置。其支持设备表与 PySpaceMouse 1.0.3 相同，不包括未经验证的产品 `0x256f:0xc63a`。
+- **`DeviceClaim`。** 基于 `~/.cache/robot_infra/claims/` 的节点本地建议性文件锁，键为 `<type>:<robot_ip | can_interface | name>`。客户端连接期间由守护进程持有，同机器人第二进程收到 `DeviceBusy`。它不防护其他主机或不取得锁的代码，可用 `claim: false` 有意退出。SpaceMouse 读取器默认也会占用其 HID 端点，作为机器人遥操作部件构建时遵循同一个 `RobotConfig.claim` 设置。其支持设备表为 PySpaceMouse 1.0.3 加上 `0x256f:0xc63a`（USB 连接的 SpaceMouse Wireless BT）。
 
 <a id="error-model"></a>
 

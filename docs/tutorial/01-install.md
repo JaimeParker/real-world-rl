@@ -156,8 +156,9 @@ source .venv/bin/activate
 
 The installer creates or reuses `.venv` (default interpreter `python3.10`), clears
 inherited `PYTHONPATH`, installs rl-garden, robot_infra and this package in editable
-mode, then runs doctor. With no station supplied its final check is **mock**;
-that success does not establish a hardware handshake. RealSense stations also
+mode, then runs doctor. With no station supplied its final check is **mock**, run
+against a throwaway station whose arm and gripper are fake; that success does not
+establish a hardware handshake. RealSense stations also
 need the `robot_infra[realsense]` extra in this same project environment.
 
 <details>

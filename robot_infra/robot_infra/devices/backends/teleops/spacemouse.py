@@ -21,8 +21,10 @@ from robot_infra.devices.errors import DeviceError
 from robot_infra.devices.teleop import RawReading, Teleop, TeleopConfig
 
 HIDRAW_GLOB = "/dev/hidraw*"
-# Unverified on hardware: 3Dconnexion is 0x256f, older units enumerate under Logitech 0x046d.
-SPACEMOUSE_VENDOR_IDS = (0x256F, 0x046D)
+# Exact (vendor_id, product_id) pairs of the HID reader's device table. Matching the vendor
+# alone is wrong: older 3Dconnexion units enumerate under Logitech 0x046d, which also makes
+# keyboard and mouse receivers.
+SPACEMOUSE_HID_IDS = frozenset(tuple(spec.hid_id) for spec in _spacemouse_hid.device_specs.values())
 GRIPPER_BUTTON = 0
 _OPEN_GRIPPER, _CLOSED_GRIPPER = 1.0, 0.0
 _NUM_BUTTONS = 2
@@ -94,7 +96,8 @@ class SpaceMouseTeleop(Teleop):
 
     @classmethod
     def discover(cls) -> set[str]:
-        """Device ids: ``vid:pid:path`` via hidapi when installed, else every ``/dev/hidraw*``
+        """Device ids: ``vid:pid:path`` of every HID interface whose exact vendor and product id
+        is in the reader's device table, via hidapi when installed; else every ``/dev/hidraw*``
         (which also lists non-SpaceMouse HID devices)."""
         try:
             import hid
@@ -102,7 +105,7 @@ class SpaceMouseTeleop(Teleop):
             return set(glob.glob(HIDRAW_GLOB))
         found = set()
         for info in hid.enumerate():
-            if info["vendor_id"] in SPACEMOUSE_VENDOR_IDS:
+            if (info["vendor_id"], info["product_id"]) in SPACEMOUSE_HID_IDS:
                 path = info["path"]
                 path = path.decode(errors="replace") if isinstance(path, bytes) else str(path)
                 found.add(f"{info['vendor_id']:04x}:{info['product_id']:04x}:{path}")

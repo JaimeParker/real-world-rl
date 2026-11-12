@@ -10,7 +10,7 @@ import pytest
 import yaml
 
 import robot_infra.devices.claims as claims
-from robot_infra.devices import ArmSafety, DeviceNotFound
+from robot_infra.devices import ArmSafety, CameraConfig, DeviceNotFound
 from robot_infra.devices.backends.teleops import gello as gello_backend
 from robot_infra.devices.robots.franka import FrankaConfig
 from robot_infra.discovery.autoconfig import STATION_CONFIG_ENV, load_station
@@ -534,3 +534,68 @@ def test_render_omits_upper_layer_profiles_and_keeps_safety_comment_adjacent():
     index = next(i for i, line in enumerate(lines) if line.startswith("safety_box:"))
     assert lines[index - 2] == "# Safety limits, enforced by the arm (and so by the daemon): servo targets are clipped,"
     assert lines[index - 1] == "# move_to_* targets outside them are refused. null = no limit (not recommended)."
+
+
+# -- camera stream flags -----------------------------------------------------------------------------
+
+
+def stream(camera):
+    return camera.width, camera.height, camera.fps, camera.enable_depth
+
+
+def test_camera_flags_default_to_the_camera_config_defaults(tmp_path):
+    out = tmp_path / "station.yaml"
+    assert run([*FLAGGED_ONE_ARM, "--output", out], never_asked)[0] == 0
+    assert load_station(out).select().config.cameras == [CameraConfig(name="wrist", serial=SERIALS[0])]
+
+
+def test_camera_flags_set_the_stream_of_new_cameras(tmp_path):
+    out = tmp_path / "station.yaml"
+    flags = ["--camera-resolution", "1280x720", "--camera-fps", "15", "--camera-depth", "yes"]
+    code, output = run([*FLAGGED_ONE_ARM, *flags, "--output", out], never_asked)
+    assert code == 0, output
+    assert stream(load_station(out).select().config.cameras[0]) == (1280, 720, 15, True)
+
+
+def test_camera_flags_take_one_value_per_arm(tmp_path):
+    out = tmp_path / "station.yaml"
+    flags = ["--camera-resolution", "1280x720", "640x480", "--camera-fps", "60", "--camera-depth", "no", "yes"]
+    code, output = run(["--mock", "--output", out, *flags], Operator({"number of arms": "2"}))
+    assert code == 0, output
+    robots = load_station(out).robots
+    left, right = robots["left"].config, robots["right"].config
+    assert {stream(camera) for camera in left.cameras} == {(1280, 720, 60, False)}
+    assert {stream(camera) for camera in right.cameras} == {(640, 480, 60, True)}
+
+
+def test_from_keeps_a_camera_stream_unless_the_flag_is_given(tmp_path):
+    first, second, third = (tmp_path / name for name in ("first.yaml", "second.yaml", "third.yaml"))
+    flags = ["--camera-resolution", "1280x720", "--camera-fps", "15", "--camera-depth", "yes"]
+    assert run([*FLAGGED_ONE_ARM, *flags, "--output", first], never_asked)[0] == 0
+    again = ["--mock", "--non-interactive", "--only", "cameras"]
+    code, output = run([*again, "--from", first, "--output", second], never_asked)
+    assert code == 0, output
+    assert stream(load_station(second).select().config.cameras[0]) == (1280, 720, 15, True)
+    code, output = run([*again, "--from", second, "--camera-fps", "60", "--output", third], never_asked)
+    assert code == 0, output
+    assert stream(load_station(third).select().config.cameras[0]) == (1280, 720, 60, True)
+
+
+@pytest.mark.parametrize(
+    "flags, message",
+    [
+        (["--camera-resolution", "1280"], "--camera-resolution '1280': '1280' is not WIDTHxHEIGHT"),
+        (["--camera-resolution", "1280x"], "is not WIDTHxHEIGHT"),
+        (["--camera-resolution", "0x480"], "is not WIDTHxHEIGHT"),
+        (["--camera-fps", "0"], "--camera-fps '0': fps must be positive, got 0"),
+        (["--camera-fps", "fast"], "--camera-fps 'fast': 'fast' is not an integer"),
+        (["--camera-depth", "maybe"], "--camera-depth 'maybe': answer yes or no"),
+        (["--camera-fps", "30", "60"], "--camera-fps needs one value per arm (1) or one for all, got 2"),
+    ],
+)
+def test_invalid_camera_flags_are_rejected(tmp_path, flags, message, capsys):
+    out = tmp_path / "station.yaml"
+    code, output = run([*FLAGGED_ONE_ARM, *flags, "--output", out], never_asked)
+    error = capsys.readouterr().err
+    assert "error:" not in output
+    assert code == 2 and message in error and not out.exists()

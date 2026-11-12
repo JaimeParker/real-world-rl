@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import json
 import math
 from pathlib import Path
@@ -10,9 +9,9 @@ from pathlib import Path
 import pytest
 import torch
 
+from real_world_rl.demos import archive_inspect
 from real_world_rl.trajectory import DurableArchive, begin_episode, end_episode, transition_record
 
-ROOT = Path(__file__).resolve().parents[1]
 CARTESIAN_CONTRACT = {"action_mode": "cartesian_delta", "arm_action_dim": 6, "gripper_in_action": True,
                       "num_joints": 7, "state_fields": ["joint_pos", "tcp_pose"]}
 JOINT_CONTRACT = {"action_mode": "joint_delta", "arm_action_dim": 7, "gripper_in_action": True,
@@ -31,13 +30,6 @@ SETTLED_STEP = LEADER_STOP_STEP + len(CATCH_UP_X_MM)
 INTERVENE_STOP = 41  # steps 16-40 intervene, 41-45 hold again
 NUM_STEPS = 46
 DRIFT_WINDOW_S = 0.85
-
-
-def inspector():
-    spec = importlib.util.spec_from_file_location("_inspect_teleop_archive", ROOT / "examples/inspect_teleop_archive.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def step_time(step: int) -> float:
@@ -94,8 +86,8 @@ def fingerprint(path: Path):
 def test_segments_report_hold_drift_takeover_jump_and_settle(tmp_path, layout):
     archive = write_archive(tmp_path / "demo.trajectory.sqlite3", contract=CARTESIAN_CONTRACT, layout=layout)
     before = fingerprint(archive)
-    summary = inspector().inspect_archive(archive, stop_times_s=[step_time(LEADER_STOP_STEP)],
-                                          drift_window_s=DRIFT_WINDOW_S)
+    summary = archive_inspect.inspect_archive(archive, stop_times_s=[step_time(LEADER_STOP_STEP)],
+                                              drift_window_s=DRIFT_WINDOW_S)
     assert fingerprint(archive) == before
     (episode,) = summary["episodes"]
     assert episode["episode_id"] == "episode-0" and episode["tcp_metrics"] is True
@@ -133,15 +125,15 @@ def test_segments_report_hold_drift_takeover_jump_and_settle(tmp_path, layout):
 def test_a_stricter_settle_speed_moves_the_settle_time(tmp_path):
     archive = write_archive(tmp_path / "demo.trajectory.sqlite3", contract=CARTESIAN_CONTRACT)
     # The last catch-up step moves 0.5 mm in 0.1 s (5 mm/s): a 6 mm/s limit settles one step earlier.
-    (settle,) = inspector().inspect_archive(archive, stop_times_s=[step_time(LEADER_STOP_STEP)],
-                                            settle_speed_mm_s=6.0)["settle"]
+    (settle,) = archive_inspect.inspect_archive(archive, stop_times_s=[step_time(LEADER_STOP_STEP)],
+                                                settle_speed_mm_s=6.0)["settle"]
     assert settle["settle_s"] == pytest.approx(0.7, abs=1e-6)
     assert settle["residual_after_stop_mm"] == pytest.approx(29.5, abs=1e-6)
 
 
 def test_a_stop_time_outside_the_episodes_reports_a_problem(tmp_path):
     archive = write_archive(tmp_path / "demo.trajectory.sqlite3", contract=CARTESIAN_CONTRACT)
-    (settle,) = inspector().inspect_archive(archive, stop_times_s=[START_S - 1.0])["settle"]
+    (settle,) = archive_inspect.inspect_archive(archive, stop_times_s=[START_S - 1.0])["settle"]
     assert settle["settled"] is False and settle["episode_id"] is None and settle["settle_s"] is None
     assert "outside" in settle["problem"]
 
@@ -152,7 +144,7 @@ def test_cli_writes_the_test_page_measurements(tmp_path, capsys):
     measurements = tmp_path / "measurements.csv"
     argv = [str(archive), "--measurements", str(measurements), "--stop-time-s", repr(step_time(LEADER_STOP_STEP)),
             "--drift-window-s", str(DRIFT_WINDOW_S)]
-    inspector().main(argv)
+    archive_inspect.main(argv)
     summary = json.loads(capsys.readouterr().out)
     assert summary["metric_settings"] == {"drift_window_s": DRIFT_WINDOW_S, "settle_speed_mm_s": 2.0,
                                           "settle_hold_s": 0.5}
@@ -167,7 +159,7 @@ def test_cli_writes_the_test_page_measurements(tmp_path, capsys):
         "settle,1002.400000,1003.200000,,30.000,0.800,,,inspect_teleop_archive",
     ]
     with pytest.raises(FileExistsError):
-        inspector().main(argv)  # exports never overwrite earlier evidence
+        archive_inspect.main(argv)  # exports never overwrite earlier evidence
     assert fingerprint(archive) == before
 
 
@@ -175,8 +167,8 @@ def test_joint_space_archive_has_segments_without_tcp_metrics(tmp_path):
     archive = write_archive(tmp_path / "demo.trajectory.sqlite3", contract=JOINT_CONTRACT)
     before = fingerprint(archive)
     measurements = tmp_path / "measurements.csv"
-    summary = inspector().inspect_archive(archive, measurements_path=measurements,
-                                          stop_times_s=[step_time(LEADER_STOP_STEP)])
+    summary = archive_inspect.inspect_archive(archive, measurements_path=measurements,
+                                              stop_times_s=[step_time(LEADER_STOP_STEP)])
     assert fingerprint(archive) == before
     (episode,) = summary["episodes"]
     assert episode["tcp_metrics"] is False
@@ -193,4 +185,4 @@ def test_joint_space_archive_has_segments_without_tcp_metrics(tmp_path):
 def test_measurements_must_be_a_csv_path(tmp_path):
     archive = write_archive(tmp_path / "demo.trajectory.sqlite3", contract=CARTESIAN_CONTRACT)
     with pytest.raises(ValueError, match="measurements export"):
-        inspector().inspect_archive(archive, measurements_path=tmp_path / "measurements.txt")
+        archive_inspect.inspect_archive(archive, measurements_path=tmp_path / "measurements.txt")

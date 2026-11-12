@@ -57,6 +57,15 @@ def build_parser(parser=None) -> argparse.ArgumentParser:
     questions.add_argument("--control", nargs="+", default=None,
                            help="optional per-arm impedance JSON/YAML mapping; null clears the profile; omitted preserves --station")
     questions.add_argument("--cameras", nargs="+", default=None, help="per arm: SERIAL[=NAME],... or none")
+    questions.add_argument("--camera-resolution", nargs="+", default=None,
+                           help="per arm: WIDTHxHEIGHT in pixels for that arm's cameras, e.g. 1280x720 "
+                                "(unset: new cameras get the camera default, a --station camera keeps its value)")
+    questions.add_argument("--camera-fps", nargs="+", default=None,
+                           help="per arm: frames per second for that arm's cameras, a positive integer "
+                                "(unset: new cameras get the camera default, a --station camera keeps its value)")
+    questions.add_argument("--camera-depth", nargs="+", default=None,
+                           help="per arm: yes | no, record the depth stream of that arm's cameras "
+                                "(unset: new cameras get the camera default, a --station camera keeps its value)")
     questions.add_argument("--teleop", nargs="+", default=None, help=" | ".join(TELEOP_CHOICES))
     questions.add_argument("--gello-port", nargs="+", default=None)
     questions.add_argument("--gello-baudrate", nargs="+", default=None)

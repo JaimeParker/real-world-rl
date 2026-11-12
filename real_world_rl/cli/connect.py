@@ -38,51 +38,121 @@ class RobotConnection:
         return getattr(self.robot, name)
 
 
-@contextmanager
-def open_robot(args) -> Iterator[RobotConnection]:
+@dataclass
+class TeleopConnection:
+    teleop: Any
+    station_config: Any
+    path: str
+    remote: bool
+    follower: Any = None  # the daemon's arm when requested; never opened on the direct route
+
+
+FOLLOWER_NEEDS_DAEMON_HINT = ("follower comparison needs the daemon route "
+                              "(direct access would take the FCI control connection)")
+
+
+def _selected_robot(args):
     from real_world_rl.station import load_station
-    from robot_infra.devices import Robot
-    from robot_infra.discovery.autoconfig import fill_from_env, resolve_station_config_path
+    from robot_infra.discovery.autoconfig import resolve_station_config_path
 
     try:
         station_path = resolve_station_config_path(args.station)
         if not station_path.is_file():
             raise FileNotFoundError(f"station config not found: {station_path}")
-        station = load_station(station_path)
-        selected = station.select(args.robot)
+        return load_station(station_path).select(args.robot)
     except (FileNotFoundError, ValueError, KeyError) as error:
         raise CliError(str(error), code=USAGE_EXIT_CODE, hint="run rwrl setup") from error
-    remote = False
-    if selected.daemon_declared:
-        address = client_address(selected.bind)
-        reachable = probe_daemon(address)
-        if args.direct and reachable:
-            raise CliError("the daemon owns the arm", code=USAGE_EXIT_CODE, hint="omit --direct")
-        if not args.direct:
-            if not reachable:
-                raise CliError(f"daemon declared at {selected.bind} but not reachable",
-                               hint="start it (rwrl daemon) or pass --direct")
-            from robot_infra.server.remote import RemoteRobot, RemoteRobotConfig
 
-            robot = RemoteRobot(RemoteRobotConfig(address=address, token=selected.token))
-            path = f"daemon {address}"
-            remote = True
-    if not remote:
-        config = selected.config
-        if args.mock:
-            from robot_infra.doctor.checks import mocked_config
 
-            config = mocked_config(config)
-        robot = Robot.from_config(fill_from_env(config))
-        path = f"direct {config.arm_backend}"
+def _daemon_address(args, selected) -> str | None:
+    """Address of the daemon that owns the selected robot; None selects the direct route."""
+    if not selected.daemon_declared:
+        return None
+    address = client_address(selected.bind)
+    reachable = probe_daemon(address)
+    if args.direct and reachable:
+        raise CliError("the daemon owns the arm", code=USAGE_EXIT_CODE, hint="omit --direct")
+    if args.direct:
+        return None
+    if not reachable:
+        raise CliError(f"daemon declared at {selected.bind} but not reachable",
+                       hint="start it (rwrl daemon) or pass --direct")
+    return address
+
+
+def _remote_robot(address: str, selected):
+    from robot_infra.server.remote import RemoteRobot, RemoteRobotConfig
+
+    return RemoteRobot(RemoteRobotConfig(address=address, token=selected.token))
+
+
+def _direct_robot(args, selected):
+    """An unconnected robot built from the station; ``--mock`` swaps in the fake backends."""
+    from robot_infra.devices import Robot
+    from robot_infra.discovery.autoconfig import fill_from_env
+
+    config = selected.config
+    if args.mock:
+        from robot_infra.doctor.checks import mocked_config
+
+        config = mocked_config(config)
+    return Robot.from_config(fill_from_env(config)), config
+
+
+@contextmanager
+def _connected(part) -> Iterator[None]:
     try:
-        robot.connect()
-        yield RobotConnection(robot, selected.config, path, remote)
+        part.connect()
+        yield
     finally:
         # Cleanup must not replace the useful failure that caused it.
         failing = sys.exc_info()[0] is not None
         try:
-            robot.disconnect()
+            part.disconnect()
         except Exception:
             if not failing:
                 raise
+
+
+@contextmanager
+def open_robot(args) -> Iterator[RobotConnection]:
+    selected = _selected_robot(args)
+    address = _daemon_address(args, selected)
+    if address is not None:
+        robot = _remote_robot(address, selected)
+        path = f"daemon {address}"
+    else:
+        robot, config = _direct_robot(args, selected)
+        path = f"direct {config.arm_backend}"
+    with _connected(robot):
+        yield RobotConnection(robot, selected.config, path, address is not None)
+
+
+@contextmanager
+def open_teleop(args, *, with_follower: bool = False) -> Iterator[TeleopConnection]:
+    """Connect only the station's teleop part, or the daemon that serves it.
+
+    The direct route builds the robot without connecting it and opens its teleop alone, so the
+    arm, gripper and cameras stay free. ``with_follower`` exposes the daemon's arm for reading
+    and is refused on the direct route."""
+    selected = _selected_robot(args)
+    if selected.config.teleop is None:
+        raise CliError("station has no teleop", code=USAGE_EXIT_CODE,
+                       hint="add a teleop: block to the station robot")
+    address = _daemon_address(args, selected)
+    if address is None:
+        if with_follower:
+            raise CliError("--with-follower is not available on the direct route",
+                           code=USAGE_EXIT_CODE, hint=FOLLOWER_NEEDS_DAEMON_HINT)
+        robot, config = _direct_robot(args, selected)
+        teleop = robot.teleop
+        with _connected(teleop):
+            yield TeleopConnection(teleop, selected.config, f"direct {config.teleop.backend}", False)
+        return
+    robot = _remote_robot(address, selected)
+    with _connected(robot):
+        if robot.teleop is None:
+            raise CliError(f"daemon at {address} serves no teleop", code=USAGE_EXIT_CODE,
+                           hint="restart the daemon after adding the station teleop")
+        yield TeleopConnection(robot.teleop, selected.config, f"daemon {address}", True,
+                               robot.arm if with_follower else None)

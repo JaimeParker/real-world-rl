@@ -309,7 +309,7 @@ def test_legacy_rotation_with_task_frame_without_profile_is_rejected(tmp_path):
 
 @pytest.mark.parametrize('command,missing', [
     (['teleop', 'run'], ['--record']),
-    (['teleop', 'calibrate'], ['--profile']),
+    (['teleop', 'calibrate', '--backend', 'spacemouse'], ['--profile']),
     (['teleop', 'inspect-stop'], ['--trace']),
     (['workspace', 'validate'], ['--pose']),
 ])
@@ -317,6 +317,31 @@ def test_agent_missing_arguments_are_structured(command, missing, capsys):
     assert main(['--json'] + command) == 2
     result = json.loads(capsys.readouterr().out)
     assert result['required_fields'] == missing
+
+
+def test_calibrate_without_backend_follows_station_spacemouse(tmp_path, capsys, monkeypatch):
+    from test_spacemouse_calibration import samples
+    path = station(tmp_path)
+    assert main(['--json', '--station', str(path), 'teleop', 'calibrate']) == 2
+    assert json.loads(capsys.readouterr().out)['required_fields'] == ['--profile']
+    sample_file = tmp_path / 'samples.json'
+    sample_file.write_text(json.dumps(samples(0)))
+    monkeypatch.setattr('robot_infra.devices.backends.teleops.gello_calibrate.calibrate_gello',
+                        lambda **kwargs: pytest.fail('a SpaceMouse station must not run the GELLO calibration'))
+    assert main(['--json', '--station', str(path), 'teleop', 'calibrate', '--profile', 'front',
+                 '--samples', str(sample_file)]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result['profile'] == 'front'
+    assert result['candidate']['frame'] == 'table'
+    assert result['candidate']['neutral_threshold'] == .05
+    assert result['saved'] is None
+
+
+def test_calibrate_refuses_gello_flags_for_spacemouse(tmp_path, capsys):
+    path = station(tmp_path)
+    assert main(['--json', '--station', str(path), 'teleop', 'calibrate', '--profile', 'front',
+                 '--port', '/dev/x']) == 2
+    assert 'not applicable to --backend spacemouse' in json.loads(capsys.readouterr().out)['error']
 
 
 def test_agent_capture_reports_only_missing_save_fields(tmp_path, capsys):

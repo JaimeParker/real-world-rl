@@ -204,6 +204,9 @@ class Answers:
     max_delta_xyz_m: list[str] | None = None
     max_delta_joint_rad: list[str] | None = None
     cameras: list[str] | None = None
+    camera_resolutions: list[str] | None = None
+    camera_fps: list[str] | None = None
+    camera_depth: list[str] | None = None
     teleops: list[str] | None = None
     gello_ports: list[str] | None = None
     gello_baudrates: list[str] | None = None
@@ -269,6 +272,10 @@ class Prompter:
             except ValueError as error:
                 self.echo(f"  {error}")
 
+    def given(self, flag: str, given: Any, parse: Callable[[str], Any]) -> Any:
+        """The parsed flag value, or None when the flag was not passed."""
+        return None if given is None else self._parse_flag(flag, given, parse)
+
     def unasked(
         self, flag: str, given: Any, parse: Callable[[str], Any], *, prior: str | None, default: str
     ) -> Any:
@@ -312,6 +319,23 @@ def _parse_yes_no(text: str) -> bool:
     if value in _NO:
         return False
     raise ValueError("answer yes or no")
+
+
+def _parse_camera_resolution(text: str) -> tuple[int, int]:
+    match = re.fullmatch(r"(\d+)\s*[xX]\s*(\d+)", text.strip())
+    if match is None or not all(int(side) > 0 for side in match.groups()):
+        raise ValueError(f"{text!r} is not WIDTHxHEIGHT in pixels, e.g. 1280x720")
+    return int(match.group(1)), int(match.group(2))
+
+
+def _parse_camera_fps(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError:
+        raise ValueError(f"{text!r} is not an integer") from None
+    if value <= 0:
+        raise ValueError(f"fps must be positive, got {value}")
+    return value
 
 
 def _split(text: str) -> list[str]:
@@ -694,6 +718,7 @@ def _ask_cameras(
 ) -> list[CameraConfig]:
     serials = [camera.serial for camera in probe.cameras]
     prior_cameras = list(config.cameras) if context.prior is not None else []
+    stream_settings = _camera_stream_settings(prompt, answers, context)
     if serials:
         prompt.echo("realsense cameras:")
         for number, camera in enumerate(probe.cameras, start=1):
@@ -729,7 +754,7 @@ def _ask_cameras(
             if name in names_here or name in taken.camera_names:
                 raise ValueError(f"camera name {name!r} is used twice")
             names_here.add(name)
-            cameras.append(_camera_config(serial, name, prior_cameras))
+            cameras.append(_camera_config(serial, name, prior_cameras, stream_settings))
         return cameras
 
     return prompt.answer(
@@ -741,13 +766,35 @@ def _ask_cameras(
     )
 
 
-def _camera_config(serial: str, name: str, prior_cameras: Sequence[CameraConfig]) -> CameraConfig:
+def _camera_stream_settings(prompt: Prompter, answers: Answers, context: _ArmContext) -> dict[str, Any]:
+    """The ``CameraConfig`` fields this arm's camera flags set; a flag that was not passed is absent,
+    so a new camera keeps the ``CameraConfig`` defaults and a ``--from`` camera keeps its value."""
+    flags = (
+        ("width", "camera_resolutions", "--camera-resolution", _parse_camera_resolution),
+        ("fps", "camera_fps", "--camera-fps", _parse_camera_fps),
+        ("enable_depth", "camera_depth", "--camera-depth", _parse_yes_no),
+    )
+    settings: dict[str, Any] = {}
+    for field_name, attribute, flag, parse in flags:
+        value = prompt.given(flag, answers.for_arm(attribute, flag, context.index, context.count), parse)
+        if value is None:
+            continue
+        if field_name == "width":
+            settings["width"], settings["height"] = value
+        else:
+            settings[field_name] = value
+    return settings
+
+
+def _camera_config(
+    serial: str, name: str, prior_cameras: Sequence[CameraConfig], stream_settings: Mapping[str, Any]
+) -> CameraConfig:
     """The ``--from`` camera with this serial (or, for an empty serial, this name), renamed; else a
-    640x480 RealSense at 30 fps."""
+    default ``CameraConfig``. The camera flags override either."""
     for camera in prior_cameras:
         if (serial and camera.serial == serial) or (not serial and not camera.serial and camera.name == name):
-            return dataclasses.replace(camera, name=name)
-    return CameraConfig(name=name, serial=serial)
+            return dataclasses.replace(camera, name=name, **stream_settings)
+    return CameraConfig(name=name, serial=serial, **stream_settings)
 
 
 def _suggested_cameras(serials: Sequence[str], context: _ArmContext, taken: _Taken) -> str:

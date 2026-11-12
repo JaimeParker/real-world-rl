@@ -17,6 +17,7 @@ from .command import Result
 from .errors import SUCCESS_EXIT_CODE
 from .doctor_host import Host
 from .doctor_platform import find_checkout
+from .doctor_preset import preset_station_checks
 from .doctor_repair import Action, Report, execute, exit_status, payload, redact
 
 # Device-layer hints name `robot-infra doctor --fix`; `rwrl doctor --fix` never recovers or reopens devices.
@@ -132,6 +133,7 @@ def load_targets(args):
 def inspect(args, host: Host):
     try:
         targets, extra = load_targets(args)
+        preset_checks = preset_station_checks(args)
     except ImportError as error:
         host.add(
             "configuration.dependencies",
@@ -139,7 +141,7 @@ def inspect(args, host: Host):
             "configuration/device imports unavailable: " + str(error),
             "repair base dependencies, then rerun doctor",
         )
-        targets, extra = [], set()
+        targets, extra, preset_checks = [], set(), []
     host.inspect_system(mock=args.mock)
     host.expected.update(extra)
     for name, config, path, daemon, bind in targets:
@@ -233,6 +235,8 @@ def inspect(args, host: Host):
                 and "libfranka_server_version" in details
             ):
                 mismatches.append((name, details["libfranka_server_version"]))
+    for check in preset_checks:
+        host.add(*check)
     if mismatches:
         versions = {version for _, version in mismatches}
         if len(versions) != 1:

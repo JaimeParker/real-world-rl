@@ -1,6 +1,7 @@
 """Native command registration and shim contracts; implementations are stubbed."""
 import argparse
 from importlib import import_module
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -73,7 +74,7 @@ def test_shim_and_console_reach_same_run(monkeypatch, command, capsys):
     assert capsys.readouterr().out.splitlines() == ['native output', 'native output']
 
 
-@pytest.mark.parametrize('name', ['setup', 'daemon', 'supervise', 'discover', 'gello-calibrate'])
+@pytest.mark.parametrize('name', ['setup', 'daemon', 'supervise', 'gello-calibrate'])
 def test_unsupported_json_is_usage_error_before_run(monkeypatch, capsys, name):
     command = next(command for command in COMMANDS if command.name == name)
     module = import_module(command.module)
@@ -82,6 +83,66 @@ def test_unsupported_json_is_usage_error_before_run(monkeypatch, capsys, name):
     captured = capsys.readouterr()
     assert f'{name} has no JSON output' in captured.err
     assert len(captured.out.splitlines()) == 1
+
+
+DISCOVERY_KEYS = {'schema_version', 'cameras', 'teleops', 'can_interfaces', 'hosts', 'hid_devices'}
+
+
+def stub_discovery(monkeypatch, report):
+    from robot_infra.discovery import __main__ as discovery_cli
+
+    monkeypatch.setattr(discovery_cli, '_station_path', lambda explicit: None)
+    monkeypatch.setattr(discovery_cli, 'discover_all', lambda host_ips: report)
+
+
+def found_hardware():
+    from robot_infra.discovery.enumerate import CanInfo, DiscoveryReport, HostInfo
+
+    return DiscoveryReport(
+        cameras={'realsense': {'B2', 'A1'}}, teleops={'gello': {'/dev/ttyUSB0'}, 'spacemouse': set()},
+        can_interfaces={'can0': CanInfo('can0', 'up', 1000000)},
+        hosts={'172.16.0.2': HostInfo('172.16.0.2', True, [22, 80])}, hid_devices=['/dev/hidraw3'])
+
+
+def test_discover_json_lists_every_category(monkeypatch, capsys):
+    stub_discovery(monkeypatch, found_hardware())
+    assert main(['--json', 'discover']) == 0
+    out = capsys.readouterr().out
+    assert len(out.splitlines()) == 1
+    payload = json.loads(out)
+    assert set(payload) == DISCOVERY_KEYS
+    assert payload['cameras'] == [{'backend': 'realsense', 'serial': 'A1'}, {'backend': 'realsense', 'serial': 'B2'}]
+    assert payload['teleops'] == [{'backend': 'gello', 'device': '/dev/ttyUSB0'}]
+    assert payload['can_interfaces'] == [{'name': 'can0', 'operstate': 'up', 'bitrate': 1000000}]
+    assert payload['hosts'] == [{'ip': '172.16.0.2', 'ping_ok': True, 'open_ports': [22, 80]}]
+    assert payload['hid_devices'] == ['/dev/hidraw3']
+
+
+def test_discover_json_gives_empty_lists_when_nothing_is_found(monkeypatch, capsys):
+    from robot_infra.discovery.enumerate import DiscoveryReport
+
+    stub_discovery(monkeypatch, DiscoveryReport())
+    assert main(['--json', 'discover']) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert set(payload) == DISCOVERY_KEYS
+    assert all(payload[key] == [] for key in DISCOVERY_KEYS - {'schema_version'})
+
+
+def test_discover_text_output_is_unchanged(monkeypatch, capsys):
+    report = found_hardware()
+    stub_discovery(monkeypatch, report)
+    assert main(['discover']) == 0
+    assert capsys.readouterr().out == report.format() + '\n'
+
+
+def test_rwrl_discover_json_matches_the_device_binary(monkeypatch, capsys):
+    from real_world_rl.cli import main as rwrl
+
+    stub_discovery(monkeypatch, found_hardware())
+    assert main(['--json', 'discover']) == 0
+    device = capsys.readouterr().out
+    assert rwrl(['--json', 'discover']) == 0
+    assert capsys.readouterr().out == device
 
 
 def test_console_script_target_is_callable_after_importing_main():

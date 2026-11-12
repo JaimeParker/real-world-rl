@@ -21,3 +21,10 @@ def build_parser(parser=None):
 def run(args, ctx):
     from robot_infra.discovery.__main__ import run as implementation
     return implementation(args, ctx)
+
+
+def run_json(args, ctx):
+    from robot_infra.discovery.__main__ import collect, report_payload
+    from .command import Result
+    report = collect(args)
+    return Result(report_payload(report), report.format())

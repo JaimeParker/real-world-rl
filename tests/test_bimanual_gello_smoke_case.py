@@ -3,21 +3,14 @@ from __future__ import annotations
 
 import csv
 import hashlib
-import importlib.util
 from pathlib import Path
 
 from test_bimanual_station_smoke import station_daemons  # noqa: F401 (shared fake gRPC fixture)
+from real_world_rl.demos import archive_inspect
 from real_world_rl.demos.record import parse_record_args, run_recorder
 from real_world_rl.trajectory import DurableArchive, begin_episode
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def inspector():
-    spec = importlib.util.spec_from_file_location("_inspect_teleop_archive", ROOT / "examples/inspect_teleop_archive.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def test_smoke_preset_records_one_attempt_on_two_local_fake_daemons(tmp_path, station_daemons):  # noqa: F811 (fixture injected by name)
@@ -43,7 +36,7 @@ def test_smoke_preset_records_one_attempt_on_two_local_fake_daemons(tmp_path, st
     archive = output.with_suffix(".trajectory.sqlite3")
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     step_csv = tmp_path / "steps.csv"
-    summary = inspector().inspect_archive(archive, step_csv)
+    summary = archive_inspect.inspect_archive(archive, step_csv)
     assert summary["episode_starts"] == summary["episode_ends"] == 1
     assert summary["outcomes"][0]["task_success"] is True
     assert summary["human_mask_counts"]["1111111000000010"] >= 1
@@ -62,7 +55,7 @@ def test_inspection_does_not_finalize_an_unfinished_episode(tmp_path):
     finally:
         archive.close()
     digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
-    summary = inspector().inspect_archive(archive_path)
+    summary = archive_inspect.inspect_archive(archive_path)
     assert summary["episode_starts"] == 1 and summary["episode_ends"] == 0
     assert summary["outcomes"] == []
     assert hashlib.sha256(archive_path.read_bytes()).hexdigest() == digest

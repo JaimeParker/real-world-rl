@@ -12,6 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from real_world_rl.cli import doctor, main
 from real_world_rl.cli.doctor_host import Host, process_owners
@@ -752,3 +753,122 @@ def test_registered_doctor_text_summary_is_unchanged(report, monkeypatch, capsys
     assert Path(lines[1].removeprefix("Report: "), "report.json").is_file()
     assert lines[2:] == ["Result: no blocking findings; review SKIPPED/WARN coverage"]
     assert captured.err == ""
+
+
+PRESET_STATION = {
+    "type": "franka", "name": "arm", "robot_ip": "172.16.0.2", "arm_backend": "fake", "gripper": None,
+    "home_joints": [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785],
+    "cameras": [{"name": "wrist", "serial": "123", "fps": 30}],
+}
+
+
+def station_config(**fields):
+    from robot_infra.devices import Robot
+
+    return Robot.from_dict({**PRESET_STATION, **fields}).config
+
+
+def test_preset_station_differences_normalise_omitted_fields():
+    from real_world_rl.cli.doctor_preset import preset_station_differences
+
+    assert preset_station_differences(station_config(), dict(PRESET_STATION)) == []
+    # An omitted key runs with its default, so it differs only when the station is not the default.
+    omitted = {key: value for key, value in PRESET_STATION.items() if key != "home_joints"}
+    assert preset_station_differences(station_config(), omitted) == []
+    assert preset_station_differences(station_config(home_joints=None), omitted) == [
+        ("home_joints", None, PRESET_STATION["home_joints"])]
+
+
+def test_preset_station_differences_compare_floats_with_tolerance():
+    from real_world_rl.cli.doctor_preset import preset_station_differences
+
+    home = list(PRESET_STATION["home_joints"])
+    close = {**PRESET_STATION, "home_joints": [home[0] + 1e-12, *home[1:]]}
+    assert preset_station_differences(station_config(), close) == []
+    far = {**PRESET_STATION, "home_joints": [home[0] + 1e-6, *home[1:]]}
+    assert [field for field, *_ in preset_station_differences(station_config(), far)] == ["home_joints"]
+
+
+def test_preset_station_differences_align_cameras_by_name():
+    from real_world_rl.cli.doctor_preset import preset_station_differences
+
+    station = station_config(cameras=[{"name": "wrist", "serial": "123"}, {"name": "front", "serial": "456"}])
+    preset = {**PRESET_STATION, "cameras": [
+        {"name": "front", "serial": "456", "enable_depth": True},
+        {"name": "wrist", "serial": "123"},
+        {"name": "side", "serial": "789"},
+    ]}
+    assert preset_station_differences(station, preset) == [
+        ("cameras.front.enable_depth", False, True),
+        ("cameras.side", None, {"serial": "789", "width": 640, "height": 480, "fps": 30, "enable_depth": False}),
+    ]
+
+
+def test_preset_station_differences_report_a_different_robot_type():
+    from real_world_rl.cli.doctor_preset import preset_station_differences
+
+    assert preset_station_differences(station_config(), {"type": "piper"}) == [("type", "franka", "piper")]
+
+
+def test_preset_check_messages_abbreviate_long_lists():
+    from real_world_rl.cli.doctor_preset import brief
+
+    assert brief([0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]) == "[0.0, ..., 0.785] (length 7)"
+    assert brief([1, 2]) == "[1, 2]"
+    assert brief({"backend": "franky", "mode": None}) == '{backend: "franky", mode: null}'
+
+
+def run_doctor_with_preset(tmp_path, monkeypatch, capsys, robot, *, station=PRESET_STATION):
+    station_path = tmp_path / "station.yaml"
+    station_path.write_text(yaml.safe_dump(station))
+    preset_path = tmp_path / "preset.yaml"
+    preset_path.write_text(yaml.safe_dump({"real_robot": {"robot": robot}}))
+    # Mock probes report no device rows, so only configuration findings remain.
+    monkeypatch.setattr(Host, "inspect_system", lambda self, **kwargs: None)
+    monkeypatch.setattr(Report, "run", lambda self, argv, **kwargs: (0, "[]"))
+    code = main(["--station", str(station_path), "--preset", str(preset_path), "--mock", "--json", "doctor"])
+    return code, json.loads(capsys.readouterr().out)["checks"]
+
+
+def test_doctor_preset_matching_the_station_passes(report, tmp_path, monkeypatch, capsys):
+    code, checks = run_doctor_with_preset(tmp_path, monkeypatch, capsys, dict(PRESET_STATION))
+    assert code == 0
+    assert [(row["id"], row["status"], row["message"]) for row in checks] == [
+        ("arm.preset", "PASS", "preset hardware fields match the station")]
+
+
+def test_doctor_stale_preset_warns_per_field_without_failing(report, tmp_path, monkeypatch, capsys):
+    stale = {**PRESET_STATION, "robot_ip": "172.16.0.3", "cameras": [{"name": "wrist", "serial": "123", "fps": 15}]}
+    code, checks = run_doctor_with_preset(tmp_path, monkeypatch, capsys, stale)
+    assert code == 0
+    rows = {row["id"]: row for row in checks}
+    assert set(rows) == {"arm.preset:robot_ip", "arm.preset:cameras.wrist.fps"}
+    assert all(row["status"] == "WARN" for row in rows.values())
+    assert rows["arm.preset:robot_ip"]["message"] == 'station="172.16.0.2"; preset="172.16.0.3"'
+    assert rows["arm.preset:cameras.wrist.fps"]["message"] == "station=30; preset=15"
+    assert rows["arm.preset:robot_ip"]["hint"] == (
+        "the preset copy of the station is stale; regenerate it or edit the field")
+
+
+def test_doctor_preset_station_path_compares_robots_by_name(report, tmp_path, monkeypatch, capsys):
+    other = tmp_path / "other-station.yaml"
+    other.write_text(yaml.safe_dump({**PRESET_STATION, "home_joints": [0.0] * 7}))
+    code, checks = run_doctor_with_preset(tmp_path, monkeypatch, capsys, str(other))
+    assert code == 0
+    assert [(row["id"], row["status"]) for row in checks] == [("arm.preset:home_joints", "WARN")]
+    assert checks[0]["message"] == ("station=[0.0, ..., 0.785] (length 7); "
+                                    "preset=[0.0, ..., 0.0] (length 7)")
+
+
+def test_doctor_preset_without_robot_adds_no_check(report, tmp_path, monkeypatch, capsys):
+    code, checks = run_doctor_with_preset(tmp_path, monkeypatch, capsys, None)
+    assert code == 0 and checks == []
+
+
+def test_doctor_inline_preset_robot_needs_one_station_robot(report, tmp_path, monkeypatch, capsys):
+    unnamed = {key: value for key, value in PRESET_STATION.items() if key != "name"}
+    right = {**unnamed, "robot_ip": "172.16.0.3", "cameras": [{"name": "wrist", "serial": "456"}]}
+    station = {"robots": {"left": unnamed, "right": right}}
+    code, checks = run_doctor_with_preset(tmp_path, monkeypatch, capsys, dict(PRESET_STATION), station=station)
+    assert code == 0
+    assert [(row["id"], row["status"]) for row in checks] == [("preset.robot", "SKIPPED")]

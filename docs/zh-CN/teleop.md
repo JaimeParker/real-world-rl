@@ -51,7 +51,7 @@ hil_serl（以及 residual、SiLRI）从参数派生输入源 kwargs（`robot`/`
 # gello.yaml, for --teleop-device gello --teleop-options-yaml gello.yaml
 port: /dev/serial/by-id/usb-FTDI_...
 joint_ids: [1, 2, 3, 4, 5, 6, 7]
-joint_offsets_rad: [...]   # from gello_calibrate
+joint_offsets_rad: [...]   # from teleop calibrate --backend gello
 joint_signs: [1, 1, -1, 1, 1, 1, 1]
 gripper_id: 8
 gripper_open_rad: ...
@@ -136,6 +136,8 @@ source .venv/bin/activate
 
 单个 extra 的 pip 命令假定三个本地项目已经安装，不会从空 venv 引导安装内部发行包。wheel 目标为 Ubuntu 22.04 / CPython 3.10 / x86_64。此传输方式避开 easyhid 对系统 `libhidapi` 的查找；固定版本 wheel 的 ELF/系统库依赖仍需在干净 Ubuntu 22.04 机器验证。wheel 安装、USB 权限、设备方向、时序和断连行为均**尚未在真机验证**。此 wheel 路线不要求安装系统 `libhidapi`；没有合适 wheel 的平台上从源码构建不属于该目标范围。
 
+先在 NUC 的仓库根目录、激活项目环境、插好 SpaceMouse 且工作站指定 `spacemouse` teleop 时运行 `rwrl --station local/station.yaml doctor --fix`。USB 节点不可读写时，它在确认一次后提议加入 `plugdev` 组并为受支持的厂商/产品 ID 写入 `/etc/udev/rules.d/99-rwrl-spacemouse.rules` 规则；报告待办操作时，重新拔插 SpaceMouse 并重新登录（[cli.md](cli.md#robot-host-diagnosis-and-repair)）。下面的手动安装是没有项目环境时的替代方式。
+
 一次性安装随包提供的厂商规则。在 NUC 的仓库根目录、任意 shell（无需项目环境）、具有 sudo 权限时运行：
 
 ```bash
@@ -195,7 +197,7 @@ robot YAML 路线（`--teleop-device robot` 和 `backend: spacemouse` teleop 段
 
 主臂报告绝对关节位置。`LeaderArmPartSource`（`real_world_rl/teleop/leader_arm.py`）与 `TeleopPartSource` 一样映射到环境关节动作模式（`joint_abs`：按 `joint_limits` 归一化；`joint_delta`：`(q_leader - q_follower) / joint_scale_rad`，每步在一个 `joint_scale_rad` 处饱和），并添加操作员接管瞬间的起始策略。读取 GELLO 有两种方式：
 
-- `--teleop-device leader_arm`：GELLO 是机器人 PC 上 daemon 提供的 robot YAML 的 `teleop:` 部件（`robot-infra daemon --station robot.yaml ...`），经 `RemoteRobot` 读取。`rwrl setup` 将该段（包括标定）写入工作站 YAML；也可手动添加到 robot YAML（例如 `robot_infra/docs/robot.franka.example.yaml`）；`rwrl gello-calibrate --port ... --joint-ids 1 2 3 4 5 6 7 --gripper-id 8` 打印单台设备的 `options` 块：
+- `--teleop-device leader_arm`：GELLO 是机器人 PC 上 daemon 提供的 robot YAML 的 `teleop:` 部件（`robot-infra daemon --station robot.yaml ...`），经 `RemoteRobot` 读取。`rwrl setup` 将该段（包括标定）写入工作站 YAML；也可手动添加到 robot YAML（例如 `robot_infra/docs/robot.franka.example.yaml`）；`rwrl --station robot.yaml teleop calibrate --backend gello --port ... --joint-ids 1 2 3 4 5 6 7 --gripper-id 8` 打印单台设备的 `options` 块（未设置的标志取自工作站的 `teleop.options`；`--use` 将该块写入工作站，见 [gello.md](gello.md#2-calibration)）：
 
   ```yaml
   teleop:
@@ -204,7 +206,7 @@ robot YAML 路线（`--teleop-device robot` 和 `backend: spacemouse` teleop 段
     options:
       port: /dev/serial/by-id/usb-FTDI_...
       joint_ids: [1, 2, 3, 4, 5, 6, 7]
-      joint_offsets_rad: [...]    # from gello_calibrate
+      joint_offsets_rad: [...]    # from teleop calibrate --backend gello
       joint_signs: [1, 1, -1, 1, 1, 1, 1]
       gripper_id: 8
       gripper_open_rad: ...
@@ -271,8 +273,9 @@ GELLO 插在机器人主机（运行 SERL bridge 的机器）上。一个 `type:
 ```bash
 # on the robot host, next to the SERL bridge
 pip install -e "robot_infra[gello]"          # + [gello-events] for an evdev pedal/keyboard
-rwrl gello-calibrate --port /dev/serial/by-id/usb-FTDI_... \
-    --joint-ids 1 2 3 4 5 6 7 --gripper-id 8            # paste the printed options into the yaml
+rwrl --station robot.gello_station.yaml teleop calibrate --backend gello \
+    --port /dev/serial/by-id/usb-FTDI_... --joint-ids 1 2 3 4 5 6 7 --gripper-id 8 \
+    --use                                                # writes the options into the yaml
 robot-infra daemon --station robot.gello_station.yaml --bind 0.0.0.0:50052
 ```
 

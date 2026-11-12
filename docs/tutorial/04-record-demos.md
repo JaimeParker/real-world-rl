@@ -29,6 +29,15 @@ source at a physical-follower station: it connects the whole leader robot YAML,
 which would open a second connection to the follower. Calibration and alternative local
 leader configurations are in [gello.md](../gello.md).
 
+Write both files by hand. The calibration values can come from the command below: it reads the
+leader port and servo ids from `gello_station.yaml`'s `teleop.options` (or `--port` and
+`--joint-ids`), takes the wrap centres from the follower station's `joint_limits`, opens only the
+GELLO, and writes the calibrated options into `gello_station.yaml` after a reviewed diff (`--use`):
+
+```bash
+rwrl --station gello_station.yaml teleop calibrate --backend gello --joint-limits-yaml local/station.yaml --use
+```
+
 Before recording, on this NUC, repository root, project environment active, finish
 any process directly holding the arm. Run `rwrl status`, manually guide the arm
 to the desired home, then leave guiding mode. Save and verify home in the same

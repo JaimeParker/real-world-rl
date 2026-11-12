@@ -8,6 +8,18 @@
 
 运动前，监督操作员必须确认机械臂身份、清空的工作区、物理停止装置、home/reset 路径、附件质量/质心、TCP 和安装设置。使用已审阅的 `local/station.yaml` 和 `local/task.yaml`；任何示例 IP、home、工作区或模型值都不是已验收物理标定。SERL 还需要现有 XYZ/RPY 安全盒。诊断失败时不要通过更改网卡路由、负载或固件走捷径。输入 yaw 标定不标定重力。
 
+下文使用的 `table` 任务坐标系即工作站的 `task_frame`；`teleop run` 将其传给 `local/task.yaml` 会话，标定档案标定也需要它。在 A1 之前由三个采集的 TCP 点创建：操作员将机械臂摆到坐标系原点、+X 上一点和 +Y 一侧的一点（这些命令只读取 TCP，从不移动机械臂）。`workspace frame set` 预览坐标系、其轴长以及实测与最终 Y 轴之间的夹角；`--save` 在审阅差异后只写入 `task_frame`：
+
+```bash
+rwrl --station local/station.yaml workspace capture --name frame-origin --output frame-points.yaml --save
+rwrl --station local/station.yaml workspace capture --name frame-x --output frame-points.yaml --save
+rwrl --station local/station.yaml workspace capture --name frame-y --output frame-points.yaml --save
+rwrl --station local/station.yaml workspace frame set --name table --from-points frame-points.yaml --origin frame-origin --x-axis frame-x --y-axis frame-y --save
+rwrl --station local/station.yaml workspace frame show
+```
+
+点文件路径相对于工作站目录。每次坐标系标定使用新的点文件：点文件记录其采集时所在的坐标系，之后写入它的采集必须与该坐标系一致。若 `local/task.yaml` 带有自己的机器人副本，`rwrl --station local/station.yaml --preset local/task.yaml doctor` 会对每个与工作站不同的字段（包括 `task_frame`）发出警告。
+
 准备新的证据目录并复制记录模板。以下准备仅为 shell 记录管理，不是设备检查：
 
 <!-- tutorial-test: skip -->
@@ -45,10 +57,11 @@ B1 检查主机和已配置设备健康。B2 只读采集 TCP 样本并审阅当
 ```bash
 rwrl --station local/station.yaml doctor
 rwrl --station local/station.yaml workspace show
+rwrl --station local/station.yaml workspace frame show
 rwrl --station local/station.yaml workspace capture --name reference --output workspace-points.yaml --save
 ```
 
-B1/B2 仅在具备独立核验的机械臂身份、新鲜反馈、正确坐标系原点/方向、已审阅的基坐标系/任务坐标系（task frame）约束交集及实际安装/负载/TCP 证据时通过。仅 doctor 或 SDK 报告的质量不能验证物理模型。缺少测量为 BLOCKED。具名采集点可用于提出边界，但不能证明整个包围体积安全。
+B1/B2 仅在具备独立核验的机械臂身份、新鲜反馈、正确坐标系原点/方向（`workspace frame show` 给出基坐标系中的原点和单位轴；与桌面以及创建坐标系所用的 `frame-points.yaml` 点比对）、home 位于关节限位内（`workspace show` 中的 `home_within_limits`）、已审阅的基坐标系/任务坐标系（task frame）约束交集及实际安装/负载/TCP 证据时通过。仅 doctor 或 SDK 报告的质量不能验证物理模型。缺少测量为 BLOCKED。具名采集点可用于提出边界，但不能证明整个包围体积安全。
 
 <a id="c-supervised-direction-checks"></a>
 

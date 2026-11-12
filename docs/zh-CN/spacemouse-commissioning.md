@@ -12,7 +12,20 @@
 
 工作站机器人可声明任务坐标系（task frame）`task_frame`，包含 `name` 和有效的 4×4 `base_T_frame` 刚体变换。`teleop_profiles` 指定标定档案（profile）YAML 的 `file`（相对于工作站文件）和 `default` 档案名。档案文件包含 `schema_version: 1` 和 `profiles` 映射。每个档案声明 `frame`、`yaw_rad` 和 `axis_mapping_version: serl_hid_axes_v1`；`neutral_threshold` 默认为 0.05。此启动容差与正常介入及运动死区相互独立。
 
-`teleop_profiles` 是 real_world_rl 的站点分节（section），不是 `RobotConfig` 字段。设备层 `load_station` 若未通过 `sections=` 注册该分节就直接读取，会报 unknown-key 错误。`rwrl` 和 Python 调用方统一使用 `real_world_rl.station.load_station`（或 `load_station_with_env`）注册其校验器。现有站点 YAML 无需迁移；`rwrl teleop calibrate --use` 仍将此分节写在机器人映射中。
+`rwrl workspace frame set` 写入 `task_frame`，无需手工编辑。在机器人主机的仓库目录激活项目环境后，由操作员摆放机械臂采集三个 TCP 点（坐标系原点、+X 上一点、X 轴 +Y 一侧的一点），再提出并保存坐标系：
+
+```bash
+rwrl --station local/station.yaml workspace capture --name frame-origin --output frame-points.yaml --save
+rwrl --station local/station.yaml workspace capture --name frame-x --output frame-points.yaml --save
+rwrl --station local/station.yaml workspace capture --name frame-y --output frame-points.yaml --save
+rwrl --station local/station.yaml workspace frame set --name table \
+  --from-points frame-points.yaml --origin frame-origin --x-axis frame-x --y-axis frame-y
+rwrl --station local/station.yaml workspace frame show
+```
+
+该坐标系为右手系：X 从原点指向 X 点，Z 垂直于三点所在平面，Y 为 Y 点方向相对 X 正交化后的方向。候选结果报告两条实测轴长，以及实测与最终 Y 方向之间的夹角；X 点距原点不足 1 毫米或三点共线时拒绝。也可用 `--base-T-frame` 后跟 16 个行优先数字（米）给出已知变换。默认 `source` 来源为 `points:<file> origin=A x=B y=C`；`--source TEXT` 可另行设置。加 `--save` 后，在审阅差异并确认后只写入 `task_frame`。定义在另一坐标系中的工作站工作区会被拒绝；沿用其坐标系名称会对该工作区重新定基，因此需重新运行 `workspace validate` 并审阅边界。在旧坐标系中保存的点文件必须重新采集。`workspace frame show` 打印 `task_frame` 及其在基坐标系中的原点和单位轴。
+
+`teleop_profiles` 是 real_world_rl 的站点分节（section），不是 `RobotConfig` 字段。设备层工作站加载器通过已安装 real_world_rl 包的 `robot_infra.station_sections` entry point 发现其校验器。未安装该包时，加载会报 unknown-key 错误并附安装提示。显式 `sections={}` 始终要求严格的设备解析。`rwrl` 和 Python 调用方统一使用 `real_world_rl.station.load_station`（或 `load_station_with_env`）注册其校验器。现有站点 YAML 无需迁移；`rwrl teleop calibrate --use` 仍将此分节写在机器人映射中。
 
 在已安装的项目环境中，准备好工作站文件后运行：
 
@@ -30,7 +43,7 @@ rwrl --station local/station.yaml --json teleop calibrate \
   --samples local/direction-samples.json --profile rear --frame table
 ```
 
-添加 `--save --output profiles.yaml`，确认后保存。输出路径相对于工作站文件。结果包含 `station_reference`，用于配置该机器人的 `teleop_profiles`。保存时将旧文件保留在名称唯一、权限为 `0600` 的备份中；不保留 YAML 注释。确认前，stderr 显示相对于精确读取文件的 unified diff，包括被删除的注释。审阅或暂存期间检测到变化会拒绝保存。这是乐观冲突检测，不会锁住外部编辑器；保存时请勿编辑同一文件。非交互保存需要全局 `--yes`。
+添加 `--save --output profiles.yaml`，确认后保存。输出路径相对于工作站文件。结果包含 `station_reference`，用于配置该机器人的 `teleop_profiles`。保存时将旧文件保留在名称唯一的 `<file>.<id>.bak` 备份中，权限为 `0600`；被编辑档案之外的 YAML 注释、引号和键顺序均保留。确认前，stderr 显示相对于精确读取文件的 unified diff。审阅或暂存期间检测到变化会拒绝保存。这是乐观冲突检测，不会锁住外部编辑器；保存时请勿编辑同一文件。非交互保存需要全局 `--yes`。
 
 只重采一个方向时，使用 `teleop calibrate --profile rear --samples local/direction-samples.json --capture-label=+x`。这会替换该方向并保留其它组；`--append-trial` 则添加一次独立推动。每次推动的拟合权重相同，不受持续时间或力度影响。JSON 的每个方向可使用旧式样本行或 `{"trials": [rows, rows]}`。每次留出验证试验都必须通过，包括带正负方向的旋转试验。新报告包含 `merged-samples.json`，下次采集将其路径作为 `--samples`。原样本文件不会被覆盖。水平组不足时返回 `NEEDS_SAMPLES` 和 `required_fields`，不保存标定档案。没有终端时，带标签采集需要全局 `--yes`，并立即开始持续 `--duration-s` 秒（默认 3 秒）。提示及合并文件位置写入 stderr。混合/离线样本不能确定单个物理设备身份；只有完整的实时采集才绑定设备身份。
 
@@ -44,9 +57,9 @@ rwrl --station local/station.yaml --json teleop calibrate \
 
 `workspace capture` 读取当前 TCP，报告基坐标系位姿和任务坐标系位置，不移动机器人。采集点是测量值，不是已验收边界。`workspace validate --pose X Y Z QX QY QZ QW` 根据已配置工作区和基坐标系安全盒检查基坐标系目标。越界验证返回 `valid: false` 及违规详情：JSON 模式退出码为 `0`，文本模式为 `5`。格式错误的配置或输入仍报告错误。
 
-`workspace show` 包含米/弧度/xyzw 单位、工作站和标定来源、基坐标系安全盒，以及有向工作区在自身坐标系和基坐标系中的八个顶点。两种约束取交集。顶点用于检查，不会被更大的轴对齐包围盒替代，也不能证明空间无碰撞。此命令显示配置，不代表实时 daemon 约束执行或物理标定验收。
+`workspace show` 包含米/弧度/xyzw 单位、工作站和标定来源、基坐标系安全盒，以及有向工作区在自身坐标系和基坐标系中的八个顶点。它还报告 `joint_limits`、`max_delta_per_step`、`home_joints` 和 `home_within_limits`（未配置 home 或限位时为 `null`；`home_violations` 列出每个超出限位的关节）。两种约束取交集。顶点用于检查，不会被更大的轴对齐包围盒替代，也不能证明空间无碰撞。此命令显示配置，不代表实时 daemon 约束执行或物理标定验收。
 
-在机器人主机的仓库目录激活项目环境后，按以下方式保存具名测量点并预览其极值（工作站必须已定义 `table` 坐标系）：
+在机器人主机的仓库目录激活项目环境后，按以下方式保存具名测量点并预览其极值（工作站必须已定义 `table` 坐标系，例如用上文的 `workspace frame set`）：
 
 ```bash
 rwrl --station local/station.yaml workspace capture --name near --output points.yaml --save

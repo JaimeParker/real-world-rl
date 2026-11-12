@@ -29,6 +29,7 @@ rwrl setup --arms 1 --arm-names arm --robot-ip 172.16.0.2 --teleop gello --scope
 | `--robot-ip 172.16.0.2` | 按臂顺序指定探测/选择地址 |
 | `--cameras none` | 该臂无相机；否则交互选择发现的相机 |
 | `--cameras SERIAL=wrist` | 实际序列号及观测名；每臂一个逗号分隔值 |
+| `--camera-resolution 1280x720`、`--camera-fps 15`、`--camera-depth yes` | 该臂相机的流设置，每臂一个值；未设置时，新相机保持相机默认值（640x480、30 fps、无深度），保留的相机保持 `--station` 中的值 |
 | `--teleop gello` | 选择 GELLO；单个值应用到所有臂 |
 | `--no-calibrate` | 延后标定；交互默认询问，非交互默认跳过 |
 
@@ -47,16 +48,18 @@ rwrl setup --arms 1 --arm-names arm --robot-ip 172.16.0.2 --teleop gello --scope
 
 ## 内联 GELLO 标定
 
-回答 `yes` 运行与 `rwrl gello-calibrate` 相同的流程。扭矩关闭，手动移动 leader：
+回答 `yes` 运行与 `rwrl teleop calibrate --backend gello` 相同的流程。扭矩关闭，手动移动 leader：
 
 1. 逐个七关节朝机器人正方向移动并回车。输出 `joint N: observed sign +1 (current +1); use it? [Y/n]`，回车接受，`n` 保留旧符号。位移不足 0.1 rad 保留符号；mock 不运动，会提示 `moved less than 0.1 rad; keeping sign +1`。
 2. 保持标定姿态后回车：`[0.0, 0.0, 0.0, -1.5708, 0.0, 1.5708, 0.0]`，即第 4 关节 -90°、第 6 关节 +90°，其余为零。输出 `offset residuals (rad): [...]`；超过 pi/8 表示姿态或符号可能有误，应重新标定。
 3. 扳机全开后回车，再全闭后回车。转动不足 0.05 rad 会失败。
 
-回答 `no` 写入零偏移、全 `+1` 符号及 `# TODO calibrate` 注释。失败会问 `retry the calibration? [Y/n]`。以后用以下命令补标定：
+回答 `no` 写入零偏移、全 `+1` 符号及 `# TODO calibrate` 注释。失败会问 `retry the calibration? [Y/n]`。以后用以下任一命令补标定。
+第二条命令以工作站的 `teleop.options` 为默认值，不提出向导问题，并在审阅差异后将标定选项写入 `local/station.yaml`（`--use`）：
 
 ```bash
 rwrl setup --station local/station.yaml --only teleop --calibrate
+rwrl --station local/station.yaml teleop calibrate --backend gello --use
 ```
 
 <a id="where-the-file-lands"></a>
@@ -69,7 +72,7 @@ rwrl setup --station local/station.yaml --only teleop --calibrate
 2. `./local/station.yaml`
 3. `$XDG_CONFIG_HOME/robot_infra/station.yaml`，默认 `~/.config/robot_infra/station.yaml`
 
-显式 `--station <yaml>` 优先。后续命令应从同目录执行，或设置 `ROBOT_INFRA_CONFIG`。
+显式 `--station <yaml>` 优先。后续 `rwrl` 命令应从同目录执行，或设置 `ROBOT_INFRA_CONFIG`。
 
 <a id="multiple-arms"></a>
 
@@ -102,6 +105,14 @@ rwrl doctor --station local/station.yaml --robot right
 
 向导写入 Panda 关节限位及单步上限 `joint_limits`、`max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}`，并询问 `safety_box`，建议桌面工作区。首动前按现场核对三者：盒位于基坐标系，`tcp_pose = O_T_EE`，单位米，须包含 home、物体和箱子；`home_joints` 应在关节限位内。
 两种进程布局均由设备层裁剪伺服目标并拒绝越界 `move_to_*`，见[安全规则](../robot-infra.md#safety-rules)。训练环境只能更严。`--station` 重跑保留已编辑值。
+
+不打开文件即可审阅这些值（只读取工作站文件，不连接任何设备）：
+
+```bash
+rwrl --station local/station.yaml workspace show
+```
+
+*应该看到：* `joint_limits`、`max_delta_per_step`、`home_joints`、`base_safety_box` 和 `home_within_limits: true`。`false` 时附带 `home_violations`，每个超出限位的关节一条；`null` 表示缺少 home 或限位。
 
 <a id="regenerating-and-rehearsing"></a>
 
@@ -148,11 +159,28 @@ rwrl train hil_serl --config hil.yaml --print-config
 *应该看到：* JSON 中 `env_backend: real_robot`、`real_robot.robot` 映射，无远程地址，`action_mode: cartesian_delta`、`control_hz: 50`。
 *否则：* 查 YAML 缩进并移除旧远程和 joint-delta 设置。后续教程示例仍待同步到此目标流程；录制、BC/ACT、HIL、部署必须共用动作/观测契约。
 
+在 NUC、仓库根、项目环境激活且没有 recorder 或 actor 运行时（doctor 也会探测设备），检查副本是否与 station 一致：
+
+```bash
+rwrl --station local/station.yaml --preset hil.yaml doctor
+```
+
+*应该看到：* 一条 `PASS` 行 `arm.preset`。与 station 不同的每个复制硬件字段（`robot_ip`、`arm_backend`、`gripper`、按名称的相机、`home_joints`、`joint_limits`、`safety_box`、`task_frame`、`workspace`）改为一条显示两边值的 `WARN` 行 `arm.preset:<field>`。WARN 不会使 doctor 失败，因此要阅读这些行；修正副本后重跑。
+
 <a id="task-images-and-control-profiles"></a>
 
 ## 任务、图像与控制配置
 
 教程预设保留 `real_robot.task.name: none`，由操作员或分类器提供成功标签。任务/复位、深度和逐相机预处理见[真机实验](../real-world-experiments.md#task-presets-and-observation-settings)，录制前配置并贯穿流水线。`preprocess.<camera>.roi` 是像素 `[top, left, height, width]`，需真实 `source_resolution: [height, width]`。RGB 双线性缩放；深度为单通道米值，最近邻缩放，无效值为零。修改会改变观测契约。
+
+在 NUC、仓库根、项目环境激活且没有 recorder 或 actor 占用设备时，读取实际分辨率并从真实帧选取 ROI：
+
+```bash
+rwrl --station local/station.yaml camera show --name wrist
+rwrl --station local/station.yaml camera grab --name wrist --output local/camera-wrist
+```
+
+`camera show` 为读取的帧打印 `color (H, W, 3)`、实测帧率和相机健康状态；`source_resolution` 为 `[H, W]`。`camera grab` 在 `local/camera-wrist/` 下保存 `wrist-color.png`（有深度时另有 `wrist-depth.png`）和 `wrist.json`；从彩色图像读取 ROI 的像素 `top`、`left`、`height` 和 `width`。它从不覆盖之前的抓帧，因此下一次请选择新的 `--output` 目录。
 
 station 每臂可设 `control:` 阻抗配置，实验通过 `real_robot.control` 覆盖，须在 IDLE 配置。覆盖只能收紧声明的扭矩变化率和误差裁剪界限，SDK 须支持相应关键字。字段、有效值和向导 `--control` 见[机械臂控制配置](../control-profiles.md)。向导保留旧配置，新工位为 `control: null`；增益应适配真实工具和负载。
 

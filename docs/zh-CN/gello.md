@@ -24,6 +24,7 @@ GELLO 是被动式、3D 打印的 Franka Panda 仿形主臂，以 Dynamixel 舵�
 
 - **总线适配器。** 可用 ROBOTIS U2D2，其 FTDI 芯片显示为 `/dev/serial/by-id/usb-FTDI_*`、`ttyUSB*`；或运行 USB-to-Dynamixel 透传固件的 OpenRB-150，显示为 `/dev/serial/by-id/usb-ROBOTIS_*`、`ttyACM*`。请配置稳定的 `/dev/serial/by-id/...` 路径，`ttyUSB0` 会随插拔顺序改变。
 - **舵机 ID 与波特率。** 下文默认关节 ID 为 1–7，扳机为 8。后端按 `baudrate` 打开串口，默认 57600，与 XL330 出厂值一致，不会写舵机 EEPROM。若通过 Dynamixel Wizard 改过波特率，例如提高到 1 Mbps，需同步修改 `baudrate:`。57600 波特下同步读取 8 个舵机约需 35 毫秒，适合 10 Hz 循环；更快循环需要提高波特率。
+- **先运行 doctor。** 工作站写明 GELLO `port` 后，在连接 GELLO 的机器上（激活项目环境）运行 `rwrl --station robot.yaml doctor --fix`。确认一次后，若端口不可读写，它将用户加入 `dialout` 并写入 `/etc/udev/rules.d/99-rwrl-gello-*.rules` 访问规则；若 FTDI 适配器的计时器不是 1 毫秒，写入持久的延迟规则，然后重新检查；重新拔插或重新登录可能作为待办操作保留（[cli.md](cli.md#robot-host-diagnosis-and-repair)）。下面的手动命令用于没有项目环境的机器，或手工查看这些值。
 - **FTDI 延迟计时器（U2D2）。** FTDI 驱动默认缓存串口数据 16 毫秒，可能给每次读取增加最多 16 毫秒。可设为 1 毫秒：
 
   ```bash
@@ -53,18 +54,19 @@ pip install -e "robot_infra[gello-events]"   # evdev, only for an event_device (
 标定命令确定每台设备的关节方向、偏移和扳机范围，打印 `teleop:` YAML 配置块。`rwrl setup` 会逐臂直接执行并写入工作站文件，因此使用向导时可以跳过下方手动粘贴步骤，见 [robot_infra README](robot-infra.md#setup-wizard)。
 
 ```bash
-rwrl gello-calibrate \
+rwrl --station robot.yaml teleop calibrate --backend gello \
     --port /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_XXXXXXXX-if00-port0 \
-    --joint-ids 1 2 3 4 5 6 7 --gripper-id 8 \
-    --joint-limits-yaml robot.yaml
+    --joint-ids 1 2 3 4 5 6 7 --gripper-id 8
 ```
+
+在连接 GELLO 的机器上的终端中运行，并激活项目环境；每一步都会提示。未设置的标志取自工作站的 `teleop.options`（`--port`、`--joint-ids`、`--gripper-id`、`--baudrate`，否则 57600，以及 `--joint-signs`），环绕中心取自工作站的 `joint_limits`，因此工作站已有 GELLO `teleop:` 段后，单独运行 `rwrl --station robot.yaml teleop calibrate --backend gello` 即可重新标定。`--use` 在审阅差异后将标定选项写入工作站的 `teleop.options`（对没有夹爪通道的主臂去掉夹爪键），代替下文的粘贴。没有工作站文件时，`robot-infra gello-calibrate` 接受相同的主臂标志，`--port` 和 `--joint-ids` 必填；`rwrl gello-calibrate` 是 `teleop calibrate` 形式的已弃用别名。
 
 1. **方向检查。** 命令行逐关节要求沿机器人正方向移动并按 Enter，显示观测方向，除非回答 `n` 否则采用。移动不足 0.1 rad 时保留当前方向。`--joint-signs` 提供初始方向，默认全部 `+1`；`--skip-sign-check` 直接采用给定方向。
 2. **偏移。** 将主臂保持标定姿态并按 Enter。默认 Franka 姿态为 `0 0 0 -pi/2 0 pi/2 0`，可用 `--calibration-pose` 改变。偏移在四分之一圈网格上求解，因为舵盘以 90 度步长安装。残差大于 pi/8 时报告警告，表示姿态或方向有误。
 3. **扳机。** 完全打开后按 Enter，再完全闭合后按 Enter。
-4. **角度环绕中心。** 使用 `--joint-limits-yaml` 提供含 `joint_limits` 的机器人 YAML 时，以各关节范围中点为环绕中心；未提供则用零并警告，这对范围超过 pi 的 Panda 第 6 关节不正确。
+4. **角度环绕中心。** 有工作站的 `joint_limits`（或 `--joint-limits-yaml` 提供另一份含 `joint_limits` 的机器人 YAML）时，以各关节范围中点为环绕中心；没有限位则用零并警告，这对范围超过 pi 的 Panda 第 6 关节不正确。
 
-将打印的配置块粘贴到第 3 节机器人 YAML。完整选项及默认值如下：
+除非传了 `--use`，将打印的配置块粘贴到第 3 节机器人 YAML。完整选项及默认值如下：
 
 ```yaml
 teleop:
@@ -88,7 +90,13 @@ teleop:
     poll_interval_s: 0.0
 ```
 
-真机使用前检查结果：在守护进程运行时读取主臂，或读取 `Robot.from_yaml` 的 `teleop` 部件，对照标定姿态和其他几个姿态下的主从臂关节角。
+真机使用前检查结果：在标定姿态和其他几个姿态下读取主臂，对照主从臂关节角。在连接 GELLO 的机器上，激活项目环境：
+
+```bash
+rwrl --station robot.yaml teleop read --duration-s 30
+```
+
+每行显示主臂关节（`q=`，rad）、`gripper=`、`intervening=` 和已触发的 `events=`；没有守护进程时只打开 GELLO，从不打开机械臂（若工作站声明了未运行的守护进程，传入 `--direct`）。工作站声明了 `daemon:` 且其正在运行时，加上 `--with-follower`（仅守护进程路线）：每行还显示从臂的 `follower_q` 和逐关节 `delta`（主臂减从臂）。
 
 <a id="3-the-robot-yaml-real_robot-franky"></a>
 

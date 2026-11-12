@@ -37,10 +37,8 @@ def test_registry_contract_and_parser_commands():
         assert callable(command.run)
         assert subparsers.choices[command.name].get_default("_command") is command
     document = (Path(__file__).resolve().parents[1] / "docs/cli.md").read_text()
-    # TODO: drop these exemptions once docs/cli.md documents `archive` and `camera`.
-    awaiting_documentation = {"archive", "camera"}
     for name in names:
-        assert name in awaiting_documentation or f"`{name}" in document
+        assert f"`{name}" in document
 
 
 @pytest.mark.parametrize("mode,answer,allowed,message", [

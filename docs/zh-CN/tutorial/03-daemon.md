@@ -34,7 +34,7 @@ robot-infra daemon --station local/station.yaml --watchdog-s 5
 
 *应该看到：* preflight doctor 后打印服务地址和部件。保持终端打开；Ctrl-C 停守护进程。多臂 station 每臂启动一个独立端口进程，launcher 可从同一文件同时启动。
 
-*否则：* 按 [01](01-install.md) 的 preflight 提示处理。recorder、actor 或守护进程占设备时不要对同设备跑 doctor，否则 claim 和握手冲突。
+*否则：* 按 [01](01-install.md) 的 preflight 提示处理。recorder、actor 或守护进程占设备时不要对同设备跑 doctor，否则 claim 和握手冲突。doctor 会将这类进程列为 `BLOCKED`；只有持有硬件连接的命令才算，因此 `workspace show`、`teleop inspect-stop` 或 `archive inspect` 等离线 `rwrl` 命令不会阻塞它。
 
 daemon 启动后，在同一 **NUC** 打开另一终端，进入**仓库根目录**并激活**项目环境**，检查连接：
 

@@ -35,7 +35,8 @@ robot-infra doctor --station local/station.yaml --json
 
 两种 doctor 都接受 `--yes`，只跳过确认，仍运行预检查，即使没有修复标志。修复确认只接受 `y`，忽略大小写及两侧空白。共同退出策略为成功 0、运行/设备失败或未解决的检查结果 1、用法或配置错误 2。Setup 中断返回 130，supervisor 启动失败返回 127，停止升级返回 1，否则保留子进程状态。
 
-无 JSON 输出的命令（`setup`、`daemon`、`supervise`、`discover`、`gello-calibrate`）拒绝全局 `--json`，用法退出码为 2。
+无 JSON 输出的命令（`setup`、`daemon`、`supervise`、`gello-calibrate`）拒绝全局 `--json`，用法退出码为 2。
+`doctor` 和 `discover` 支持 `--json`；`robot-infra --json discover` 打印 `schema_version: 1` 以及列表 `cameras`、`teleops`、`can_interfaces`、`hosts` 和 `hid_devices`（见[接入与发现](#2-plug-in-and-discover)）。
 `supervise` 保留 `-- <child command...>` 边界；子命令参数原样传给子进程。各原生命令的 `--help` 列出原模块参数。`gello-calibrate` 打印遥操作 YAML 块；`setup --only teleop --calibrate` 在向导内运行同一标定并写工作站 YAML。Python 模块入口继续作为兼容别名。
 
 <a id="install"></a>
@@ -287,6 +288,12 @@ hid devices:
 ```
 
 连接硬件后输出形式为 `realsense: <serial>, <serial>`、`spacemouse: <vid>:<pid>:<path>`，无 `hidapi` 时为 `/dev/hidrawN`，以及 `can0: operstate=up bitrate=1000000`、`172.16.0.2: ping=ok open ports=<list>`、`/dev/hidraw0`。不会列出 `fake` 后端。
+
+`robot-infra --station robot.yaml --json discover`（或 `rwrl --json discover`）将同一报告打印为一个 JSON 对象：`schema_version: 1` 和五个列表，未发现时各列表为空，即 `cameras`（`backend`、`serial`）、`teleops`（`backend`、`device`）、`can_interfaces`（`name`、`operstate`、`bitrate`）、`hosts`（`ip`、`ping_ok`、`open_ports`）和 `hid_devices`（路径）。上述机器的输出如下（由同一报告推导，不是实际运行捕获）：
+
+```json
+{"schema_version": 1, "cameras": [], "teleops": [], "can_interfaces": [], "hosts": [{"ip": "172.16.0.2", "ping_ok": false, "open_ports": []}], "hid_devices": []}
+```
 
 | 部分 | 来源 | 检查要点 |
 |---|---|---|
@@ -625,7 +632,7 @@ robot.disconnect()
 
 子进程在独立会话中运行，通过 `ROBOT_INFRA_HEARTBEAT_FD` 接收管道写端。`robot_infra.supervise.Heartbeat.from_env()` 是子进程端接口：每步调用 `beat()`，重置前调用 `begin_long_operation()`；无该变量时不执行操作。Ctrl-C、SIGTERM 或终端关闭只传到监督进程，由它转发 SIGINT 并等待子进程；它以子进程退出码结束，升级信号后为非零。监督进程死亡时子进程收到 SIGINT，下次心跳抛 `SupervisorLost`。仅 Linux，依赖 prctl 和进程组。
 
-监督进程只能终止进程，随后 libfranka 断开控制连接，机器人由固件以 `Reflex` 状态停止。在 Desk 清错或运行 `robot-infra doctor --station robot.yaml --fix` 恢复。进程外受控 `stop()` 只存在于守护进程路线（`--watchdog-s`）；进程内第一层为通过 `real_robot.watchdog_s` 启用的 `StepWatchdog`（见 `docs/real-world-experiments.md`）。
+监督进程只能终止进程，随后 libfranka 断开控制连接，机器人由固件以 `Reflex` 状态停止。在 Desk 清错或运行 `robot-infra doctor --station robot.yaml --fix` 恢复。安装完整项目后，`rwrl --station robot.yaml recover` 可直接清除（它调用机械臂的 `recover()`，与设备 doctor 的 `--fix` 对 Reflex 执行的自动修复相同）；`rwrl doctor --fix` 只修复主机和软件，从不恢复机械臂。进程外受控 `stop()` 只存在于守护进程路线（`--watchdog-s`）；进程内第一层为通过 `real_robot.watchdog_s` 启用的 `StepWatchdog`（见 `docs/real-world-experiments.md`）。
 
 <a id="7-add-a-teleop-device"></a>
 

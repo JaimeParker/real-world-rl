@@ -28,31 +28,6 @@ check() {
   printf '%s\n' "$rc" > "$RUN_ROOT/$id/exit-code.txt"
   return "$rc"
 }
-read_leaders() {
-  python - <<'STATIC_PY'
-import time
-from robot_infra.devices import Robot
-from robot_infra.discovery.autoconfig import load_station
-station = load_station('local/station.smoke.yaml')
-leaders = {name: Robot.from_config(entry.config).teleop for name, entry in station.robots.items()}
-connected = []
-try:
-    for leader in leaders.values():
-        assert leader is not None
-        leader.connect()
-        connected.append(leader)
-    while True:
-        for name, leader in leaders.items():
-            sample = leader.read(1.0)
-            print(name, 'q=', sample.action.round(3).tolist(), 'gripper=', sample.gripper, 'active=', sample.intervening, 'events=', {k: v for k, v in sample.events.items() if v}, flush=True)
-        time.sleep(0.3)
-except KeyboardInterrupt:
-    pass
-finally:
-    for leader in reversed(connected):
-        leader.disconnect()
-STATIC_PY
-}
 record_case() {
   local id=$1 step_cap=${2:-1200} trial_dir="$RUN_ROOT/$1" confirmation rc
   [[ ! -e "$trial_dir" ]] || { printf 'Use a fresh item directory\n' >&2; return 2; }
@@ -66,11 +41,20 @@ record_case() {
   rc=${status[0]}; if [[ $rc == 0 && ${status[1]} != 0 ]]; then rc=${status[1]}; fi
   printf '%s\n' "$rc" > "$trial_dir/exit-code.txt"
   if [[ -f "$trial_dir/demo.trajectory.sqlite3" ]]; then
-    python examples/inspect_teleop_archive.py "$trial_dir/demo.trajectory.sqlite3" --csv "$trial_dir/steps.csv" > "$trial_dir/summary.json" || return
+    rwrl archive inspect "$trial_dir/demo.trajectory.sqlite3" --csv "$trial_dir/steps.csv" > "$trial_dir/summary.json" || return
   fi
   return "$rc"
 }
 ```
+
+P02 reads one leader at a time with `rwrl teleop read`; the daemons are declared but off, so `--direct` is required, and it opens only that robot's GELLO (and its event device), never the arm. Reference expansion of the table's `check P02-L` and `check P02-R` commands, run left first, then right:
+
+```bash
+rwrl --station local/station.smoke.yaml --robot left --direct teleop read --duration-s 120
+rwrl --station local/station.smoke.yaml --robot right --direct teleop read --duration-s 120
+```
+
+Each line shows `q=` (leader joints, rad), `gripper=`, `intervening=` and `events=`. F1 toggles `intervening` in the left read, F2 in the right read; S/F/R/Esc appear under `events=`. The closing summary line counts `events_seen`; Ctrl-C ends a read early.
 
 Run P00–P03-R with daemons off. After both doctor checks pass, start this in a second terminal (same PC/root/project environment) and retain its log; never run doctor concurrently. The 5 s daemon watchdog is a separately approved debugging value, not the supervisor heartbeat timeout:
 
@@ -93,7 +77,7 @@ rwrl supervise --log "$RUN_ROOT/T00/supervise.jsonl" -- \
 |---|---|---|---|
 | P00 Baseline and inventory | `check P00 bash -c 'git rev-parse HEAD; git diff; uname -a; ip -br address; ip route'` | Commit/local changes, both robot models/firmware/server versions, Hand/load/TCP, FCI IPs and GELLO serial/calibration inventory recorded | `P00/console.log` |
 | P01 Environment and SDK | `check P01 bash scripts/install.sh --extras franka-gello --no-doctor` | Install succeeds; real-time setup and dialout/input permissions verified for this PC. Activate the environment the installer created (`.venv` by default) afterward | `P01/console.log` |
-| P02 Configuration and static release | `check P02 read_leaders` | Move each leader joint; verify calibration/direction/static readings and F1/F2/S/F/R/Esc events; Ctrl-C closes leaders. Approve homes/limits, disjoint workspaces and simultaneous reset paths | `P02/console.log` |
+| P02 Configuration and static release | `check P02-L rwrl --station local/station.smoke.yaml --robot left --direct teleop read --duration-s 120`, then `check P02-R rwrl --station local/station.smoke.yaml --robot right --direct teleop read --duration-s 120` | Move each leader joint; verify calibration/direction/static readings and F1/F2/S/F/R/Esc events; each read closes its leader on exit. Approve homes/limits, disjoint workspaces and simultaneous reset paths | `P02-L/console.log`, `P02-R/console.log` |
 | P03-L Left doctor | `check P03-L rwrl doctor --station local/station.smoke.yaml --robot left` | Left SDK, permissions, handshake, feedback and mode checks pass; daemons remain off | `P03-L/console.log` |
 | P03-R Right doctor | `check P03-R rwrl doctor --station local/station.smoke.yaml --robot right` | Right SDK, permissions, handshake, feedback and mode checks pass; daemons remain off | `P03-R/console.log` |
 | T00 Reset and idle hold | `record_case T00` | Approved homes/open grippers; moving inactive leaders does not move followers; Esc finalizes exactly one unknown/truncated episode and exits | `T00/summary.json` |

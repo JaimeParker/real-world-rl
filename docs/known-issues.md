@@ -36,7 +36,9 @@ Status: open for the startup hold/warm-up behavior (S8).
   `real_world_rl/teleop/part.py`); the onset policies act on the joints only
   (`LeaderArmPartSource._poll` in `real_world_rl/teleop/leader_arm.py`).
 - **Workaround today**: before taking over, set the trigger to the gripper's current state
-  (squeezed if it holds the object).
+  (squeezed if it holds the object). To learn which trigger positions read as open and closed,
+  run `rwrl teleop read` before the session (no robot motion; not while a recorder or actor holds
+  the leader): it prints the trigger live as `gripper=`.
 - **Planned fix**: the take-over latch `leader_cartesian` has (see [Closed](#s3-leader_cartesian-taking-over-can-open-the-gripper)).
 - **Status**: open for the joint-space leader sources.
 

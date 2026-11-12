@@ -16,6 +16,12 @@
 
 预设的 `teleop_options_yaml` 指向仓库根目录的 `gello_leader.yaml`。创建该本地选项文件，内容为 `robot_yaml: gello_station.yaml`。`gello_station.yaml` 应为本地仅 leader 的机器人 YAML：`type: franka`、独立 `name`、`arm_backend: fake`、`gripper: null`、`cameras: []`，以及带串口和标定的已调试 GELLO `teleop:` 段。不要将此输入源指向实体 follower 工作站：它连接整个 leader 机器人 YAML，会向 follower 打开第二个连接。标定和其它本地 leader 配置见 [gello.md](../gello.md)。
 
+两个文件都需手写。标定值可由下面的命令获得：它从 `gello_station.yaml` 的 `teleop.options`（或 `--port` 和 `--joint-ids`）读取 leader 串口和舵机 ID，从 follower 工作站的 `joint_limits` 取环绕中心，只打开 GELLO，并在审阅差异后将标定选项写入 `gello_station.yaml`（`--use`）：
+
+```bash
+rwrl --station gello_station.yaml teleop calibrate --backend gello --joint-limits-yaml local/station.yaml --use
+```
+
 录制前，在本 NUC 的仓库根目录激活项目环境，结束所有直接持有机械臂的进程。运行 `rwrl status`，手动引导机械臂到期望 home，然后退出引导模式。在下文录制器使用的同一预设中保存并验证 home：
 
 <!-- tutorial-test: skip -->
@@ -24,7 +30,7 @@ rwrl --preset examples/presets/gello_cartesian.yaml home set
 rwrl --preset examples/presets/gello_cartesian.yaml --yes home go
 ```
 
-这与 `env.reset()` 解析的是同一 home。验证会移动机械臂并应用 `task.reset.gripper`，但跳过其它 reset 阶段。`home set` 用 PyYAML 重写此预设：注释会丢失，旧文件保存为 `examples/presets/gello_cartesian.yaml.bak`。见 [rwrl home](../cli.md#home-resolve-save-and-move)。
+这与 `env.reset()` 解析的是同一 home。验证会移动机械臂并应用 `task.reset.gripper`，但跳过其它 reset 阶段。`home set` 只修改此预设中的 `home_joints` 值；注释、引号和键顺序均保留。旧文件保存在其旁边，名为 `examples/presets/gello_cartesian.yaml.<id>.bak`（权限 0600，每次保存使用新的 `<id>`）。见 [rwrl home](../cli.md#home-resolve-save-and-move)。
 
 <a id="record-with-gello"></a>
 

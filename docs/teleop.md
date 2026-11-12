@@ -55,7 +55,7 @@ the derived ones. Use it for device options the CLI has no flags for, for exampl
 # gello.yaml, for --teleop-device gello --teleop-options-yaml gello.yaml
 port: /dev/serial/by-id/usb-FTDI_...
 joint_ids: [1, 2, 3, 4, 5, 6, 7]
-joint_offsets_rad: [...]   # from gello_calibrate
+joint_offsets_rad: [...]   # from teleop calibrate --backend gello
 joint_signs: [1, 1, -1, 1, 1, 1, 1]
 gripper_id: 8
 gripper_open_rad: ...
@@ -219,6 +219,15 @@ USB permissions, device directions, timing and disconnect behavior are
 **not yet verified on hardware**. No system `libhidapi` install is prescribed for this wheel
 route; a source build on a platform without a suitable wheel is outside that target.
 
+First run `rwrl --station local/station.yaml doctor --fix` on the NUC, repository
+root, project environment active, with the SpaceMouse plugged in and the station
+naming a `spacemouse` teleop. When the USB node is not readable and writable it
+proposes, after one confirmation, the `plugdev` group and an
+`/etc/udev/rules.d/99-rwrl-spacemouse.rules` rule for the supported vendor/product
+IDs; replug the SpaceMouse and log in again when it reports a pending action
+([cli.md](cli.md#robot-host-diagnosis-and-repair)). The manual installation below
+is the alternative without the project environment.
+
 Install the packaged vendor rules once. On the NUC, repository root, any shell
 (no project environment required), with sudo permission:
 
@@ -341,8 +350,9 @@ adds an onset policy for the moment the operator takes over. Two ways to read a 
   `RemoteRobot`. `rwrl setup` writes the section (calibration included) into a
   station yaml; or add it to the robot yaml by hand (for example
   `robot_infra/docs/robot.franka.example.yaml`);
-  `rwrl gello-calibrate --port ... --joint-ids 1 2 3 4 5 6 7 --gripper-id 8`
-  prints the `options` block for a unit:
+  `rwrl --station robot.yaml teleop calibrate --backend gello --port ... --joint-ids 1 2 3 4 5 6 7 --gripper-id 8`
+  prints the `options` block for a unit (unset flags come from the station's `teleop.options`;
+  `--use` writes the block into the station, see [gello.md](gello.md#2-calibration)):
 
   ```yaml
   teleop:
@@ -351,7 +361,7 @@ adds an onset policy for the moment the operator takes over. Two ways to read a 
     options:
       port: /dev/serial/by-id/usb-FTDI_...
       joint_ids: [1, 2, 3, 4, 5, 6, 7]
-      joint_offsets_rad: [...]    # from gello_calibrate
+      joint_offsets_rad: [...]    # from teleop calibrate --backend gello
       joint_signs: [1, 1, -1, 1, 1, 1, 1]
       gripper_id: 8
       gripper_open_rad: ...
@@ -444,8 +454,9 @@ part, and the robot daemon serves it:
 ```bash
 # on the robot host, next to the SERL bridge
 pip install -e "robot_infra[gello]"          # + [gello-events] for an evdev pedal/keyboard
-rwrl gello-calibrate --port /dev/serial/by-id/usb-FTDI_... \
-    --joint-ids 1 2 3 4 5 6 7 --gripper-id 8            # paste the printed options into the yaml
+rwrl --station robot.gello_station.yaml teleop calibrate --backend gello \
+    --port /dev/serial/by-id/usb-FTDI_... --joint-ids 1 2 3 4 5 6 7 --gripper-id 8 \
+    --use                                                # writes the options into the yaml
 robot-infra daemon --station robot.gello_station.yaml --bind 0.0.0.0:50052
 ```
 

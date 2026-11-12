@@ -12,6 +12,35 @@ contains `schema_version: 1` and a `profiles` mapping. Each profile declares
 `neutral_threshold` defaults to 0.05. This startup tolerance is separate from
 normal intervention and movement deadzones.
 
+`rwrl workspace frame set` writes `task_frame` instead of hand-editing it. On
+the robot host, from the repository with its project environment active,
+capture three TCP points with the arm positioned by an operator (the frame
+origin, a point on +X, and a point on the +Y side of the X axis), then propose
+and save the frame:
+
+```bash
+rwrl --station local/station.yaml workspace capture --name frame-origin --output frame-points.yaml --save
+rwrl --station local/station.yaml workspace capture --name frame-x --output frame-points.yaml --save
+rwrl --station local/station.yaml workspace capture --name frame-y --output frame-points.yaml --save
+rwrl --station local/station.yaml workspace frame set --name table \
+  --from-points frame-points.yaml --origin frame-origin --x-axis frame-x --y-axis frame-y
+rwrl --station local/station.yaml workspace frame show
+```
+
+The frame is right-handed: X points from the origin to the X point, Z is normal
+to the plane of the three points, and Y is the Y point's direction made
+orthogonal to X. The candidate reports both measured axis lengths and the angle
+between the measured and final Y directions; an X point closer than 1 mm to the
+origin, or three collinear points, is refused. A known transform can be given
+instead as `--base-T-frame` followed by 16 row-major numbers (metres). The default
+`source` provenance is `points:<file> origin=A x=B y=C`; `--source TEXT` sets
+another. Add `--save` to write only `task_frame` after the reviewed diff and
+confirmation. A station workspace defined in another frame is refused; reusing
+its frame name rebases that workspace, so rerun `workspace validate` and review
+the bounds. Points files saved in the old frame must be recaptured.
+`workspace frame show` prints `task_frame` with its origin and unit axes in the
+base frame.
+
 `teleop_profiles` is a real_world_rl station section, not a `RobotConfig`
 field. Device-layer station loaders discover its validator through the installed
 real_world_rl package's `robot_infra.station_sections` entry point. If that package
@@ -113,14 +142,16 @@ exits `5`. Malformed configuration or input still reports an error.
 
 `workspace show` includes metre/radian/xyzw units, station and calibration source,
 the base safety box and the eight oriented-workspace vertices in both its own
-frame and the base frame. Both constraints apply as an intersection. The vertices
+frame and the base frame. It also reports `joint_limits`, `max_delta_per_step`,
+`home_joints` and `home_within_limits` (`null` when home or limits are not
+configured; `home_violations` lists each joint outside its limits). Both constraints apply as an intersection. The vertices
 are for inspection; they are not replaced by a larger axis-aligned bounding box
 and do not certify collision-free space. This command displays configuration,
 not live daemon enforcement or physical calibration acceptance.
 
 On the robot host, from the repository with its project environment active,
 save named measurements and preview their extrema as follows (the station must
-already define the `table` frame):
+already define the `table` frame, for example with `workspace frame set` above):
 
 ```bash
 rwrl --station local/station.yaml workspace capture --name near --output points.yaml --save

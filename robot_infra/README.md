@@ -59,8 +59,11 @@ or configuration errors. Setup interruption returns 130; supervisor launch
 failure returns 127 and stop escalation returns 1, otherwise child status is
 preserved.
 
-Commands without JSON output (`setup`, `daemon`, `supervise`, `discover`,
+Commands without JSON output (`setup`, `daemon`, `supervise`,
 `gello-calibrate`) reject the global `--json` option with usage exit code 2.
+`doctor` and `discover` support `--json`; `robot-infra --json discover` prints
+`schema_version: 1` and the lists `cameras`, `teleops`, `can_interfaces`,
+`hosts` and `hid_devices` (see [Plug in and discover](#2-plug-in-and-discover)).
 `supervise` retains its `-- <child command...>` boundary; child flags are passed
 to the child unchanged. Each native command's `--help` lists its original
 module flags. `gello-calibrate` prints a teleop YAML block;
@@ -390,6 +393,16 @@ With hardware attached, the lines take the form `realsense: <serial>, <serial>`,
 `spacemouse: <vid>:<pid>:<path>` (or `/dev/hidrawN` when `hidapi` is not installed),
 `can0: operstate=up bitrate=1000000`, `172.16.0.2: ping=ok open ports=<list>` and
 `/dev/hidraw0`. The `fake` backends are not listed.
+
+`robot-infra --station robot.yaml --json discover` (or `rwrl --json discover`) prints the same
+report as one JSON object: `schema_version: 1` and five lists, each empty when nothing is found,
+`cameras` (`backend`, `serial`), `teleops` (`backend`, `device`), `can_interfaces` (`name`,
+`operstate`, `bitrate`), `hosts` (`ip`, `ping_ok`, `open_ports`) and `hid_devices` (paths). The
+machine above gives (derived from the same report, not a captured run):
+
+```json
+{"schema_version": 1, "cameras": [], "teleops": [], "can_interfaces": [], "hosts": [{"ip": "172.16.0.2", "ping_ok": false, "open_ports": []}], "hid_devices": []}
+```
 
 | Section | Source | What to look for |
 |---|---|---|
@@ -846,7 +859,7 @@ use `rwrl supervise` and `rwrl record`. Without a daemon, the robot process driv
 
 The child runs in its own session and receives the write end of a pipe in `ROBOT_INFRA_HEARTBEAT_FD`. `robot_infra.supervise.Heartbeat.from_env()` is the child side: `beat()` once per step, `begin_long_operation()` before a reset. Without the variable it does nothing. Ctrl-C, SIGTERM or a closed terminal reach only the supervisor, which forwards SIGINT and waits for the child; it exits with the child's code, non-zero after an escalation. If the supervisor dies, the child gets SIGINT and its next heartbeat raises `SupervisorLost`. Linux only (prctl, process groups).
 
-The supervisor's only lever is the kill. libfranka then drops the control connection and the robot stops at the firmware level, in `Reflex`. Clear it in Desk or with `robot-infra doctor --station robot.yaml --fix`. A controlled out-of-process `stop()` exists only on the daemon route (`--watchdog-s`). The in-process first layer is `StepWatchdog`, enabled with `real_robot.watchdog_s` (see `docs/real-world-experiments.md`).
+The supervisor's only lever is the kill. libfranka then drops the control connection and the robot stops at the firmware level, in `Reflex`. Clear it in Desk or with `robot-infra doctor --station robot.yaml --fix`. With the full project installed, `rwrl --station robot.yaml recover` clears it directly (it calls the arm's `recover()`, the same autofix the device doctor's `--fix` runs for a Reflex); `rwrl doctor --fix` repairs only the host and software and never recovers the arm. A controlled out-of-process `stop()` exists only on the daemon route (`--watchdog-s`). The in-process first layer is `StepWatchdog`, enabled with `real_robot.watchdog_s` (see `docs/real-world-experiments.md`).
 
 ### 7. Add a teleop device
 

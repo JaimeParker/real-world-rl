@@ -46,7 +46,9 @@ can start both from the station file.
 
 *If not:* follow the named preflight hint in [01](01-install.md). Do not run doctor
 against the same devices while a recorder, actor or daemon owns them: the device
-claim and handshake will conflict.
+claim and handshake will conflict. Doctor lists such a process as `BLOCKED`; only
+commands holding a hardware connection count, so offline `rwrl` commands such as
+`workspace show`, `teleop inspect-stop` or `archive inspect` do not block it.
 
 To check the connection after starting the daemon, open another terminal on
 this **NUC**, at the **repository root**, with the **project environment active**:

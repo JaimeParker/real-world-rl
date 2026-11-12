@@ -14,12 +14,12 @@
     {
       "source": "docs/cli.md",
       "translation": "docs/zh-CN/cli.md",
-      "source_sha256": "3d8af0db6c29a91aa154b6987f1688e6aced803bbc16baeaf3233b2d46d92d8b"
+      "source_sha256": "3cce2b1418ee306536947de87a1bb871e47e9fc8fa9eb18aa21eea237ba3740c"
     },
     {
       "source": "docs/gello.md",
       "translation": "docs/zh-CN/gello.md",
-      "source_sha256": "610fbadd00df5fe29d08997c8e8c1546dd2a58688f99b705e0df7c13de49478a"
+      "source_sha256": "ae34f9ac9753d75593506eb0ad300509ec8c0574fa9a4d5aa9cbf71cb966640a"
     },
     {
       "source": "docs/getting-started-hardware.md",
@@ -34,7 +34,7 @@
     {
       "source": "docs/known-issues.md",
       "translation": "docs/zh-CN/known-issues.md",
-      "source_sha256": "511f400ced10476ff1d5358315f803cc73d698f89c676fb99de06c418e1bfe87"
+      "source_sha256": "43fcf380bceee95dd7a35641ae46c21db2a9692019b6f24b2f262e5e17c8ca26"
     },
     {
       "source": "docs/real-world-experiments.md",
@@ -44,7 +44,7 @@
     {
       "source": "docs/recording-demos.md",
       "translation": "docs/zh-CN/recording-demos.md",
-      "source_sha256": "ffe9e9c32cb059fe3ed6707908c4310fdcc29e9085300e30947c49c2e22b74a4"
+      "source_sha256": "f0fcf64f2b63820a759c1714c7bc303601d2210bfb7cdc307c06b1c1a920c422"
     },
     {
       "source": "docs/residual.md",
@@ -59,12 +59,12 @@
     {
       "source": "docs/spacemouse-commissioning.md",
       "translation": "docs/zh-CN/spacemouse-commissioning.md",
-      "source_sha256": "4a9bed6d0ba27e1fcba792cdd72174ca5bcff76314d65ac0f337a33d11812c6b"
+      "source_sha256": "e794426fe9e1ffc03b78dc37c1bc35397b0f88a7fbe528eb7f70460553d97e45"
     },
     {
       "source": "docs/teleop.md",
       "translation": "docs/zh-CN/teleop.md",
-      "source_sha256": "95f6b308e7c73be04242dc9b198f952af335de9d8ffa1fe79845c50e892e2058"
+      "source_sha256": "da63fcddf4ff28aeff4998a4728cc976b6bccc47f573edcb329e0cab18604866"
     },
     {
       "source": "docs/tutorial/00-overview.md",
@@ -74,22 +74,22 @@
     {
       "source": "docs/tutorial/01-install.md",
       "translation": "docs/zh-CN/tutorial/01-install.md",
-      "source_sha256": "77986ec187684138c9c1edacd5f16174532bebb608dc2c80aee63cadeb2de702"
+      "source_sha256": "da8d1e78bab8a72dee80e449811d6364fe839ea63d7e1fd6a82c121ef34b551f"
     },
     {
       "source": "docs/tutorial/02-station.md",
       "translation": "docs/zh-CN/tutorial/02-station.md",
-      "source_sha256": "4ef5f5fa580f03b05903c38f92bf4fbb78b8ee7e2f714c3c752547c346ab0181"
+      "source_sha256": "2d27780d3fe86e4d190efe9fbeb4bfac3ded5ac25b079b7149d926b534a8a14b"
     },
     {
       "source": "docs/tutorial/03-daemon.md",
       "translation": "docs/zh-CN/tutorial/03-daemon.md",
-      "source_sha256": "df9dddd53c750bb3e5ef5491525b9093b102460947eff0a1cf749da95253349e"
+      "source_sha256": "2bccb7799d0292b9e57cecaa0f573c5bede42155c0920acd373854a24ca8c705"
     },
     {
       "source": "docs/tutorial/04-record-demos.md",
       "translation": "docs/zh-CN/tutorial/04-record-demos.md",
-      "source_sha256": "66a7f079cabbb8eff03bc55273046d59f2e697d2d8fa75e89a0c82361f083b3c"
+      "source_sha256": "8bc8154278aa30435d60d68b075bc9e8148a91579e011185726730d461e25209"
     },
     {
       "source": "docs/tutorial/05-base-policy.md",
@@ -119,7 +119,7 @@
     {
       "source": "robot_infra/README.md",
       "translation": "docs/zh-CN/robot-infra.md",
-      "source_sha256": "c2cef1db95dd8e605742fdb13aa00fd4f89b136afae81745f7970782efb89a1d"
+      "source_sha256": "3c59ee05e2e2b30049be4c416e7e3f1f47dccabb0af3c60c10b9f8fe81f1d694"
     },
     {
       "source": "rl-garden/rl_garden/models/act/README.md",
@@ -139,7 +139,7 @@
     {
       "source": "docs/testing/single-arm-gripper-session2.md",
       "translation": "docs/zh-CN/testing/single-arm-gripper-session2.md",
-      "source_sha256": "c2291b51ce115be17b4fb1e0f3bf9e68fb21acb62bc7f8f319e8479cae5400d8"
+      "source_sha256": "cde54dc867440509d87501e56ce8891a03d436a519d48449a718a15fe47e2a34"
     },
     {
       "source": "docs/testing/single-arm-gripper-session2-record.csv",
@@ -149,7 +149,7 @@
     {
       "source": "docs/testing/spacemouse-control-session.md",
       "translation": "docs/zh-CN/testing/spacemouse-control-session.md",
-      "source_sha256": "b290787b3d815278c8ee699c7b679fbcaa831b2e57b9cd98c47c36dd8a4752e0"
+      "source_sha256": "670ae755aaa98e62fb772cb8c84ae80d812ecb6bf277249a39d77360156cd21a"
     },
     {
       "source": "docs/testing/spacemouse-control-session-record.csv",
@@ -159,12 +159,12 @@
     {
       "source": "docs/testing/bimanual-gello-session.md",
       "translation": "docs/zh-CN/testing/bimanual-gello-session.md",
-      "source_sha256": "97a595f25281a531a713450cd7cbb70df82d46891f9dfe230ac2b35ac1b1e1e1"
+      "source_sha256": "331b1b439dac3e5d5446034a212321a56a8a528ba5d47e381791f50032685bcb"
     },
     {
       "source": "docs/testing/bimanual-gello-session-record.csv",
       "translation": "docs/zh-CN/testing/bimanual-gello-session-record.csv",
-      "source_sha256": "230a14979d9b07de90d7111d08d88d182408b3efe387dc84f02f237cee569366"
+      "source_sha256": "6f9eda2893d92ee145eaa68b85e0503fe60f32441db21ef4ce82b737bb912463"
     }
   ]
 }

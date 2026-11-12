@@ -183,10 +183,13 @@ only successful human demonstrations produce a pkl. Restarting the command begin
 reset, including home motion and gripper opening. Verify the station and workspace before
 each restart. The default, with no attempt limit, continues until `--num-successes` is met.
 
-`examples/inspect_teleop_archive.py <archive>` reads the archive read-only and, for a single-arm
-state with `tcp_pose`, reports per human_action_mask segment the hold drift (also over the first
-`--drift-window-s`), the residual and the take-over jump in mm, plus the settle time after each
-`--stop-time-s`; `--measurements PATH` writes them as the test pages' `measurements.csv` rows.
+`rwrl archive inspect <archive>` (offline, no station or robot) reads the archive read-only and,
+for a single-arm state with `tcp_pose`, reports per human_action_mask segment the hold drift (also
+over the first `--drift-window-s`), the residual and the take-over jump in mm, plus the settle time
+after each `--stop-time-s`; `--measurements PATH` writes them as the test pages' `measurements.csv`
+rows and `--csv PATH` exports the steps. With `--stop-time-s` it exits 0 when every stop settled,
+3 when one did not and 4 when a stop time has no spanning TCP episode
+([cli.md](cli.md#commands)). `python examples/inspect_teleop_archive.py` is an alias.
 
 See the [hardware session checklist index](testing/README.md) for the English primary
 test pages, record CSV conventions and evidence requirements. Fill hardware results on site.

@@ -6,7 +6,7 @@
 
 [中文入口](../README.zh-CN.md) · [English](../known-issues.md)
 
-本页说明首次在带夹爪的 Franka 单臂上运行可能遇到的问题、代码位置和当前处理方式。GELLO 通过机器人守护进程读取，使用 `--teleop-device leader_arm`，按键来自 `--teleop-event-device keyboard`。条目中的 `path:line` 在编写时已对照代码，后续行号可能变化，可搜索函数名定位。“静态分析，未测量”的数字来自代码推算。
+本页说明首次在带夹爪的 Franka 单臂上运行可能遇到的问题、代码位置和当前处理方式。教程的默认路线在 NUC 上直接运行硬件进程，GELLO 使用 `--teleop-device leader_cartesian`，按键来自 `--teleop-event-device stdin`。也支持机器人守护进程路线（`--teleop-device leader_arm`，按键来自 `--teleop-event-device keyboard`）；各条目注明其影响的 teleop 设备。条目中的 `path:line` 在编写时已对照代码，后续行号可能变化，可搜索函数名定位。“静态分析，未测量”的数字来自代码推算。
 
 每项列出症状、影响、位置、当前处理方式、计划修复与验证测试及状态。修复后移至[已关闭](#closed)，保留对应验证记录。
 
@@ -32,7 +32,7 @@
 - **症状：**leader_arm、gello 或 robot 路线，策略持物而扳机释放时 `t` 接管会立即张开。
 - **影响：**物体掉落和错误介入行。
 - **位置：**`real_world_rl/teleop/part.py` 的 `TeleopPartSource._gripper_action` 直接做 `2w - 1`；`leader_arm.py` 的 `_poll` onset 仅处理关节。
-- **当前处理：**接管前匹配夹爪状态，持物时先捏紧。
+- **当前处理：**接管前匹配夹爪状态，持物时先捏紧。要了解哪些扳机位置读作张开和闭合，在会话前运行 `rwrl teleop read`（无机器人运动；recorder 或 actor 占用主臂时不要运行）：它以 `gripper=` 实时打印扳机。
 - **计划修复：**采用 leader_cartesian 的接管锁存，见[已关闭项](#s3-leader_cartesian-taking-over-can-open-the-gripper)。
 - **状态：**关节 leader 路线仍开放。
 

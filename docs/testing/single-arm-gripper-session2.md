@@ -39,7 +39,7 @@ record() {
   check "$id" rwrl supervise --log "$RUN/$id/supervise.jsonl" -- rwrl record --config "$PRESET" --teleop-device "$device" --teleop-event-device stdin "${options[@]}" --real_robot.watchdog_s 0.3 --output-path "$RUN/$id/demo.pkl" --num-successes 1 --max-episodes "${RECORD_ATTEMPTS:-1}" "$@"
   rc=$?
   if [[ -f "$RUN/$id/demo.trajectory.sqlite3" ]]; then
-    python examples/inspect_teleop_archive.py "$RUN/$id/demo.trajectory.sqlite3" --csv "$RUN/$id/steps.csv" --measurements "$RUN/$id/measurements.csv" > "$RUN/$id/summary.json" || return
+    rwrl archive inspect "$RUN/$id/demo.trajectory.sqlite3" --csv "$RUN/$id/steps.csv" --measurements "$RUN/$id/measurements.csv" > "$RUN/$id/summary.json" || return
   fi
   [[ -f "$RUN/$id/measurements.csv" ]] || printf 'phase,start_s,end_s,max_drift_mm,residual_mm,settle_s,stop_to_exit_s,stop_to_robot_stop_s,evidence\n' > "$RUN/$id/measurements.csv"
   return "$rc"
@@ -68,7 +68,7 @@ Run the table in order, one command per row. Record paths are relative to `$RUN`
 | S10-int Ctrl-C | `record S10-int leader_cartesian` | Ctrl-C during recording; supervisor forwards the signal and waits for cleanup, archive marked interrupted, process exits and releases devices | `S10-int/summary.json` |
 | S10-q Quit | `record S10-q leader_cartesian` | Press `q` without a success label; operator_quit event and episode end recorded, no successful pkl, process exits and releases devices | `S10-q/steps.csv` |
 | S11 Supervised stop | `record S11 leader_cartesian` | After reset, with unloaded low-speed following and stable step heartbeats, issue STOP below. Child must terminate within ≤8 s of STOP (defaults: 2 s heartbeat timeout + 3 s SIGINT + 2 s SIGTERM, then SIGKILL; a stopped process responds only to SIGKILL), robot stops and Desk can recover. Record elapsed time; missing timing evidence is BLOCKED, exceeding the threshold is FAIL | `S11/measurements.csv` |
-| S12 Home / disconnect / archive | `record S12 leader_cartesian --max-episode-steps 1 && tar -czf "$RUN.tar.gz" -C "$(dirname "$RUN")" "$(basename "$RUN")"` | Return to approved home. After process exit, confirm the robot is still and the connection released before physical disconnection. Archive the entire run directory; repack after updating the CSV | `$RUN.tar.gz` (beside RUN) |
+| S12 Home / disconnect / archive | `record S12 leader_cartesian --max-episode-steps 1 && tar -czf "$RUN.tar.gz" -C "$(dirname "$RUN")" "$(basename "$RUN")"` | Return to approved home. `rwrl --station local/station.yaml --preset "$PRESET" home go` also returns home without recording, once no recorder is running; it moves the arm, applies `task.reset.gripper` and asks for confirmation. After process exit, confirm the robot is still and the connection released before physical disconnection. Archive the entire run directory; repack after updating the CSV | `$RUN.tar.gz` (beside RUN) |
 
 For S06, prepare a second terminal on the NUC, repository root, project environment active, while `record S06` runs. Type the command below and press Enter the moment the leader comes to rest; keep the terminal in the video so the stamp can be checked against it:
 
@@ -82,10 +82,10 @@ After the recorder exits, rerun the inspector on the same archive with that stop
 
 <!-- tutorial-test: skip -->
 ```bash
-python examples/inspect_teleop_archive.py "$RUN/S06/demo.trajectory.sqlite3" --stop-time-s "$(cat "$RUN/S06/leader-stop.txt")" --measurements "$RUN/S06/measurements-stop.csv" > "$RUN/S06/summary-stop.json"
+rwrl archive inspect "$RUN/S06/demo.trajectory.sqlite3" --stop-time-s "$(cat "$RUN/S06/leader-stop.txt")" --measurements "$RUN/S06/measurements-stop.csv" > "$RUN/S06/summary-stop.json"
 ```
 
-`summary-stop.json` lists the result under `settle`; `settled: false` or a `problem` (the stop time lies outside the episode, or the arm never came to rest before the episode ended) is a FAIL or BLOCKED, not a PASS.
+`summary-stop.json` lists the result under `settle`; `settled: false` or a `problem` (the stop time lies outside the episode, or the arm never came to rest before the episode ended) is a FAIL or BLOCKED, not a PASS. With `--stop-time-s` the command also exits 0 when every stop settled, 3 when one did not and 4 when a stop time has no TCP episode spanning it; record that code alongside the JSON.
 
 For S11, use a second terminal on the NUC, repository root, project environment active. Proceed only after reset, while following unloaded at low speed on an approved path with stable step heartbeats. Never STOP the control box or supervisor:
 
@@ -103,7 +103,7 @@ S11 starts escalation only **after the default 2 s heartbeat timeout**, then wai
 Enter stop-request, the supervisor child_exit time and the video robot-stop time in measurements. Records from before STOP do not prove physical stopping afterward. Do not change default timeouts to pass.
 Forced termination relies on loss of the libfranka connection triggering firmware Reflex, not a controlled stop. After confirming stillness and clearing the workspace, run `rwrl --station local/station.yaml recover` (NUC, repository root, project environment active) to clear the Reflex instead of using Desk; if that fails, recover in Desk per [Supervisor](../../robot_infra/README.md#supervising-a-single-process-robot-run). Record recovery before S12.
 
-Evidence review: `inspect_teleop_archive.py` reads the archive read-only, reports outcomes and mask counts, exports steps and splits each episode into segments of identical human_action_mask (`summary.json` `episodes[].segments[]`: `hold` or `intervene`, with TCP drift, residual and takeover jump in mm). `measurements.csv` gets one row per segment, one `hold_window` row per hold segment and, with `--stop-time-s`, one `settle` row; add your own rows (S11) below them.
+Evidence review: `rwrl archive inspect` (offline; no station or robot connection) reads the archive read-only, reports outcomes and mask counts, exports steps and splits each episode into segments of identical human_action_mask (`summary.json` `episodes[].segments[]`: `hold` or `intervene`, with TCP drift, residual and takeover jump in mm). `measurements.csv` gets one row per segment, one `hold_window` row per hold segment and, with `--stop-time-s`, one `settle` row; add your own rows (S11) below them.
 For S04/S05/S09, the `hold_window` row's `max_drift_mm` is the maximum Euclidean TCP distance from the hold segment's first sample over its first 10 s (`--drift-window-s`); compare it with ≤5 mm, and check from `start_s`/`end_s` (archive wall time) that the hold lasted at least 10 s. Align the window with the video.
 For S06, `settle_s` runs from the recorded leader stop time to the first sample after which the TCP speed stays below 2 mm/s for 0.5 s (`--settle-speed-mm-s`, `--settle-hold-s`); `residual_mm` is the TCP distance between the stop time and that sample. Enter the raw video interval as well. If the stop stamp and the video cannot be reliably aligned, use BLOCKED.
 No-jump/no-unintended-opening claims require reviewable video, not mask counts or positive rewards alone. `jump_mm` is reported without a numeric threshold: retain observations and mark disputes BLOCKED.

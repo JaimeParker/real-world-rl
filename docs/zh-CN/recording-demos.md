@@ -106,6 +106,6 @@ pkl 包含成功人工转移字典，具有 `obs`、`next_obs`、实际执行的
 
 使用 `--max-episodes 1` 在一次尝试后结束，即使未保留成功示范。录制器在扫描归档或导出 pkl/PT 前关闭设备控制。成功、失败、重录、超时和中断均保留完整 SQLite 归档；只有成功人工示范产生 pkl。重启命令会开始新的 reset，包括回 home 和打开夹爪。每次重启前核实工作站与工作区。默认没有尝试上限，会继续到满足 `--num-successes`。
 
-`examples/inspect_teleop_archive.py <archive>` 只读访问归档；对于带 `tcp_pose` 的单臂状态，按 human_action_mask 片段报告保持漂移（也报告前 `--drift-window-s` 内的漂移）、残差、接管跳变（毫米），以及每个 `--stop-time-s` 后的稳定时间；`--measurements PATH` 将这些结果写为测试页的 `measurements.csv` 行。
+`rwrl archive inspect <archive>`（离线，无需工作站或机器人）只读访问归档；对于带 `tcp_pose` 的单臂状态，按 human_action_mask 片段报告保持漂移（也报告前 `--drift-window-s` 内的漂移）、残差、接管跳变（毫米），以及每个 `--stop-time-s` 后的稳定时间；`--measurements PATH` 将这些结果写为测试页的 `measurements.csv` 行，`--csv PATH` 导出逐步数据。带 `--stop-time-s` 时，所有停止都已稳定则退出 0，有一次未稳定退出 3，某个停止时间没有覆盖它的 TCP 回合则退出 4（[cli.md](cli.md#commands)）。`python examples/inspect_teleop_archive.py` 是其别名。
 
 英文主版本测试页、记录 CSV 约定和证据要求见[硬件测试清单索引](testing/README.md)。硬件结果需在现场填写。

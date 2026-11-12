@@ -13,6 +13,28 @@ workspace or model value is an accepted physical calibration. SERL also requires
 its existing XYZ/RPY safety boxes. Do not alter NIC routes, payload or firmware
 as a shortcut when diagnostics fail. Input yaw calibration does not calibrate gravity.
 
+The `table` task frame used below is the station's `task_frame`; `teleop run`
+passes it to the `local/task.yaml` session, and profile calibration requires it.
+Create it before A1 from three captured TCP points: an operator positions the arm
+at the frame origin, at a point on +X, and at a point on the +Y side (the commands
+read the TCP and never move the arm). `workspace frame set` previews the frame,
+its axis lengths and the angle between the measured and final Y axes; `--save`
+writes only `task_frame` after the reviewed diff:
+
+```bash
+rwrl --station local/station.yaml workspace capture --name frame-origin --output frame-points.yaml --save
+rwrl --station local/station.yaml workspace capture --name frame-x --output frame-points.yaml --save
+rwrl --station local/station.yaml workspace capture --name frame-y --output frame-points.yaml --save
+rwrl --station local/station.yaml workspace frame set --name table --from-points frame-points.yaml --origin frame-origin --x-axis frame-x --y-axis frame-y --save
+rwrl --station local/station.yaml workspace frame show
+```
+
+Points paths are relative to the station directory. Use a fresh points file for
+each frame calibration: a points file records the frame it was captured in, and
+later captures into it must match that frame. If `local/task.yaml` carries its own robot
+copy, `rwrl --station local/station.yaml --preset local/task.yaml doctor` warns
+on every field, including `task_frame`, that differs from the station.
+
 Prepare a fresh evidence directory and copy the record template. The following
 setup is shell bookkeeping, not a device check:
 
@@ -63,11 +85,15 @@ sample and reviews the current constraints; it does not drive to a boundary.
 ```bash
 rwrl --station local/station.yaml doctor
 rwrl --station local/station.yaml workspace show
+rwrl --station local/station.yaml workspace frame show
 rwrl --station local/station.yaml workspace capture --name reference --output workspace-points.yaml --save
 ```
 
 B1/B2 pass only with independently verified arm identity, fresh feedback, correct
-frame origin/orientation, reviewed base/task constraint intersection and actual
+frame origin/orientation (`workspace frame show` gives the origin and unit axes
+in the base frame; compare them with the table and the `frame-points.yaml` points
+used to create the frame), home inside the joint limits (`home_within_limits` in
+`workspace show`), reviewed base/task constraint intersection and actual
 installation/payload/TCP evidence. Doctor or an SDK-reported mass alone cannot
 verify the physical model. Missing measurements mean BLOCKED. Named captured
 points can propose bounds, but do not prove the whole enclosed volume is safe.

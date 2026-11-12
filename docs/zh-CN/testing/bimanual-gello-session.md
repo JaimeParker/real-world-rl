@@ -32,31 +32,6 @@ check() {
   printf '%s\n' "$rc" > "$RUN_ROOT/$id/exit-code.txt"
   return "$rc"
 }
-read_leaders() {
-  python - <<'STATIC_PY'
-import time
-from robot_infra.devices import Robot
-from robot_infra.discovery.autoconfig import load_station
-station = load_station('local/station.smoke.yaml')
-leaders = {name: Robot.from_config(entry.config).teleop for name, entry in station.robots.items()}
-connected = []
-try:
-    for leader in leaders.values():
-        assert leader is not None
-        leader.connect()
-        connected.append(leader)
-    while True:
-        for name, leader in leaders.items():
-            sample = leader.read(1.0)
-            print(name, 'q=', sample.action.round(3).tolist(), 'gripper=', sample.gripper, 'active=', sample.intervening, 'events=', {k: v for k, v in sample.events.items() if v}, flush=True)
-        time.sleep(0.3)
-except KeyboardInterrupt:
-    pass
-finally:
-    for leader in reversed(connected):
-        leader.disconnect()
-STATIC_PY
-}
 record_case() {
   local id=$1 step_cap=${2:-1200} trial_dir="$RUN_ROOT/$1" confirmation rc
   [[ ! -e "$trial_dir" ]] || { printf 'Use a fresh item directory\n' >&2; return 2; }
@@ -70,11 +45,20 @@ record_case() {
   rc=${status[0]}; if [[ $rc == 0 && ${status[1]} != 0 ]]; then rc=${status[1]}; fi
   printf '%s\n' "$rc" > "$trial_dir/exit-code.txt"
   if [[ -f "$trial_dir/demo.trajectory.sqlite3" ]]; then
-    python examples/inspect_teleop_archive.py "$trial_dir/demo.trajectory.sqlite3" --csv "$trial_dir/steps.csv" > "$trial_dir/summary.json" || return
+    rwrl archive inspect "$trial_dir/demo.trajectory.sqlite3" --csv "$trial_dir/steps.csv" > "$trial_dir/summary.json" || return
   fi
   return "$rc"
 }
 ```
+
+P02 用 `rwrl teleop read` 一次读取一个 leader；守护进程已声明但关闭，因此必须加 `--direct`，它只打开该机器人的 GELLO（及其事件设备），从不打开机械臂。下面是表中 `check P02-L` 和 `check P02-R` 命令的参考展开，先左后右运行：
+
+```bash
+rwrl --station local/station.smoke.yaml --robot left --direct teleop read --duration-s 120
+rwrl --station local/station.smoke.yaml --robot right --direct teleop read --duration-s 120
+```
+
+每行显示 `q=`（leader 关节，rad）、`gripper=`、`intervening=` 和 `events=`。F1 在左侧读取中切换 `intervening`，F2 在右侧读取中切换；S/F/R/Esc 出现在 `events=` 下。结尾汇总行统计 `events_seen`；Ctrl-C 可提前结束读取。
 
 P00–P03-R 期间守护进程关闭。两侧 doctor 通过后，在第二终端（同机器/根目录/项目环境）启动以下命令并留存日志，禁止与 doctor 并发。5 s 为需现场核准的调试用 daemon watchdog，和 supervisor 心跳超时不同：
 
@@ -97,7 +81,7 @@ rwrl supervise --log "$RUN_ROOT/T00/supervise.jsonl" -- \
 |---|---|---|---|
 | P00 基线与设备盘点 | `check P00 bash -c 'git rev-parse HEAD; git diff; uname -a; ip -br address; ip route'` | 提交/本地修改、双臂型号/固件/server 版本、Hand/负载/TCP、FCI IP 和 GELLO 串口/标定均已留档 | `P00/console.log` |
 | P01 环境与 SDK | `check P01 bash scripts/install.sh --extras franka-gello --no-doctor` | 安装成功；核对本机实时条件及 dialout/input 权限，随后激活安装器创建的环境（默认为 `.venv`） | `P01/console.log` |
-| P02 配置与静态放行 | `check P02 read_leaders` | 逐关节移动 leader，核对标定/方向/静态读数与 F1/F2/S/F/R/Esc 事件，Ctrl-C 关闭 leader；核准 home/限位、分离工作区及同时复位路径 | `P02/console.log` |
+| P02 配置与静态放行 | `check P02-L rwrl --station local/station.smoke.yaml --robot left --direct teleop read --duration-s 120`，再运行 `check P02-R rwrl --station local/station.smoke.yaml --robot right --direct teleop read --duration-s 120` | 逐关节移动 leader，核对标定/方向/静态读数与 F1/F2/S/F/R/Esc 事件，每次读取退出时关闭其 leader；核准 home/限位、分离工作区及同时复位路径 | `P02-L/console.log`、`P02-R/console.log` |
 | P03-L 左侧 doctor | `check P03-L rwrl doctor --station local/station.smoke.yaml --robot left` | 左侧 SDK、权限、握手、反馈及模式检查通过；守护进程保持关闭 | `P03-L/console.log` |
 | P03-R 右侧 doctor | `check P03-R rwrl doctor --station local/station.smoke.yaml --robot right` | 右侧 SDK、权限、握手、反馈及模式检查通过；守护进程保持关闭 | `P03-R/console.log` |
 | T00 复位与无人接管保持 | `record_case T00` | 核准 home/开爪；未接管时移动 leader 不驱动 follower；Esc 后仅一个未知/截断回合并退出 | `T00/summary.json` |

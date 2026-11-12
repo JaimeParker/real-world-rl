@@ -34,6 +34,14 @@ Which path to use:
   example to 1 Mbps for faster reads), set `baudrate:` to match. One sync read of 8 servos takes
   about 35 ms at 57600 baud, which suits a 10 Hz control loop; raise the baud rate for faster
   loops.
+- **Doctor first.** Once the station names the GELLO `port`, run
+  `rwrl --station robot.yaml doctor --fix` on the machine the GELLO is plugged into (project
+  environment active). After one confirmation it adds the user to `dialout` and writes a
+  `/etc/udev/rules.d/99-rwrl-gello-*.rules` access rule when the port is not readable and
+  writable, and a persistent latency rule when an FTDI adapter's timer is not 1 ms, then checks
+  again; replugging or a fresh login can remain as a pending
+  action ([cli.md](cli.md#robot-host-diagnosis-and-repair)). The manual commands below are for a
+  machine without the project environment, or to inspect the values by hand.
 - **FTDI latency timer (U2D2).** The FTDI driver buffers serial data for 16 ms by default, which
   adds up to 16 ms to every read. Set it to 1 ms:
 
@@ -75,11 +83,20 @@ writes the result into the station yaml, so with the wizard you can skip the pas
 [robot_infra README](../robot_infra/README.md#setup-wizard).)
 
 ```bash
-rwrl gello-calibrate \
+rwrl --station robot.yaml teleop calibrate --backend gello \
     --port /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_XXXXXXXX-if00-port0 \
-    --joint-ids 1 2 3 4 5 6 7 --gripper-id 8 \
-    --joint-limits-yaml robot.yaml
+    --joint-ids 1 2 3 4 5 6 7 --gripper-id 8
 ```
+
+Run it in a terminal on the machine the GELLO is plugged into, project environment active; it
+prompts at every step. Unset flags come from the station's `teleop.options` (`--port`,
+`--joint-ids`, `--gripper-id`, `--baudrate`, else 57600, and `--joint-signs`) and the wrap centres
+from the station's `joint_limits`, so once the station has a GELLO `teleop:` section
+`rwrl --station robot.yaml teleop calibrate --backend gello` alone recalibrates it. `--use` writes
+the calibrated options into the station's `teleop.options` after a reviewed diff (dropping the
+gripper keys for a leader without a gripper channel) instead of the paste below. Without a station
+file, `robot-infra gello-calibrate` takes the same leader flags, with `--port` and `--joint-ids`
+required; `rwrl gello-calibrate` is a deprecated alias of the `teleop calibrate` form.
 
 1. **Sign check.** For each joint the CLI asks you to move that joint in the robot's positive
    direction and press Enter, shows the observed sign and takes it unless you answer `n`. A joint
@@ -90,11 +107,12 @@ rwrl gello-calibrate \
    solved on the quarter-turn grid (servo horns mount in 90 degree steps); a residual above pi/8 is
    reported and means the leader was not in the pose or a sign is wrong.
 3. **Trigger.** Hold the trigger fully open, press Enter, then fully closed, press Enter.
-4. **Wrap centres.** With `--joint-limits-yaml` (the robot yaml with `joint_limits`), each joint
-   wraps around the midpoint of its limits; without it the centres are zeros and the CLI warns
-   (wrong for Panda joint 6, whose range reaches past pi).
+4. **Wrap centres.** With the station's `joint_limits` (or `--joint-limits-yaml`, another robot
+   yaml with `joint_limits`), each joint wraps around the midpoint of its limits; without limits
+   the centres are zeros and the CLI warns (wrong for Panda joint 6, whose range reaches past pi).
 
-Paste the printed block into the robot yaml (section 3). Every option, with its default:
+Paste the printed block into the robot yaml (section 3), unless you passed `--use`. Every option,
+with its default:
 
 ```yaml
 teleop:
@@ -118,9 +136,19 @@ teleop:
     poll_interval_s: 0.0
 ```
 
-Check the result before using it on the robot: read the leader with the daemon running (or the
-`teleop` part of `Robot.from_yaml`) in the calibration pose and in a few other poses and compare
-the joint angles with the follower's.
+Check the result before using it on the robot: read the leader in the calibration pose and in a
+few other poses and compare the joint angles with the follower's. On the machine the GELLO is
+plugged into, project environment active:
+
+```bash
+rwrl --station robot.yaml teleop read --duration-s 30
+```
+
+Each line shows the leader joints (`q=`, rad), `gripper=`, `intervening=` and fired `events=`;
+without a daemon only the GELLO is opened, never the arm (pass `--direct` if the station declares
+a daemon that is not running). When the station declares a `daemon:` and it is running, add
+`--with-follower` (daemon route only): each line
+then also shows the follower's `follower_q` and the per-joint `delta` (leader minus follower).
 
 ## 3. The robot yaml (`real_robot`, franky)
 

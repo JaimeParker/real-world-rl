@@ -105,7 +105,7 @@ git clone --recurse-submodules https://github.com/JaimeParker/real-world-rl.git
 cd real-world-rl
 ```
 
-**交付依赖：**以下安装器及 `franka-gello`/`test` extras 由 WO-2 提供，在该工作合入前当前 checkout 不具备它们。这是目标安装流程，不表示 WO-1 新增了它们。需要支持 venv 的 Python 3.10 和包下载网络。
+安装器 `scripts/install.sh` 以及 `franka-gello` 和 `test` extras（定义在 `pyproject.toml` 中）已包含在本 checkout 中。安装器需要支持 venv 的 Python 3.10 和包下载网络。
 
 在 NUC、仓库根、无活动环境：
 
@@ -118,7 +118,7 @@ source .venv/bin/activate
 安装器创建或复用 `.venv`，默认解释器 `python3.10`，清除继承的 `PYTHONPATH`，以 editable 方式安装 rl-garden、robot_infra 和本包，然后运行 doctor。未提供 station 时最终为 **mock** 检查，成功不表示真实握手。RealSense 还需在同一项目环境安装 `robot_infra[realsense]`。
 
 <details>
-<summary>默认安装的手动等价命令（WO-2 合入后）</summary>
+<summary>默认安装的手动等价命令（即安装器所做的事）</summary>
 
 在 NUC、仓库根目录，在任何已激活的 venv 或 conda 环境中运行 pip 命令。创建并激活环境的示例：
 
@@ -191,21 +191,28 @@ rwrl doctor --station local/station.yaml
 
 *否则：* 按失败项提示处理。不可达时回到步骤 1–3：上电、Control 网线、IP/路由、刷新后的 Desk 控制权和 FCI。UDP 超时查防火墙。设备 claim 被占用时先停持有它的进程。
 
-libfranka/server 不匹配时，目标修复流程如下。**交付依赖：**`--install-sdk` 尚待 doctor 实现，当前 CLI 不接受；在交付前该块不参加现有 CLI 解析。在 NUC、仓库根、项目环境激活：
+libfranka/server 不匹配时，使用引导修复 `--install-sdk`。在 NUC、仓库根、项目环境激活：
 
 <!-- tutorial-test: skip -->
 ```bash
 rwrl doctor --station local/station.yaml --install-sdk
 ```
 
-引导修复从 libfranka 握手错误读取 robot server 版本，要求通过 Desk → Settings → System 的系统版本与兼容表交叉核对，确认后安装匹配 wheel。选型依据是 **robot server 版本**，不是 `FCI 1.0.0`。安装后重跑普通 doctor。在功能交付前保留 Desk 版本记录，先解决 SDK 兼容性；不要反复装同一默认 wheel 并期待握手结果变化。
+引导修复从 libfranka 握手错误读取 robot server 版本，要求通过 Desk → Settings → System 的系统版本与兼容表交叉核对，确认后安装匹配 wheel。选型依据是 **robot server 版本**，不是 `FCI 1.0.0`。安装后重跑普通 doctor。保留 Desk 版本记录；不要反复装同一默认 wheel 并期待握手结果变化。
 
 <a id="6-fix-serial-and-keyboard-checks"></a>
 
 ## 6. 修复串口与键盘检查
 
-doctor 会报告 GELLO 串口缺失或不可访问。计划扩展的 OS 检查还会报告 CH340/brltty 冲突、输入权限与 USB 延迟；这些诊断尚待 doctor 依赖工作交付。当前 CLI 无提示时手动检查这些 OS 条件。
-以下命令均在 NUC、仓库根执行；系统命令无需 venv，最后 doctor 使用项目环境。
+doctor 会报告 GELLO 串口缺失或不可访问，也会诊断 CH340/brltty 冲突、输入权限与 USB 延迟。先使用引导修复，它会预览每项更改，并在改动 OS 前请求确认。在 NUC、仓库根、项目环境激活：
+
+<!-- tutorial-test: skip -->
+```bash
+rwrl doctor --station local/station.yaml --fix
+```
+
+若 doctor 更改了用户组成员，注销并重新登录，再重跑普通 `rwrl doctor` 命令。`--fix` 未针对你的情况提供修复，或你希望手动执行时，使用下面的手动命令作为后备。
+它们均在 NUC、仓库根执行；系统命令无需 venv，最后 doctor 使用项目环境。
 
 `dialout` 权限失败时：
 

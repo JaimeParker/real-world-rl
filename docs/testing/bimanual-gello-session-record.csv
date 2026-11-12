@@ -1,7 +1,8 @@
 planned_date,actual_start_time,item_id,item_name,expected_result,actual_observation,conclusion,run_directory,issue_id,notes
 ,,P00,Baseline and inventory,"Commit/local changes, both robot models/firmware/server versions, Hand/load/TCP, FCI IPs and GELLO serial/calibration inventory recorded",,NOT_RUN,,,
 ,,P01,Environment and SDK,Install succeeds; real-time setup and dialout/input permissions verified for this PC. Activate .venv afterward,,NOT_RUN,,,
-,,P02,Configuration and static release,"Move each leader joint; verify calibration/direction/static readings and F1/F2/S/F/R/Esc events; Ctrl-C closes leaders. Approve homes/limits, disjoint workspaces and simultaneous reset paths",,NOT_RUN,,,
+,,P02-L,Configuration and static release (left leader),"Move each leader joint; verify calibration/direction/static readings and F1/F2/S/F/R/Esc events; each read closes its leader on exit. Approve homes/limits, disjoint workspaces and simultaneous reset paths",,NOT_RUN,,,
+,,P02-R,Configuration and static release (right leader),"Move each leader joint; verify calibration/direction/static readings and F1/F2/S/F/R/Esc events; each read closes its leader on exit. Approve homes/limits, disjoint workspaces and simultaneous reset paths",,NOT_RUN,,,
 ,,P03-L,Left doctor,"Left SDK, permissions, handshake, feedback and mode checks pass; daemons remain off",,NOT_RUN,,,
 ,,P03-R,Right doctor,"Right SDK, permissions, handshake, feedback and mode checks pass; daemons remain off",,NOT_RUN,,,
 ,,T00,Reset and idle hold,Approved homes/open grippers; moving inactive leaders does not move followers; Esc finalizes exactly one unknown/truncated episode and exits,,NOT_RUN,,,

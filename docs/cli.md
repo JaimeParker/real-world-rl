@@ -27,13 +27,14 @@ Use `rwrl --help` for wrapper help; `rwrl doctor --help`, `rwrl setup --help`,
 |---|---|
 | `--station PATH` | Resolve explicit path → `$ROBOT_INFRA_CONFIG` → `local/station.yaml` → `~/.config/robot_infra/station.yaml`. The last location follows `$XDG_CONFIG_HOME` when set. Explicit and environment paths are used as given; the last two are searched for the first existing file. |
 | `--robot NAME` | Unset: select the single robot; a multi-robot station requires a name for primitives. |
-| `--preset PATH` | Unset: use station home. For `home`, load an existing env preset, either a bare mapping or settings under `real_robot`. Required by `home set`; `doctor` also uses it to identify expected devices. |
+| `--preset PATH` | Unset: use station home. For `home`, load an existing env preset, either a bare mapping or settings under `real_robot`. Required by `home set`; `doctor` also uses it to identify expected devices and to compare its robot with the station. |
 | `--direct` | Off: follow the station's daemon declaration. Force direct access only when its daemon port is unreachable. |
 | `--mock` | Off: replace backends with doctor's fake backends for a **direct** connection. Still requires a station file; does not bypass daemon selection. |
 | `--json` | Off: built-in primitives emit one JSON result on stdout; diagnostics and motion target/prompt text go to stderr. |
 | `--yes` | Off: skip the built-in motion confirmation or doctor repair-plan confirmation. Preconditions still apply. |
 
-Commands without JSON output reject `--json` with usage exit code 2; see below.
+Commands without JSON output (`setup`, `daemon`, `supervise`, `gello-calibrate`
+and the learning commands) reject `--json` with usage exit code 2; see below.
 
 ## Learning commands
 
@@ -81,7 +82,7 @@ refused confirmation; details follow the table.
 
 | Command | Effect | Robot action | Confirmation | Exit codes |
 |---|---|---|---|---|
-| `status` | Connection path, robot description, arm health, gripper feedback, camera names, teleop name; daemon RTT when remote | Read | No | 0 / 1 / 2 |
+| `status` | Connection path, robot description, arm health, gripper feedback, camera names, teleop name; daemon RTT when remote. Text shows the arm's `ok`, control mode and errors; `arm_health.robot_mode`, `detail`, `last_feedback_age_s` and the safety clip/reject counts appear only with `--json` | Read | No | 0 / 1 / 2 |
 | `q` | Current joint positions in radians | Read | No | 0 / 1 / 2 |
 | `tcp` | TCP position in metres and quaternion in `xyzw` order | Read | No | 0 / 1 / 2 |
 | `home show` | Resolved home, current joints, signed delta and largest absolute delta | Read | No | 0 / 1 / 2 |
@@ -93,16 +94,22 @@ refused confirmation; details follow the table.
 | `gripper move F` | Set normalized width to finite `F`, with `0 <= F <= 1` | Gripper motion | Yes, or `--yes` | 0 / 1 / 2 |
 | `stop` | Call arm `stop()`; success prints `stop: ok` | Stop arm | No | 0 / 1 / 2 |
 | `recover` | Call arm `recover()`; success prints `recover: ok` | Clear arm errors | No | 0 / 1 / 2 |
+| `camera show` | Every station camera, or only `--name NAME`: configuration, frame rate measured over `--frames N` reads (default 30; `0` reads none and reports "not measured"), frame age, image shapes, dtype and health | Read; opens the robot connection like `status` | No | 0; 1 when a camera has no frames or is unhealthy (the others are still reported); 2 |
+| `camera grab --name NAME --output DIR` | Save one frame as `NAME-color.png`, `NAME-depth.png` (when the camera delivers depth; 16-bit, float depth stored as millimetres) and a `NAME.json` sidecar; creates `DIR`, never overwrites a file; `--timeout-s S` (default 2) | Read; writes files | No | 0 / 1 / 2 |
 | `doctor` | Inspect host and configured devices; preview targeted repairs | Read; `--fix` repairs host/software, without recovery or motion | One repair-plan confirmation, or `--yes` | 0 / 1 / 2 |
 | `setup` | Discover and configure a station | Discovery, calibration and doctor | Native wizard questions | Native status, unchanged |
 | `daemon` | Serve robots over the network | Preflight and serve hardware for client motion | No wrapper prompt | Native status, unchanged |
 | `supervise` | Supervise a robot process | Depends on child command | Depends on child | Native status, unchanged |
-| `teleop calibrate` | Fit and validate direction mapping; see [spacemouse-commissioning.md](spacemouse-commissioning.md) | Input only; optional file writes | Save/use confirmation | 0 / 1 / 2 |
-| `teleop profiles list/show/use` | Inspect or select a named profile; see [spacemouse-commissioning.md](spacemouse-commissioning.md) | No motion; use writes station | Save confirmation for use | 0 / 1 / 2 |
-| `teleop diagnose` | Input-only diagnosis; see [spacemouse-commissioning.md](spacemouse-commissioning.md) | No robot motion | No | 0 / 1 / 2 |
-| `teleop run` | Supervised recording with episode holding; `--diagnose translation\|rotation\|all` enables motion diagnostics; see [spacemouse-commissioning.md](spacemouse-commissioning.md#supervised-recording-sessions) | Reset and teleoperation | Yes, or `--yes` | Child status or wrapper error |
-| `workspace show/capture/set/validate` | Inspect, sample or configure constraints; see [spacemouse-commissioning.md](spacemouse-commissioning.md) | Capture reads TCP; no motion | Save confirmation when applicable | 0 / 1 / 2; text validation failure 5 |
+| `teleop read` | Print live samples of the station teleop (GELLO or SpaceMouse): `q` or `twist`, gripper, intervening, fired events; one text line per sample at `--rate-hz` (default 3) until Ctrl-C or `--duration-s`, then a summary line. `--json` prints JSON lines and a closing `{"summary": ...}`. The direct route opens only the teleop part; `--with-follower` (daemon route only) adds the follower `follower_q` and, for `joint_abs` leaders, the per-joint leader-minus-follower `delta` | Input only; no robot motion | No | 0 / 1 (device failure or unhealthy teleop) / 2 |
+| `teleop calibrate` | Calibrate the station teleop; `--backend spacemouse\|gello` (default: the station teleop backend). SpaceMouse fits and validates a direction profile (`--profile` required; see [spacemouse-commissioning.md](spacemouse-commissioning.md)); GELLO runs the guided leader calibration, takes unset `--port`, `--joint-ids`, `--gripper-id`, `--baudrate`, `--joint-signs` from station `teleop.options` and the wrap centres from the station `joint_limits`, and prints the `teleop:` YAML block ([gello.md](gello.md#2-calibration)). Flags of the other backend are a usage error | Input only; optional file writes | Save/use confirmation; `--use` selects the profile (SpaceMouse) or writes the calibrated `teleop.options` (GELLO) into the station | 0 / 1 / 2 |
+| `teleop profiles list/show/use` | (SpaceMouse) Inspect or select a named profile; see [spacemouse-commissioning.md](spacemouse-commissioning.md) | No motion; use writes station | Save confirmation for use | 0 / 1 / 2 |
+| `teleop diagnose` | (SpaceMouse) Input-only diagnosis; see [spacemouse-commissioning.md](spacemouse-commissioning.md) | No robot motion | No | 0 / 1 / 2 |
+| `teleop run` | (SpaceMouse) Supervised recording with episode holding; `--diagnose translation\|rotation\|all` enables motion diagnostics; see [spacemouse-commissioning.md](spacemouse-commissioning.md#supervised-recording-sessions) | Reset and teleoperation | Yes, or `--yes` | Child status or wrapper error |
+| `workspace show/capture/set/validate` | Inspect, sample or configure constraints; see [spacemouse-commissioning.md](spacemouse-commissioning.md). `show` also reports `joint_limits`, `max_delta_per_step`, `home_joints` and `home_within_limits` (`null` without home or limits; `home_violations` lists each joint outside its limits) | Capture reads TCP; no motion | Save confirmation when applicable | 0 / 1 / 2; text validation failure 5 |
+| `workspace frame set --name NAME` | Propose a station `task_frame` from `--base-T-frame` (16 row-major numbers, metres) or from `--from-points PTS --origin A --x-axis B --y-axis C` (point names saved by `workspace capture --save`; right-handed, y orthogonalised to x, degenerate points refused); `--source TEXT` records provenance; `--save` writes only `task_frame`. Refused when the station workspace is in another frame; the same frame name rebases that workspace and says so | No motion; `--save` writes station | Save confirmation | 0 / 1 / 2 |
+| `workspace frame show` | Station `task_frame` with its origin and unit axes in the base frame | Reads the station file only | No | 0 / 1 / 2 |
 | `teleop inspect-stop` | Evaluate saved stop evidence offline; see [spacemouse-commissioning.md](spacemouse-commissioning.md#live-input-calibration-and-diagnosis) | No hardware connection | No | 0 PASS / 3 FAIL / 4 BLOCKED; errors otherwise |
+| `archive inspect ARCHIVE` | Read a recorder SQLite archive read-only: outcomes, mask counts, hold drift, take-over jump and residual per human_action_mask segment, printed as indented JSON. `--csv PATH` and `--measurements PATH` write new step and measurement CSVs; `--drift-window-s` (default 10) sets the hold-drift window; each `--stop-time-s T` (repeatable) adds a settle evaluation using `--settle-speed-mm-s` (default 2) and `--settle-hold-s` (default 0.5). `--json` prints the same fields on one line, non-finite numbers as `null`, plus `status` (`REPORT`, `PASS`, `FAIL` or `BLOCKED`). No station is loaded: `--station`, `--robot`, `--preset`, `--direct`, `--mock` and `--yes` are usage errors. `python examples/inspect_teleop_archive.py` remains an alias with the same arguments and output, but its exit code ignores the settle status | No hardware connection | No | 0 without `--stop-time-s`; with it 0 PASS / 3 FAIL / 4 BLOCKED (a stop time without a spanning TCP episode); 2 for usage or an unreadable archive |
 
 `setup`, `daemon`, `supervise`, `discover` and `gello-calibrate` are native
 commands provided by `robot_infra`, also available through `robot-infra`.
@@ -114,12 +121,26 @@ defaults, **not the output path**. A command-local value overrides the root
 `--station` value; the station lookup order is unchanged.
 `--mock` and `--robot` retain their
 applicable device meanings. Other unrelated globals do not configure these
-commands. These five commands have no JSON output: `--json` is a usage error
-(exit 2), rather than silently producing text. Supervisor child arguments after
-`--` belong to the child.
+commands. `setup`, `daemon`, `supervise` and `gello-calibrate` have no JSON
+output: `--json` is a usage error (exit 2), rather than silently producing text.
+Supervisor child arguments after `--` belong to the child.
 
-`discover` prints visible hardware without connecting to robot hosts.
-`gello-calibrate` calibrates a GELLO leader arm and prints its teleop YAML block.
+`discover` prints visible hardware without connecting to robot hosts. With
+`--json` it prints one object with `schema_version: 1` and five lists, each empty
+when nothing is found: `cameras` (`backend`, `serial`), `teleops` (`backend`,
+`device`), `can_interfaces` (`name`, `operstate`, `bitrate`), `hosts` (`ip`,
+`ping_ok`, `open_ports`) and `hid_devices` (paths). Its text output is unchanged.
+
+`setup` takes three per-arm camera stream flags, one value per arm or one for all
+arms: `--camera-resolution WIDTHxHEIGHT` (for example `1280x720`),
+`--camera-fps N` and `--camera-depth yes|no`. They apply to that arm's cameras;
+unset, new cameras keep the camera defaults and cameras kept from `--station`
+keep their values. They add no wizard question.
+
+`rwrl gello-calibrate` is an alias of `rwrl teleop calibrate --backend gello`
+and will be removed; it keeps the device command's flags (`--port` and
+`--joint-ids` required, no station defaults). `robot-infra gello-calibrate` is
+unchanged. Both print the GELLO `teleop:` YAML block.
 `setup --only teleop --calibrate` runs that calibration inside the wizard and
 writes the station YAML.
 `robot-infra doctor` remains the device-layer diagnostic; `rwrl doctor` is the
@@ -204,6 +225,30 @@ configured devices are `BLOCKED`. Unconfigured, unidentified devices are
 `SKIPPED`, not accepted as working. Doctor never recovers, homes or commands
 robot motion. An active daemon, controller, or device owner blocks exclusive
 probes/repairs; doctor does not stop or take over another process.
+Only processes that hold a hardware connection count as owners: the daemon,
+recorder, actor and deploy entrypoints, `setup`, `gello-calibrate`, the
+connecting primitives (`status`, `q`, `tcp`, `home`, `gripper`, `camera`,
+`stop`, `recover`), `teleop run/read/calibrate/diagnose`, `workspace capture`
+and the learning commands. Offline `rwrl` commands (`--help`, `workspace
+show/set/validate/frame`, `teleop profiles`, `teleop inspect-stop`, `archive
+inspect`) do not make doctor report `BLOCKED`.
+
+Device rows keep the device doctor's checks, but `rwrl doctor --fix` never
+recovers or reopens devices, so their hints name the rwrl command instead:
+"--fix (recover)" becomes `run rwrl recover (or robot-infra doctor --fix)`, and
+"--fix to reopen" becomes `rerun rwrl status after reconnecting the camera (or
+robot-infra doctor --fix)`.
+
+With a station and `--preset`, doctor also compares the preset's robot (the
+inline `real_robot.robot` or bare `robot` mapping, or the station file it names)
+with the station robot: `robot_ip`, `arm_backend`, `gripper`, cameras by name
+(`serial`, `width`, `height`, `fps`, `enable_depth`), `home_joints`,
+`joint_limits`, `safety_box`, `task_frame` and `workspace`. Each differing field
+is a `WARN` with id `<robot>.preset:<field>` (for example `arm.preset:home_joints`
+or `arm.preset:cameras.wrist.fps`) that shows both values; matching fields give
+one `PASS` row `<robot>.preset`. WARN does not change the exit code. An inline
+robot on a multi-robot station needs `--robot`; otherwise the comparison is
+`SKIPPED`.
 
 System repairs use sudo for individual commands when not already root; Python repairs use the running
 project interpreter, never sudo pip. Interactive execution can request sudo

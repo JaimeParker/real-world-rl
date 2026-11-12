@@ -22,13 +22,14 @@
 |---|---|
 | `--station PATH` | 解析顺序为显式路径 → `$ROBOT_INFRA_CONFIG` → `local/station.yaml` → `~/.config/robot_infra/station.yaml`。设置了 `$XDG_CONFIG_HOME` 时，最后一个位置随之改变。显式和环境变量路径直接采用；最后两个位置选择首个存在的文件。 |
 | `--robot NAME` | 默认未设置：选择唯一机器人；多机器人工作站调用原语必须指定名称。 |
-| `--preset PATH` | 默认未设置，使用工作站 home。`home` 命令读取现有环境预设，支持裸映射或 `real_robot` 下的配置。`home set` 必须提供此选项；`doctor` 也用它确定预期设备。 |
+| `--preset PATH` | 默认未设置，使用工作站 home。`home` 命令读取现有环境预设，支持裸映射或 `real_robot` 下的配置。`home set` 必须提供此选项；`doctor` 也用它确定预期设备，并将其中的机器人与工作站比较。 |
 | `--direct` | 默认关闭，遵循工作站的 daemon 声明。仅在其 daemon 端口不可达时强制直连。 |
 | `--mock` | 默认关闭；对**直连**使用 doctor 的 fake 后端替换设备后端。仍需工作站文件，也不会绕过 daemon 选择。 |
 | `--json` | 默认关闭；内置原语在 stdout 输出一个 JSON 结果，诊断、运动目标和确认提示写入 stderr。 |
 | `--yes` | 默认关闭；跳过内置运动确认或 doctor 修复计划确认；前置检查仍然有效。 |
 
-不提供 JSON 输出的命令会拒绝 `--json`，用法错误退出码为 2，见下文。
+不提供 JSON 输出的命令（`setup`、`daemon`、`supervise`、`gello-calibrate`
+及学习命令）会拒绝 `--json`，用法错误退出码为 2，见下文。
 
 <a id="learning-commands"></a>
 
@@ -59,7 +60,7 @@ Franka FCI 只允许一个控制连接。直连路线中，先结束 recorder/ac
 
 | 命令 | 作用 | 机器人动作 | 确认 | 退出码 |
 |---|---|---|---|---|
-| `status` | 连接路径、机器人描述、臂健康、夹爪反馈、相机名称、teleop 名称；远程时含 daemon RTT | 读取 | 无 | 0 / 1 / 2 |
+| `status` | 连接路径、机器人描述、臂健康、夹爪反馈、相机名称、teleop 名称；远程时含 daemon RTT。文本显示臂的 `ok`、控制模式和错误；`arm_health.robot_mode`、`detail`、`last_feedback_age_s` 及安全裁剪/拒绝计数仅在 `--json` 中出现 | 读取 | 无 | 0 / 1 / 2 |
 | `q` | 当前关节位置，单位弧度 | 读取 | 无 | 0 / 1 / 2 |
 | `tcp` | TCP 位置（米）及 `xyzw` 顺序四元数 | 读取 | 无 | 0 / 1 / 2 |
 | `home show` | 解析后的 home、当前关节、有符号差值和最大绝对差值 | 读取 | 无 | 0 / 1 / 2 |
@@ -71,23 +72,34 @@ Franka FCI 只允许一个控制连接。直连路线中，先结束 recorder/ac
 | `gripper move F` | 设归一化宽度为有限数 `F`，满足 `0 <= F <= 1` | 夹爪运动 | 需要，或 `--yes` | 0 / 1 / 2 |
 | `stop` | 调用臂 `stop()`；成功打印 `stop: ok` | 停臂 | 无 | 0 / 1 / 2 |
 | `recover` | 调用臂 `recover()`；成功打印 `recover: ok` | 清除臂错误 | 无 | 0 / 1 / 2 |
+| `camera show` | 全部工作站相机，或仅 `--name NAME`：配置、在 `--frames N` 次读取上实测的帧率（默认 30；`0` 不读取并报告 "not measured"）、帧龄、图像形状、dtype 和健康状态 | 读取；与 `status` 一样打开机器人连接 | 无 | 0；某个相机无帧或不健康时为 1（其他相机照常报告）；2 |
+| `camera grab --name NAME --output DIR` | 保存一帧为 `NAME-color.png`、`NAME-depth.png`（相机提供深度时；16 位，浮点深度以毫米存储）及 `NAME.json` sidecar；创建 `DIR`，从不覆盖已有文件；`--timeout-s S`（默认 2） | 读取；写文件 | 无 | 0 / 1 / 2 |
 | `doctor` | 检查主机与已配置设备，预览针对性修复 | 读取；`--fix` 修复主机/软件，不恢复机器人或执行运动 | 整份修复计划确认一次，或 `--yes` | 0 / 1 / 2 |
 | `setup` | 发现并配置工作站 | 发现、标定和 doctor | 向导原有提问 | 原样保留原 CLI 状态 |
 | `daemon` | 通过网络提供机器人服务 | 预检查，为客户端运动提供硬件服务 | 无包装层提示 | 原样保留原 CLI 状态 |
 | `supervise` | 监督机器人进程 | 取决于子命令 | 取决于子命令 | 原样保留原 CLI 状态 |
-| `teleop calibrate` | 拟合并验证方向映射；见 [spacemouse-commissioning.md](spacemouse-commissioning.md) | 仅输入；可选写文件 | 保存/启用确认 | 0 / 1 / 2 |
-| `teleop profiles list/show/use` | 检查或选择具名标定档案（profile）；见 [spacemouse-commissioning.md](spacemouse-commissioning.md) | 无运动；use 写入工作站 | use 时确认保存 | 0 / 1 / 2 |
-| `teleop diagnose` | 仅输入诊断；见 [spacemouse-commissioning.md](spacemouse-commissioning.md) | 无机器人运动 | 无 | 0 / 1 / 2 |
-| `teleop run` | 带回合保持的受监督录制；`--diagnose translation\|rotation\|all` 启用运动诊断；见 [spacemouse-commissioning.md](spacemouse-commissioning.md#supervised-recording-sessions) | reset 与遥操作 | 需要，或 `--yes` | 子进程状态或包装层错误 |
-| `workspace show/capture/set/validate` | 检查、采样或配置约束；见 [spacemouse-commissioning.md](spacemouse-commissioning.md) | capture 读取 TCP；无运动 | 涉及保存时确认 | 0 / 1 / 2；文本模式验证失败为 5 |
+| `teleop read` | 打印工作站 teleop（GELLO 或 SpaceMouse）的实时样本：`q` 或 `twist`、夹爪、intervening、已触发事件；按 `--rate-hz`（默认 3）每个样本一行文本，直到 Ctrl-C 或 `--duration-s`，最后一行汇总。`--json` 打印 JSON 行，结尾为 `{"summary": ...}`。直连路线只打开 teleop 部分；`--with-follower`（仅 daemon 路线）增加 follower 的 `follower_q`，对 `joint_abs` leader 还增加逐关节 leader 减 follower 的 `delta` | 仅输入；无机器人运动 | 无 | 0 / 1（设备失败或 teleop 不健康）/ 2 |
+| `teleop calibrate` | 标定工作站 teleop；`--backend spacemouse\|gello`（默认：工作站 teleop 后端）。SpaceMouse 拟合并验证方向标定档案（必须提供 `--profile`；见 [spacemouse-commissioning.md](spacemouse-commissioning.md)）；GELLO 运行引导式主臂标定，未设置的 `--port`、`--joint-ids`、`--gripper-id`、`--baudrate`、`--joint-signs` 取自工作站 `teleop.options`，wrap 中心取自工作站 `joint_limits`，并打印 `teleop:` YAML 块（[gello.md](gello.md#2-calibration)）。使用另一后端的标志为用法错误 | 仅输入；可选写文件 | 保存/启用确认；`--use` 选择标定档案（SpaceMouse），或将标定后的 `teleop.options` 写入工作站（GELLO） | 0 / 1 / 2 |
+| `teleop profiles list/show/use` | （SpaceMouse）检查或选择具名标定档案（profile）；见 [spacemouse-commissioning.md](spacemouse-commissioning.md) | 无运动；use 写入工作站 | use 时确认保存 | 0 / 1 / 2 |
+| `teleop diagnose` | （SpaceMouse）仅输入诊断；见 [spacemouse-commissioning.md](spacemouse-commissioning.md) | 无机器人运动 | 无 | 0 / 1 / 2 |
+| `teleop run` | （SpaceMouse）带回合保持的受监督录制；`--diagnose translation\|rotation\|all` 启用运动诊断；见 [spacemouse-commissioning.md](spacemouse-commissioning.md#supervised-recording-sessions) | reset 与遥操作 | 需要，或 `--yes` | 子进程状态或包装层错误 |
+| `workspace show/capture/set/validate` | 检查、采样或配置约束；见 [spacemouse-commissioning.md](spacemouse-commissioning.md)。`show` 还报告 `joint_limits`、`max_delta_per_step`、`home_joints` 和 `home_within_limits`（无 home 或限位时为 `null`；`home_violations` 列出每个超出限位的关节） | capture 读取 TCP；无运动 | 涉及保存时确认 | 0 / 1 / 2；文本模式验证失败为 5 |
+| `workspace frame set --name NAME` | 由 `--base-T-frame`（16 个行优先数字，单位米）或 `--from-points PTS --origin A --x-axis B --y-axis C`（点名由 `workspace capture --save` 保存；右手系，y 相对 x 正交化，退化点被拒绝）提出工作站 `task_frame`；`--source TEXT` 记录来源；`--save` 只写入 `task_frame`。工作站工作区位于另一坐标系时拒绝；同名坐标系会对该工作区重新定基并予以说明 | 无运动；`--save` 写入工作站 | 确认保存 | 0 / 1 / 2 |
+| `workspace frame show` | 工作站 `task_frame`，含其在基座坐标系中的原点和单位轴 | 只读取工作站文件 | 无 | 0 / 1 / 2 |
 | `teleop inspect-stop` | 离线评估已保存的停止证据；见 [spacemouse-commissioning.md](spacemouse-commissioning.md#live-input-calibration-and-diagnosis) | 无硬件连接 | 无 | 0 PASS / 3 FAIL / 4 BLOCKED；其他情况为错误码 |
+| `archive inspect ARCHIVE` | 只读读取 recorder SQLite 归档：结果、掩码计数、保持漂移、每个 human_action_mask 片段的接管跳变和残差，以缩进 JSON 打印。`--csv PATH` 和 `--measurements PATH` 写出新的逐步和测量 CSV；`--drift-window-s`（默认 10）设置保持漂移窗口；每个 `--stop-time-s T`（可重复）增加一次稳定评估，使用 `--settle-speed-mm-s`（默认 2）和 `--settle-hold-s`（默认 0.5）。`--json` 在一行内打印相同字段，非有限数为 `null`，另加 `status`（`REPORT`、`PASS`、`FAIL` 或 `BLOCKED`）。不加载工作站：`--station`、`--robot`、`--preset`、`--direct`、`--mock` 和 `--yes` 为用法错误。`python examples/inspect_teleop_archive.py` 仍是参数和输出相同的别名，但其退出码忽略稳定状态 | 无硬件连接 | 无 | 无 `--stop-time-s` 时为 0；有则 0 PASS / 3 FAIL / 4 BLOCKED（停止时间没有覆盖它的 TCP 回合）；用法错误或归档不可读为 2 |
 
 `setup`、`daemon`、`supervise`、`discover` 和 `gello-calibrate` 是 `robot_infra` 提供的原生命令，也可通过 `robot-infra` 使用。两个 CLI 使用同一组注册命令对象和实现。
 工作站输入统一使用 `--station PATH`；daemon、discover 和设备 doctor 暂时保留 `--config PATH`，setup 暂时保留 `--from PATH`，帮助中均标为 "(alias, will be removed)"。
 对于 setup，工作站输入提供已有默认值，**不是输出路径**。命令后的局部值优先于根级 `--station` 值；工作站查找顺序保持不变。
-`--mock` 和 `--robot` 保留适用的设备语义；其他不相关的全局选项不配置这些命令。这五个命令没有 JSON 输出，使用 `--json` 会报用法错误（退出码 2）。supervisor 的 `--` 之后的参数属于子命令。
+`--mock` 和 `--robot` 保留适用的设备语义；其他不相关的全局选项不配置这些命令。`setup`、`daemon`、`supervise` 和 `gello-calibrate` 没有 JSON 输出，使用 `--json` 会报用法错误（退出码 2），而不是默默输出文本。supervisor 的 `--` 之后的参数属于子命令。
 
-`discover` 输出可见硬件，不连接机器人主机。`gello-calibrate` 标定 GELLO 主臂并输出遥操作 YAML 块；`setup --only teleop --calibrate` 在向导内执行同一标定并写入工作站 YAML。
+`discover` 输出可见硬件，不连接机器人主机。使用 `--json` 时，它打印一个含 `schema_version: 1` 和五个列表的对象，未发现时各列表为空：`cameras`（`backend`、`serial`）、`teleops`（`backend`、`device`）、`can_interfaces`（`name`、`operstate`、`bitrate`）、`hosts`（`ip`、`ping_ok`、`open_ports`）和 `hid_devices`（路径）。其文本输出不变。
+
+`setup` 接受三个逐臂相机流标志，每臂一个值或一个值用于全部臂：`--camera-resolution WIDTHxHEIGHT`（例如 `1280x720`）、`--camera-fps N` 和 `--camera-depth yes|no`。它们作用于该臂的相机；未设置时，新相机使用相机默认值，从 `--station` 保留的相机保持原值。它们不增加向导提问。
+
+`rwrl gello-calibrate` 是 `rwrl teleop calibrate --backend gello` 的别名，将被移除；它保留设备命令的标志（`--port` 和 `--joint-ids` 必填，不使用工作站默认值）。`robot-infra gello-calibrate` 不变。两者都打印 GELLO `teleop:` YAML 块。
+`setup --only teleop --calibrate` 在向导内执行该标定并写入工作站 YAML。
 `robot-infra doctor` 仍是设备层诊断；`rwrl doctor` 是下文的主机与项目诊断。
 
 Doctor 直接注册在 `rwrl` 解析器中；`rwrl doctor --help` 显示自身帮助。它共用全局 `--station`、`--robot`、`--preset`、`--mock`、`--json` 和 `--yes`。
@@ -130,6 +142,11 @@ rwrl --station local/station.yaml doctor --fix
 - 内核实时状态；可能需要内核操作时给出手工 **重大修改 / DOUBLE CHECK** 警告。不执行内核或启动配置修改。
 
 工作站和预设配置决定预期设备；已识别的 SpaceMouse/RealSense USB 设备也可独立检查。配置的设备缺失为 `BLOCKED`。未配置、未识别的设备为 `SKIPPED`，不算已正常工作。doctor 从不恢复错误、回 home 或命令机器人运动。活动 daemon、控制器或设备持有者会阻塞独占探测/修复；doctor 不停止或接管其它进程。
+只有持有硬件连接的进程才算持有者：daemon、recorder、actor 和 deploy 入口，`setup`、`gello-calibrate`，会建立连接的原语（`status`、`q`、`tcp`、`home`、`gripper`、`camera`、`stop`、`recover`），`teleop run/read/calibrate/diagnose`、`workspace capture` 以及学习命令。离线 `rwrl` 命令（`--help`、`workspace show/set/validate/frame`、`teleop profiles`、`teleop inspect-stop`、`archive inspect`）不会使 doctor 报告 `BLOCKED`。
+
+设备行保留设备 doctor 的检查，但 `rwrl doctor --fix` 从不恢复或重新打开设备，因此提示改为指向 rwrl 命令："--fix (recover)" 变为 `run rwrl recover (or robot-infra doctor --fix)`，"--fix to reopen" 变为 `rerun rwrl status after reconnecting the camera (or robot-infra doctor --fix)`。
+
+提供工作站和 `--preset` 时，doctor 还将预设中的机器人（内联 `real_robot.robot` 或裸 `robot` 映射，或其指向的工作站文件）与工作站机器人比较：`robot_ip`、`arm_backend`、`gripper`、按名称比较的相机（`serial`、`width`、`height`、`fps`、`enable_depth`）、`home_joints`、`joint_limits`、`safety_box`、`task_frame` 和 `workspace`。每个不同字段为一条 `WARN`，id 为 `<robot>.preset:<field>`（例如 `arm.preset:home_joints` 或 `arm.preset:cameras.wrist.fps`），并显示两边的值；字段全部一致时给出一条 `PASS` 行 `<robot>.preset`。WARN 不改变退出码。多机器人工作站上的内联机器人需要 `--robot`，否则比较为 `SKIPPED`。
 
 非 root 用户的系统修复逐条使用 sudo；Python 修复只用当前项目解释器，绝不使用 sudo pip。交互执行可请求 sudo 授权。无人值守执行前，先在终端授权 sudo：
 

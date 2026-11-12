@@ -29,6 +29,7 @@ rwrl setup --arms 1 --arm-names arm --robot-ip 172.16.0.2 --teleop gello --scope
 | `--robot-ip 172.16.0.2` | addresses to probe/select, in arm order |
 | `--cameras none` | cameras for an arm; otherwise choose discovered cameras interactively |
 | `--cameras SERIAL=wrist` | serial and observation name; use actual discovered serials, one comma-separated value per arm |
+| `--camera-resolution 1280x720`, `--camera-fps 15`, `--camera-depth yes` | stream settings for an arm's cameras, one value per arm; unset flags keep the camera defaults (640x480, 30 fps, no depth) for new cameras and the `--station` values for kept ones |
 | `--teleop gello` | select GELLO; a single value applies to every arm |
 | `--no-calibrate` | defer calibration; default is to ask interactively, or skip in noninteractive mode |
 
@@ -56,7 +57,7 @@ Answer notes:
 ## The inline GELLO calibration
 
 Answering `yes` to the calibration question runs the same procedure as
-`rwrl gello-calibrate` (torque is off, so you move the
+`rwrl teleop calibrate --backend gello` (torque is off, so you move the
 leader by hand). In order:
 
 1. For each of the seven joints: move that joint in the robot's positive direction and press Enter.
@@ -72,10 +73,13 @@ leader by hand). In order:
    trigger moved less than 0.05 rad.
 
 If you answer `no`, the yaml gets zero offsets, all `+1` signs and a `# TODO calibrate` comment;
-calibrate later with the command below. A failed calibration asks `retry the calibration? [Y/n]`.
+calibrate later with one of the commands below. A failed calibration asks `retry the calibration? [Y/n]`.
+The second command takes the station's `teleop.options` as defaults, asks no wizard question,
+and writes the calibrated options into `local/station.yaml` after a reviewed diff (`--use`):
 
 ```bash
 rwrl setup --station local/station.yaml --only teleop --calibrate
+rwrl --station local/station.yaml teleop calibrate --backend gello --use
 ```
 
 ## Where the file lands
@@ -142,6 +146,16 @@ The device layer clips servo targets to these limits in either process layout an
 ([Safety rules](../../robot_infra/README.md#safety-rules)). The training env can only be tighter than
 the yaml. Re-running the wizard with `--station` keeps the values you edited.
 
+To review them without opening the file (it reads only the station file and connects nothing):
+
+```bash
+rwrl --station local/station.yaml workspace show
+```
+
+*You should see:* `joint_limits`, `max_delta_per_step`, `home_joints`, `base_safety_box` and
+`home_within_limits: true`. `false` comes with `home_violations`, one entry per joint outside its
+limits; `null` means the home or the limits are missing.
+
 ## Regenerating and rehearsing
 
 ```bash
@@ -205,6 +219,18 @@ joint-delta settings were removed. The examples on later tutorial pages still
 need synchronization to this target workflow; keep one action/observation
 contract across recording, BC/ACT, HIL and deployment.
 
+Check that the copy matches the station, on the NUC, repository root, project environment
+active, with no recorder or actor running (doctor also probes the devices):
+
+```bash
+rwrl --station local/station.yaml --preset hil.yaml doctor
+```
+
+*You should see:* a `PASS` row `arm.preset`. Every copied hardware field that differs from the
+station (`robot_ip`, `arm_backend`, `gripper`, cameras by name, `home_joints`, `joint_limits`,
+`safety_box`, `task_frame`, `workspace`) is instead a `WARN` row `arm.preset:<field>` showing both
+values. WARN does not fail doctor, so read the rows; fix the copy and rerun.
+
 ## Task, images and control profiles
 
 The tutorial preset leaves `real_robot.task.name` at `none`: the operator or classifier supplies
@@ -215,6 +241,20 @@ Set them before recording demos and keep them consistent through BC, HIL and dep
 `source_resolution: [height, width]`. RGB resizing is bilinear; depth is one-channel metres,
 uses nearest-neighbor resizing and encodes invalid values as zero. Changing those settings
 changes the policy's observation contract.
+
+Read the actual resolution and pick the ROI from a real frame, on the NUC, repository root,
+project environment active, with no recorder or actor holding the devices:
+
+```bash
+rwrl --station local/station.yaml camera show --name wrist
+rwrl --station local/station.yaml camera grab --name wrist --output local/camera-wrist
+```
+
+`camera show` prints `color (H, W, 3)` for the frames it read, the measured frame rate and the
+camera health; `source_resolution` is `[H, W]`. `camera grab` saves `wrist-color.png` (plus
+`wrist-depth.png` with depth) and `wrist.json` under `local/camera-wrist/`; read the ROI's pixel
+`top`, `left`, `height` and `width` off the colour image. It never overwrites an earlier grab, so
+choose a new `--output` directory for the next one.
 
 Station YAML accepts an optional per-arm `control:` impedance profile; `real_robot.control`
 can override it for an experiment. Configure while IDLE. Overrides may only tighten declared

@@ -18,6 +18,7 @@ from typing import Sequence
 
 from robot_infra.cli.errors import ABORTED_EXIT_CODE as _ABORTED_EXIT_CODE
 from robot_infra.cli.errors import USAGE_EXIT_CODE as _USAGE_EXIT_CODE
+from robot_infra.cli.render import supports_color
 from robot_infra.discovery.autoconfig import (
     STATION_FILENAME,
     STATION_SCOPES,
@@ -197,7 +198,8 @@ def run(args, ctx, *, ask: Ask = input, echo: Echo = print) -> int:
     echo(f"wrote {path}")
     echo("checking it with the doctor" + (" (--mock)" if args.mock else "") + ":")
     results = doctor_station(path, mock=args.mock)
-    echo(format_station_text(results))
+    # Only the default echo writes to a terminal; an injected echo may record or save the text.
+    echo(format_station_text(results, color=echo is print and supports_color(sys.stdout)))
     echo(next_steps_text(draft, path, found_without_config=_found_without_config(path)))
     return station_exit_code(results)
 

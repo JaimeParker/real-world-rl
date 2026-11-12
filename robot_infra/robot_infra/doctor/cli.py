@@ -12,6 +12,7 @@ from pathlib import Path
 from robot_infra.cli.cmd_doctor import build_parser
 from robot_infra.cli.command import affirmative, doctor_envelope
 from robot_infra.cli.errors import FAILURE_EXIT_CODE, SUCCESS_EXIT_CODE
+from robot_infra.cli.render import BOLD, BOLD_GREEN, BOLD_RED, paint, status_style, supports_color
 from robot_infra.discovery.autoconfig import (
     fill_from_env,
     load_station,
@@ -41,17 +42,20 @@ def _status(result: CheckResult) -> str:
     return "WARN" if result.warning else "OK"
 
 
-def format_text(results: list[CheckResult]) -> str:
+def format_text(results: list[CheckResult], *, color: bool = False) -> str:
     lines = []
     for result in results:
         status = _status(result)
-        lines.append(f"[{result.layer}/{_LAYER_COUNT}] {result.name} ... {status}  {result.message}")
+        layer = paint(f"[{result.layer}/{_LAYER_COUNT}]", BOLD, enabled=color)
+        painted = paint(status, status_style(status), enabled=color)
+        lines.append(f"{layer} {result.name} ... {painted}  {result.message}")
         if status in ("FAIL", "WARN") and result.hint:
             lines.append(f"    hint: {result.hint}")
     ok, failed, skipped = summarize(results)
     warnings = sum(_status(result) == "WARN" for result in results)
     warned = f" ({warnings} with warnings)" if warnings else ""
-    lines.append(f"summary: {ok} ok{warned}, {failed} failed, {skipped} skipped")
+    summary = f"summary: {ok} ok{warned}, {failed} failed, {skipped} skipped"
+    lines.append(paint(summary, BOLD_RED if failed else BOLD_GREEN, enabled=color))
     return "\n".join(lines)
 
 
@@ -90,16 +94,20 @@ def station_exit_code(results_by_robot: dict[str, list[CheckResult]]) -> int:
     return max((exit_code(results) for results in results_by_robot.values()), default=SUCCESS_EXIT_CODE)
 
 
-def format_station_text(results_by_robot: dict[str, list[CheckResult]]) -> str:
-    """One robot: exactly ``format_text``. Several: a header and summary per robot, then an overall line."""
+def format_station_text(results_by_robot: dict[str, list[CheckResult]], *, color: bool = False) -> str:
+    """One robot: exactly ``format_text``. Several: a header and summary per robot, then an overall line.
+    ``color`` adds terminal styling only; the text without escape codes is the same either way."""
     if len(results_by_robot) == 1:
-        return format_text(next(iter(results_by_robot.values())))
-    blocks = [f"== robot '{name}' ==\n{format_text(results)}" for name, results in results_by_robot.items()]
+        return format_text(next(iter(results_by_robot.values())), color=color)
+    blocks = [
+        paint(f"== robot '{name}' ==", BOLD, enabled=color) + "\n" + format_text(results, color=color)
+        for name, results in results_by_robot.items()
+    ]
     failing = [name for name, results in results_by_robot.items() if exit_code(results)]
     overall = f"overall: {len(results_by_robot)} robots, " + (
         f"failures on {failing}" if failing else "all passed"
     )
-    return "\n".join([*blocks, overall])
+    return "\n".join([*blocks, paint(overall, BOLD_RED if failing else BOLD_GREEN, enabled=color)])
 
 
 def _station_payload(results_by_robot: dict[str, list[CheckResult]]) -> list | dict:
@@ -229,7 +237,7 @@ def run(args, ctx) -> int:
     if args.json:
         print(format_install_sdk_json(results_by_robot) if args.install_sdk else format_station_json(results_by_robot))
         return station_exit_code(results_by_robot)
-    print(format_station_text(results_by_robot))
+    print(format_station_text(results_by_robot, color=supports_color(sys.stdout)))
     if args.install_sdk:
         return install_franky_wheel(path, results_by_robot, assume_yes=args.yes)
     return station_exit_code(results_by_robot)

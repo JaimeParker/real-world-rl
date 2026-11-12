@@ -12,6 +12,16 @@ import sys
 from pathlib import Path
 
 from robot_infra.cli.command import affirmative
+from robot_infra.cli.render import (
+    BOLD,
+    BOLD_GREEN,
+    BOLD_RED,
+    CYAN,
+    pad_then_paint,
+    paint,
+    status_style,
+    supports_color,
+)
 
 from .command import Result
 from .errors import SUCCESS_EXIT_CODE
@@ -36,16 +46,87 @@ def rwrl_device_hint(hint: str) -> str:
     return hint
 
 
-def load_targets(args):
-    # Host-only diagnosis must still work when hardware/core SDK imports are broken.
+_STATUS_WIDTH = 14
+_UNRESOLVED_STATUSES = ("FAIL", "BLOCKED", "PENDING_ACTION")
+
+
+def status_line(status: str, item_id: str, text: str, *, color: bool, indent: str = "") -> str:
+    return f"{indent}{pad_then_paint(status, _STATUS_WIDTH, enabled=color)} {item_id}: {text}"
+
+
+def hint_lines(hint: str, *, indent: str = "    ") -> str:
+    """``hint:``-labelled; continuation lines line up under the first line's text."""
+    label = indent + "hint: "
+    first, *rest = hint.splitlines() or [""]
+    return "\n".join([label + first, *(" " * len(label) + line for line in rest)])
+
+
+def _last_line(text: str) -> str:
+    # Multi-line messages are captured command output, whose last line names the error.
+    lines = [line for line in text.splitlines() if line.strip()]
+    return lines[-1].strip() if lines else ""
+
+
+def needs_attention(findings, actions, *, color: bool) -> str:
+    """Every FAIL/BLOCKED/PENDING_ACTION check and repair with a one-line hint; empty when none."""
+    rows = [(row.status, row.id, row.message, row.hint) for row in findings if row.status in _UNRESOLVED_STATUSES]
+    rows += [
+        (action.status, action.id, action.detail or action.title, "")
+        for action in actions
+        if action.status in _UNRESOLVED_STATUSES
+    ]
+    if not rows:
+        return ""
+    counts = ", ".join(
+        f"{count} {status}"
+        for status in _UNRESOLVED_STATUSES
+        if (count := sum(row[0] == status for row in rows))
+    )
+    lines = [paint("Needs attention:", BOLD, enabled=color) + " " + counts]
+    for status, item_id, text, hint in rows:
+        lines.append(status_line(status, item_id, _last_line(text), color=color, indent="  "))
+        if hint.strip():
+            lines.append("    hint: " + hint.strip().splitlines()[0])
+    return "\n".join(lines)
+
+
+def station_configured(args) -> bool:
+    """A station is given (``--station``, ``$ROBOT_INFRA_CONFIG``) or found in a station scope."""
     config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    if not (
+    return bool(
         args.config
-        or args.preset
         or os.environ.get("ROBOT_INFRA_CONFIG")
         or (Path.cwd() / "local/station.yaml").is_file()
         or (config_home / "robot_infra/station.yaml").is_file()
-    ):
+    )
+
+
+def spacemouse_table_inputs(args):
+    """``(station directory, spacemouse teleop options)`` for the host-level SpaceMouse device
+    table, so USB classification and udev rules use the device layer's table: the station that
+    ``load_targets`` checks and the options of its first selected spacemouse teleop. ``(None,
+    None)`` without a station, or when it cannot be loaded (``load_targets`` reports why)."""
+    if not station_configured(args):
+        return None, None
+    try:
+        from real_world_rl.station import load_station
+        from robot_infra.discovery.autoconfig import resolve_station_config_path
+
+        path = resolve_station_config_path(args.config)
+        station = load_station(path)
+    except Exception:
+        return None, None
+    for name in [args.robot] if args.robot else list(station.robots):
+        robot = station.robots.get(name)
+        teleop = robot.config.teleop if robot is not None else None
+        if teleop is not None and teleop.backend == "spacemouse":
+            return Path(path).resolve().parent, dict(teleop.options)
+    return Path(path).resolve().parent, None
+
+
+def load_targets(args):
+    # Host-only diagnosis must still work when hardware/core SDK imports are broken.
+    if not (station_configured(args) or args.preset):
         if args.robot:
             raise ValueError("--robot requires a station configuration")
         return [], set()
@@ -379,8 +460,9 @@ def run(ctx, usage_error):
         raise usage_error(
             f"cannot create private doctor report: {error}; use --report-dir with a writable directory"
         )
+    station_dir, spacemouse_options = spacemouse_table_inputs(args)
     try:
-        host = Host(root, report)
+        host = Host(root, report, station_dir=station_dir, spacemouse_options=spacemouse_options)
         results = inspect(args, host)
     except Exception as error:
         report.save("error.json", {"error": str(error)})
@@ -390,17 +472,19 @@ def run(ctx, usage_error):
     report.save("before.json", before)
     report.save("plan.json", before["repairs"])
     stream = ctx.stderr if args.json else ctx.stdout
+    stream_color = supports_color(stream)
     if not args.json:
         for row in host.findings:
-            print(f"{row.status:14} {row.id}: {row.message}", file=stream)
+            print(status_line(row.status, row.id, row.message, color=stream_color), file=stream)
             if row.hint and row.status != "PASS":
-                print("  " + row.hint, file=stream)
+                print(hint_lines(row.hint), file=stream)
     for action in actions:
         if args.install_sdk and not args.fix and not action.id.startswith("sdk:"):
             continue
-        print(f"PLAN {action.id}: {action.title}", file=stream)
+        print(f"{paint('PLAN', CYAN, enabled=stream_color)} {action.id}: {action.title}", file=stream)
         if action.status == "BLOCKED":
-            print("  BLOCKED: " + action.detail, file=stream)
+            blocked = paint("BLOCKED", status_style("BLOCKED"), enabled=stream_color)
+            print(f"  {blocked}: {action.detail}", file=stream)
         if action.argv:
             print("  " + shlex.join(action.argv), file=stream)
         if action.target:
@@ -435,7 +519,7 @@ def run(ctx, usage_error):
                 sdk_only=args.install_sdk and not args.fix,
                 capabilities=host.capabilities,
             )
-            after_host = Host(root, report)
+            after_host = Host(root, report, station_dir=station_dir, spacemouse_options=spacemouse_options)
             try:
                 results = inspect(args, after_host)
                 host = after_host
@@ -459,19 +543,30 @@ def run(ctx, usage_error):
     code = exit_status(host.findings, actions)
     output = io.StringIO()
     if not args.json:
-        print(f"Report: {report.path}", file=output)
+        # The buffer itself is no terminal; it is printed to ctx.stdout once the command returns.
+        output_color = supports_color(ctx.stdout)
+        print(f"{paint('Report:', BOLD, enabled=output_color)} {report.path}", file=output)
         if confirmed:
             for action in actions:
-                print(f"{action.status:14} {action.id}: {action.detail}", file=output)
+                print(status_line(action.status, action.id, action.detail, color=output_color), file=output)
             for row in host.findings:
-                print(f"{row.status:14} {row.id}: {row.message}", file=output)
+                print(status_line(row.status, row.id, row.message, color=output_color), file=output)
+        attention = needs_attention(host.findings, actions, color=output_color)
+        if attention:
+            print(attention, file=output)
+        succeeded = code == SUCCESS_EXIT_CODE
         print(
-            "Result: "
-            + (
-                "no blocking findings; review SKIPPED/WARN coverage"
-                if code == SUCCESS_EXIT_CODE
-                else "unresolved failures / blocked checks / pending user actions"
-            ), file=output,
+            paint(
+                "Result: "
+                + (
+                    "no blocking findings; review SKIPPED/WARN coverage"
+                    if succeeded
+                    else "unresolved failures / blocked checks / pending user actions"
+                ),
+                BOLD_GREEN if succeeded else BOLD_RED,
+                enabled=output_color,
+            ),
+            file=output,
         )
     return Result(result, output.getvalue().removesuffix("\n"), code, ensure_ascii=False)
 

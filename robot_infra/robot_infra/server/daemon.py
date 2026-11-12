@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from robot_infra.cli.cmd_daemon import build_parser
 from robot_infra.cli.errors import FAILURE_EXIT_CODE, SUCCESS_EXIT_CODE, USAGE_EXIT_CODE
+from robot_infra.cli.render import supports_color
 import argparse
 import os
 import signal
@@ -58,7 +59,8 @@ def load_daemon_config(args: argparse.Namespace) -> RobotConfig:
 def preflight_passed(config: RobotConfig) -> bool:
     results = run_doctor(config)
     failed = exit_code(results)
-    print(format_text(results), file=sys.stderr if failed else sys.stdout)
+    stream = sys.stderr if failed else sys.stdout
+    print(format_text(results, color=supports_color(stream)), file=stream)
     if failed:
         print("preflight failed; fix the items above or start with --no-preflight", file=sys.stderr)
         return False

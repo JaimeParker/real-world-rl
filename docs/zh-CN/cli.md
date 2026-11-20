@@ -171,6 +171,12 @@ SpaceMouse 拟合并验证方向配置（必需 `--profile`）。GELLO 运行引
 
 `rwrl doctor` 检查主机、项目环境及所有站点机器人，预览定向修复，`--fix` 应用。检查、状态、修复、报告目录、JSON、退出码见专页 [rwrl doctor](doctor.md)。
 
+部署链路检查使用
+`rwrl doctor --link HOST:PORT [--ssh [USER@]HOST] [--remote-bind HOST:PORT] [--policy HOST:PORT] [--token TOKEN]`。
+地址为客户端可访问的 gRPC 端点，`--ssh` 启用 SSH 和转发检查（`--remote-bind` 指定 NUC 上的 daemon 地址），`--policy` 读取
+websocket 元数据，`--token` 用于 gRPC 认证。参见[站点链路配置和修复](doctor.md#grpc-and-ssh-link-rows)。
+
+
 <a id="home-resolve-save-and-move"></a>
 
 ## Home：解析、保存与运动

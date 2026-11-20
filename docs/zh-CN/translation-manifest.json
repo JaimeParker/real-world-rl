@@ -14,7 +14,12 @@
     {
       "source": "docs/cli.md",
       "translation": "docs/zh-CN/cli.md",
-      "source_sha256": "a0878f1ad16ed2a0a9bc49c5977d69602dae5222262c6250e4705386dff7dc0d"
+      "source_sha256": "fd0e0f1d2c73397bbfb8b2dff9eba1cddfff0558df337a58ca793d468b963519"
+    },
+    {
+      "source": "docs/deploy-openpi.md",
+      "translation": "docs/zh-CN/deploy-openpi.md",
+      "source_sha256": "52210d2e36c8852e3b0432270a41d47fe1edd4fb7fe13f5beb6cebc491762dcf"
     },
     {
       "source": "docs/gello.md",
@@ -189,7 +194,7 @@
     {
       "source": "docs/doctor.md",
       "translation": "docs/zh-CN/doctor.md",
-      "source_sha256": "798a39028d470b05ee51ef8398587668e892c849716844cb3317cf91b97b06df"
+      "source_sha256": "da78a9555196c685e86622814c45ca3b1e64cadc7818dcbfb024e30048094d9e"
     },
     {
       "source": "docs/intervening.md",

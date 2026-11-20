@@ -7,6 +7,7 @@ import logging
 import threading
 import time
 from typing import Any, Callable
+from uuid import uuid4
 
 import numpy as np
 
@@ -110,6 +111,7 @@ class RobotService:
             _require_jpeg_backend()
         self.jpeg_quality = jpeg_quality
         self.robot = robot
+        self.daemon_instance_id = uuid4().hex
         self.watchdog_s = watchdog_s
         self._use_claim = robot.config.claim if claim is None else claim
         self._claim: DeviceClaim | None = None
@@ -199,6 +201,8 @@ class RobotService:
         gripper_config = robot.config.gripper
         return {
             "type": robot.ROBOT_TYPE,
+            "daemon_instance_id": self.daemon_instance_id,
+            "watchdog_s": self.watchdog_s,
             "describe": robot.describe(),
             "arm": {
                 "num_joints": arm.num_joints,

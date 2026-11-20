@@ -398,11 +398,33 @@ class RemoteRobot(Robot):
 
     def _open(self) -> dict:
         client = self._ensure_client()
-        self.children.clear()
         client.open()
-        remote_connected = False
         try:
             info = client.call("robot.describe")
+        except BaseException:
+            client.close()
+            raise
+        return self._connect_described(info, client)
+
+    def refresh_connection(self) -> bool:
+        """Re-describe after transport loss and rebuild parts for a new or unknown daemon."""
+        if not self.is_connected:
+            self.connect()
+            return True
+        client = self._client
+        client.open()
+        info = client.call("robot.describe")
+        instance_id = info.get("daemon_instance_id")
+        if instance_id is not None and instance_id == self._handle.get("daemon_instance_id"):
+            return False
+        self._disconnect_children_reversed()
+        self._connect_described(info, client)
+        return True
+
+    def _connect_described(self, info: dict, client: TransportClient) -> dict:
+        self.children.clear()
+        remote_connected = False
+        try:
             self._build_remote_parts(info, client)
             client.call("robot.connect")
             remote_connected = True

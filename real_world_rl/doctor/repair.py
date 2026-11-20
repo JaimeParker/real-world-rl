@@ -9,12 +9,15 @@ import json
 import os
 import re
 import shlex
+import stat
 import subprocess
 import sys
 import uuid
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from tempfile import TemporaryFile
 
 from real_world_rl.doctor.platform import Capabilities
 
@@ -45,6 +48,12 @@ class Action:
     # SHA of the file inspected while planning. Never overwrite a later edit.
     before: str | None = None
     capability: str = "system"
+    prerequisites: dict[str, str | None] = field(default_factory=dict)
+    validate_argv: list[str] = field(default_factory=list)
+    verify_argv: list[str] = field(default_factory=list)
+    verify_line: str = ""
+    after_argv: list[list[str]] = field(default_factory=list)
+    advice: str = ""
 
 
 def redact(value):
@@ -187,6 +196,74 @@ class Report:
         )
 
 
+    @contextmanager
+    def background(self, argv):
+        """Log a short-lived probe and always reap the child we started."""
+        with TemporaryFile() as output:
+            with self.log.open("a", encoding="utf-8") as stream:
+                stream.write("$ " + shlex.join(redact(argv)) + "\n")
+            process = subprocess.Popen(
+                argv, stdin=subprocess.DEVNULL, stdout=output, stderr=output,
+            )
+
+            def diagnostics():
+                return os.pread(output.fileno(), 8192, 0).decode("utf-8", errors="replace")
+
+            try:
+                yield process, diagnostics
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=2)
+                with self.log.open("a", encoding="utf-8") as stream:
+                    stream.write(redact(diagnostics()) + f"\nexit={process.returncode}\n")
+
+
+def user_service_directory() -> Path:
+    config = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config").expanduser()
+    if not config.is_absolute():
+        config = Path.home() / ".config"
+    return config / "systemd/user"
+
+
+def _allowed_destination(target: Path, action: Action, capabilities: Capabilities) -> bool:
+    if action.privileged:
+        return (
+            str(target).startswith("/etc/udev/rules.d/99-rwrl-")
+            or str(target) == "/etc/security/limits.d/99-rwrl-realtime.conf"
+            or target == capabilities.etc / "ssh/sshd_config.d/99-rwrl.conf"
+        )
+    return (
+        target.parent == user_service_directory()
+        and re.fullmatch(r"rwrl-tunnel-[a-z0-9-]+\.service", target.name) is not None
+    )
+
+
+class ConcurrentEdit(RuntimeError):
+    """A dedicated repair file changed while being staged."""
+
+
+def _publish(report, prefix, source, target, *, expected, mode):
+    temporary = str(target) + ".rwrl-" + report.path.name
+    code, output = report.run(prefix + ["install", "-m", f"{mode:04o}", "--", str(source), temporary])
+    if code:
+        return code, output
+    try:
+        if target.is_symlink() or digest(target) != expected:
+            raise ConcurrentEdit("configuration changed while staging; inspect again")
+    except (ConcurrentEdit, OSError):
+        report.run(prefix + ["rm", "-f", "--", temporary])
+        raise
+    code, output = report.run(prefix + ["mv", "-fT", "--", temporary, str(target)])
+    if code:
+        report.run(prefix + ["rm", "-f", "--", temporary])
+    return code, output
+
+
 def file_action(
     check: str,
     title: str,
@@ -223,8 +300,10 @@ def execute(
     assume_yes: bool,
     sdk_only: bool = False,
     capabilities: Capabilities | None = None,
+    command=None,
 ) -> None:
     capabilities = capabilities or Capabilities.detect()
+    run_command = command or report.run
     done: dict[str, Action] = {}
     for action in actions:
         done[action.id] = action
@@ -285,44 +364,64 @@ def execute(
                 )
                 continue
             prefix = ["sudo", "-n"]
-        if action.target:
-            target = Path(action.target)
-            if target.is_symlink() or digest(target) != action.before:
-                action.status, action.detail = (
-                    "BLOCKED",
-                    "configuration changed since inspection, or destination is a symlink; inspect again",
-                )
+        try:
+            changed = any(digest(Path(path)) != original for path, original in action.prerequisites.items())
+            target = Path(action.target) if action.target else None
+            if target is not None:
+                changed |= target.is_symlink() or digest(target) != action.before
+        except OSError as error:
+            action.status, action.detail = "BLOCKED", f"cannot verify configuration: {error}"
+            continue
+        if changed:
+            action.status, action.detail = (
+                "BLOCKED", "configuration changed since inspection, or destination is a symlink; inspect again",
+            )
+            continue
+        if target is not None:
+            if not _allowed_destination(target, action, capabilities):
+                action.status, action.detail = "BLOCKED", "destination outside the repair allowlist"
                 continue
-            # This CLI owns only its dedicated configuration files.
-            if not (
-                str(target).startswith("/etc/udev/rules.d/99-rwrl-")
-                or str(target) == "/etc/security/limits.d/99-rwrl-realtime.conf"
-            ):
-                action.status, action.detail = (
-                    "BLOCKED",
-                    "destination outside the repair allowlist",
-                )
-                continue
-            if target.exists():
-                try:
+            backup = None
+            mode = 0o644
+            try:
+                if target.exists():
+                    mode = stat.S_IMODE(target.stat().st_mode) & 0o777
                     backup = report.path / (target.name + ".before")
                     backup.write_bytes(target.read_bytes())
                     backup.chmod(0o600)
-                except OSError as error:
-                    action.status, action.detail = "FAIL", str(error)
-                    continue
-            staged = report.path / (target.name + ".new")
-            staged.write_text(action.content, encoding="utf-8")
-            staged.chmod(0o600)
-            # install writes a temporary file beside the destination; mv publishes atomically.
-            temporary = str(target) + ".rwrl-" + report.path.name
-            code, output = report.run(
-                prefix + ["install", "-m", "0644", "--", str(staged), temporary]
-            )
-            if not code:
-                code, output = report.run(
-                    prefix + ["mv", "-f", "--", temporary, str(target)]
-                )
+                if not action.privileged:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                staged = report.path / (target.name + ".new")
+                staged.write_text(action.content, encoding="utf-8")
+                staged.chmod(0o600)
+            except OSError as error:
+                action.status, action.detail = "FAIL", str(error)
+                continue
+            try:
+                code, output = _publish(report, prefix, staged, target, expected=action.before, mode=mode)
+            except (ConcurrentEdit, OSError) as error:
+                action.status, action.detail = "BLOCKED", str(error)
+                continue
+            published = not code
+            if published and action.validate_argv:
+                code, output = run_command(prefix + action.validate_argv, timeout=15)
+            if not code and action.verify_argv:
+                code, output = run_command(prefix + action.verify_argv, timeout=15)
+                if not code and action.verify_line not in output.splitlines():
+                    code, output = 1, f"effective config did not contain {action.verify_line!r}; review Include order"
+            if published and code:
+                try:
+                    staged_hash = digest(staged)
+                    if target.is_symlink() or digest(target) != staged_hash:
+                        raise ConcurrentEdit("configuration changed during validation; rollback refused")
+                    rollback_code, rollback_output = (
+                        _publish(report, prefix, backup, target, expected=staged_hash, mode=mode)
+                        if backup else report.run(prefix + ["rm", "-f", "--", str(target)])
+                    )
+                    output += ("\nrollback failed: " + rollback_output if rollback_code
+                               else "\nprevious configuration restored")
+                except (ConcurrentEdit, OSError) as error:
+                    output += "\n" + str(error)
         else:
             if action.python and action.argv[:3] != [sys.executable, "-m", "pip"]:
                 action.status, action.detail = (
@@ -330,9 +429,13 @@ def execute(
                     "Python repair must use the running interpreter",
                 )
                 continue
-            code, output = report.run(
+            code, output = run_command(
                 prefix + action.argv, timeout=1800 if action.python else 300
             )
+        for argv in action.after_argv:
+            if code:
+                break
+            code, output = run_command(prefix + argv, timeout=30)
         if code:
             action.status, action.detail = "FAIL", redact(output[-2000:])
         else:

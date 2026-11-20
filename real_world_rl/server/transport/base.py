@@ -38,6 +38,12 @@ class TransportError(DeviceFault):
     kind = "transport"
 
 
+class TransportUnavailable(TransportError):
+    """The remote daemon cannot be reached over the transport."""
+
+    kind = "transport_unavailable"
+
+
 class Transport(ABC):
     """Server side."""
 

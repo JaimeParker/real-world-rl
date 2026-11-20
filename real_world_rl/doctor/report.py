@@ -25,6 +25,7 @@ from real_world_rl.cli.render import (
     supports_color,
 )
 
+from real_world_rl.common.link_config import endpoint, link_overrides
 from real_world_rl.common.station_paths import (
     STATION_FILENAME,
     legacy_station_locations,
@@ -226,7 +227,7 @@ def load_targets(args):
                     fill_from_env(selected.config),
                     str(path),
                     selected.daemon_declared,
-                    selected.bind,
+                    selected,
                 )
             )
     elif args.robot:
@@ -254,13 +255,13 @@ def load_targets(args):
                         fill_from_env(entry.config),
                         robot,
                         entry.daemon_declared,
-                        entry.bind,
+                        entry,
                     )
                     for name, entry in station.robots.items()
                 )
             elif isinstance(robot, dict):
                 targets.append(
-                    ("preset", Robot.from_dict(robot).config, args.preset, False, "")
+                    ("preset", Robot.from_dict(robot).config, args.preset, False, None)
                 )
         options = values.get("teleop_options_yaml")
         if (selected_backend is not None and backends[selected_backend].SERIAL_GROUP
@@ -279,7 +280,7 @@ def load_targets(args):
                             robot_ip=None,
                         )
                         targets.append(
-                            ("leader:" + name, config, str(options), False, "")
+                            ("leader:" + name, config, str(options), False, None)
                         )
     return targets, expected
 
@@ -303,6 +304,31 @@ def _usb_read_camera_backend(host: Host, kind: str):
     return None
 
 
+def inspect_links(args, host: Host, targets) -> None:
+    from real_world_rl.doctor.link import inspect_client, inspect_preprocess
+    from real_world_rl.doctor.link_host import inspect_server
+
+    declared = [(name, entry.sections["link"]) for name, _, _, _, entry in targets
+                if entry and "link" in entry.sections]
+    if len(declared) > 1 and any(getattr(args, key, None) is not None
+                                 for key in ("link", "ssh", "policy", "token")):
+        raise ValueError("multiple station link sections; use --robot to select CLI overrides")
+    links = [(name, link_overrides(args, value)) for name, value in declared]
+    if not links and (value := link_overrides(args, None)):
+        links = [(targets[0][0] if len(targets) == 1 else str(endpoint(value.address)[1]), value)]
+    servers = [entry for _, _, _, daemon, entry in targets if daemon]
+    if args.mock:
+        if servers or links:
+            host.add("link", "SKIPPED", "--mock skips SSH, gRPC and policy probes")
+        return
+    for server in servers:
+        inspect_server(host, server.bind, server.token)
+    if servers:
+        inspect_preprocess(host)
+    for name, link in links:
+        inspect_client(host, link, name)
+
+
 def inspect(args, host: Host):
     try:
         targets, extra = load_targets(args)
@@ -318,7 +344,7 @@ def inspect(args, host: Host):
     host.inspect_system(mock=args.mock)
     inspect_legacy_station_names(host)
     host.expected.update(extra)
-    for name, config, path, daemon, bind in targets:
+    for name, config, path, daemon, entry in targets:
         if not args.mock:
             from real_world_rl.doctor.deps import required_extras
 
@@ -328,6 +354,7 @@ def inspect(args, host: Host):
                 for camera in config.cameras
                 if camera.backend in camera_backends() and camera_backends()[camera.backend].USB_KIND
             )
+    inspect_links(args, host, targets)
     if not args.mock:
         if host.capabilities.linux:
             host.inspect_gello([entry[1] for entry in targets])
@@ -344,7 +371,7 @@ def inspect(args, host: Host):
     results_by_robot = {}
     mismatches = []
     owners = [] if args.mock or not host.capabilities.device_probes else host.busy()
-    for name, config, path, daemon, bind in targets:
+    for name, config, path, daemon, entry in targets:
         if not args.mock and not host.capabilities.device_probes:
             host.add(
                 name + ".device",
@@ -355,8 +382,8 @@ def inspect(args, host: Host):
         if daemon and not args.mock:
             from real_world_rl.cli.connect import client_address, probe_daemon
 
-            if probe_daemon(client_address(bind)):
-                owners = [*owners, f"daemon owns {name} at {bind}"]
+            if probe_daemon(client_address(entry.bind)):
+                owners = [*owners, f"daemon owns {name} at {entry.bind}"]
         if owners:
             host.add(
                 name + ".device",
@@ -598,6 +625,11 @@ def run(ctx, usage_error):
             print("  " + shlex.join(action.argv), file=stream)
         if action.target:
             print("  " + action.target + "\n" + action.content, file=stream)
+        for command in [action.validate_argv, action.verify_argv, *action.after_argv]:
+            if command:
+                print("  " + shlex.join(command), file=stream)
+        if action.advice:
+            print("  Advice: " + action.advice, file=stream)
         if action.pending:
             print("  Afterward: " + action.pending, file=stream)
     repairing = args.fix or args.install_sdk
@@ -627,6 +659,7 @@ def run(ctx, usage_error):
                 assume_yes=args.yes,
                 sdk_only=args.install_sdk and not args.fix,
                 capabilities=host.capabilities,
+                command=host.command,
             )
             after_host = Host(root, report, station_dir=station_dir, teleop_options=teleop_options)
             try:

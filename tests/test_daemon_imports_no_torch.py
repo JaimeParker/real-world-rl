@@ -43,6 +43,8 @@ TELEOP_DEVICE_MODULES = (
 DEVICE_ENTRY_MODULES = (
     "real_world_rl.server.daemon",
     "real_world_rl.doctor.report",
+    "real_world_rl.doctor.link",
+    "real_world_rl.common.openpi_client",
     "real_world_rl.doctor.probe",
     "real_world_rl.setup.command",
     "real_world_rl.discovery.report",
@@ -141,7 +143,9 @@ def test_device_layer_never_imports_the_learning_side():
     """The device layer may load real_world_rl's station sections, never its learning subpackages."""
     offenders = []
     paths = sorted(path for package in DEVICE_LAYER_PACKAGES for path in (ROOT / "real_world_rl" / package).rglob("*.py"))
-    paths += [ROOT / "real_world_rl" / name for name in DEVICE_LAYER_TELEOP_FILES]
+    paths += [ROOT / "real_world_rl" / name for name in (
+        *DEVICE_LAYER_TELEOP_FILES, "common/link_config.py", "common/openpi_client.py",
+    )]
     assert paths
     for path in paths:
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):

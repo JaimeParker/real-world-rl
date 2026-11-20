@@ -25,6 +25,12 @@ class DoctorCommand:
             "--report-dir", type=Path,
             help="report base directory (overrides RWRL_DOCTOR_REPORT_DIR)",
         )
+        parser.add_argument("--link", metavar="HOST:PORT", help="probe the client route to the robot daemon")
+        parser.add_argument("--ssh", metavar="[USER@]HOST", help="NUC ssh destination (USER@HOST or a ~/.ssh/config alias): probe the SSH host and local forwarding")
+        parser.add_argument("--remote-bind", metavar="HOST:PORT",
+                            help="daemon address as seen on the NUC, for --ssh forwarding checks (default 127.0.0.1:50051)")
+        parser.add_argument("--policy", metavar="HOST:PORT", help="connect to openpi and read metadata")
+        parser.add_argument("--token", metavar="TOKEN", help="authenticate the daemon link probes")
         parser.error_factory = lambda message: self.usage_error(parser, message)
 
     @staticmethod

@@ -15,7 +15,7 @@ from real_world_rl.deploy.openpi import loop as deploy_openpi
 from real_world_rl.cli import main
 from real_world_rl.devices.arm import ControlMode
 from real_world_rl.envs.real_robot import RealRobotEnv, RealRobotEnvConfig
-from real_world_rl.deploy.openpi.client import OpenPiClient, OpenPiError, packb, unpackb
+from real_world_rl.common.openpi_client import OpenPiClient, OpenPiError, packb, unpackb
 
 serve = pytest.importorskip("websockets.asyncio.server").serve
 
@@ -363,3 +363,244 @@ def test_rlinf_env_sends_gripper_thresholds_and_daemon_limits_the_arm(tmp_path, 
     finally:
         env.close()
         service.close()
+
+
+@pytest.fixture
+def reconnect_deploy(monkeypatch):
+    """Exercise retries with a fake clock, policy connection, and robot."""
+    from real_world_rl.server.transport.base import TransportUnavailable
+
+    args = _generic_args(8000, max_steps_per_episode=5, replan_steps=3, prefetch_steps=2)
+    error = TransportUnavailable("tunnel dropped")
+    clock = SimpleNamespace(now=0.0)
+    monkeypatch.setattr(deploy_openpi, "time", SimpleNamespace(
+        monotonic=lambda: clock.now,
+        sleep=lambda seconds: setattr(clock, "now", clock.now + seconds),
+    ))
+
+    def before_step(env):
+        if env.resets == 1 and env.steps == 2:
+            raise error
+
+    env = FakeEnv(args.real_robot, before_step=before_step)
+    step = env.step
+
+    def step_with_success(action):
+        obs, reward, terminated, truncated, info = step(action)
+        info["task_success"] = env.resets > 1
+        return obs, reward, terminated, truncated, info
+
+    env.step = step_with_success
+    requests = []
+
+    class FakePolicy:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def infer(self, observation):
+            requests.append(observation)
+            return _reply(2, len(requests))
+
+    attempts = []
+
+    def reconnect():
+        assert env.resets == 1
+        attempts.append(clock.now)
+        if len(attempts) < 3:
+            raise error
+        return {"watchdog_trips": 1}
+
+    env.reconnect_remote = reconnect
+    monkeypatch.setattr(deploy_openpi, "RealRobotEnv", lambda config: env)
+    monkeypatch.setattr(deploy_openpi, "OpenPiClient", FakePolicy)
+    return SimpleNamespace(args=args, env=env, attempts=attempts, clock=clock, requests=requests)
+
+
+def test_disconnect_waits_for_confirmation_and_reports_interruption(reconnect_deploy, capsys):
+    run = reconnect_deploy
+
+    def confirm():
+        assert run.attempts == [1, 3, 7]
+        assert run.env.resets == 1 and len(run.env.actions) == 1
+        return True
+
+    interrupted, completed = deploy_openpi.run_deploy(run.args, confirm_resume=confirm)
+    assert run.env.resets == 2 and len(run.env.actions) == 6
+    assert interrupted.steps == 1 and interrupted.outcome.end_reason == "interrupted"
+    assert interrupted.outcome.interrupted and not interrupted.outcome.completed
+    assert interrupted.disconnects == 1 and interrupted.disconnected_s == 7
+    assert completed.outcome.completed and completed.disconnects == 0
+    output = capsys.readouterr().out
+    assert "reconnect attempt=3 disconnected_s=7.0" in output
+    assert "watchdog_trips=1" in output
+    assert "summary completed_episodes=1 interrupted_episodes=1 success_rate=1.000" in output
+    assert "disconnects=1 disconnected_s=7.0" in output
+
+
+def test_disconnect_duration_includes_internal_retries(reconnect_deploy, capsys):
+    run = reconnect_deploy
+    before_step = run.env.before_step
+
+    def simulate_rpc_timing(env):
+        if env.resets == 1:
+            # The first step succeeds at t=4. The second surfaces a transport error at t=14.
+            run.clock.now += 4 if env.steps == 1 else 10
+        before_step(env)
+
+    run.env.before_step = simulate_rpc_timing
+    run.args.auto_resume = True
+    run.args.reconnect_timeout_s = 8
+    interrupted, _ = deploy_openpi.run_deploy(run.args)
+
+    assert run.attempts == [15, 17, 21]  # All three retries fit in the WAITING budget.
+    assert interrupted.disconnected_s == 17
+    output = capsys.readouterr().out
+    assert "reconnect attempt=1 disconnected_s=11.0" in output
+    assert "reconnect attempt=3 disconnected_s=17.0" in output
+    assert "disconnects=1 disconnected_s=17.0" in output
+
+
+@pytest.mark.parametrize("watchdog", [False, True])
+def test_disconnect_auto_resume(reconnect_deploy, watchdog):
+    from real_world_rl.devices.errors import DeviceFault
+
+    run = reconnect_deploy
+    if watchdog:
+        def trip(env):
+            if env.resets == 1:
+                raise DeviceFault("the daemon watchdog stopped the arm after 0.50s", recoverable=True)
+
+        run.env.before_step = trip
+    run.args.auto_resume = True
+    interrupted, completed = deploy_openpi.run_deploy(
+        run.args, confirm_resume=lambda: pytest.fail("auto-resume prompted"),
+    )
+    assert interrupted.outcome.interrupted and completed.outcome.completed
+    assert run.env.resets == 2
+
+
+@pytest.mark.parametrize("timeout,expected_attempts", [(2, [1]), (8, [1, 3, 7])])
+def test_disconnect_timeout_exits_without_reset(reconnect_deploy, timeout, expected_attempts, monkeypatch, capsys):
+    import tyro
+
+    from real_world_rl.cli.errors import DEVICE_EXIT_CODE
+
+    run = reconnect_deploy
+    run.args.reconnect_timeout_s = timeout
+    monkeypatch.setattr(tyro, "cli", lambda *args, **kwargs: run.args)
+    monkeypatch.setattr(deploy_openpi.sys, "stdin", SimpleNamespace(isatty=lambda: False))
+    assert deploy_openpi.main_cli([]) == DEVICE_EXIT_CODE
+    assert run.attempts == expected_attempts and run.clock.now == timeout
+    assert run.env.resets == 1 and run.env.closed
+    captured = capsys.readouterr()
+    assert ("no interactive stdin" in captured.out) == (timeout == 8)
+    assert f"run: rwrl doctor --link {run.args.real_robot.remote}\n" in captured.err
+
+
+def test_disconnect_cancels_queued_prefetch(reconnect_deploy, monkeypatch):
+    run = reconnect_deploy
+    pending = Future()
+
+    class Executor:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def submit(self, fn, *args):
+            assert run.env.resets == 1
+            return pending
+
+    monkeypatch.setattr(deploy_openpi, "ThreadPoolExecutor", Executor)
+
+    def confirm():
+        assert pending.cancelled()
+        run.args.prefetch_steps = 0
+        return True
+
+    deploy_openpi.run_deploy(run.args, confirm_resume=confirm)
+    assert run.requests[2]["s"][1] == 20  # First fresh inference follows the second reset.
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_changed_daemon_instance_renegotiates_capabilities(tmp_path, monkeypatch, legacy):
+    from real_world_rl.devices import claims
+    from real_world_rl.devices.robots.franka import FrankaConfig, FrankaRobot
+    from real_world_rl.server import RemoteRobot
+    from real_world_rl.server.service import RobotService
+    from real_world_rl.server.transport import LocalClient
+
+    monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
+    old, new = [RobotService(FrankaRobot(FrankaConfig(
+        arm_backend="fake", gripper=None, home_joints=[home] * 7,
+    ))) for home in (0.0, 0.1)]
+    class ReconnectingClient(LocalClient):
+        def call(self, method, **kwargs):
+            result = super().call(method, **kwargs)
+            if legacy and method == "robot.describe":
+                result.pop("daemon_instance_id")
+            return result
+
+    client = ReconnectingClient(old)
+    robot = RemoteRobot.from_client(client)
+    config = RealRobotEnvConfig(remote="local", gripper_in_action=False, state_fields=("tcp_pose",))
+    env = RealRobotEnv(config, robot=robot)
+    try:
+        env.reconnect_remote()
+        old_arm = robot.arm
+        assert old_arm.home_joints == [0.0] * 7
+        validate = env._validate_robot
+        validations = []
+
+        def record_validation():
+            validations.append(robot.arm)
+            validate()
+
+        monkeypatch.setattr(env, "_validate_robot", record_validation)
+        env.reconnect_remote()
+        assert len(validations) == int(legacy)
+        validations.clear()
+        old.close()
+        client._service = new
+        new.robot.arm._note_error("test fault")
+        env.reconnect_remote()
+        assert "recover" in new.robot.arm.call_log
+        assert validations == [robot.arm] and robot.arm is not old_arm
+        assert robot.arm.home_joints == [0.1] * 7
+    finally:
+        env.close()
+        old.close()
+        new.close()
+
+
+
+@pytest.mark.parametrize("fault", ["safety", "configuration", "authentication"])
+def test_nonrecoverable_device_errors_exit_immediately(reconnect_deploy, fault):
+    from real_world_rl.devices.errors import DeviceFault, SafetyViolation
+    from real_world_rl.server.transport.base import TransportError
+
+    errors = {
+        "safety": SafetyViolation("outside workspace"),
+        "configuration": DeviceFault("camera is missing"),
+        "authentication": TransportError("token mismatch"),
+    }
+    error = errors[fault]
+
+    def fail(env):
+        raise error
+
+    run = reconnect_deploy
+    run.env.before_step = fail
+    with pytest.raises(type(error), match=error.message):
+        deploy_openpi.run_deploy(run.args)
+    assert not run.attempts and run.env.closed

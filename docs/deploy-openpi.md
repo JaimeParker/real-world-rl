@@ -137,5 +137,68 @@ responsible for idling the arm if actions stop. Its default is **0.5 s**. Set th
 action reaching the daemon. Allow for camera transfer, policy round trip, tunnel jitter,
 control period and gripper motion. Apply the same budget to `real_robot.watchdog_s` if you
 enable that additional env watchdog. Choose the smallest timeout that covers the observed
-normal gap with margin and remains safe for the workcell. If the daemon trips, the loop exits
-on the device error. Keep the physical stop available during commissioning.
+normal gap with margin and remains safe for the workcell. Keep the physical stop available
+during commissioning.
+
+After every reset, including a reset after reconnecting, budget for about three daemon round
+trips (servo entry, the reset observation, and the first step) plus one policy inference.
+At 400 ms RTT, a 1 s daemon watchdog can trip immediately after every resume, producing
+repeated `interrupted` episodes. Set the daemon's `--watchdog-s` above the measured gap
+from entering servo mode to the first action.
+
+## Connection loss
+
+If the SSH tunnel drops or the daemon watchdog stops the arm, deployment enters WAITING
+and keeps the openpi websocket connected. The daemon watchdog stops the arm, switches it
+to IDLE and holds its pose. Deployment discards the current action chunk and any
+prefetched result. It retries with exponential backoff capped at 10 seconds and logs each
+attempt. After reconnecting it reads the daemon's description again, renegotiates
+capabilities if the daemon restarted or its identity is unknown, checks arm health,
+recovers reported arm errors, and logs the watchdog trip count. Safety and configuration
+errors still stop deployment.
+
+The interrupted attempt is excluded from the success rate and from the completed
+episode count. Episode and summary output include the number of disconnects and total
+disconnected seconds. Outage duration starts at the last successful robot exchange
+in the interrupted episode, or when the error surfaces if no exchange succeeded.
+At an interactive terminal, press Enter when prompted to reset
+and start a fresh episode. Without an interactive terminal, deployment stays in WAITING
+unless you enable `--auto-resume`. Retries are indefinite by default. Set
+`--reconnect-timeout-s SECONDS` to exit with the device error code if reconnection
+takes too long. The timeout starts when deployment enters WAITING and also bounds
+the wait when stdin cannot accept confirmation.
+
+To diagnose the client link, run
+`rwrl doctor --link 127.0.0.1:50061 --ssh operator@nuc --policy 127.0.0.1:8000`
+with your endpoints. Review `--fix` to install and configure the dedicated autossh
+user service. See [gRPC and SSH link rows](doctor.md#grpc-and-ssh-link-rows).
+
+Run `rwrl deploy-openpi` inside `tmux` on the GPU host so you can reattach to its
+terminal after losing your SSH session. To keep the tunnel running independently,
+install `autossh` on the GPU host and create
+`~/.config/systemd/user/rwrl-tunnel.service`. Replace `user@nuc` and the ports with
+your SSH destination and forwarding settings. Set up SSH key authentication for
+the user service.
+
+```ini
+[Unit]
+Description=SSH tunnel to the rwrl robot daemon
+
+[Service]
+Environment=AUTOSSH_GATETIME=0
+ExecStart=/usr/bin/autossh -M 0 -N -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -L 50051:127.0.0.1:50051 user@nuc
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now rwrl-tunnel.service
+```
+
+Use the forwarded local port in `--real-robot.remote`, for example `127.0.0.1:50051`.
+To keep the user service running after logout, enable lingering for your GPU-host account
+with `loginctl enable-linger "$USER"`.

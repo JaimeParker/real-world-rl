@@ -20,6 +20,7 @@ rwrl doctor --station local/station.yaml
 rwrl doctor --station local/station.yaml --robot left
 rwrl doctor --station local/station.yaml --mock
 rwrl --station local/station.yaml doctor --fix
+rwrl doctor --link 127.0.0.1:50061 --ssh operator@nuc --policy 127.0.0.1:8000
 ```
 
 | 选项 | 含义 |
@@ -28,6 +29,11 @@ rwrl --station local/station.yaml doctor --fix
 | `--robot NAME` | 检查多机器人站点中的一个机器人 |
 | `--preset PATH` | 同时读取环境预设：将其遥操作设备列为预期设备，比较其机器人与站点（[下文](#comparing-a-preset-with-the-station)） |
 | `--mock` | 所有设备用模拟后端；跳过主机和 OS 层 |
+| `--link HOST:PORT` | 客户端所用的 daemon gRPC 地址，通常是本地转发端口 |
+| `--ssh [USER@]HOST` | 用于检查握手和端口转发的 NUC SSH 目标：`USER@HOST` 或 `~/.ssh/config` 中的主机别名 |
+| `--remote-bind HOST:PORT` | NUC 上看到的 daemon 地址，用于 `--ssh` 转发检查；默认 `127.0.0.1:50051`（即 `link:` 块的 `remote_bind`） |
+| `--policy HOST:PORT` | 仅检查元数据的 openpi websocket 地址 |
+| `--token TOKEN` | gRPC 检查使用的令牌 |
 | `--fix` | 预览、一次确认、执行主机及软件修复、复查 |
 | `--install-sdk` | 仅修复经握手确认的 franky 不匹配 |
 | `--report-dir PATH` | 报告基目录（覆盖 `$RWRL_DOCTOR_REPORT_DIR`） |
@@ -111,6 +117,48 @@ Result: unresolved failures / blocked checks / pending user actions
 | `read.<kind>`, `coverage.<kind>` | 未配置 SpaceMouse/RealSense/ZED 的 SDK 读取（ZED 用已安装的后端，`zed` 优先于 `zed_uvc`）；未配置也未识别的种类为 `SKIPPED` |
 | `sdk.franky.conflict` | 需要不同 franky wheel 的机器人 |
 
+<a id="grpc-and-ssh-link-rows"></a>
+
+### gRPC 和 SSH 链路检查
+
+在 NUC 上，对每个含有 `daemon:` 块的机器人使用其绑定地址和令牌执行服务端检查。
+在 GPU 主机上，用 `--link` 指定部署地址，或在站点配置中添加与机器人 `type:`
+同级的 `link:` 块。同一局域网内也可直接探测 gRPC 地址。
+
+```yaml
+link:
+  address: 127.0.0.1:50061       # 必填
+  ssh: operator@nuc             # 可选
+  remote_bind: 127.0.0.1:50051  # 可选，此为默认值
+  policy: 127.0.0.1:8000        # 可选
+  token: "daemon-token"         # 可选
+  control_hz: 10                # 可选，部署控制频率，单位 Hz，须大于零
+```
+
+各命令行选项覆盖对应字段（`--link` 覆盖 `address`）。配置多个链路时，使用
+`--robot` 选择要覆盖的机器人。`HOST:PORT` 中的 IPv6 地址须加方括号。
+`--mock` 跳过链路探测。
+
+| 报告行 | 检查内容 | `--fix` 修复 |
+|---|---|---|
+| `link.daemon.listen` | 本地绑定端口及监听进程 | 仅提示 |
+| `link.daemon.bind` | 回环 SSH 路径或非回环绑定，后者无令牌时告警 | 仅提示 |
+| `link.sshd` | SSH 服务及 `sshd -T` 的全局 `AllowTcpForwarding`、`DisableForwarding` 和 `PermitOpen`。需要时先运行 `sudo -v` | 主配置包含该文件时写入专用 SSH 配置 |
+| `link.firewall` | ufw 状态及非回环绑定的 TCP 入站规则 | 仅提示 |
+| `link.preprocess` | 可否导入 `frame_preprocess_cv2_v1` 所用的 OpenCV | 安装 `jpeg` 扩展 |
+| `link.deps` | grpc、msgpack、openpi websocket 客户端，以及 daemon 使用 JPEG 时所需的解码器 | 安装缺失的链路依赖或 `jpeg` 扩展 |
+| `link.proxy` | 代理环境变量，以及 SSH 目标是否解析到 198.18.0.0/15 虚拟 IP 地址段 | 输出可在 shell 中执行的 `export no_proxy=...` |
+| `link.ssh` | 密钥登录及握手耗时，超过 2 秒时告警 | 仅提示 |
+| `link.tunnel` | 本地监听端口、进程及 systemd 用户服务状态 | 安装 autossh，配置或重启专用服务 |
+| `link.forward` | 创建临时回环 SSH 转发并通过该端口请求 gRPC describe | 仅提示 |
+| `link.daemon` | gRPC 就绪与令牌，describe 中是否有实例 ID，以及预处理能力和编码格式 | 仅提示 |
+| `link.quality` | 十次 describe RTT，有相机时读取三次观测，支持时在 daemon 上缩放至 128×128，并报告响应字节数、吞吐量和单次观测耗时，后者会与控制周期比较。若 daemon 上的 robot 尚无客户端连接，则为读取而连接、读完再断开；已连接的（如正在运行的部署）只读取 | 仅提示 |
+| `link.policy` | websocket 连接和初始元数据读取的总耗时 | 仅提示 |
+
+质量检查用三倍 p95 describe RTT 估算重置后的间隔。元数据探测不会发起推理，因此
+估算不含推理时间。间隔达到 daemon 报告的看门狗时限，或 p95 超过已知的控制周期时
+会告警。旧版 daemon 可能不报告时限。建议的 `--watchdog-s` 值须在 NUC 上人工审核。
+
 <a id="device-rows"></a>
 
 ### 设备行
@@ -169,6 +217,16 @@ doctor 展示计划（命令、专用配置文件内容、剩余手动步骤）�
 | 有 udev、用户组工具、PAM 限制或运行中 systemd 的原生 Linux | 对应规则、组、限制或已证实服务冲突修复 |
 | 容器、WSL、macOS、Windows | Python 元数据/导入诊断及 Python 修复；原生探测和系统修复为 `BLOCKED` |
 
+SSH 服务端修复标为 **MAJOR CHANGE / DOUBLE CHECK**。计划将
+`AllowTcpForwarding local` 写入 `/etc/ssh/sshd_config.d/99-rwrl.conf`，通过
+`sshd -t` 验证并用 `sshd -T` 确认生效的转发设置后，再重新加载运行中的 SSH 服务。
+验证失败时恢复旧文件或删除新文件。
+缺少全局 Include 或存在 `DisableForwarding`、限制性的 `PermitOpen` 时，须由管理员审查。
+用户隧道修复在需要时通过 apt 安装 autossh，在当前用户的 systemd 管理器中运行
+`~/.config/systemd/user/rwrl-tunnel-<name>.service`（遵循 `$XDG_CONFIG_HOME`）。
+名称取自机器人名，没有选定机器人时使用本地端口。若需在退出登录后保持服务运行，
+计划会提示手动执行 `loginctl enable-linger "$(id -un)"`。
+
 非 root 时系统修复逐条使用 sudo；缺少 sudo 授权为 `BLOCKED`，不从管道读取密码。无人值守前先在终端授权 sudo：
 
 ```bash
@@ -222,6 +280,21 @@ doctor 规划一项修复 `PLAN sdk:franky: Install Franky wheel for handshake-c
 ## 红灯：如何处理
 
 从首个红色行开始：握手失败跳过所有反馈和模式行，缺扩展也会使其 SDK 行失败。表格引用原始消息和提示；`<ip>` 等值来自站点。Piper 和 CAN 行见[设备层故障表](doctor.md#troubleshooting)。
+
+<a id="grpc-and-ssh-red-lights"></a>
+
+### gRPC 和 SSH 故障排查
+
+| 报告行或消息 | 处理方法 |
+|---|---|
+| `link.ssh` 主机密钥验证失败 | 核实 NUC 密钥指纹，再交互连接一次以记录密钥 |
+| `link.ssh` 权限不足 | 核对 SSH 用户名，用 `ssh-add` 加载私钥，并将公钥安装到 NUC |
+| `link.ssh` 超时、解析失败或连接被拒 | 分别检查路由与防火墙、尝试 NUC 的实际 IP、检查其 SSH 服务 |
+| `link.forward` administratively prohibited | 在 NUC 上查看 `link.sshd`，并检查 `Match` 及 `authorized_keys` 的限制 |
+| `link.forward` 远端拒绝连接 | 在 NUC 上启动 daemon 或更正 `remote_bind` |
+| `link.tunnel` 无监听进程或端口被占用 | 查看用户服务日志或选择空闲回环端口 |
+| `link.daemon` UNAUTHENTICATED | 通过 `--token` 或 `link.token` 提供 daemon 的令牌 |
+| `link.daemon` 无法连接或 `link.quality` 延迟过高 | 先检查隧道、代理绕过、daemon 绑定地址及链路延迟，再调整控制周期或看门狗 |
 
 <a id="network-and-fci"></a>
 

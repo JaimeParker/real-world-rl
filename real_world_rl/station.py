@@ -5,10 +5,11 @@ discover, the device doctor), loads it here, so the STATION_SECTIONS are always 
 """
 from pathlib import Path
 
+from real_world_rl.common.link_config import validate_link
 from real_world_rl.discovery import autoconfig
 from real_world_rl.teleop.spacemouse.profiles import validate_profiles_reference
 
-STATION_SECTIONS = {"teleop_profiles": validate_profiles_reference}
+STATION_SECTIONS = {"teleop_profiles": validate_profiles_reference, "link": validate_link}
 
 
 def load_station(path: str | Path) -> autoconfig.Station:

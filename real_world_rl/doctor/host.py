@@ -184,7 +184,9 @@ class Host:
     def add(self, key, status, message, hint=""):
         self.findings.append(Finding(key, status, redact(message), redact(hint)))
 
-    def command(self, argv, timeout=15):
+    def command(self, argv, timeout=15, *, background=False):
+        if background:
+            return self.report.background(list(argv))
         return self.report.run(list(argv), timeout=timeout)
 
     def propose(self, action):

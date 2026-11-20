@@ -350,3 +350,16 @@ def test_dispatch_stop_does_not_wait_for_step_camera_handler(connected, monkeypa
         if stop_thread.ident is not None:
             stop_thread.join(2.)
     assert not errors
+
+
+def test_describe_daemon_instance_id_is_stable_and_unique(services):
+    first, second = services(), services()
+    instance_id = first.dispatch("robot.describe", {})["daemon_instance_id"]
+    assert len(bytes.fromhex(instance_id)) == 16
+    assert first.dispatch("robot.describe", {})["daemon_instance_id"] == instance_id
+    assert second.dispatch("robot.describe", {})["daemon_instance_id"] != instance_id
+
+
+def test_describe_reports_watchdog_interval(services):
+    service = services(watchdog_s=1.75)
+    assert service.dispatch("robot.describe", {})["watchdog_s"] == 1.75

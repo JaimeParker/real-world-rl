@@ -215,6 +215,13 @@ status.
 targeted repairs and applies them with `--fix`. Its checks, statuses, repairs, report directory,
 JSON and exit codes are on its own page: [rwrl doctor](doctor.md).
 
+For deployment links, use
+`rwrl doctor --link HOST:PORT [--ssh [USER@]HOST] [--remote-bind HOST:PORT] [--policy HOST:PORT] [--token TOKEN]`.
+The address is the client-visible gRPC endpoint, `--ssh` enables SSH and forwarding checks (`--remote-bind` names the daemon address on the NUC),
+`--policy` reads websocket metadata, and `--token` authenticates gRPC. See the
+[station link schema and repairs](doctor.md#grpc-and-ssh-link-rows).
+
+
 ## Home: resolve, save and move
 
 Home resolution matches `env.reset()`, in this order:

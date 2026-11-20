@@ -16,7 +16,9 @@ import grpc
 
 from real_world_rl.devices.errors import DeviceError
 from real_world_rl.server.codec import pack, unpack
-from real_world_rl.server.transport.base import Transport, TransportClient, TransportError, is_read_only
+from real_world_rl.server.transport.base import (
+    Transport, TransportClient, TransportError, TransportUnavailable, is_read_only,
+)
 
 if TYPE_CHECKING:
     from real_world_rl.server.service import RobotService
@@ -145,6 +147,7 @@ class GrpcClient(TransportClient):
         backoff_multiplier: float = 2.0,
         max_backoff_s: float = 5.0,
         log: logging.Logger = logger,
+        enable_http_proxy: bool = True,
     ) -> None:
         self.address = address
         self.timeout_s = timeout_s
@@ -153,10 +156,12 @@ class GrpcClient(TransportClient):
         self.backoff_multiplier = backoff_multiplier
         self.max_backoff_s = max_backoff_s
         self._log = log
+        self._channel_options = [*_CHANNEL_OPTIONS, ("grpc.enable_http_proxy", int(enable_http_proxy))]
         self._metadata = ((TOKEN_METADATA_KEY, token),) if token is not None else None
         self._channel: grpc.Channel | None = None
         self._call_rpc = None
         self._subscribe_rpc = None
+        self.last_response_bytes: int | None = None
         self._streams: set = set()
         self._lock = threading.RLock()
 
@@ -166,12 +171,12 @@ class GrpcClient(TransportClient):
         with self._lock:
             if self._channel is not None:
                 return
-            channel = grpc.insecure_channel(self.address, options=_CHANNEL_OPTIONS)
+            channel = grpc.insecure_channel(self.address, options=self._channel_options)
             try:
                 grpc.channel_ready_future(channel).result(timeout=self.timeout_s)
             except grpc.FutureTimeoutError:
                 channel.close()
-                raise TransportError(
+                raise TransportUnavailable(
                     f"robot daemon unreachable at {self.address}",
                     hint="check it is running on the robot PC: rwrl daemon --station robot.yaml "
                     "--bind 0.0.0.0:<port>; check the network/firewall",
@@ -179,7 +184,7 @@ class GrpcClient(TransportClient):
                 ) from None
             self._channel = channel
             self._call_rpc = channel.unary_unary(
-                CALL_METHOD, request_serializer=pack, response_deserializer=unpack
+                CALL_METHOD, request_serializer=pack, response_deserializer=lambda data: (unpack(data), len(data))
             )
             self._subscribe_rpc = channel.unary_stream(
                 SUBSCRIBE_METHOD, request_serializer=pack, response_deserializer=unpack
@@ -245,7 +250,7 @@ class GrpcClient(TransportClient):
     def _invoke(self, method: str, kwargs: dict) -> dict:
         self._require_open(method)
         start = time.perf_counter()
-        response = self._call_rpc(
+        response, self.last_response_bytes = self._call_rpc(
             {"method": method, "kwargs": kwargs}, timeout=self.timeout_s, metadata=self._metadata
         )
         self._last_rtt_ms = (time.perf_counter() - start) * 1000.0
@@ -272,8 +277,8 @@ class GrpcClient(TransportClient):
                         backoff = min(backoff * self.backoff_multiplier, self.max_backoff_s)
             return False
 
-    def _lost_connection(self, method: str) -> TransportError:
-        return TransportError(
+    def _lost_connection(self, method: str) -> TransportUnavailable:
+        return TransportUnavailable(
             f"lost connection to robot daemon at {self.address} during '{method}'",
             hint="the daemon restarted or the network dropped; read the daemon log, then reconnect (connect()) "
             "and set the control mode again — commands are never retried automatically",

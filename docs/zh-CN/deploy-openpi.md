@@ -134,4 +134,57 @@ rwrl deploy-openpi --profile rlinf_franka \
 或发送一个动作起，到下一动作送达守护进程为止的实测最长间隔。要考虑相机传输、
 策略往返、隧道抖动、控制周期及夹爪动作。启用 `real_robot.watchdog_s` 时，同样按此
 间隔配置环境看门狗。选择能覆盖正常间隔并留有余量、且适合该工作站的最短超时值。
-若守护进程的看门狗触发，部署循环会因设备错误退出。真机调试时确保可使用物理急停。
+真机调试时确保可使用物理急停。
+
+每次复位后（包括重连后的复位），都要为约三次守护进程往返（进入伺服模式、获取复位
+观测、执行第一步）和一次策略推理预留时间。当 RTT 为 400 毫秒时，1 秒的守护进程
+看门狗可能在每次恢复后立即触发，导致回合反复标记为 `interrupted`。请将守护进程
+的 `--watchdog-s` 设为大于从进入伺服模式到首个动作的实测间隔。
+
+## 连接中断
+
+SSH 隧道断开或守护进程的看门狗停止机械臂时，部署进入 WAITING 状态，并保持 openpi
+WebSocket 连接。守护进程的看门狗会停止机械臂、切换到 IDLE 并保持姿态。部署丢弃
+当前动作块和预取结果，按指数退避重试，间隔最长为 10 秒，并记录每次尝试。重连后，
+部署重新读取守护进程的描述。如果守护进程已重启或实例标识未知，则重新协商能力。
+部署还会检查机械臂健康状态，对报告的机械臂错误执行恢复，并记录看门狗触发次数。
+安全错误和配置错误仍会终止部署。
+
+中断的尝试不计入成功率的分母或已完成回合数。回合日志和汇总都会记录断连次数和总
+断连秒数。断连时长从中断回合中最后一次成功的机器人通信算起。如果该回合没有成功
+通信，则从报错时算起。在交互式终端看到提示后按 Enter，部署才会复位并开始新回合。没有交互式
+终端时，部署会保持 WAITING，除非启用 `--auto-resume`。默认无限重试。设置
+`--reconnect-timeout-s SECONDS` 后，重连超时会以设备错误码退出。超时从部署进入
+WAITING 状态时开始计时，也限制标准输入无法接收确认时的等待时长。
+
+在客户端排查链路时，按实际地址运行
+`rwrl doctor --link 127.0.0.1:50061 --ssh operator@nuc --policy 127.0.0.1:8000`。
+使用 `--fix` 可查看并确认专用 autossh 用户服务的安装和配置计划。参见
+[gRPC 和 SSH 链路检查](doctor.md#grpc-and-ssh-link-rows)。
+
+在 GPU 主机的 `tmux` 中运行 `rwrl deploy-openpi`，这样即使 SSH 会话断开，也能
+重新连接到其终端。要独立维持隧道，在 GPU 主机上安装 `autossh`，并创建
+`~/.config/systemd/user/rwrl-tunnel.service`。将 `user@nuc` 和端口替换为实际的
+SSH 目标与转发设置，并为用户服务配置 SSH 密钥认证。
+
+```ini
+[Unit]
+Description=SSH tunnel to the rwrl robot daemon
+
+[Service]
+Environment=AUTOSSH_GATETIME=0
+ExecStart=/usr/bin/autossh -M 0 -N -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -L 50051:127.0.0.1:50051 user@nuc
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now rwrl-tunnel.service
+```
+
+在 `--real-robot.remote` 中使用转发的本地端口，例如 `127.0.0.1:50051`。要在注销后
+继续运行用户服务，请用 `loginctl enable-linger "$USER"` 为 GPU 主机上的账户启用 lingering。

@@ -118,16 +118,7 @@ class RealRobotEnv(gym.Env):
         action_dim = arm_dim + (1 if config.gripper_in_action else 0)
         self.action_space = spaces.Box(-1.0, 1.0, shape=(action_dim,), dtype=np.float32)
 
-        self._joint_limits = (
-            np.asarray(config.joint_limits, dtype=np.float64)
-            if config.joint_limits is not None
-            else None
-        )
-        # Effective limits: the env config, tightened/inherited from the device layer on connect.
-        self._effective_safety_box = (
-            np.asarray(config.safety_box, dtype=np.float64) if config.safety_box is not None else None
-        )
-        self._device_max_delta: Optional[dict] = None
+        self._reset_device_safety()
         self._safety_clips: Optional[int] = None
         self._period_s = 1.0 / config.control_hz
         self._validated = False
@@ -204,6 +195,18 @@ class RealRobotEnv(gym.Env):
             raise
         self._validated = True
 
+    def reconnect_remote(self) -> dict:
+        """Refresh remote capabilities and read health without resetting the robot."""
+        self._deactivate_step_watchdog()
+        if self.robot.refresh_connection():
+            self._close_step_watchdog()
+            self._validated = False
+        self._connect_and_validate()
+        health = self.robot.remote_health()
+        if health["arm"].get("errors"):
+            self.robot.arm.recover()
+        return health
+
     def _validate_robot(self) -> None:
         from real_world_rl.devices.errors import DeviceFault
 
@@ -275,8 +278,22 @@ class RealRobotEnv(gym.Env):
                 "(and run a daemon that reports its safety limits)",
             )
 
+    def _reset_device_safety(self) -> None:
+        config = self.config
+        self._joint_limits = (
+            np.asarray(config.joint_limits, dtype=np.float64)
+            if config.joint_limits is not None
+            else None
+        )
+        # Effective limits: the env config, tightened/inherited from the device layer on connect.
+        self._effective_safety_box = (
+            np.asarray(config.safety_box, dtype=np.float64) if config.safety_box is not None else None
+        )
+        self._device_max_delta = None
+
     def _merge_device_safety(self, arm, fault) -> None:
         """Inherit the device layer's box/joint limits; an env limit looser than it is a fault."""
+        self._reset_device_safety()
         device = getattr(arm, "safety_limits", None)  # None: no limits, or a daemon predating them
         from real_world_rl.devices.workspace import spatial_contract
         actual = spatial_contract((device or {}).get("workspace"), (device or {}).get("task_frame"))

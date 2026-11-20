@@ -18,6 +18,7 @@ rwrl doctor --station local/station.yaml
 rwrl doctor --station local/station.yaml --robot left
 rwrl doctor --station local/station.yaml --mock
 rwrl --station local/station.yaml doctor --fix
+rwrl doctor --link 127.0.0.1:50061 --ssh operator@nuc --policy 127.0.0.1:8000
 ```
 
 | Option | Meaning |
@@ -26,6 +27,11 @@ rwrl --station local/station.yaml doctor --fix
 | `--robot NAME` | check one robot of a multi-robot station |
 | `--preset PATH` | also read an env preset: its teleop devices are expected, and its robot is compared with the station ([below](#comparing-a-preset-with-the-station)) |
 | `--mock` | fake backends for every device; skips the host and OS layers |
+| `--link HOST:PORT` | daemon gRPC address from this client, usually the local forwarded port |
+| `--ssh [USER@]HOST` | NUC SSH destination, `USER@HOST` or a `~/.ssh/config` host alias, for the handshake and forwarding checks |
+| `--remote-bind HOST:PORT` | the daemon address as seen on the NUC, for the `--ssh` forwarding checks; default `127.0.0.1:50051` (the `link:` block's `remote_bind`) |
+| `--policy HOST:PORT` | openpi websocket endpoint for a metadata-only check |
+| `--token TOKEN` | token for the gRPC checks |
 | `--fix` | preview, confirm once, apply host and software repairs, inspect again |
 | `--install-sdk` | repair only a handshake-confirmed franky mismatch |
 | `--report-dir PATH` | report base directory (overrides `$RWRL_DOCTOR_REPORT_DIR`) |
@@ -114,6 +120,48 @@ colour codes.
 | `read.<kind>`, `coverage.<kind>` | an SDK read of an unconfigured SpaceMouse, RealSense or ZED (the ZED through the installed backend, `zed` before `zed_uvc`); `SKIPPED` for device kinds that nothing configured or identified |
 | `sdk.franky.conflict` | robots that need different franky wheels |
 
+### gRPC and SSH link rows
+
+On the NUC, each robot with a `daemon:` block gets the server checks using its configured
+bind and token. On a GPU host, use `--link` with the deployment address or add a `link:` block
+beside the robot's `type:` field in the station. A same-LAN gRPC address can be probed directly.
+
+```yaml
+link:
+  address: 127.0.0.1:50061       # required
+  ssh: operator@nuc             # optional
+  remote_bind: 127.0.0.1:50051  # optional, this is the default
+  policy: 127.0.0.1:8000        # optional
+  token: "daemon-token"         # optional
+  control_hz: 10                # optional, positive deployment rate in Hz
+```
+
+Each flag overrides its corresponding field (`--link` overrides `address`). Use `--robot`
+to select a link when overriding multiple configured links. Use brackets around IPv6
+addresses in `HOST:PORT` fields. `--mock` skips link probes.
+
+| Row | What it checks | Repair with `--fix` |
+|---|---|---|
+| `link.daemon.listen` | local bind port and listener process | advice only |
+| `link.daemon.bind` | loopback for SSH or a non-loopback bind, with a warning when the latter has no token | advice only |
+| `link.sshd` | SSH service and global `AllowTcpForwarding`, `DisableForwarding` and `PermitOpen` from `sshd -T`. Run `sudo -v` first if needed | dedicated SSH drop-in when the main config includes it |
+| `link.firewall` | active ufw and incoming TCP rules for a non-loopback bind | advice only |
+| `link.preprocess` | OpenCV import for `frame_preprocess_cv2_v1` | install the `jpeg` extra |
+| `link.deps` | grpc, msgpack, the openpi websocket client, and a decoder if the daemon uses JPEG | install the missing link packages or the `jpeg` extra |
+| `link.proxy` | proxy environment and whether the SSH target resolves into the 198.18.0.0/15 fake-IP range | prints an `export no_proxy=...` line for your shell |
+| `link.ssh` | key-based login and handshake time, with a warning above 2 s | advice only |
+| `link.tunnel` | local listener, owner and systemd user service state | install autossh and configure or restart the dedicated service |
+| `link.forward` | temporary loopback SSH forward and gRPC describe through it | advice only |
+| `link.daemon` | gRPC readiness, token, and describe metadata including instance ID presence, preprocessing and encoding | advice only |
+| `link.quality` | ten describe RTTs and three observation reads when cameras are advertised. Uses 128×128 daemon preprocessing when available and reports response bytes, throughput and the time per observation, which is compared with the control period. A daemon robot that no client has connected is connected for the reads and disconnected again; a connected one (a running deploy) is only read | advice only |
+| `link.policy` | websocket connect and initial metadata, timed together | advice only |
+
+The quality row estimates the post-reset gap as three times p95 describe RTT. Policy
+inference is excluded because the metadata probe sends no request. The row warns when
+the estimate reaches the advertised daemon watchdog, or when p95 exceeds one known
+control period. An older daemon can omit its watchdog. Any suggested `--watchdog-s` is
+for manual review on the NUC.
+
 ### Device rows
 
 Each station robot gets rows `<robot>.<check>` (for example `arm.handshake`), in six layers.
@@ -198,6 +246,17 @@ instruction to install it from your trusted package source.
 | Native Linux with udev, user-group tools, PAM limits or running systemd | the matching rule, group, limit or proven service-conflict repair |
 | Containers, WSL, macOS, Windows | Python metadata and import diagnostics and Python repairs; native probes and system repairs are `BLOCKED` |
 
+SSH server repairs are marked **MAJOR CHANGE / DOUBLE CHECK**. The plan writes
+`/etc/ssh/sshd_config.d/99-rwrl.conf` with `AllowTcpForwarding local`, validates with
+`sshd -t`, checks the resulting forwarding setting with `sshd -T`, and reloads the active SSH service.
+Validation failure restores the previous
+file or removes the newly created one. A missing global Include, `DisableForwarding` or a
+restrictive `PermitOpen` requires administrator review. User tunnel repairs install autossh
+through apt when needed and use the current user's systemd manager. They write
+`~/.config/systemd/user/rwrl-tunnel-<name>.service` (respecting `$XDG_CONFIG_HOME`),
+using the robot name or the local port without a selected robot. For logout persistence,
+the plan advises `loginctl enable-linger "$(id -un)"`. The doctor never changes linger.
+
 System repairs run individual commands with sudo when not root, and a missing sudo
 authorization is `BLOCKED`; passwords are never read from a pipe. For an unattended run,
 authorize sudo in a terminal first:
@@ -269,6 +328,21 @@ Start with the first red row: a failed handshake skips every feedback and mode r
 missing extra fails its SDK rows too. The tables quote the messages and hints; `<ip>` and
 similar values come from your station. Piper and CAN rows are in the
 [device-layer troubleshooting table](doctor.md#troubleshooting).
+
+<a id="grpc-and-ssh-red-lights"></a>
+
+### gRPC and SSH red lights
+
+| Row or message | What to do |
+|---|---|
+| `link.ssh` host key verification failed | verify the NUC fingerprint and connect interactively once to record it |
+| `link.ssh` permission denied | check the SSH user, load the key with `ssh-add`, and install its public key on the NUC |
+| `link.ssh` timeout, resolution failure or refused connection | check the route and firewall, try the NUC's real IP, or check its SSH service, respectively |
+| `link.forward` administratively prohibited | check `link.sshd` on the NUC and review `Match` and `authorized_keys` restrictions |
+| `link.forward` remote connection refused | start the daemon on the NUC or correct `remote_bind` |
+| `link.tunnel` missing listener or wrong owner | check the user unit journal or choose a free loopback port |
+| `link.daemon` UNAUTHENTICATED | supply the daemon's token with `--token` or `link.token` |
+| `link.daemon` unreachable or `link.quality` slow | check the tunnel, proxy bypass, daemon bind and link latency before adjusting the control period or watchdog |
 
 ### Network and FCI
 

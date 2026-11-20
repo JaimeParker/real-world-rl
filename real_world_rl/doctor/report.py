@@ -32,7 +32,7 @@ from real_world_rl.common.station_paths import (
     station_path_from_env,
 )
 
-from real_world_rl.doctor.host import Host, teleop_backends
+from real_world_rl.doctor.host import Host, camera_backends, teleop_backends
 from real_world_rl.doctor.platform import find_checkout
 from real_world_rl.doctor.preset import preset_station_checks
 from real_world_rl.doctor.repair import Action, Finding, Report, execute, exit_status, payload, redact
@@ -284,6 +284,25 @@ def load_targets(args):
     return targets, expected
 
 
+def _usb_read_camera_backend(host: Host, kind: str):
+    """The ``(name, class)`` of the camera backend that reads an unconfigured ``kind`` USB camera:
+    the one whose SDK check the station selected, else the first whose SDK is installed."""
+    from real_world_rl.doctor.deps import extra_installed
+
+    backends = host.camera_usb.get(kind, [])
+    for name, backend in backends:
+        if backend.doctor_extra(name) in host.expected:
+            return name, backend
+    for name, backend in backends:
+        extra = backend.doctor_extra(name)
+        try:
+            if extra and extra_installed(extra):
+                return name, backend
+        except Exception:
+            continue
+    return None
+
+
 def inspect(args, host: Host):
     try:
         targets, extra = load_targets(args)
@@ -304,6 +323,11 @@ def inspect(args, host: Host):
             from real_world_rl.doctor.deps import required_extras
 
             host.expected.update(required_extras(config, serves_daemon=daemon))
+            host.expected.update(
+                camera_backends()[camera.backend].USB_KIND
+                for camera in config.cameras
+                if camera.backend in camera_backends() and camera_backends()[camera.backend].USB_KIND
+            )
     if not args.mock:
         if host.capabilities.linux:
             host.inspect_gello([entry[1] for entry in targets])
@@ -412,20 +436,27 @@ def inspect(args, host: Host):
     standalone_teleops = {
         name: backend.USB_PROBE_NAME for name, backend in teleop_backends().items() if backend.USB_PROBE_NAME
     }
-    for kind in (*standalone_teleops, "realsense"):
+    for kind in (*standalone_teleops, *host.camera_usb):
+        camera_names = {name for name, _ in host.camera_usb.get(kind, [])}
         if (
             args.mock
             or not host.capabilities.device_probes
             or kind not in host.expected
             or any(
                 (config.teleop and config.teleop.backend == kind)
-                or (
-                    kind == "realsense"
-                    and any(c.backend == kind for c in config.cameras)
-                )
+                or any(c.backend in camera_names for c in config.cameras)
                 for _, config, *_ in targets
             )
         ):
+            continue
+        camera = None if kind in standalone_teleops else _usb_read_camera_backend(host, kind)
+        if kind not in standalone_teleops and camera is None:
+            host.add(
+                "read." + kind,
+                "SKIPPED",
+                f"no {kind} camera SDK installed; device read not attempted",
+                "configure the camera in the station and install its backend, then rerun",
+            )
             continue
         if owners:
             host.add(
@@ -435,12 +466,22 @@ def inspect(args, host: Host):
                 "finish the device owner and rerun; doctor never takes over control",
             )
             continue
+        sdk_ids = {"sdk." + kind} if camera is None else {"sdk." + camera[1].doctor_extra(camera[0])}
         if any(
-            row.status != "PASS" and row.id in ("sdk." + kind, "usb." + kind)
+            row.status != "PASS" and row.id in (*sdk_ids, "usb." + kind)
             for row in host.findings
         ):
             continue
-        if not any(d["kind"] == kind for d in host.usb):
+        devices = [d for d in host.usb if d["kind"] == kind]
+        if not devices:
+            continue
+        if camera is not None and not camera[1].USB_SERIAL_IS_DEVICE_SERIAL and len(devices) > 1:
+            host.add(
+                "read." + kind,
+                "SKIPPED",
+                f"{len(devices)} {kind} cameras attached; their USB serials do not select a {camera[0]} camera",
+                "configure the cameras in the station by serial (rwrl discover), then rerun",
+            )
             continue
         config = {
             "type": "franka",
@@ -452,10 +493,14 @@ def inspect(args, host: Host):
         if kind in standalone_teleops:
             config["teleop"] = {"backend": kind, "name": standalone_teleops[kind]}
         else:
+            name, backend = camera
             config["cameras"] = [
-                {"name": "doctor-camera", "backend": kind, "serial": d["serial"]}
-                for d in host.usb
-                if d["kind"] == kind
+                {
+                    "name": "doctor-camera" if not number else f"doctor-camera-{number}",
+                    "backend": name,
+                    "serial": d["serial"] if backend.USB_SERIAL_IS_DEVICE_SERIAL else "",
+                }
+                for number, d in enumerate(devices)
             ]
         code, output = host.report.run(
             [sys.executable, "-m", "real_world_rl.doctor.probe"],
@@ -487,7 +532,7 @@ def inspect(args, host: Host):
         for kind, title in (
             ("franky", "Franka/Hand"),
             *((name, title) for _, name, title in coverage),
-            ("realsense", "RealSense"),
+            *((kind, backends[0][1].USB_KIND_TITLE or kind) for kind, backends in host.camera_usb.items()),
         ):
             if kind not in host.expected:
                 host.add(

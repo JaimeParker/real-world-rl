@@ -80,12 +80,13 @@ gripper:                      # null = no gripper
   shares_arm_session: false   # the Franka Hand opens its own connection
 cameras:                      # default: []
   - name: wrist
-    backend: realsense        # realsense (default) | fake
+    backend: realsense        # realsense (default) | zed | zed_uvc | fake
     serial: ""                # "" = use the only attached camera; required when >1 is attached
     width: 640
     height: 480
     fps: 30
     enable_depth: false
+    depth_mode: ""            # zed only: "" = NEURAL_LIGHT | NEURAL | NEURAL_PLUS
 ```
 
 **AgileX Piper（CAN）**
@@ -148,7 +149,7 @@ franka (franka)
 
 ### 工作站查找与配置语义
 
-向导先探测硬件：`172.16.0.2`、`172.16.1.2`、`$ROBOT_IP`、`--robot-ip` 及 `--scan-subnet CIDR` 中各主机的 TCP 22/443/1337；RealSense 序列号；各 `/dev/serial/by-id/usb-FTDI_*` 和 `usb-ROBOTIS_*` 串口上以 57600 至 4000000 波特率广播的 Dynamixel ping；以及 SpaceMouse。随后逐臂询问机器人 IP、机械臂及夹爪后端、home 关节、相机（`1=wrist,2=front`）、遥操作设备（GELLO 串口与舵机 ID，最后一个 ID 默认作为夹爪扳机）、介入模式和守护进程端口，并内联标定每套 GELLO（与[设备约定](#add-a-teleop-device)中的标定 CLI 相同步骤；跳过时写入零偏移与 `# TODO calibrate` 注释）。最后写入带注释的工作站 YAML，运行 doctor 并输出后续命令。
+向导先探测硬件：`172.16.0.2`、`172.16.1.2`、`$ROBOT_IP`、`--robot-ip` 及 `--scan-subnet CIDR` 中各主机的 TCP 22/443/1337；所有带 SDK 的相机后端的序列号（RealSense、ZED）；各 `/dev/serial/by-id/usb-FTDI_*` 和 `usb-ROBOTIS_*` 串口上以 57600 至 4000000 波特率广播的 Dynamixel ping；以及 SpaceMouse。随后逐臂询问机器人 IP、机械臂及夹爪后端、home 关节、相机（`1=wrist,2=front`）、遥操作设备（GELLO 串口与舵机 ID，最后一个 ID 默认作为夹爪扳机）、介入模式和守护进程端口，并内联标定每套 GELLO（与[设备约定](#add-a-teleop-device)中的标定 CLI 相同步骤；跳过时写入零偏移与 `# TODO calibrate` 注释）。最后写入带注释的工作站 YAML，运行 doctor 并输出后续命令。
 
 每条机械臂都获得设备侧限制：Panda 数据表的 `joint_limits`（`--joint-limits`）、伺服步长上限 `max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}`（`--max-delta-xyz-m`、`--max-delta-joint-rad`），以及交互询问的 `safety_box`（基坐标系，单位米，建议 `[0.3, -0.3, 0.05, 0.7, 0.3, 0.6]`，`--safety-box`），安全框必须包含 home 位姿。
 
@@ -249,7 +250,7 @@ rwrl teleop calibrate --backend gello \
 Connection (ABC)                 connect()/disconnect() lifecycle, owner borrowing, SDK, health()
 └── Part                         observation_features, get_observation()
     ├── Camera   [registry]      background capture thread, read()/latest()/reopen()
-    │   ├── realsense, fake
+    │   ├── realsense, zed, zed_uvc, fake
     │   └── (RemoteCamera is a Part, not a Camera)
     ├── Teleop   [registry]      background poll thread, read()/latest()/reset(), latched events
     │   ├── gello, spacemouse, fake
@@ -285,6 +286,8 @@ GPU side:   RemoteRobot ── GrpcClient (msgpack over gRPC, token metadata, re
 | gripper `serl_http` | 无 | - | - | 通过桥接，仅二值控制 |
 | gripper `pyagxarm` / `piper_sdk` | 同机械臂 | - | - | 需要 `shares_arm_session: true` 及匹配的机械臂后端 |
 | camera `realsense` | `pyrealsense2`（`realsense`） | - | - | RGB（`enable_depth` 可附加以米为单位的对齐深度） |
+| camera `zed` | ZED SDK 自带的 `pyzed.sl`（无 extra；doctor 检查项 `zed-sdk`） | - | - | Stereolabs ZED / ZED 2 / ZED 2i：左目 RGB（`enable_depth` 时附加配准到左目、以米为单位的深度，模型由 `depth_mode` 选择）；见 [ZED 相机](#zed-cameras) |
+| camera `zed_uvc` | `opencv-python-headless`，导入 `cv2`（`zed-uvc`） | - | - | 不装 ZED SDK 读取同一批相机：UVC 左右并排帧的左半幅，仅 RGB |
 | `fake` gripper / camera | 无 | - | - | 测试与 `--mock` |
 | teleop `spacemouse` | `hidapi==0.14.0.post4`，导入 `hid`（`spacemouse`） | - | - | 笛卡尔 twist + 保持式夹爪；`Teleop.backends()` 为 `fake`、`gello`、`spacemouse` |
 | teleop `gello` | `dynamixel-sdk`（`gello`；`gello-events` 提供 `evdev`） | - | - | GELLO 主臂，`joint_abs` + 可选夹爪；关闭扭矩；evdev 切换与事件 |
@@ -355,6 +358,7 @@ rwrl doctor --station local/station.yaml --json
 | `pyagxarm` | `pyAgxArm`（来自 GitHub） | 通过 `arm_backend: pyagxarm` 连接 Piper（Piper 默认后端） | 机器人 PC |
 | `piper-sdk` | `piper_sdk` | 通过厂商 SDK 连接 Piper（`arm_backend: piper_sdk`） | 机器人 PC |
 | `realsense` | `pyrealsense2` | RealSense 相机 | 机器人 PC |
+| `zed-uvc` | `opencv-python-headless` | 通过 `backend: zed_uvc` 使用 ZED 相机（仅彩色）。`backend: zed` 没有 extra：先装 ZED SDK，再在本环境运行 `python /usr/local/zed/get_python_api.py` | 机器人 PC |
 | `spacemouse` | `hidapi==0.14.0.post4`（trezor/cython-hidapi，导入 `hid`） | `teleop: {backend: spacemouse}`（仓库内读取器和发现） | 机器人 PC |
 | `gello` | `dynamixel-sdk>=3.7.31,<3.9` | `teleop: {backend: gello}`（GELLO 主臂）及其标定 CLI | 机器人 PC |
 | `gello-events` | `evdev` | gello 的 `event_device`（脚踏/键盘切换和事件，Linux） | 机器人 PC |
@@ -365,6 +369,17 @@ rwrl doctor --station local/station.yaml --json
 | `dev` | `pytest`、`scipy` | 运行测试 | 任意 |
 
 厂商 SDK 延迟导入。核心包、CLI 和 `--mock` 无需安装任何 SDK 即可运行。
+
+<a id="zed-cameras"></a>
+
+### ZED 相机
+
+两个后端读取 Stereolabs ZED（USB `2b03:f582`）、ZED 2（`2b03:f780`）和 ZED 2i（`2b03:f880`）：
+
+- `zed` 走 ZED SDK（已按 SDK 5.0 测试）。需要 NVIDIA GPU 及 SDK 对应的 CUDA 驱动，且运行守护进程或机器人的环境中装有 SDK 的 Python API。`serial` 为 `ZED_Explorer` 和 `rwrl discover` 显示的相机序列号。`enable_depth: true` 时帧附带配准到左目、以米为单位的深度，遮挡和超量程像素为 0（与 RealSense 一致）。`depth_mode` 选择 SDK 的神经深度模型（默认 `NEURAL_LIGHT`，另有 `NEURAL`、`NEURAL_PLUS`）。
+- `zed_uvc` 经 OpenCV 把相机当作普通 UVC 摄像头读取：无需 SDK、GPU，没有深度。`serial` 为相机视频接口的 USB 序列号（或其 `/dev/videoN`），`rwrl discover` 在 `zed_uvc` 下列出；它不是 ZED SDK 序列号。
+
+ZED 只输出原生模式：VGA 672x376（15/30/60/100 fps）、HD720 1280x720（15/30/60）、HD1080 1920x1080（15/30）和 HD2K 2208x1242（15）。`width`/`height` 须为 16:9 且不超过某个原生尺寸：后端打开能覆盖它的最小模式并缩小。4:3 尺寸（如 `CameraConfig` 默认的 640x480）会被拒绝而不是拉伸，因此需为 ZED 相机指定尺寸：`rwrl setup` 默认建议 640x360、30 fps。
 
 <a id="discovery-report"></a>
 
@@ -388,7 +403,7 @@ hid devices:
   none
 ```
 
-连接硬件后，各行格式为 `realsense: <serial>, <serial>`、`spacemouse: <vid>:<pid>:<path>`（未安装 `hidapi` 时为 `/dev/hidrawN`）、`can0: operstate=up bitrate=1000000`、`172.16.0.2: ping=ok open ports=<list>` 和 `/dev/hidraw0`。不列出 `fake` 后端。
+连接硬件后，各行格式为 `realsense: <serial>, <serial>`（同理 `zed: <serial>`、`zed_uvc: <usb serial>`；两种后端都装时同一台 ZED 会在两处出现）、`spacemouse: <vid>:<pid>:<path>`（未安装 `hidapi` 时为 `/dev/hidrawN`）、`can0: operstate=up bitrate=1000000`、`172.16.0.2: ping=ok open ports=<list>` 和 `/dev/hidraw0`。不列出 `fake` 后端。
 
 `rwrl --station robot.yaml --json discover`（或 `rwrl --json discover`）以一个 JSON 对象输出同一报告：`schema_version: 1` 和六个列表，无结果时为空：`cameras`（`backend`、`serial`）、`teleops`（`backend`、`device`）、`can_interfaces`（`name`、`operstate`、`bitrate`）、`hosts`（`ip`、`ping_ok`、`open_ports`）、`hid_devices`（路径）及 `unknown_hid`（`vid`、`pid`、`product`、`path`、`message`：外观像 SpaceMouse 但设备表中没有的 HID 设备）。上方机器对应如下 JSON（由同一报告推导，非实际运行采集）：
 
@@ -398,7 +413,7 @@ hid devices:
 
 | 部分 | 来源 | 核对内容 |
 |---|---|---|
-| `cameras` | 各相机后端的 `discover()`（RealSense 序列号） | 将序列号复制到 `cameras[].serial` |
+| `cameras` | 各相机后端的 `discover()`（RealSense 序列号、ZED SDK 序列号、`zed_uvc` 的 ZED USB 序列号） | 将序列号复制到 `cameras[].serial`，后端写入 `cameras[].backend` |
 | `teleops` | 各遥操作后端的 `discover()`（SpaceMouse：已安装 `hidapi` 时为 `vid:pid:path`，否则列出所有 `/dev/hidraw*`；gello：`/dev/serial/by-id/usb-FTDI_*` 和 `usb-ROBOTIS_*`） | `teleop:` 中配置的设备应出现 |
 | `can interfaces` | `/sys/class/net/*` 中 CAN 类型接口，波特率来自 `ip -details link show` | `operstate=up` 且波特率与 YAML 一致 |
 | `hosts` | 对配置的 `robot_ip` 执行 `ping` 和 TCP 连接 | `ping=ok`；Franka 的 1337 开放通常表示 FCI 可达。 |

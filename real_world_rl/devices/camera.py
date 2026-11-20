@@ -26,6 +26,8 @@ class CameraConfig:
     fps: int = 30
     enable_depth: bool = False
     backend: str = "realsense"
+    # Backend-specific depth algorithm; "" is the backend default (``zed``: NEURAL_LIGHT).
+    depth_mode: str = ""
 
 
 @dataclass
@@ -37,6 +39,42 @@ class Frame:
 
 class Camera(Part, BackendRegistry, ABC):
     _BACKENDS: ClassVar[dict[str, type]] = {}
+
+    # -- host declarations, read by discovery, setup and the doctor -------------------------
+    #: The pip extra of this project that provides ``SDK``; None when the SDK is not on the
+    #: package index (``SDK_INSTALL_HINT`` then says how to install it) or none is needed.
+    PIP_EXTRA: ClassVar[str | None] = None
+    #: The extra's requirements, used when the installed package metadata is unavailable.
+    PIP_REQUIREMENTS: ClassVar[tuple[str, ...]] = ()
+    #: Shared libraries its SDK loads: ``(ctypes library name, Debian package)``.
+    SYSTEM_LIBRARIES: ClassVar[tuple[tuple[str, str], ...]] = ()
+    #: The USB device family the doctor checks for this backend; backends reading the same
+    #: hardware share one (``zed`` and ``zed_uvc``). None: no USB device to check.
+    USB_KIND: ClassVar[str | None] = None
+    #: Human name of ``USB_KIND`` in doctor coverage rows.
+    USB_KIND_TITLE: ClassVar[str] = ""
+    #: The ``(vendor, product)`` ids of ``USB_KIND``; ``usb_matches`` may match more loosely.
+    USB_IDS: ClassVar[frozenset[tuple[int, int]]] = frozenset()
+    #: Whether the USB serial string is the serial ``discover()`` reports and ``serial`` selects.
+    USB_SERIAL_IS_DEVICE_SERIAL: ClassVar[bool] = True
+
+    @classmethod
+    def usb_matches(cls, vendor: int, product: int, product_name: str) -> bool:
+        """Whether a USB device is one of ``USB_KIND``; no SDK or device is opened."""
+        return (vendor, product) in cls.USB_IDS
+
+    @classmethod
+    def describe(cls) -> dict[str, str]:
+        """Serial -> model/product line of the attached cameras, for setup listings; best effort."""
+        return {}
+
+    @classmethod
+    def doctor_extra(cls, name: str) -> str | None:
+        """The key of the SDK check of this backend, registered as ``name``: its pip extra, else
+        ``<name>-sdk`` for an SDK outside the package index; None for SDK-free backends."""
+        if cls.SDK is None:
+            return None
+        return cls.PIP_EXTRA or f"{name}-sdk"
 
     def __init__(
         self,

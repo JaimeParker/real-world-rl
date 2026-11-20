@@ -105,12 +105,13 @@ gripper:                      # null = no gripper
   shares_arm_session: false   # the Franka Hand opens its own connection
 cameras:                      # default: []
   - name: wrist
-    backend: realsense        # realsense (default) | fake
+    backend: realsense        # realsense (default) | zed | zed_uvc | fake
     serial: ""                # "" = use the only attached camera; required when >1 is attached
     width: 640
     height: 480
     fps: 30
     enable_depth: false
+    depth_mode: ""            # zed only: "" = NEURAL_LIGHT | NEURAL | NEURAL_PLUS
 ```
 
 **AgileX Piper (CAN)**
@@ -181,7 +182,7 @@ With a `teleop:` section a last line is added, for example `  teleop: SpaceMouse
 ### Station lookup and setup semantics
 
 It probes the hardware (TCP 22/443/1337 of `172.16.0.2`, `172.16.1.2`, `$ROBOT_IP` and
-`--robot-ip`, plus every host of `--scan-subnet CIDR`; RealSense serials; a Dynamixel broadcast
+`--robot-ip`, plus every host of `--scan-subnet CIDR`; the serials of every camera backend with an SDK (RealSense, ZED); a Dynamixel broadcast
 ping on every `/dev/serial/by-id/usb-FTDI_*` and `usb-ROBOTIS_*` port at 57600 to 4000000 baud;
 SpaceMouse devices), then asks per arm for the robot IP, arm and gripper backend, home joints,
 cameras (`1=wrist,2=front`), teleop device (GELLO port and servo ids, the last id offered as the
@@ -336,7 +337,7 @@ for 8 servos, 57600 about 25 Hz).
 Connection (ABC)                 connect()/disconnect() lifecycle, owner borrowing, SDK, health()
 └── Part                         observation_features, get_observation()
     ├── Camera   [registry]      background capture thread, read()/latest()/reopen()
-    │   ├── realsense, fake
+    │   ├── realsense, zed, zed_uvc, fake
     │   └── (RemoteCamera is a Part, not a Camera)
     ├── Teleop   [registry]      background poll thread, read()/latest()/reset(), latched events
     │   ├── gello, spacemouse, fake
@@ -375,6 +376,8 @@ own.
 | gripper `serl_http` | none | - | - | binary only, through the bridge |
 | gripper `pyagxarm` / `piper_sdk` | as the arm | - | - | requires `shares_arm_session: true` and the matching arm backend |
 | camera `realsense` | `pyrealsense2` (`realsense`) | - | - | RGB (+ aligned depth in metres with `enable_depth`) |
+| camera `zed` | `pyzed.sl` from the ZED SDK (no extra; doctor check `zed-sdk`) | - | - | Stereolabs ZED / ZED 2 / ZED 2i: left-eye RGB (+ depth in metres registered to it with `enable_depth`, `depth_mode`); see [ZED cameras](#zed-cameras) |
+| camera `zed_uvc` | `opencv-python-headless`, import `cv2` (`zed-uvc`) | - | - | the same cameras without the ZED SDK: left half of the UVC side-by-side frame, RGB only |
 | `fake` gripper / camera | none | - | - | tests and `--mock` |
 | teleop `spacemouse` | `hidapi==0.14.0.post4`, import `hid` (`spacemouse`) | - | - | cartesian twist + sticky gripper; `Teleop.backends()` is `fake`, `gello`, `spacemouse` |
 | teleop `gello` | `dynamixel-sdk` (`gello`; `evdev` via `gello-events`) | - | - | GELLO leader arm, `joint_abs` + optional gripper; torque off; evdev toggle and events |
@@ -511,6 +514,7 @@ writes station YAML.
 | `pyagxarm` | `pyAgxArm` (from GitHub) | Piper via `arm_backend: pyagxarm` (the default for Piper) | robot PC |
 | `piper-sdk` | `piper_sdk` | Piper via the vendor SDK (`arm_backend: piper_sdk`) | robot PC |
 | `realsense` | `pyrealsense2` | RealSense cameras | robot PC |
+| `zed-uvc` | `opencv-python-headless` | ZED cameras through `backend: zed_uvc` (color only). `backend: zed` has no extra: install the ZED SDK, then `python /usr/local/zed/get_python_api.py` in this environment | robot PC |
 | `spacemouse` | `hidapi==0.14.0.post4` (trezor/cython-hidapi, import `hid`) | `teleop: {backend: spacemouse}` (in-tree reader and discovery) | robot PC |
 | `gello` | `dynamixel-sdk>=3.7.31,<3.9` | `teleop: {backend: gello}` (GELLO leader arm) and its calibration CLI | robot PC |
 | `gello-events` | `evdev` | a gello `event_device` (pedal or keyboard toggle and events, Linux) | robot PC |
@@ -522,6 +526,27 @@ writes station YAML.
 
 Vendor SDKs are imported lazily. The core package, the CLIs and `--mock` runs work
 without any SDK installed.
+
+### ZED cameras
+
+Two backends read the Stereolabs ZED (USB `2b03:f582`), ZED 2 (`2b03:f780`) and ZED 2i
+(`2b03:f880`):
+
+- `zed` goes through the ZED SDK (tested against SDK 5.0). It needs an NVIDIA GPU with the
+  CUDA driver the SDK was built for, and the SDK's Python API in the environment that runs the
+  daemon or the robot. `serial` is the camera serial `ZED_Explorer` and `rwrl discover` show.
+  With `enable_depth: true` the frame carries depth in metres registered to the left eye, with
+  occluded and out-of-range pixels set to 0 (as for RealSense). `depth_mode` picks the SDK's
+  neural depth model (`NEURAL_LIGHT` by default, `NEURAL`, `NEURAL_PLUS`).
+- `zed_uvc` reads the camera as a plain UVC webcam through OpenCV: no SDK, no GPU, no depth.
+  `serial` is the USB serial string of the camera's video interface (or its `/dev/videoN`), which
+  `rwrl discover` lists under `zed_uvc`. It is not the ZED SDK serial.
+
+A ZED streams only its native modes: VGA 672x376 (15/30/60/100 fps), HD720 1280x720 (15/30/60),
+HD1080 1920x1080 (15/30) and HD2K 2208x1242 (15). `width`/`height` must be 16:9 and at most a
+native size: the backend opens the smallest mode that covers it and downscales. A 4:3 size
+such as the `CameraConfig` default 640x480 is rejected rather than stretched, so give ZED cameras
+a size: `rwrl setup` proposes 640x360 at 30 fps.
 
 ### Discovery report
 
@@ -546,7 +571,8 @@ hid devices:
   none
 ```
 
-With hardware attached, the lines take the form `realsense: <serial>, <serial>`,
+With hardware attached, the lines take the form `realsense: <serial>, <serial>` (likewise
+`zed: <serial>` and `zed_uvc: <usb serial>`; one ZED appears under both when both are installed),
 `spacemouse: <vid>:<pid>:<path>` (or `/dev/hidrawN` when `hidapi` is not installed),
 `can0: operstate=up bitrate=1000000`, `172.16.0.2: ping=ok open ports=<list>` and
 `/dev/hidraw0`. The `fake` backends are not listed.
@@ -565,7 +591,7 @@ not a captured run):
 
 | Section | Source | What to look for |
 |---|---|---|
-| `cameras` | each camera backend's `discover()` (RealSense serials) | copy the serial into `cameras[].serial` |
+| `cameras` | each camera backend's `discover()` (RealSense serials, ZED SDK serials, ZED USB serials for `zed_uvc`) | copy the serial into `cameras[].serial` and the backend into `cameras[].backend` |
 | `teleops` | each teleop backend's `discover()` (SpaceMouse: `vid:pid:path` through `hidapi` when installed, else every `/dev/hidraw*`; gello: `/dev/serial/by-id/usb-FTDI_*` and `usb-ROBOTIS_*`) | the device you put in `teleop:` shows up |
 | `can interfaces` | `/sys/class/net/*` with type CAN, bitrate from `ip -details link show` | `operstate=up` and the bitrate in your yaml |
 | `hosts` | `ping` and TCP connect to the config's `robot_ip` | `ping=ok`. For Franka, 1337 open usually means FCI is reachable. |

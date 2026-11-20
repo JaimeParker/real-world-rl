@@ -105,13 +105,13 @@ colour codes.
 | `host.platform`, `host.python`, `host.tools` | the platform; that the interpreter is a project venv or non-base conda environment; the diagnostic tools |
 | `deps.<distribution>`, `deps.<distribution>.source`, `sdk.<extra>` | the project's and each expected device's Python dependencies, with their version constraints; that SDKs import |
 | `system.library.<name>` | shared libraries such as libusb and libudev |
-| `usb.discovery`, `usb.<kind>`, `usb.spacemouse.table`, `usb.spacemouse.unknown.<vid>:<pid>` | visible USB devices, SpaceMouse and RealSense access and udev rules, the SpaceMouse device table |
+| `usb.discovery`, `usb.<kind>`, `usb.spacemouse.table`, `usb.spacemouse.unknown.<vid>:<pid>` | visible USB devices, SpaceMouse, RealSense and ZED access and udev rules, the SpaceMouse device table |
 | `gello.<n>`, `gello.<n>.group`, `gello.<n>.events`, `gello.<n>.latency`, `gello.<n>.brltty`, `gello.candidates` | commissioned GELLO serial and event access, user groups, FTDI latency, a brltty conflict; unconfigured serial adapters are only candidates |
 | `network.route.<ip>` | a route to each robot address |
 | `realtime.kernel`, `realtime.limits` | PREEMPT_RT kernel and realtime limits (`MAJOR CHANGE / DOUBLE CHECK` when kernel work may be needed; nothing is changed) |
 | `configuration.*` | station loading; `configuration.legacy.*` WARNs for pre-0.1.0 station names, with the command that moves them |
 | `station` | `SKIPPED` when no station is configured |
-| `read.<kind>`, `coverage.<kind>` | an SDK read of an unconfigured SpaceMouse or RealSense; `SKIPPED` for device kinds that nothing configured or identified |
+| `read.<kind>`, `coverage.<kind>` | an SDK read of an unconfigured SpaceMouse, RealSense or ZED (the ZED through the installed backend, `zed` before `zed_uvc`); `SKIPPED` for device kinds that nothing configured or identified |
 | `sdk.franky.conflict` | robots that need different franky wheels |
 
 ### Device rows
@@ -135,7 +135,7 @@ process holds the station. The [detailed examples](#device-diagnostic-details) b
 
 The station and preset decide which devices are expected. A missing configured device is
 `BLOCKED`; an unconfigured, unidentified device is `SKIPPED`, not accepted as working.
-Recognized SpaceMouse and RealSense USB devices are also inspected on their own.
+Recognized SpaceMouse, RealSense and ZED USB devices are also inspected on their own.
 
 Only processes that hold a hardware connection count as owners: the daemon, the recorder,
 actor and deploy entrypoints, `setup`, the connecting primitives (`status`, `q`, `tcp`, `home`,
@@ -341,7 +341,7 @@ An absent `latency_timer` file means the driver has none; it is not a permission
 |---|---|---|
 | `<robot>.os:camera:<name>` FAIL `camera '<name>' serial '<s>' not found`, hint `set serial; discovered: [...]` | the serial is wrong or the camera is unplugged | copy a serial from `rwrl discover`; with more than one camera `serial` is required |
 | `<robot>.feedback:camera:<name>` FAIL `no frames within 2s` | USB 2 port or cable, a shared hub, missing udev rules | a USB 3 port and cable, the librealsense udev rules; reconnect, then `rwrl status` |
-| `<robot>.sdk:camera:<name>` FAIL | `pyrealsense2` missing | `python -m pip install -e '.[realsense]'` |
+| `<robot>.sdk:camera:<name>` FAIL | `pyrealsense2` missing; for `backend: zed`, `pyzed` missing; for `zed_uvc`, `cv2` missing | `python -m pip install -e '.[realsense]'`; ZED: install the ZED SDK, then `python /usr/local/zed/get_python_api.py`; `zed_uvc`: `python -m pip install -e '.[zed-uvc]'` |
 
 ### SpaceMouse and HID
 
@@ -398,7 +398,7 @@ The doctor runs six layers in order, 0 to 5 (a `teleop:` section adds checks to 
 
 | Layer | Checks | Notes |
 |---|---|---|
-| 0 `deps` | the pip extras this robot needs are installed: one per backend (`franky`, `pyagxarm`, `piper-sdk`, `realsense`, `spacemouse`, `gello`, plus `gello-events` for a gello `event_device`), and `grpc` when the robot's yaml has a `daemon:` block. FAIL `missing extras for this station: franky, gello`, hint `pip install -e '.[franky,gello]' (from the repository root)`; OK `extras ok: franky, gello, grpc`. Without a `daemon:` block (the single-process route) a missing `grpc` is a WARN `optional, not installed: grpc (daemon route)`; a missing `jpeg` is only mentioned | with `--mock` the fakes need none and grpc is never required |
+| 0 `deps` | the pip extras this robot needs are installed: one per backend (`franky`, `pyagxarm`, `piper-sdk`, `realsense`, `zed-uvc`, `spacemouse`, `gello`, plus `gello-events` for a gello `event_device`; `zed-sdk` for `backend: zed` is the ZED SDK's `pyzed`, and its hint names the ZED installer instead of pip), and `grpc` when the robot's yaml has a `daemon:` block. FAIL `missing extras for this station: franky, gello`, hint `pip install -e '.[franky,gello]' (from the repository root)`; OK `extras ok: franky, gello, grpc`. Without a `daemon:` block (the single-process route) a missing `grpc` is a WARN `optional, not installed: grpc (daemon route)`; a missing `jpeg` is only mentioned | with `--mock` the fakes need none and grpc is never required |
 | 1 `sdk` | each backend name resolves and its SDK imports (`sdk:arm`, `sdk:gripper`, `sdk:camera:<name>`, `sdk:teleop:<backend>`) | an unknown backend skips layers 3-5 |
 | 2 `os` | ping `robot_ip` and port 1337 (informational); CAN interface exists / is up / bitrate; camera serial attached; `os:teleop:<name>` (a device of that backend is discovered); `os:hid` (a readable and writable `/dev/hidraw*` exists, SpaceMouse only); `os:serial` (the gello `port` exists and is readable and writable; `rwrl doctor --fix` offers `setfacl -m u:<user>:rw -- <port>`, lost on replug); `os:groups` (the user's login session is in `dialout` for the gello port and `input` for its `event_device`); `os:brltty` (brltty would claim a CH340 adapter); `os:latency_timer` (an FTDI adapter's `latency_timer` is 1 ms) | driven by config fields; skipped for backends that need no SDK (fakes); never runs sudo |
 | 3 `handshake` | takes the robot's device claim (unless `claim: false`), then `robot.connect()` | a failure (including a held claim) skips layers 4-5 |
@@ -462,7 +462,7 @@ PASS           franka.sdk:camera:wrist: 'pyrealsense2' importable
 FAIL           franka.os:ping: 172.16.0.2 does not reply
     hint: check: robot powered on and brakes released; Desk reachable at https://172.16.0.2/desk; you hold control in Desk; FCI activated (Desk → Activate FCI); cable on the Control port; firewall allows UDP
 PASS           franka.os:tcp: port 1337 closed (informational)
-FAIL           franka.os:camera:wrist: no RealSense device found (serial unset)
+FAIL           franka.os:camera:wrist: no realsense camera found (serial unset)
     hint: plug in the camera and run `rwrl discover`
 FAIL           franka.handshake: FrankyArm needs the 'franky' package
     hint: pip install franky-control (or, from the repository root: pip install -e '.[franky]')
@@ -539,7 +539,7 @@ values are filled in from your config.
 | Piper does not enable (power, e-stop) | `handshake` FAIL `Piper on 'can0' did not enable within 5s`, hint `check that the arm is powered, that 'can0' is up at 1000000 bit/s, and that its emergency stop is released` | Power the arm, release the e-stop, rerun. `mode:piper_status` names the arm status once connected. |
 | No CAN feedback (arm in master/teach mode) | `handshake` FAIL `... enabled but sent no joint feedback within 2s`, or `mode:follower` FAIL `no joint feedback`; hint `no CAN feedback: the arm may be in master/teach mode; switch it to follower (slave) mode and power-cycle` | Switch the arm to follower (slave) mode and power-cycle it. |
 | Wrong Piper firmware profile (pyagxarm) | `handshake` FAIL `firmware probe ... failed` / `cannot map Piper firmware ...`, hint `set firmware_profile explicitly (default\|v183\|v188\|v189) in the robot config` | Set `firmware_profile` in the yaml. |
-| Camera serial not found | `os:camera:<name>` FAIL `camera '<name>' serial '<s>' not found`, hint `set serial; discovered: [...]` (with `serial` unset: `no RealSense device found (serial unset)` or `serial unset and N devices attached; set serial to one of [...]`); `handshake` FAIL `RealSense serial '<s>' for camera '<name>' not attached` | Copy a serial from `rwrl discover`. With more than one camera attached, `serial` is required. |
+| Camera serial not found | `os:camera:<name>` FAIL `camera '<name>' serial '<s>' not found`, hint `set serial; discovered: [...]` (with `serial` unset: `no <backend> camera found (serial unset)` or `serial unset and N devices attached; set serial to one of [...]`); `handshake` FAIL `RealSense serial '<s>' for camera '<name>' not attached` | Copy a serial from `rwrl discover`. With more than one camera attached, `serial` is required. |
 | Camera gives no frames | `feedback:camera:<name>` FAIL `no frames within 2s`, hint `check USB 3 bandwidth; try another port; rerun rwrl status after reconnecting the camera`; or `RealSense '<s>' failed to start`, hint `check the USB 3 cable/port and udev rules (librealsense scripts/setup_udev_rules.sh)` | Use a USB 3 port and cable (not a hub shared with other cameras), install the librealsense udev rules, reconnect the camera, then run `rwrl status`. |
 | Daemon unreachable | client `TransportError: robot daemon unreachable at <addr>` | Start the daemon, check `--bind`, the address and the firewall. |
 | Token mismatch | client `TransportError: token mismatch`, hint `pass the same --token to the daemon and the remote config` | Use the same token on both sides. |

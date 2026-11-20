@@ -6,7 +6,7 @@ import importlib.util
 import sys
 from dataclasses import dataclass
 
-from real_world_rl.devices import RobotConfig, Teleop
+from real_world_rl.devices import Camera, RobotConfig, Teleop
 from real_world_rl.devices.backends.arms.franky import FRANKY_DISTRIBUTION, FRANKY_WHEEL_INDEX_URL
 
 # extra -> modules; the extra counts as installed when any of them imports.
@@ -14,14 +14,26 @@ EXTRA_MODULES: dict[str, tuple[str, ...]] = {
     "franky": ("franky",),
     "pyagxarm": ("pyAgxArm",),
     "piper-sdk": ("piper_sdk",),
-    "realsense": ("pyrealsense2",),
     "grpc": ("grpc",),
     "jpeg": ("PIL", "cv2"),
 }
 # backend name -> extra; backends missing here (fakes, serl_http) need none.
 ARM_BACKEND_EXTRAS = {"franky": "franky", "pyagxarm": "pyagxarm", "piper_sdk": "piper-sdk"}
 GRIPPER_BACKEND_EXTRAS = {"franky": "franky", "pyagxarm": "pyagxarm", "piper_sdk": "piper-sdk"}
-CAMERA_BACKEND_EXTRAS = {"realsense": "realsense"}
+# Camera backends declare their SDK check key (``Camera.doctor_extra``): ``realsense``,
+# ``zed-uvc``, and ``zed-sdk`` for the ZED SDK, which no pip extra provides.
+CAMERA_BACKEND_EXTRAS = {
+    name: extra for name, backend in Camera.backends().items() if (extra := backend.doctor_extra(name))
+}
+for _name, _backend in Camera.backends().items():
+    if _name in CAMERA_BACKEND_EXTRAS:
+        EXTRA_MODULES[CAMERA_BACKEND_EXTRAS[_name]] = (_backend.SDK,)
+# extra -> install hint for the extras outside this project's pip extras.
+MANUAL_EXTRA_HINTS = {
+    CAMERA_BACKEND_EXTRAS[name]: backend.SDK_INSTALL_HINT
+    for name, backend in Camera.backends().items()
+    if name in CAMERA_BACKEND_EXTRAS and not backend.PIP_EXTRA
+}
 TELEOP_BACKEND_EXTRAS = {
     name: name for name, backend in Teleop.backends().items() if backend.SDK and backend.PIP_REQUIREMENTS
 }
@@ -87,8 +99,10 @@ def missing_extras(extras: list[str]) -> list[str]:
 
 
 def install_extras_hint(extras: list[str]) -> str:
-    joined = ",".join(extras)
-    hint = f"pip install -e '.[{joined}]' (from the repository root)"
+    pip_extras = [extra for extra in extras if extra not in MANUAL_EXTRA_HINTS]
+    hints = [f"pip install -e '.[{','.join(pip_extras)}]' (from the repository root)"] if pip_extras else []
+    hints += [f"{extra}: {MANUAL_EXTRA_HINTS[extra]}" for extra in extras if extra in MANUAL_EXTRA_HINTS]
+    hint = "; ".join(hints)
     if "franky" in extras:
         hint += "; if the handshake then reports a libfranka mismatch, rerun the doctor with --install-sdk"
     return hint

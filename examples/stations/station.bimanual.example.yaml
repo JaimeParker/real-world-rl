@@ -35,7 +35,7 @@ robots:
       shares_arm_session: false  # false: the Franka Hand opens its own connection
     cameras:                      # serials from `rwrl discover`
       - name: wrist_left            # observation key on the actor side (--obs.rgb)
-        backend: realsense      # realsense | fake
+        backend: realsense      # realsense | zed | zed_uvc | fake
         serial: "123422070001"        # "" = the only attached camera; required when more are plugged in
         width: 640
         height: 480
@@ -86,14 +86,14 @@ robots:
       shares_arm_session: false  # false: the Franka Hand opens its own connection
     cameras:                      # serials from `rwrl discover`
       - name: wrist_right            # observation key on the actor side (--obs.rgb)
-        backend: realsense      # realsense | fake
+        backend: realsense      # realsense | zed | zed_uvc | fake
         serial: "123422070002"        # "" = the only attached camera; required when more are plugged in
         width: 640
         height: 480
         fps: 30
         enable_depth: false
       - name: front            # observation key on the actor side (--obs.rgb)
-        backend: realsense      # realsense | fake
+        backend: realsense      # realsense | zed | zed_uvc | fake
         serial: "123422070003"        # "" = the only attached camera; required when more are plugged in
         width: 640
         height: 480

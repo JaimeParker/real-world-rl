@@ -29,12 +29,20 @@ gripper:                      # null for no gripper
   shares_arm_session: false   # the Franka Hand opens its own connection
 cameras:                      # default: no cameras
   - name: wrist
-    backend: realsense        # realsense (default) | fake
+    backend: realsense        # realsense (default) | zed | zed_uvc | fake (docs/devices.md#zed-cameras)
     serial: ""                # empty = use the only attached camera; set it when >1 is plugged in
     width: 640
     height: 480
     fps: 30
     enable_depth: false
+  # - name: front               # a Stereolabs ZED / ZED 2 / ZED 2i (docs/devices.md#zed-cameras)
+  #   backend: zed              # zed (ZED SDK, depth) | zed_uvc (OpenCV, color only)
+  #   serial: ""                # zed: the ZED SDK serial; zed_uvc: the USB serial from `rwrl discover`
+  #   width: 640                # 16:9 and at most a native mode (672x376, 1280x720, 1920x1080, 2208x1242)
+  #   height: 360
+  #   fps: 30
+  #   enable_depth: false
+  #   depth_mode: NEURAL_LIGHT  # zed only: NEURAL_LIGHT (default) | NEURAL | NEURAL_PLUS
 # teleop:                       # default: no teleop; when set, the device must be present at connect
 #   name: teleop                # daemon serves teleop.<name>.read / teleop.<name>.reset
 #   backend: fake               # fake | spacemouse | gello (see the gello block below)

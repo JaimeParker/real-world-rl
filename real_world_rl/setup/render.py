@@ -41,7 +41,7 @@ _ROBOT_FIELDS = {
     "task_frame", "workspace", "safety_box", "joint_limits", "max_delta_per_step", "control", "claim", "gripper", "cameras", "teleop",
 }
 _GRIPPER_FIELDS = {"backend", "max_width_m", "mode", "binary_threshold", "shares_arm_session"}
-_CAMERA_FIELDS = {"name", "serial", "width", "height", "fps", "enable_depth", "backend"}
+_CAMERA_FIELDS = {"name", "serial", "width", "height", "fps", "enable_depth", "backend", "depth_mode"}
 _TELEOP_FIELDS = {"name", "backend", "hold_s", "options"}
 
 Echo = Callable[[str], None]

@@ -41,22 +41,20 @@ TOOLS = {
     "ping": "iputils-ping",
     "fuser": "psmisc",
 }
-# The extras that are not teleop backends; each teleop backend declares its own (``Teleop.SDK``,
-# ``PIP_REQUIREMENTS``, ``SDK_IMPORT_CHECK``, ``OPTIONAL_SDKS``), see ``sdk_checks``.
+# The extras that are not teleop or camera backends; each of those declares its own
+# (``Teleop.SDK``, ``PIP_REQUIREMENTS``, ``SDK_IMPORT_CHECK``, ``OPTIONAL_SDKS``;
+# ``Camera.SDK``, ``PIP_EXTRA``, ``PIP_REQUIREMENTS``), see ``sdk_checks``.
 SDK_MODULES = {
     "franky": "franky",
-    "realsense": "pyrealsense2",
     "grpc": "grpc",
     "jpeg": "cv2",
 }
 FALLBACK_REQUIREMENTS = {
     "franky": ["franky-control"],
-    "realsense": ["pyrealsense2"],
     "grpc": ["grpcio>=1.60"],
     "jpeg": ["pillow", "opencv-python-headless"],
 }
 IMPORT_OK_CHECK = "print('import OK')"
-REALSENSE_SYSTEM_LIBRARIES = (("usb-1.0", "libusb-1.0-0"), ("udev", "libudev1"))
 
 
 def read(path: Path) -> str:
@@ -76,11 +74,43 @@ def teleop_backends() -> dict:
     return dict(sorted(Teleop.backends().items()))
 
 
+def camera_backends() -> dict:
+    """The registered camera backend classes by name, sorted; none when the device layer cannot
+    be imported."""
+    try:
+        from real_world_rl.devices import Camera
+    except Exception:
+        return {}
+    return dict(sorted(Camera.backends().items()))
+
+
+def camera_usb_kinds() -> dict[str, list[tuple[str, type]]]:
+    """USB kind -> the ``(name, class)`` of each camera backend reading that hardware."""
+    kinds: dict[str, list[tuple[str, type]]] = {}
+    for name, backend in camera_backends().items():
+        if backend.USB_KIND:
+            kinds.setdefault(backend.USB_KIND, []).append((name, backend))
+    return kinds
+
+
+def manual_sdk_hints() -> dict[str, str]:
+    """SDK check key -> install hint, for camera SDKs that no pip extra provides."""
+    return {
+        extra: backend.SDK_INSTALL_HINT
+        for name, backend in camera_backends().items()
+        if (extra := backend.doctor_extra(name)) and not backend.PIP_EXTRA
+    }
+
+
 def sdk_checks() -> dict[str, tuple[str, str, list[str]]]:
     """extra -> ``(module, import check statement, fallback requirements)``: the static extras
-    above and the ones the teleop backends declare."""
+    above and the ones the teleop and camera backends declare."""
     checks = {extra: (module, IMPORT_OK_CHECK, list(FALLBACK_REQUIREMENTS.get(extra, [])))
               for extra, module in SDK_MODULES.items()}
+    for name, backend in camera_backends().items():
+        extra = backend.doctor_extra(name)
+        if extra and extra not in checks:
+            checks[extra] = (backend.SDK, IMPORT_OK_CHECK, list(backend.PIP_REQUIREMENTS))
     for name, backend in teleop_backends().items():
         if backend.SDK:
             checks[name] = (backend.SDK, backend.SDK_IMPORT_CHECK, list(backend.PIP_REQUIREMENTS))
@@ -144,6 +174,7 @@ class Host:
                     backend.DEVICE_TABLE_ERROR_HINT,
                 )
         self.teleop_usb = teleop_usb_ids(station_dir, teleop_options)
+        self.camera_usb = camera_usb_kinds()
         self.usb = self.discover_usb()
         self.ports: list[str] = []
         self.actions: list[Action] = []
@@ -224,10 +255,13 @@ class Host:
             pair = int(vid, 16), int(pid, 16)
             kind = next(
                 (name for name, (_, ids) in self.teleop_usb.items() if ids and pair in ids), ""
-            ) or (
-                "realsense"
-                if vid.lower() == "8086" and "realsense" in product.lower()
-                else ""
+            ) or next(
+                (
+                    kind
+                    for kind, backends in self.camera_usb.items()
+                    if any(backend.usb_matches(*pair, product) for _, backend in backends)
+                ),
+                "",
             )
             unknown = {}
             if not kind:
@@ -259,7 +293,7 @@ class Host:
 
     def busy(self):
         paths = [*self.ports, *(d["node"] for d in self.usb if d["kind"])]
-        # RealSense uses video nodes too; an owner may not hold the USB bus node.
+        # Cameras use video nodes too; an owner may not hold the USB bus node.
         for subsystem in ("video4linux", "hidraw"):
             for entry in (self.sysfs / "class" / subsystem).glob("*"):
                 ancestors = (entry / "device").resolve().parents
@@ -430,7 +464,7 @@ class Host:
                     message,
                     f'product "{device["product"]}"; {hint}',
                 )
-        for kind in (*self.teleop_usb, "realsense"):
+        for kind in (*self.teleop_usb, *self.camera_usb):
             if kind not in self.expected:
                 continue
             devices = [d for d in self.usb if d["kind"] == kind]
@@ -690,8 +724,11 @@ class Host:
         library_sets = [
             backend.SYSTEM_LIBRARIES for name, backend in teleop_backends().items() if name in self.expected
         ]
-        if "realsense" in self.expected:
-            library_sets.append(REALSENSE_SYSTEM_LIBRARIES)
+        library_sets += [
+            backend.SYSTEM_LIBRARIES
+            for name, backend in camera_backends().items()
+            if backend.doctor_extra(name) in self.expected
+        ]
         libraries = list(dict.fromkeys(library for group in library_sets for library in group))
         if self.capabilities.linux and libraries:
             for library, package in libraries:
@@ -825,6 +862,7 @@ class Host:
                 "sdk." + extra,
                 "FAIL" if code else "PASS",
                 output.strip()[-1200:] if code else module + " importable",
+                manual_sdk_hints().get(extra, "") if code else "",
             )
             dependency_ids = [
                 "pip:" + canonicalize_name(Requirement(row).name) for row in reqs

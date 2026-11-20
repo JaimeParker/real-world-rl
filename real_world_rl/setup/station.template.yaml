@@ -47,12 +47,13 @@ cameras:                      # serials from `rwrl discover`
 {{entries}}
 #@ camera
   - name: {{name}}            # observation key on the actor side (--obs.rgb)
-    backend: {{backend}}      # realsense | fake
+    backend: {{backend}}      # realsense | zed (ZED SDK) | zed_uvc (OpenCV, color only) | fake
     serial: {{serial}}        # "" = the only attached camera; required when more are plugged in
-    width: {{width}}
+    width: {{width}}          # zed/zed_uvc: 16:9, at most a native mode (672x376, 1280x720, ...)
     height: {{height}}
     fps: {{fps}}
     enable_depth: {{enable_depth}}
+    depth_mode: {{depth_mode}}  # zed: "" = NEURAL_LIGHT | NEURAL | NEURAL_PLUS; others ignore it
 #@ no_cameras
 cameras: []                   # none
 #@ teleop_gello

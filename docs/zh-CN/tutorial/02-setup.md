@@ -96,7 +96,7 @@ rwrl discover
 rwrl --json discover
 ```
 
-*应看到：* `cameras:`（RealSense 序列号）、`teleops:`（如 GELLO 的 `/dev/serial/by-id/...` 路径）、`can interfaces:`、`hosts:` 和 `hid devices:`；未找到设备时各项为 `none`。`hosts:` 仅列出现有站点文件的机器人 IP；`discover` 不会连接它们。`--json` 将同一报告输出为一个对象，含 `schema_version: 1` 和 `cameras`、`teleops`、`can_interfaces`、`hosts`、`hid_devices`、`unknown_hid` 列表。
+*应看到：* `cameras:`（按后端列出的相机序列号：`realsense`、`zed`、`zed_uvc`）、`teleops:`（如 GELLO 的 `/dev/serial/by-id/...` 路径）、`can interfaces:`、`hosts:` 和 `hid devices:`；未找到设备时各项为 `none`。`hosts:` 仅列出现有站点文件的机器人 IP；`discover` 不会连接它们。`--json` 将同一报告输出为一个对象，含 `schema_version: 1` 和 `cameras`、`teleops`、`can_interfaces`、`hosts`、`hid_devices`、`unknown_hid` 列表。
 
 <a id="2-run-the-wizard"></a>
 

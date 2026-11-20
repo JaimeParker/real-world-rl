@@ -33,7 +33,6 @@ MOCK_GELLO_PORTS = (
 )
 MOCK_GELLO_SERVO_IDS = (1, 2, 3, 4, 5, 6, 7, 8)
 _XL330_MODEL_NUMBER = 1200
-_REALSENSE_SDK = "pyrealsense2"
 
 
 @dataclass
@@ -50,6 +49,7 @@ class HostProbe:
 class CameraProbe:
     serial: str
     product_line: str = ""
+    backend: str = "realsense"
 
 
 @dataclass
@@ -95,9 +95,9 @@ class StationProbe:
             lines.append(f"  no answer on TCP {'/'.join(map(str, FRANKA_PROBE_PORTS))}: {', '.join(silent)}")
         if not self.franka_hosts:
             lines.append("  none probed")
-        lines.append("realsense cameras:")
+        lines.append("cameras:")
         lines.extend(
-            f"  {camera.serial}" + (f" ({camera.product_line})" if camera.product_line else "")
+            f"  {camera.backend}: {camera.serial}" + (f" ({camera.product_line})" if camera.product_line else "")
             for camera in self.cameras
         )
         if not self.cameras:
@@ -143,28 +143,24 @@ def probe_franka(candidates: Sequence[str], timeout_s: float = 0.5) -> list[Host
 # -- cameras ---------------------------------------------------------------------------
 
 
-def _realsense_product_lines() -> dict[str, str]:
-    try:
-        rs = importlib.import_module(_REALSENSE_SDK)
-        lines = {}
-        for device in rs.context().query_devices():
-            serial = device.get_info(rs.camera_info.serial_number)
-            try:
-                lines[serial] = str(device.get_info(rs.camera_info.product_line))
-            except Exception:
-                lines[serial] = ""
-        return lines
-    except Exception:
-        return {}
+def probe_cameras() -> list[CameraProbe]:
+    """Every camera the hardware backends (those with a vendor SDK) discover, by backend then
+    serial. One ZED is listed by both ``zed`` and ``zed_uvc`` when both SDKs are installed."""
+    cameras = []
+    for name, backend in sorted(Camera.backends().items()):
+        if backend.SDK is None:
+            continue
+        try:
+            serials = backend.discover()
+            models = backend.describe() if serials else {}
+        except Exception:
+            continue
+        cameras += [CameraProbe(serial, models.get(serial, ""), name) for serial in sorted(serials)]
+    return cameras
 
 
 def probe_realsense() -> list[CameraProbe]:
-    try:
-        serials = Camera.backend("realsense").discover()
-    except Exception:
-        return []
-    product_lines = _realsense_product_lines() if serials else {}
-    return [CameraProbe(serial, product_lines.get(serial, "")) for serial in sorted(serials)]
+    return [camera for camera in probe_cameras() if camera.backend == "realsense"]
 
 
 # -- gello -----------------------------------------------------------------------------
@@ -226,7 +222,7 @@ def discover_station(options: ProbeOptions | None = None) -> StationProbe:
         hosts += [host for host in scanned if host.reachable]
     return StationProbe(
         franka_hosts=hosts,
-        cameras=probe_realsense(),
+        cameras=probe_cameras(),
         gello_buses=probe_gello_ports(options.serial_ports),
         spacemice=probe_spacemouse(),
     )

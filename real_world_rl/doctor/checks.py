@@ -278,7 +278,11 @@ def _camera_outcome(camera) -> Callable[[], Outcome]:
             return True, f"serial {camera.serial} found"
         if not camera.serial:
             if not discovered:
-                return False, "no RealSense device found (serial unset)", "plug in the camera and run `rwrl discover`"
+                return (
+                    False,
+                    f"no {camera.backend} camera found (serial unset)",
+                    "plug in the camera and run `rwrl discover`",
+                )
             return (
                 False,
                 f"serial unset and {len(discovered)} devices attached; set serial to one of {discovered}",

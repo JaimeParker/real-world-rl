@@ -111,7 +111,7 @@ rwrl discover
 rwrl --json discover
 ```
 
-*You should see:* sections `cameras:` (RealSense serials), `teleops:` (for example the GELLO's
+*You should see:* sections `cameras:` (camera serials by backend: `realsense`, `zed`, `zed_uvc`), `teleops:` (for example the GELLO's
 `/dev/serial/by-id/...` path), `can interfaces:`, `hosts:` and `hid devices:`, each `none` when
 nothing is found. `hosts:` lists the robot IPs of an existing station file only; `discover`
 never connects to them. With `--json` the same report is one object with `schema_version: 1`

@@ -45,6 +45,7 @@ def test_extras():
         "sim": ["mani_skill"],
         "legacy-bridge": ["flask", "pyzmq", "scipy", "pyspacemouse"],
         "realsense": ["pyrealsense2"],
+        "zed-uvc": ["opencv-python-headless"],
         "pyagxarm": ["pyAgxArm @ git+https://github.com/agilexrobotics/pyAgxArm.git"],
         "franky": ["franky-control"],
         "piper-sdk": ["piper_sdk"],

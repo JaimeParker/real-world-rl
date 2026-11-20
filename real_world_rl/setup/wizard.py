@@ -31,6 +31,7 @@ from real_world_rl.teleop.gello.calibrate import (
 )
 from real_world_rl.devices.robots.franka import FRANKA_HOME_JOINTS, FrankaConfig
 from real_world_rl.discovery.autoconfig import DEFAULT_DAEMON_BIND, Station
+from real_world_rl.devices.backends.cameras.zed_common import select_mode
 from real_world_rl.setup.probes import SerialBusProbe, SimulatedGelloBus, StationProbe
 
 Ask = Callable[[str], str]
@@ -46,6 +47,10 @@ MAX_ARMS = 2
 FRANKA_NUM_JOINTS = 7
 FIRST_DAEMON_PORT = 50051
 DEFAULT_CAMERA_NAME = "wrist"
+ZED_BACKENDS = ("zed", "zed_uvc")
+# The CameraConfig default 640x480 is 4:3, which no ZED mode delivers: new ZED cameras get the
+# smallest 16:9 stream (VGA, downscaled) unless --camera-resolution says otherwise.
+ZED_DEFAULT_STREAM = {"width": 640, "height": 360, "fps": 30}
 EXTRA_CAMERA_NAME = "front"
 # Panda datasheet joint limits (rad); their midpoints are the GELLO wrap centres when the yaml sets none.
 PANDA_JOINT_LIMITS = (
@@ -717,16 +722,17 @@ def _ask_cameras(
     prompt: Prompter, answers: Answers, probe: StationProbe, context: _ArmContext, config: RobotConfig, taken: _Taken
 ) -> list[CameraConfig]:
     serials = [camera.serial for camera in probe.cameras]
+    backends = {camera.serial: camera.backend for camera in probe.cameras}
     prior_cameras = list(config.cameras) if context.prior is not None else []
     stream_settings = _camera_stream_settings(prompt, answers, context)
     if serials:
-        prompt.echo("realsense cameras:")
+        prompt.echo("cameras:")
         for number, camera in enumerate(probe.cameras, start=1):
             used = "  (used by another arm)" if camera.serial in taken.camera_serials else ""
             line = f" ({camera.product_line})" if camera.product_line else ""
-            prompt.echo(f"  {number}) {camera.serial}{line}{used}")
+            prompt.echo(f"  {number}) {camera.backend}: {camera.serial}{line}{used}")
     else:
-        prompt.echo("no RealSense camera found (an unprobed serial needs --allow-unprobed)")
+        prompt.echo("no camera found (an unprobed serial needs --allow-unprobed)")
 
     def parse_cameras(text: str) -> list[CameraConfig]:
         if text.strip().lower() == NONE:
@@ -754,7 +760,7 @@ def _ask_cameras(
             if name in names_here or name in taken.camera_names:
                 raise ValueError(f"camera name {name!r} is used twice")
             names_here.add(name)
-            cameras.append(_camera_config(serial, name, prior_cameras, stream_settings))
+            cameras.append(_camera_config(serial, name, prior_cameras, stream_settings, backends.get(serial)))
         return cameras
 
     return prompt.answer(
@@ -787,14 +793,30 @@ def _camera_stream_settings(prompt: Prompter, answers: Answers, context: _ArmCon
 
 
 def _camera_config(
-    serial: str, name: str, prior_cameras: Sequence[CameraConfig], stream_settings: Mapping[str, Any]
+    serial: str,
+    name: str,
+    prior_cameras: Sequence[CameraConfig],
+    stream_settings: Mapping[str, Any],
+    backend: str | None = None,
 ) -> CameraConfig:
     """The ``--station`` camera with this serial (or, for an empty serial, this name), renamed; else a
-    default ``CameraConfig``. The camera flags override either."""
+    ``CameraConfig`` of the probed ``backend`` (default realsense) with its default stream. The camera
+    flags override either."""
     for camera in prior_cameras:
         if (serial and camera.serial == serial) or (not serial and not camera.serial and camera.name == name):
-            return dataclasses.replace(camera, name=name, **stream_settings)
-    return CameraConfig(name=name, serial=serial, **stream_settings)
+            return _checked_camera(dataclasses.replace(camera, name=name, **stream_settings))
+    defaults = dict(ZED_DEFAULT_STREAM) if backend in ZED_BACKENDS else {}
+    defaults.update(stream_settings)
+    return _checked_camera(CameraConfig(name=name, serial=serial, **({"backend": backend} if backend else {}), **defaults))
+
+
+def _checked_camera(camera: CameraConfig) -> CameraConfig:
+    """Reject a stream a ZED cannot deliver now rather than when the camera opens."""
+    if camera.backend in ZED_BACKENDS:
+        select_mode(camera)
+        if camera.backend == "zed_uvc" and camera.enable_depth:
+            raise ValueError(f"camera {camera.name}: zed_uvc has no depth; use the zed backend (ZED SDK) for depth")
+    return camera
 
 
 def _suggested_cameras(serials: Sequence[str], context: _ArmContext, taken: _Taken) -> str:

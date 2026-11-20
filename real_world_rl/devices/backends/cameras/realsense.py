@@ -25,6 +25,15 @@ class _Handle:
 @Camera.register("realsense")
 class RealSenseCamera(Camera):
     SDK = "pyrealsense2"
+    PIP_EXTRA = "realsense"
+    PIP_REQUIREMENTS = ("pyrealsense2",)
+    SYSTEM_LIBRARIES = (("usb-1.0", "libusb-1.0-0"), ("udev", "libudev1"))
+    USB_KIND = "realsense"
+    USB_KIND_TITLE = "RealSense"
+
+    @classmethod
+    def usb_matches(cls, vendor: int, product: int, product_name: str) -> bool:
+        return vendor == 0x8086 and "realsense" in product_name.lower()
 
     @classmethod
     def discover(cls) -> set[str]:
@@ -36,6 +45,21 @@ class RealSenseCamera(Camera):
             device.get_info(rs.camera_info.serial_number)
             for device in rs.context().query_devices()
         }
+
+    @classmethod
+    def describe(cls) -> dict[str, str]:
+        try:
+            rs = importlib.import_module(cls.SDK)
+            lines = {}
+            for device in rs.context().query_devices():
+                serial = device.get_info(rs.camera_info.serial_number)
+                try:
+                    lines[serial] = str(device.get_info(rs.camera_info.product_line))
+                except Exception:
+                    lines[serial] = ""
+            return lines
+        except Exception:
+            return {}
 
     def _open_device(self) -> _Handle:
         rs = self.require_sdk()

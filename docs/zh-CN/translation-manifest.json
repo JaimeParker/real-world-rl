@@ -79,7 +79,7 @@
     {
       "source": "docs/tutorial/02-setup.md",
       "translation": "docs/zh-CN/tutorial/02-setup.md",
-      "source_sha256": "9f382267f94239f4d3fa2518863e1b333e5ad39c5245731fe93b3126be484e11"
+      "source_sha256": "a705833dd5eecdb48174db6dede29c02a473e39cfd29e7be6cff34695d54645f"
     },
     {
       "source": "docs/tutorial/03-franka-bringup.md",
@@ -134,7 +134,7 @@
     {
       "source": "docs/devices.md",
       "translation": "docs/zh-CN/devices.md",
-      "source_sha256": "ba97ea9f8b1356825b667fb14456e53d475dcf2ea6343443e70277805725e554"
+      "source_sha256": "e96210116df612c6a8bc6c7217cf69cb2dd4e4635dbddc9a552782e324dbe4f4"
     },
     {
       "source": "rl-garden/rl_garden/models/act/README.md",
@@ -189,7 +189,7 @@
     {
       "source": "docs/doctor.md",
       "translation": "docs/zh-CN/doctor.md",
-      "source_sha256": "bf43888e5dc5aa7d21fe05a9c2d9f1c669a74484de6be7a8c114245aa8db6961"
+      "source_sha256": "798a39028d470b05ee51ef8398587668e892c849716844cb3317cf91b97b06df"
     },
     {
       "source": "docs/intervening.md",

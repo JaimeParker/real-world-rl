@@ -263,7 +263,7 @@ def test_camera_check_messages_with_unset_serial(monkeypatch, sdk_backed_fakes):
 
     monkeypatch.setattr(FakeCamera, "discover", classmethod(lambda cls: set()))
     none_found = camera_result()
-    assert not none_found.ok and none_found.message == "no RealSense device found (serial unset)"
+    assert not none_found.ok and none_found.message == "no fake camera found (serial unset)"
     monkeypatch.setattr(FakeCamera, "discover", classmethod(lambda cls: {"A1", "B2"}))
     several = camera_result()
     assert several.message == "serial unset and 2 devices attached; set serial to one of ['A1', 'B2']"

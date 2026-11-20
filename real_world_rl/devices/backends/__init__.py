@@ -8,6 +8,8 @@ from real_world_rl.teleop.spacemouse import backend as _spacemouse_teleop  # noq
 from real_world_rl.teleop.gello import backend as _gello_teleop  # noqa: F401  (SDK import is lazy)
 from real_world_rl.teleop.pico import backend as _pico_teleop  # noqa: F401  (SDK import is lazy)
 from real_world_rl.devices.backends.cameras import realsense as _realsense_camera  # noqa: F401  (SDK import is lazy)
+from real_world_rl.devices.backends.cameras import zed as _zed_camera  # noqa: F401  (SDK import is lazy)
+from real_world_rl.devices.backends.cameras import zed_uvc as _zed_uvc_camera  # noqa: F401  (SDK import is lazy)
 from real_world_rl.devices.backends.arms import franky as _franky_arm  # noqa: F401  (SDK import is lazy)
 from real_world_rl.devices.backends.grippers import franky as _franky_gripper  # noqa: F401
 from real_world_rl.devices.backends.arms import serl_http as _serl_http_arm  # noqa: F401

@@ -107,6 +107,7 @@ def process_owners(paths=(), proc: Path = Path("/proc")) -> list[str]:
                 "/hid.cpython-",
                 "/hidraw.cpython-",
                 "/pyrealsense2/",
+                "/pyzed/",
             )
         )
         if control or loaded_sdk:

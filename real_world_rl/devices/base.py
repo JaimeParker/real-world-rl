@@ -25,6 +25,8 @@ class Health:
 
 class Connection(ABC):
     SDK: ClassVar[str | None] = None
+    #: How to install ``SDK`` when ``pip install <SDK>`` is not the way (e.g. a vendor installer).
+    SDK_INSTALL_HINT: ClassVar[str] = ""
 
     def __init__(self, name: str, *, owner: "Connection | None" = None) -> None:
         self.name = name
@@ -41,7 +43,7 @@ class Connection(ABC):
         except ImportError:
             raise SdkMissing(
                 f"{cls.__name__} needs the '{cls.SDK}' package",
-                hint=f"pip install {cls.SDK}",
+                hint=cls.SDK_INSTALL_HINT or f"pip install {cls.SDK}",
                 device=cls.__name__,
             ) from None
 

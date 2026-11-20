@@ -24,6 +24,9 @@ SDK_TABLE = {
     "gello": ("dynamixel_sdk", ["dynamixel-sdk>=3.7.31,<3.9"]),
     "gello-events": ("evdev", ["evdev"]),
     "realsense": ("pyrealsense2", ["pyrealsense2"]),
+    # The ZED backends (camera declarations): the SDK one has no pip extra.
+    "zed-sdk": ("pyzed.sl", []),
+    "zed-uvc": ("cv2", ["opencv-python-headless"]),
     "grpc": ("grpc", ["grpcio>=1.60"]),
     "jpeg": ("cv2", ["pillow", "opencv-python-headless"]),
     "pico": ("zmq", ["pyzmq"]),

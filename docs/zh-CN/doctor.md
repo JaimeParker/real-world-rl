@@ -102,13 +102,13 @@ Result: unresolved failures / blocked checks / pending user actions
 | `host.platform`, `host.python`, `host.tools` | 平台；解释器是否为项目 venv 或非 base conda 环境；诊断工具 |
 | `deps.<distribution>`, `deps.<distribution>.source`, `sdk.<extra>` | 项目及预期设备 Python 依赖与版本约束；SDK 导入 |
 | `system.library.<name>` | libusb、libudev 等共享库 |
-| `usb.discovery`, `usb.<kind>`, `usb.spacemouse.table`, `usb.spacemouse.unknown.<vid>:<pid>` | 可见 USB、SpaceMouse/RealSense 访问及 udev 规则、SpaceMouse 设备表 |
+| `usb.discovery`, `usb.<kind>`, `usb.spacemouse.table`, `usb.spacemouse.unknown.<vid>:<pid>` | 可见 USB、SpaceMouse/RealSense/ZED 访问及 udev 规则、SpaceMouse 设备表 |
 | `gello.<n>`, `gello.<n>.group`, `gello.<n>.events`, `gello.<n>.latency`, `gello.<n>.brltty`, `gello.candidates` | 已调试 GELLO 串口/事件访问、用户组、FTDI 延迟、brltty 冲突；未配置串口适配器仅为候选 |
 | `network.route.<ip>` | 到各机器人地址的路由 |
 | `realtime.kernel`, `realtime.limits` | PREEMPT_RT 内核和实时限制（可能需要内核操作时显示 `MAJOR CHANGE / DOUBLE CHECK`；不执行修改） |
 | `configuration.*` | 站点加载；旧于 0.1.0 的站点名称产生 `configuration.legacy.*` WARN 并附迁移命令 |
 | `station` | 未配置站点时 `SKIPPED` |
-| `read.<kind>`, `coverage.<kind>` | 未配置 SpaceMouse/RealSense 的 SDK 读取；未配置也未识别的种类为 `SKIPPED` |
+| `read.<kind>`, `coverage.<kind>` | 未配置 SpaceMouse/RealSense/ZED 的 SDK 读取（ZED 用已安装的后端，`zed` 优先于 `zed_uvc`）；未配置也未识别的种类为 `SKIPPED` |
 | `sdk.franky.conflict` | 需要不同 franky wheel 的机器人 |
 
 <a id="device-rows"></a>
@@ -132,7 +132,7 @@ Result: unresolved failures / blocked checks / pending user actions
 
 ### 预期设备
 
-站点和预设决定预期设备。已配置设备缺失为 `BLOCKED`；未配置且未识别为 `SKIPPED`，不算可用。识别的 SpaceMouse 和 RealSense USB 也独立检查。
+站点和预设决定预期设备。已配置设备缺失为 `BLOCKED`；未配置且未识别为 `SKIPPED`，不算可用。识别的 SpaceMouse、RealSense 和 ZED USB 也独立检查。
 
 只有持有硬件连接的进程算占用者：守护进程、录制器、actor、deploy 入口、`setup`、连接原语（`status`、`q`、`tcp`、`home`、`gripper`、`camera`、`stop`、`recover`）、`teleop run/read/calibrate/diagnose/probe-hid`、`workspace capture` 和学习命令。离线命令（`--help`、`workspace show/set/validate/frame`、`teleop profiles`、`teleop inspect-stop`、`archive inspect`）不会令 doctor 报告 `BLOCKED`。
 
@@ -300,7 +300,7 @@ echo 1 | sudo tee "/sys/bus/usb-serial/devices/$GELLO_TTY/latency_timer"
 |---|---|---|
 | `<robot>.os:camera:<name>` FAIL `camera '<name>' serial '<s>' not found`, hint `set serial; discovered: [...]` | 序列号错误或未插相机 | 从 `rwrl discover` 复制序列号；多相机时必须设 `serial` |
 | `<robot>.feedback:camera:<name>` FAIL `no frames within 2s` | USB 2 端口/线缆、共享集线器、缺 udev 规则 | USB 3 端口及线缆、librealsense udev 规则；重连后 `rwrl status` |
-| `<robot>.sdk:camera:<name>` FAIL | 缺 `pyrealsense2` | `python -m pip install -e '.[realsense]'` |
+| `<robot>.sdk:camera:<name>` FAIL | 缺 `pyrealsense2`；`backend: zed` 缺 `pyzed`；`zed_uvc` 缺 `cv2` | `python -m pip install -e '.[realsense]'`；ZED：先装 ZED SDK，再运行 `python /usr/local/zed/get_python_api.py`；`zed_uvc`：`python -m pip install -e '.[zed-uvc]'` |
 
 <a id="spacemouse-and-hid"></a>
 
@@ -358,7 +358,7 @@ doctor 按 0–5 顺序运行六层（`teleop:` 在第 0、1、2、4 层增加�
 
 | 层 | 检查 | 说明 |
 |---|---|---|
-| 0 `deps` | 各后端 pip 扩展（`franky`、`pyagxarm`、`piper-sdk`、`realsense`、`spacemouse`、`gello`，gello `event_device` 另需 `gello-events`），机器人 yaml 含 `daemon:` 时另需 `grpc`。FAIL `missing extras for this station: franky, gello`，提示 `pip install -e '.[franky,gello]' (from the repository root)`；OK `extras ok: franky, gello, grpc`。无 `daemon:`（单进程路径）缺 `grpc` 仅 WARN `optional, not installed: grpc (daemon route)`；缺 `jpeg` 仅提及 | `--mock` 模拟后端无需扩展，永不要求 grpc |
+| 0 `deps` | 各后端 pip 扩展（`franky`、`pyagxarm`、`piper-sdk`、`realsense`、`zed-uvc`、`spacemouse`、`gello`，gello `event_device` 另需 `gello-events`；`backend: zed` 的 `zed-sdk` 即 ZED SDK 的 `pyzed`，其提示指向 ZED 安装程序而非 pip），机器人 yaml 含 `daemon:` 时另需 `grpc`。FAIL `missing extras for this station: franky, gello`，提示 `pip install -e '.[franky,gello]' (from the repository root)`；OK `extras ok: franky, gello, grpc`。无 `daemon:`（单进程路径）缺 `grpc` 仅 WARN `optional, not installed: grpc (daemon route)`；缺 `jpeg` 仅提及 | `--mock` 模拟后端无需扩展，永不要求 grpc |
 | 1 `sdk` | 各后端名可解析且 SDK 可导入（`sdk:arm`、`sdk:gripper`、`sdk:camera:<name>`、`sdk:teleop:<backend>`） | 未知后端跳过第 3–5 层 |
 | 2 `os` | ping `robot_ip` 及 1337 端口（参考）；CAN 存在/启动/比特率；相机序列号连接；`os:teleop:<name>`（发现对应后端设备）；`os:hid`（存在可读写 `/dev/hidraw*`，仅 SpaceMouse）；`os:serial`（gello `port` 存在且可读写；`rwrl doctor --fix` 提供 `setfacl -m u:<user>:rw -- <port>`，重插失效）；`os:groups`（会话属于 gello 端口 `dialout` 及 `event_device` 的 `input`）；`os:brltty`（brltty 会占用 CH340）；`os:latency_timer`（FTDI `latency_timer` 为 1 ms） | 配置字段驱动；无需 SDK 的模拟后端跳过；不运行 sudo |
 | 3 `handshake` | 获取设备占用声明（除非 `claim: false`），再 `robot.connect()` | 失败（含声明被占）跳过第 4–5 层 |
@@ -408,7 +408,7 @@ PASS           franka.sdk:camera:wrist: 'pyrealsense2' importable
 FAIL           franka.os:ping: 172.16.0.2 does not reply
     hint: check: robot powered on and brakes released; Desk reachable at https://172.16.0.2/desk; you hold control in Desk; FCI activated (Desk → Activate FCI); cable on the Control port; firewall allows UDP
 PASS           franka.os:tcp: port 1337 closed (informational)
-FAIL           franka.os:camera:wrist: no RealSense device found (serial unset)
+FAIL           franka.os:camera:wrist: no realsense camera found (serial unset)
     hint: plug in the camera and run `rwrl discover`
 FAIL           franka.handshake: FrankyArm needs the 'franky' package
     hint: pip install franky-control (or, from the repository root: pip install -e '.[franky]')
@@ -478,7 +478,7 @@ FAIL           piper.handshake: CAN interface 'can0' not found
 | Piper 无法使能（电源、急停） | `handshake` FAIL `Piper on 'can0' did not enable within 5s`, hint `check that the arm is powered, that 'can0' is up at 1000000 bit/s, and that its emergency stop is released` | 通电、释放急停、重试。连接后 `mode:piper_status` 显示状态。 |
 | 无 CAN 反馈（主臂/示教模式） | `handshake` FAIL `... enabled but sent no joint feedback within 2s`, or `mode:follower` FAIL `no joint feedback`; hint `no CAN feedback: the arm may be in master/teach mode; switch it to follower (slave) mode and power-cycle` | 切换从臂 (slave) 模式，重新上电。 |
 | Piper 固件配置错误 (pyagxarm) | `handshake` FAIL `firmware probe ... failed` / `cannot map Piper firmware ...`, hint `set firmware_profile explicitly (default\|v183\|v188\|v189) in the robot config` | 在 yaml 设置 `firmware_profile`。 |
-| 相机序列号未找到 | `os:camera:<name>` FAIL `camera '<name>' serial '<s>' not found`, hint `set serial; discovered: [...]`（未设 `serial` 时：`no RealSense device found (serial unset)` or `serial unset and N devices attached; set serial to one of [...]`）；`handshake` FAIL `RealSense serial '<s>' for camera '<name>' not attached` | 从 `rwrl discover` 复制序列号。多相机必须设 `serial`。 |
+| 相机序列号未找到 | `os:camera:<name>` FAIL `camera '<name>' serial '<s>' not found`, hint `set serial; discovered: [...]`（未设 `serial` 时：`no <backend> camera found (serial unset)` or `serial unset and N devices attached; set serial to one of [...]`）；`handshake` FAIL `RealSense serial '<s>' for camera '<name>' not attached` | 从 `rwrl discover` 复制序列号。多相机必须设 `serial`。 |
 | 相机无帧 | `feedback:camera:<name>` FAIL `no frames within 2s`, hint `check USB 3 bandwidth; try another port; rerun rwrl status after reconnecting the camera`; or `RealSense '<s>' failed to start`, hint `check the USB 3 cable/port and udev rules (librealsense scripts/setup_udev_rules.sh)` | 用 USB 3 端口和线缆，避免多相机共享集线器；装 librealsense udev，重连后 `rwrl status`。 |
 | 守护进程不可达 | 客户端 `TransportError: robot daemon unreachable at <addr>` | 启动守护进程，检查 `--bind`、地址、防火墙。 |
 | 令牌不匹配 | 客户端 `TransportError: token mismatch`, hint `pass the same --token to the daemon and the remote config` | 两端用相同令牌。 |

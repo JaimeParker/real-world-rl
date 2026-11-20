@@ -47,6 +47,9 @@
 
 `train`、`record`、`deploy`、`collect-reward` 调用训练、示范、部署、奖励采集入口。参数（含 `--help`）属于对应入口，原样透传；`rwrl train --help` 显示训练解析器。全局 `--preset PATH` 前置 `--config PATH`；两者同时给出为用法错误。全局 `--station`、`--robot`、`--direct`、`--mock`、`--json`、`--yes` 不适用，返回 2。控制台脚本、模块入口、示例脚本仍可用。
 
+`deploy-openpi` 在 GPU 主机评估 WebSocket 策略，并通过守护进程访问机器人。真机部署
+需要 `learning`、`openpi-client` 和 `grpc` 扩展。见 [openpi 部署指南](deploy-openpi.md)。
+
 <a id="connection-ownership"></a>
 
 ## 连接归属
@@ -114,7 +117,7 @@ Franka FCI 仅允许一个控制连接。直连时先结束录制器或 actor，
 | `workspace frame show` / `frame set` | 站点 `task_frame`（[详情](#workspace-frame-set)） | 0 / 1 / 2 |
 | `archive inspect ARCHIVE` | 离线读录制器 SQLite 归档（[详情](#archive-inspect)） | 0；带 `--stop-time-s`：0 PASS / 3 FAIL / 4 BLOCKED；2 |
 
-**学习：** `train`、`record`、`deploy`、`collect-reward`（[上文](#learning-commands)）。
+**学习：** `train`、`record`、`deploy`、`deploy-openpi`、`collect-reward`（[上文](#learning-commands)）。
 
 <a id="command-details"></a>
 

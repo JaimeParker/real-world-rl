@@ -4,7 +4,7 @@
     {
       "source": "docs/README.md",
       "translation": "docs/zh-CN/README.md",
-      "source_sha256": "b17be7e2abbe8f64358e089ab2509b1ca05455e00a90c95cccc78612d0909ee0"
+      "source_sha256": "417d53888525952a64b2d7037fcf7f30808ae668aed3fc2fa7bdd6323442c9bc"
     },
     {
       "source": "docs/bimanual.md",
@@ -14,7 +14,7 @@
     {
       "source": "docs/cli.md",
       "translation": "docs/zh-CN/cli.md",
-      "source_sha256": "aa494ac5c9b5f5e4ce1946dbd2a85c00c8f03fd96b3798c9f21390d94478abe2"
+      "source_sha256": "a0878f1ad16ed2a0a9bc49c5977d69602dae5222262c6250e4705386dff7dc0d"
     },
     {
       "source": "docs/gello.md",
@@ -129,7 +129,7 @@
     {
       "source": "README.md",
       "translation": "docs/zh-CN/project-readme.md",
-      "source_sha256": "29708c605af8f47af5bf1ad957a6904a5697d91c8c14e64a60b3f10cb4546e07"
+      "source_sha256": "769712de4f4eb1d0e080bb7dcbe1fa862dd7c0521de50b54bf80571473ac683f"
     },
     {
       "source": "docs/devices.md",
@@ -184,7 +184,7 @@
     {
       "source": "docs/daemon.md",
       "translation": "docs/zh-CN/daemon.md",
-      "source_sha256": "b88ff03aad13116acc982e2bbb6ea760183e8c9f3fdaec6694ddf74a48011a50"
+      "source_sha256": "e829436b0a0fc1ef979f8011e4642016fada6bf9b9fb219d4856d3fed8cdbc63"
     },
     {
       "source": "docs/doctor.md",

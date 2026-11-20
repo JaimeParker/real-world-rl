@@ -2,6 +2,8 @@
 
 **Documentation:** [English](docs/README.md) · [中文文档入口](docs/README.zh-CN.md)
 
+For GPU-hosted Pi0.5 evaluation, see [Deploy with an openpi policy server](docs/deploy-openpi.md).
+
 **Start here:** the [hardware tutorial](docs/tutorial/00-overview.md) takes one Franka arm
 with a GELLO leader from an empty NUC to a deployed policy, one `rwrl` command at a time:
 [install](docs/tutorial/01-install.md), [set up the station](docs/tutorial/02-setup.md),

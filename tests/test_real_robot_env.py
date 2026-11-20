@@ -75,9 +75,9 @@ class _Rig:
         name = "send_action" if self.mode == "local" else "step"
         original = getattr(self.robot, name)
 
-        def spy(action):
+        def spy(action, **kwargs):
             sent.append(action)
-            return original(action)
+            return original(action, **kwargs)
 
         monkeypatch.setattr(self.robot, name, spy)
         return sent
@@ -194,9 +194,9 @@ def test_serl_gripper_sleep_precedes_pose_send(rig, serl_clock, monkeypatch):
         serl_clock.events.append(("gripper", open, force))
         grip(open, force=force)
 
-    def read():
+    def read(**kwargs):
         serl_clock.events.append(("read",))
-        return observe()
+        return observe(**kwargs)
 
     monkeypatch.setattr(rig.robot, "send_action", send_pose)
     monkeypatch.setattr(rig.robot.gripper, "command_binary", send_gripper)
@@ -1435,5 +1435,23 @@ def test_active_exception_event_records_type(tmp_path):
         assert rows[-1]['phase'] == 'FAULT'
         assert rows[-1]['reason'] == 'active_exception:LookupError'
         assert rows[-2]['reason'] == 'active_exception:LookupError'
+    finally:
+        rig.close()
+
+
+@pytest.mark.parametrize("capable, enabled", [(True, True), (False, True), (True, False)])
+def test_remote_env_preprocess_negotiation(capable, enabled):
+    rig = _Rig("remote")
+    if not capable:
+        description = rig.service.dispatch("robot.describe")
+        description.pop("frame_preprocess_v1")
+        rig.service._methods["robot.describe"] = lambda: description
+        rig.service._methods["robot.get_observation"] = lambda: rig.device_robot.get_observation()
+    try:
+        env = rig.env(image_size=(6, 8), remote_preprocess=enabled,
+                      preprocess={"wrist": {"source_resolution": [24, 32], "roi": [1, 3, 12, 18]}})
+        observation, _ = env.reset()
+        assert observation["frames"]["wrist"].shape == (6, 8, 3)
+        assert bool(env._last_raw.get("frames_preprocessed")) == (capable and enabled)
     finally:
         rig.close()

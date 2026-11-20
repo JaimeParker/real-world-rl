@@ -512,15 +512,36 @@ class RemoteRobot(Robot):
             return f"{self.name} (remote @ {self.config.address}) — not connected"
         return super().describe_text()
 
-    def get_observation(self) -> dict[str, np.ndarray]:
+    def _frame_kwargs(self, request):
+        if request is None:
+            return {}
+        if not request:
+            return {"frame_preprocess": request} if self._handle.get("frame_preprocess_v1") else {}
+        capabilities = {
+            "pil_bilinear": "frame_preprocess_v1",
+            "cv2_linear": "frame_preprocess_cv2_v1",
+        }
+        negotiated = {}
+        for name, camera in request.items():
+            options = dict(camera["config"])
+            resize = options.get("resize", "pil_bilinear")
+            if not self._handle.get(capabilities.get(resize)):
+                # The response marks preprocessing for all cameras together.
+                return {}
+            if resize == "pil_bilinear":
+                options.pop("resize", None)
+            negotiated[name] = {**camera, "config": options}
+        return {"frame_preprocess": negotiated}
+
+    def get_observation(self, *, frame_preprocess=None) -> dict[str, np.ndarray]:
         """One round trip instead of one per part."""
         self._require_connected()
-        return self._client.call("robot.get_observation")
+        return self._client.call("robot.get_observation", **self._frame_kwargs(frame_preprocess))
 
-    def step(self, action: dict) -> dict:
+    def step(self, action: dict, *, frame_preprocess=None) -> dict:
         """Send ``action`` and return the next observation in one round trip."""
         self._require_connected()
-        return self._client.call("robot.step", action=action)
+        return self._client.call("robot.step", action=action, **self._frame_kwargs(frame_preprocess))
 
     def remote_health(self) -> dict:
         self._require_connected()

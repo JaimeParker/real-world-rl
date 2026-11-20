@@ -31,6 +31,19 @@ rwrl daemon --station robot.yaml --bind 0.0.0.0:50051 --token T --watchdog-s 0.5
 
 `--jpeg-quality N`（daemon **和**所有客户端均须在仓库根目录的项目环境安装 `pip install -e '.[jpeg]'`，需要 Pillow 或 OpenCV）将各相机 `color` 图像以 JPEG 代替原始字节发送，以降低 WiFi 带宽。它是**有损**的 daemon 全局设置：仅压缩 `color`，`depth` 和其他字段保持原始格式，客户端解码回 `uint8 (H, W, 3)` 数组。因此策略看到压缩像素，**训练与部署应使用相同值**（或都不启用）。`robot.describe` 通过顶层 `image_encoding`（如 `{"jpeg": 80}`，原始格式为 `null`）报告此值，客户端可读 `robot.cameras["wrist"].image_encoding`。客户端缺少 Pillow/OpenCV 时，`connect()` 抛出 `SdkMissing: JPEG frames need Pillow or OpenCV`（提示 `pip install -e '.[jpeg]' (from the repository root)`）。
 
+<a id="camera-frame-preprocessing"></a>
+
+通过 SSH 隧道从机器人 NUC 向 GPU 服务器传输图像时，可将 `real_robot.image_size` 设为所需
+帧尺寸（高、宽）。启用守护进程端预处理时，守护进程只返回已配置的图像流，先按 ROI 裁切，
+再缩放，最后按需进行 JPEG 编码。`robot.describe` 以 `frame_preprocess_v1` 声明支持
+Pillow 双线性缩放，以 `frame_preprocess_cv2_v1` 声明支持 OpenCV `INTER_LINEAR`。
+守护进程安装 `jpeg` 扩展即可使用两种后端。守护进程声明支持所请求的全部后端时，客户端
+才会请求远程预处理。若守护进程版本较旧、缺少所需后端，或配置
+`real_robot.remote_preprocess: false`，则由客户端预处理原始尺寸的帧。
+
+深度图使用所选后端的最近邻缩放，两端采用相同的无效值处理和限幅。若需同一源帧在两端的
+像素逐位一致，请使用原始帧传输及相同构建版本的缩放库。
+
 Daemon 与客户端来自同一仓库；应**先升级客户端，再升级 daemon**。新 daemon 的 `arm.health` 多了 `safety_clips`、`safety_rejects` 两字段，升级前客户端无法解析；启用 `--jpeg-quality` 也需客户端支持 JPEG 解码。JPEG 支持之前的客户端无法解码帧（其具体错误未经检查）。
 
 执行过程：

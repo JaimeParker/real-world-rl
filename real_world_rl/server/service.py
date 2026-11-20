@@ -15,6 +15,7 @@ from real_world_rl.devices.base import PartGroup
 from real_world_rl.devices.claims import DeviceClaim, claim_key
 from real_world_rl.devices.errors import DeviceFault, DeviceNotFound, SdkMissing
 from real_world_rl.devices.gripper import Gripper
+from real_world_rl.devices.preprocess import CameraPreprocessConfig, preprocess_frame
 from real_world_rl.devices.robot import Robot
 from real_world_rl.server.codec import encode_jpeg
 
@@ -58,6 +59,22 @@ METHODS = (
     TELEOP_RESET_METHOD,
 )
 _WATCHDOG_JOIN_TIMEOUT_S = 2.0
+
+
+def _supports_frame_preprocess() -> bool:
+    try:
+        from PIL.Image import Resampling  # noqa: F401 (required by preprocess_frame)
+    except ImportError:
+        return False
+    return True
+
+
+def _supports_cv2_frame_preprocess() -> bool:
+    try:
+        from cv2 import INTER_LINEAR, INTER_NEAREST, resize  # noqa: F401
+    except ImportError:
+        return False
+    return True
 
 
 def _require_jpeg_backend() -> None:
@@ -202,6 +219,8 @@ class RobotService:
             "cameras": {name: dataclasses.asdict(camera.config) for name, camera in robot.cameras.items()},
             # Daemon-global, kept out of the per-camera dicts: older clients unpack those as CameraConfig.
             "image_encoding": self._image_encoding(),
+            "frame_preprocess_v1": _supports_frame_preprocess(),
+            "frame_preprocess_cv2_v1": _supports_cv2_frame_preprocess(),
             "teleop": self._describe_teleop(),
         }
 
@@ -250,8 +269,8 @@ class RobotService:
             "last_action_age_s": self.last_action_age_s,
         }
 
-    def _get_observation(self) -> dict:
-        return self._wire_observation(self.robot.get_observation())
+    def _get_observation(self, frame_preprocess=None) -> dict:
+        return self._wire_observation(self.robot.get_observation(), frame_preprocess)
 
     def _send_action(self, action: dict) -> None:
         with self._lock:
@@ -259,9 +278,9 @@ class RobotService:
             self.robot.send_action(action)
             self._mark_action()
 
-    def _step(self, action: dict) -> dict:
+    def _step(self, action: dict, frame_preprocess=None) -> dict:
         self._send_action(action)
-        return self._wire_observation(self.robot.get_observation())
+        return self._get_observation(frame_preprocess)
 
     # -- arm.* ---------------------------------------------------------------
 
@@ -395,15 +414,32 @@ class RobotService:
     def _wire_color(self, color: np.ndarray) -> Any:
         return color if self.jpeg_quality is None else encode_jpeg(color, self.jpeg_quality)
 
-    def _wire_observation(self, observation: dict) -> dict:
-        """JPEG-encode each camera's color (depth and other keys untouched); runs outside ``_lock``."""
-        if self.jpeg_quality is None or "cameras" not in observation:
+    def _wire_observation(self, observation: dict, frame_preprocess: dict | None = None) -> dict:
+        """Apply the requested per-camera transforms before encoding color."""
+        if frame_preprocess is None and self.jpeg_quality is None:
             return observation
-        cameras = {
-            name: {**fields, "color": self._wire_color(fields["color"])}
-            for name, fields in observation["cameras"].items()
-        }
-        return {**observation, "cameras": cameras}
+        if "cameras" not in observation:
+            return observation
+        cameras = {}
+        for name, fields in observation["cameras"].items():
+            if frame_preprocess is None:
+                cameras[name] = {**fields, "color": self._wire_color(fields["color"])}
+                continue
+            if name not in frame_preprocess:
+                continue
+            request = frame_preprocess[name]
+            config = CameraPreprocessConfig(**request["config"])
+            size = request["size"]
+            camera = {}
+            if request["color"]:
+                camera["color"] = self._wire_color(preprocess_frame(fields["color"], config, size))
+            if request["depth"] and fields.get("depth") is not None:
+                camera["depth"] = preprocess_frame(fields["depth"], config, size, depth=True)
+            cameras[name] = camera
+        result = {**observation, "cameras": cameras}
+        if frame_preprocess is not None:
+            result["frames_preprocessed"] = True
+        return result
 
     # -- teleop.<name>.* -----------------------------------------------------
     # Not under ``_lock`` and not ``_mark_action``: reading the operator never blocks arm

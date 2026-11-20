@@ -242,6 +242,37 @@ def test_rgb_depth_crop_geometry_interpolation_units_and_invalid_zero():
         preprocess_frame(rgb[:2],config,(4,6))
 
 
+@pytest.mark.parametrize("region", [None, (0.13, 0.24, 0.83, 0.91)])
+@pytest.mark.parametrize("depth", [False, True])
+def test_cv2_crop_and_resize_matches_rlinf(region, depth):
+    try:
+        import cv2
+    except ImportError as error:
+        pytest.skip(f"OpenCV unavailable: {error}")
+
+    # Reference: RLinf rlinf/envs/real/franka/base.py, _crop_frame and _frames_from.
+    height, width = 37, 64
+    rng = np.random.default_rng(0)
+    frame = (rng.uniform(0.1, 1.0, (height, width)).astype(np.float32) if depth
+             else rng.integers(0, 256, (height, width, 3), dtype=np.uint8))
+    if region is not None:
+        top, left, bottom, right = region
+        y1, y2 = int(height * top), int(height * bottom)
+        x1, x2 = int(width * left), int(width * right)
+        cropped = frame[y1:y2, x1:x2]
+    else:
+        side = min(height, width)
+        y, x = (height - side) // 2, (width - side) // 2
+        cropped = frame[y:y + side, x:x + side]
+    interpolation = cv2.INTER_NEAREST if depth else cv2.INTER_LINEAR
+    expected = cv2.resize(cropped, (17, 13), interpolation=interpolation)
+    config = CameraPreprocessConfig(
+        resize="cv2_linear", crop_region=region or "center_square",
+    ).for_source(height, width)
+    actual = preprocess_frame(frame, config, (13, 17), depth=depth)
+    np.testing.assert_array_equal(actual, expected[..., None] if depth else expected)
+
+
 def test_contract_hash_roundtrip_and_legacy_novel_features_rejected():
     env = apply_experiment_contract(RealRobotVectorEnv(single(TaskConfig(name="pick_and_place"))))
     try:

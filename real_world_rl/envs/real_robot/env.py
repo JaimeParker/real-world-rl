@@ -91,6 +91,8 @@ class RealRobotEnv(gym.Env):
         self.render_mode = "rgb_array"
 
         self._frame_sizes = {cam: self._frame_size(cam) for cam in config.capture_cameras}
+        self._camera_preprocess: dict[str, CameraPreprocessConfig] = {}
+        self._frame_kwargs = {}
         num_joints = config.num_joints
         state_space = spaces.Dict(
             [
@@ -141,6 +143,8 @@ class RealRobotEnv(gym.Env):
         if self.config.image_size is not None:
             return self.config.image_size
         preprocessing = self.config.preprocess.get(cam)
+        if preprocessing is not None and preprocessing.crop_region is not None:
+            raise ValueError(f"camera {cam} crop_region requires image_size")
         if preprocessing is not None and preprocessing.roi is not None:
             return tuple(preprocessing.roi[2:])
         camera_configs = {c.name: c for c in getattr(self.robot.config, "cameras", [])}
@@ -150,6 +154,31 @@ class RealRobotEnv(gym.Env):
                 "add it there or set image_size"
             )
         return camera_configs[cam].height, camera_configs[cam].width
+
+    def _configure_camera_preprocess(self) -> None:
+        config = self.config
+        self._camera_preprocess = {}
+        for name in self._frame_sizes:
+            preprocessing = config.preprocess.get(name, CameraPreprocessConfig())
+            if preprocessing.crop_region is not None:
+                camera = self.robot.cameras[name].config
+                preprocessing = preprocessing.for_source(camera.height, camera.width)
+            self._camera_preprocess[name] = preprocessing
+
+        self._frame_kwargs = {}
+        if config.remote and config.remote_preprocess and config.image_size:
+            from real_world_rl.server import RemoteRobot
+
+            if isinstance(self.robot, RemoteRobot):
+                self._frame_kwargs["frame_preprocess"] = {
+                    name: {
+                        "size": size,
+                        "config": self._camera_preprocess[name].as_options(),
+                        "color": name in config.cameras,
+                        "depth": name in config.depth_cameras,
+                    }
+                    for name, size in self._frame_sizes.items()
+                }
 
     def _requested_spatial_contract(self):
         from real_world_rl.devices.workspace import spatial_contract
@@ -205,6 +234,11 @@ class RealRobotEnv(gym.Env):
             )
         if config.gripper_in_action and robot.gripper is None:
             raise fault("robot has no gripper", "set gripper_in_action=False")
+        if config.cartesian_semantics == "rlinf":
+            from real_world_rl.devices.gripper import GripperMode
+
+            if robot.gripper.mode != GripperMode.BINARY:
+                raise fault("RLinf actions require a binary gripper", "set gripper.mode to binary on the station")
         unknown_cams = [cam for cam in config.capture_cameras if cam not in robot.cameras]
         if unknown_cams:
             raise fault(
@@ -214,6 +248,7 @@ class RealRobotEnv(gym.Env):
         for camera in config.depth_cameras:
             if not getattr(robot.cameras[camera].config, "enable_depth", False):
                 raise ValueError(f"camera {camera} depth is requested but disabled on the station")
+        self._configure_camera_preprocess()
         if self._report_paths.stop_trace and "stop_trace_v1" not in getattr(arm, "safety_capabilities", ()):
             raise fault("robot does not support stop_trace_v1", "upgrade the daemon/backend for stop evidence")
         self._merge_device_safety(arm, fault)
@@ -313,9 +348,9 @@ class RealRobotEnv(gym.Env):
         """One command + observation; a single round trip on a ``RemoteRobot``."""
         step = getattr(self.robot, "step", None)
         if step is not None:
-            return step(action)
+            return step(action, **self._frame_kwargs)
         self.robot.send_action(action)
-        return self.robot.get_observation()
+        return self.robot.get_observation(**self._frame_kwargs)
 
     # -- gym API ---------------------------------------------------------------------
 
@@ -390,12 +425,12 @@ class RealRobotEnv(gym.Env):
         if self._expected_control_metadata is not None and self._control_metadata != self._expected_control_metadata:
             raise ValueError("effective control/SDK metadata differs from the saved experiment")
         if self.config.preprocess or self.config.depth_cameras:
-            self._observe(self.robot.get_observation())
+            self._observe(self.robot.get_observation(**self._frame_kwargs))
 
     def _reset_finish(self):
         from real_world_rl.devices.arm import ControlMode
         self.robot.arm.set_control_mode(ControlMode.CARTESIAN_SERVO if self.config.action_mode == "cartesian_delta" else ControlMode.JOINT_SERVO)
-        raw = self.robot.get_observation()
+        raw = self.robot.get_observation(**self._frame_kwargs)
         self._elapsed_steps = 0
         self._diagnostic_reset_index += 1
         self._pending_teleop_diagnostics = None
@@ -436,9 +471,22 @@ class RealRobotEnv(gym.Env):
         input_action = action.copy()
         action = np.clip(action, -1.0, 1.0)
 
-        command: dict[str, Any] = {"arm": self._arm_command(action)}
-        if self.config.gripper_in_action:
-            command["gripper"] = {"gripper": np.array([(action[-1] + 1.0) / 2.0])}
+        arm_command = self._arm_command(action)
+        if self.config.cartesian_semantics == "rlinf":
+            from real_world_rl.envs.rlinf_cartesian import gripper_target
+
+            width = float(np.asarray(self._last_raw["gripper"]["gripper_pos"]).item())
+            target = gripper_target(
+                float(action[-1]), width_m=width * self.robot.gripper.max_width_m,
+                scale=self.config.gripper_action_scale, threshold=self.config.rlinf_gripper_threshold,
+            )
+            # Like RLinf, issue any gripper change before the arm motion.
+            command = {} if target is None else {"gripper": {"gripper": np.array([target])}}
+            command["arm"] = arm_command
+        else:
+            command = {"arm": arm_command}
+            if self.config.gripper_in_action:
+                command["gripper"] = {"gripper": np.array([(action[-1] + 1.0) / 2.0])}
 
         if self._last_send_time is not None:
             remaining = self._period_s - (time.monotonic() - self._last_send_time)
@@ -517,7 +565,7 @@ class RealRobotEnv(gym.Env):
             self._record_command_failure(input_action, requested_pose, pose, error)
             raise
         time.sleep(max(0.0, self._period_s - (time.monotonic() - start)))
-        raw = self.robot.get_observation()
+        raw = self.robot.get_observation(**self._frame_kwargs)
         if self._diagnostic_stream is not None:
             self._record_control_diagnostic(input_action, requested_pose, pose, raw)
         self._check_in_step_watchdog()
@@ -616,16 +664,20 @@ class RealRobotEnv(gym.Env):
             from scipy.spatial.transform import Rotation
 
             pose = np.asarray(arm_state["tcp_pose"], dtype=np.float64)
-            xyz = pose[:3] + action[:3] * config.xyz_scale_m
-            requested_xyz = xyz.copy()
+            if config.cartesian_semantics == "rlinf":
+                from real_world_rl.envs.rlinf_cartesian import target_pose
+
+                target = target_pose(pose, action, config.xyz_scale_m, config.rot_scale_rad)
+            else:
+                xyz = pose[:3] + action[:3] * config.xyz_scale_m
+                rotation = Rotation.from_rotvec(action[3:6] * config.rot_scale_rad) * Rotation.from_quat(
+                    pose[3:7]
+                )
+                target = np.concatenate([xyz, rotation.as_quat()])
+            self._diagnostic_requested_pose = target.copy()
             if self._effective_safety_box is not None:
                 box = self._effective_safety_box
-                xyz = np.clip(xyz, box[:3], box[3:])
-            rotation = Rotation.from_rotvec(action[3:6] * config.rot_scale_rad) * Rotation.from_quat(
-                pose[3:7]
-            )
-            self._diagnostic_requested_pose = np.concatenate([requested_xyz, rotation.as_quat()])
-            target = np.concatenate([xyz, rotation.as_quat()])
+                target[:3] = np.clip(target[:3], box[:3], box[3:])
             if self._measured_workspace is not None:
                 target = self._measured_workspace.clip_pose(target)
             return {"tcp_pose": target}
@@ -652,15 +704,19 @@ class RealRobotEnv(gym.Env):
             state[field] = np.asarray(source[field], dtype=np.float32).reshape(
                 self.observation_space["state"][field].shape
             )
+        processed = raw.get("frames_preprocessed", False)
         frames, depth_frames = {}, {}
         for cam, size in self._frame_sizes.items():
-            preprocessing = self.config.preprocess.get(cam, CameraPreprocessConfig())
+            preprocessing = self._camera_preprocess[cam]
             if cam in self.config.cameras:
-                frames[cam] = preprocess_frame(raw["cameras"][cam]["color"], preprocessing, size)
+                color = raw["cameras"][cam]["color"]
+                frames[cam] = (np.require(color, requirements=["C", "W"]) if processed
+                               else preprocess_frame(color, preprocessing, size))
             if cam in self.config.depth_cameras:
                 depth = raw["cameras"][cam].get("depth")
                 if depth is None: raise ValueError(f"camera {cam} returned no requested depth")
-                depth_frames[cam] = preprocess_frame(depth, preprocessing, size, depth=True)
+                depth_frames[cam] = (depth if processed
+                                     else preprocess_frame(depth, preprocessing, size, depth=True))
         self._last_obs = {"state": state, "frames": frames}
         if depth_frames: self._last_obs["depth_frames"] = depth_frames
         return self._last_obs
@@ -711,7 +767,7 @@ class RealRobotEnv(gym.Env):
                 "max_episode_steps": self.config.max_episode_steps, "reset_settle_s": self.config.reset_settle_s,
                 "cameras": self.config.cameras, "depth_cameras": self.config.depth_cameras,
                 "image_size": self.config.image_size,
-                "preprocess": {name: dataclasses.asdict(value) for name, value in self.config.preprocess.items()},
+                "preprocess": {name: value.as_options() for name, value in self.config.preprocess.items()},
                 **self._serl_experiment(),
                 **({"spatial_constraints": self._spatial_contract} if self._spatial_contract else {})}
 
@@ -773,7 +829,7 @@ class RealRobotEnv(gym.Env):
 
     def session_observe(self):
         """Fresh post-gate observation, without a step or reset."""
-        return self._observe(self.robot.get_observation())
+        return self._observe(self.robot.get_observation(**self._frame_kwargs))
 
     def session_event(self, phase, reason):
         if phase == "STOPPING":

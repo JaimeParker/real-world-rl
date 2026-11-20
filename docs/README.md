@@ -34,6 +34,7 @@ Beside the robot while recording and training: the
 - [SpaceMouse commissioning: profiles, task-frame workspace, sessions](spacemouse-commissioning.md)
 - [Device layer: station files, backends, safety rules](devices.md)
 - [Robot daemon: serving, RemoteRobot and supervision](daemon.md)
+- [Evaluate Pi0.5 with an openpi policy server](deploy-openpi.md)
 - [Arm control profiles](control-profiles.md): station gains, backend capabilities and
   effective settings
 - [`examples/presets/hil_single_arm.yaml`](../examples/presets/hil_single_arm.yaml): the

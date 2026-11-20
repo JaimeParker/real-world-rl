@@ -36,6 +36,7 @@
 - [SpaceMouse 调试：档案、任务工作空间、会话](spacemouse-commissioning.md)
 - [设备层：工作站文件、后端、安全规则](devices.md)
 - [机器人守护进程：服务、RemoteRobot 与进程监督](daemon.md)
+- [通过 openpi 策略服务评估 Pi0.5](deploy-openpi.md)
 - [机械臂控制配置](control-profiles.md)：工作站增益、后端能力与生效设置
 - [`examples/presets/hil_single_arm.yaml`](../../examples/presets/hil_single_arm.yaml)：单臂环境预设
 - [仓库 README](project-readme.md#running-on-hardware)：动作约定、安全限制、部署、示范约定附属文件、fake 端到端演练

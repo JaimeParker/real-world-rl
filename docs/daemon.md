@@ -45,6 +45,21 @@ when raw) and as `robot.cameras["wrist"].image_encoding` on the client. A client
 Pillow/OpenCV fails at `connect()` with `SdkMissing: JPEG frames need Pillow or OpenCV`
 (hint `pip install -e '.[jpeg]' (from the repository root)`).
 
+<a id="camera-frame-preprocessing"></a>
+
+Across an SSH tunnel from a robot NUC to a GPU server, set `real_robot.image_size` to the
+required frame size (height, width). With daemon-side preprocessing, the daemon returns only the
+configured streams. It crops each requested ROI and resizes before optional JPEG encoding.
+`robot.describe` advertises `frame_preprocess_v1` for Pillow bilinear resize and
+`frame_preprocess_cv2_v1` for OpenCV `INTER_LINEAR`. Install the `jpeg` extra on the daemon
+to make both backends available. The client requests offload only when the daemon advertises
+every requested backend. With an older daemon, an unavailable backend or
+`real_robot.remote_preprocess: false`, the client preprocesses the native-sized frames.
+
+Depth uses nearest-neighbor resize in the selected backend, with the same invalid-value handling
+and clipping in both paths. For bit-identical pixels from the same source, use raw transport
+and matching resize library builds.
+
 Daemon and client ship from the same repo; upgrade the **client first, then the daemon**. A new
 daemon's `arm.health` carries two extra fields (`safety_clips`, `safety_rejects`) that a
 pre-upgrade client cannot parse, and enabling `--jpeg-quality` needs a client that can decode

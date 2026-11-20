@@ -57,6 +57,10 @@ Global `--preset PATH` prepends `--config PATH`; giving both is a usage error. G
 `--station`, `--robot`, `--direct`, `--mock`, `--json` and `--yes` are inapplicable and return
 exit code 2. The console scripts, module entrypoints and example scripts remain available.
 
+`deploy-openpi` evaluates a websocket policy on the GPU host and reaches the robot through
+the daemon. It uses the `learning`, `openpi-client` and `grpc` extras for live deployment.
+See the [openpi deployment guide](deploy-openpi.md).
+
 ## Connection ownership
 
 If the selected station robot declares `daemon:`, `rwrl` probes its bind port with a 0.5-second
@@ -134,7 +138,7 @@ the child.
 | `workspace frame show` / `frame set` | the station `task_frame` ([details](#workspace-frame-set)) | 0 / 1 / 2 |
 | `archive inspect ARCHIVE` | read a recorder SQLite archive offline ([details](#archive-inspect)) | 0; with `--stop-time-s`: 0 PASS / 3 FAIL / 4 BLOCKED; 2 |
 
-**Learning:** `train`, `record`, `deploy`, `collect-reward` ([above](#learning-commands)).
+**Learning:** `train`, `record`, `deploy`, `deploy-openpi`, `collect-reward` ([above](#learning-commands)).
 
 ### Command details
 

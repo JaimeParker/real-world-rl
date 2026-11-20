@@ -50,6 +50,7 @@ def test_extras():
         "franky": ["franky-control"],
         "piper-sdk": ["piper_sdk"],
         "grpc": ["grpcio>=1.60"],
+        "openpi-client": ["websockets>=13"],
         "jpeg": ["pillow", "opencv-python-headless"],
         "spacemouse": ["hidapi==0.14.0.post4"],
         "gello": ["dynamixel-sdk>=3.7.31,<3.9"],

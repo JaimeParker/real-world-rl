@@ -36,6 +36,7 @@ Franka + Hand + NUC + GELLO：从空白 NUC 到部署策略。录制与 HIL acto
 - [SpaceMouse 调试：档案、任务工作空间、会话](zh-CN/spacemouse-commissioning.md)
 - [设备层：工作站文件、后端、安全规则](zh-CN/devices.md)
 - [机器人守护进程：服务、RemoteRobot 与进程监督](zh-CN/daemon.md)
+- [通过 openpi 策略服务评估 Pi0.5](zh-CN/deploy-openpi.md)
 - [机械臂控制配置](zh-CN/control-profiles.md)：工作站增益、后端能力与生效设置
 - [`examples/presets/hil_single_arm.yaml`](../examples/presets/hil_single_arm.yaml)：单臂环境预设
 - [仓库 README](zh-CN/project-readme.md#running-on-hardware)：动作约定、安全限制、部署、示范约定附属文件、fake 端到端演练

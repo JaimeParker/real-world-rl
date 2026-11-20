@@ -39,12 +39,15 @@ FRAME = textured_frame()
 def fixed_frames(tmp_path, monkeypatch):
     monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
 
+    depth_frame = np.full((HEIGHT, WIDTH), 0.5, dtype=np.float32)
+
     def capture(self, handle):
         time.sleep(1.0 / self._config.fps)
-        depth = np.full((HEIGHT, WIDTH), 0.5, dtype=np.float32) if self._config.enable_depth else None
+        depth = depth_frame.copy() if self._config.enable_depth else None
         return Frame(color=FRAME.copy(), depth=depth, timestamp=123.0)
 
     monkeypatch.setattr(FakeCamera, "_capture_frame", capture)
+    return depth_frame
 
 
 def make_robot(enable_depth: bool = False) -> FrankaRobot:
@@ -221,3 +224,113 @@ def test_client_without_jpeg_libraries_fails_at_connect(make_service, monkeypatc
     with pytest.raises(SdkMissing) as info:
         remote.connect()
     assert "[jpeg]" in info.value.hint
+
+
+@pytest.mark.parametrize("quality", [None, 85])
+def test_negotiated_frame_preprocessing(make_service, fixed_frames, quality):
+    from real_world_rl.devices.preprocess import CameraPreprocessConfig, preprocess_frame
+    from real_world_rl.server.codec import encode_jpeg
+
+    fixed_frames[:] = FRAME[..., 0] / 128.0
+    fixed_frames[::3] = np.nan
+    service = make_service(jpeg_quality=quality, enable_depth=True)
+    remote = RemoteRobot.from_client(LocalClient(service))
+    remote.connect()
+    config = dict(source_resolution=[HEIGHT, WIDTH], roi=[7, 11, 51, 81], depth_clip_m=[0.1, 0.4])
+    size = (13, 19)
+    request = {"wrist": dict(size=size, config=config, color=True, depth=True)}
+    try:
+        native = remote.get_observation()
+        result = remote.get_observation(frame_preprocess=request)
+        assert result["frames_preprocessed"]
+        camera = result["cameras"]["wrist"]
+        preprocessing = CameraPreprocessConfig(**config)
+        expected = preprocess_frame(FRAME, preprocessing, size)
+        if quality is not None:
+            expected = unpack(pack(encode_jpeg(expected, quality)))
+        np.testing.assert_array_equal(camera["color"], expected)
+        depth = native["cameras"]["wrist"]["depth"]
+        np.testing.assert_array_equal(camera["depth"], preprocess_frame(depth, preprocessing, size, depth=True))
+        service.dispatch("arm.set_control_mode", {"mode": "joint_servo"})
+        stepped = remote.step(ACTION, frame_preprocess=request)
+        np.testing.assert_array_equal(stepped["cameras"]["wrist"]["color"], expected)
+        if quality is None:
+            assert len(pack(result)) < len(pack(native)) / 4
+    finally:
+        remote.disconnect()
+
+
+def test_cv2_advertisement_requires_opencv(make_service, monkeypatch):
+    service = make_service()
+    monkeypatch.setitem(sys.modules, "cv2", None)
+    description = service.dispatch("robot.describe")
+    assert description["frame_preprocess_v1"]
+    assert not description["frame_preprocess_cv2_v1"]
+
+
+@pytest.mark.parametrize("cv2_support", ["supported", "unsupported", "legacy", "cv2_only"])
+def test_cv2_env_negotiation_and_exact_fallback(make_service, fixed_frames, cv2_support):
+    from real_world_rl.devices.preprocess import CameraPreprocessConfig, preprocess_frame
+    from real_world_rl.envs.real_robot import RealRobotEnv, RealRobotEnvConfig
+
+    try:
+        import cv2  # noqa: F401
+    except ImportError as error:
+        pytest.skip(f"OpenCV unavailable: {error}")
+
+    fixed_frames[:] = FRAME[..., 0] / 128.0
+    fixed_frames[::3] = np.nan
+    service = make_service(enable_depth=True)
+    description = service.dispatch("robot.describe")
+    assert description["frame_preprocess_cv2_v1"]
+    if cv2_support == "legacy":
+        description.pop("frame_preprocess_cv2_v1")
+    elif cv2_support == "unsupported":
+        description["frame_preprocess_cv2_v1"] = False
+    elif cv2_support == "cv2_only":
+        description["frame_preprocess_v1"] = False
+    service._methods["robot.describe"] = lambda: description
+    negotiated = cv2_support in ("supported", "cv2_only")
+
+    # Validate both paths against equivalent client preprocessing of the same source.
+    size = (13, 17)
+    region = (0.13, 0.24, 0.83, 0.91)
+    preprocessing = CameraPreprocessConfig(resize="cv2_linear", crop_region=region)
+    env = RealRobotEnv(
+        RealRobotEnvConfig(
+            remote="local", home_joints=[0] * 7, reset_settle_s=0, image_size=size,
+            cameras=["wrist"], depth_cameras=["wrist"], preprocess={"wrist": preprocessing},
+        ),
+        robot=RemoteRobot.from_client(LocalClient(service)),
+    )
+    try:
+        observation, _ = env.reset()
+        assert bool(env._last_raw.get("frames_preprocessed")) == negotiated
+        native_or_processed = env._last_raw["cameras"]["wrist"]["color"]
+        assert native_or_processed.shape[:2] == (size if negotiated else (HEIGHT, WIDTH))
+        resolved = preprocessing.for_source(HEIGHT, WIDTH)
+        np.testing.assert_array_equal(observation["frames"]["wrist"], preprocess_frame(FRAME, resolved, size))
+        np.testing.assert_array_equal(
+            observation["depth_frames"]["wrist"], preprocess_frame(fixed_frames, resolved, size, depth=True),
+        )
+        request = env._frame_kwargs["frame_preprocess"]["wrist"]["config"]
+        assert request["roi"] == [12, 30, 67, 86]
+        assert request["source_resolution"] == [HEIGHT, WIDTH]
+        assert request["resize"] == "cv2_linear" and "crop_region" not in request
+    finally:
+        env.close()
+
+
+def test_pil_request_keeps_original_daemon_wire_config(make_service):
+    service = make_service()
+    description = service.dispatch("robot.describe")
+    description.pop("frame_preprocess_cv2_v1")
+    service._methods["robot.describe"] = lambda: description
+    remote = RemoteRobot.from_client(LocalClient(service))
+    remote.connect()
+    try:
+        request = {"wrist": dict(size=(7, 9), config={"resize": "pil_bilinear"}, color=True, depth=False)}
+        assert remote._frame_kwargs(request)["frame_preprocess"]["wrist"]["config"] == {}
+        assert remote.get_observation(frame_preprocess=request)["frames_preprocessed"]
+    finally:
+        remote.disconnect()

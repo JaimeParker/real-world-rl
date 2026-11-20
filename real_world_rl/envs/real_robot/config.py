@@ -67,15 +67,18 @@ class RealRobotEnvConfig:
     # than this many seconds between env steps calls arm.stop() once and the next step raises.
     # None = off. Must exceed one control period. Not part of the experiment contract.
     watchdog_s: Optional[float] = None
-    cartesian_semantics: Literal["current", "serl"] = "current"
+    cartesian_semantics: Literal["current", "serl", "rlinf"] = "current"
     safety_box_rpy_low: Optional[list[float]] = None
     safety_box_rpy_high: Optional[list[float]] = None
     gripper_action_scale: float = 1.0
     gripper_sleep_s: float = 0.6
+    # RLinf threshold in scaled action units. Gripper feedback is in normalized width.
+    rlinf_gripper_threshold: float = 0.5
+    remote_preprocess: bool = True
 
     def __post_init__(self) -> None:
-        if self.cartesian_semantics not in ("current", "serl"):
-            raise ValueError("cartesian_semantics must be 'current' or 'serl'")
+        if self.cartesian_semantics not in ("current", "serl", "rlinf"):
+            raise ValueError("cartesian_semantics must be 'current', 'serl' or 'rlinf'")
         if self.cartesian_semantics == "serl":
             from real_world_rl.envs.serl_cartesian import validate_serl_config
 
@@ -89,6 +92,12 @@ class RealRobotEnvConfig:
                 gripper_sleep_s=self.gripper_sleep_s, control_hz=self.control_hz,
             )
         from real_world_rl.tasks.config import finite
+        if self.cartesian_semantics == "rlinf":
+            if self.action_mode != "cartesian_delta" or not self.gripper_in_action:
+                raise ValueError("rlinf cartesian_semantics requires cartesian_delta and gripper_in_action")
+            finite([self.gripper_action_scale, self.rlinf_gripper_threshold], "RLinf gripper scale/threshold")
+            if self.gripper_action_scale < 0 or self.rlinf_gripper_threshold <= 0:
+                raise ValueError("RLinf gripper scale must be nonnegative and threshold positive")
         finite([self.control_hz, self.xyz_scale_m, self.rot_scale_rad,
                 self.joint_scale_rad, self.reset_settle_s], "control frequency/scales/reset")
         if min(self.xyz_scale_m, self.rot_scale_rad, self.joint_scale_rad) < 0:

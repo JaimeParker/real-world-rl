@@ -17,7 +17,10 @@ from real_world_rl.cli.errors import CliError, USAGE_EXIT_CODE
 
 ROOT = Path(__file__).resolve().parents[1]
 # Learning-side subpackages of real_world_rl that the device layer must never import.
-LEARNING_SUBPACKAGES = ("envs", "loops", "training", "policies", "algorithms", "buffers", "demos", "reward", "deploy")
+LEARNING_SUBPACKAGES = (
+    "envs", "loops", "training", "policies", "algorithms", "buffers", "demos", "reward",
+    "deploy", "deploy_openpi", "openpi_profiles",
+)
 # The torch-free device layer inside real_world_rl, and the legacy code kept beside it.
 DEVICE_LAYER_PACKAGES = ("devices", "server", "discovery", "setup", "supervise", "doctor", "legacy")
 # The teleop files on the device path: the package root, the source contract and registry, and the
@@ -94,7 +97,9 @@ def test_mock_doctor_runs_without_learning_packages(tmp_path):
     assert json.loads(result.stdout)["status"] == "PASS"
 
 
-@pytest.mark.parametrize("argv", [["train", "--help"], ["archive", "inspect", "missing.sqlite"]])
+@pytest.mark.parametrize("argv", [
+    ["train", "--help"], ["deploy-openpi", "--help"], ["archive", "inspect", "missing.sqlite"],
+])
 def test_learning_commands_report_the_learning_extra(argv):
     result = run_without_learning("from real_world_rl.cli import main\nraise SystemExit(main(sys.argv[1:]))", *argv)
     assert result.returncode == USAGE_EXIT_CODE, result.stderr

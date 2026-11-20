@@ -14,7 +14,7 @@
     {
       "source": "docs/cli.md",
       "translation": "docs/zh-CN/cli.md",
-      "source_sha256": "fd0e0f1d2c73397bbfb8b2dff9eba1cddfff0558df337a58ca793d468b963519"
+      "source_sha256": "4a7eeaea07f35db3714c61b398c53b9008f3d7c64661e124ec6a6916fc94026c"
     },
     {
       "source": "docs/deploy-openpi.md",
@@ -129,12 +129,12 @@
     {
       "source": "docs/tutorial/11-deploy.md",
       "translation": "docs/zh-CN/tutorial/11-deploy.md",
-      "source_sha256": "9d2a159aefd13a410acd8e695e0cd1839e0bef8307735c4421d2d0ce5f046370"
+      "source_sha256": "90ce31abddd2200b9020c4c77df0063dd2381f8b8bfbc51a514dad09a56084af"
     },
     {
       "source": "README.md",
       "translation": "docs/zh-CN/project-readme.md",
-      "source_sha256": "f212bc0638d44e0f6a929ca92e98fde966d6936e300c0b8ea13fff4530c4ae70"
+      "source_sha256": "8be0f0fdd80a07f8cecb0696954a7a913800a1df21151d4c35c86f7dea320f89"
     },
     {
       "source": "docs/devices.md",

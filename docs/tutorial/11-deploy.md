@@ -33,7 +33,7 @@ active**, unless stated otherwise.
 Deploy reads the saved training configuration; it does not take the training `--config` flag.
 `--config-path` locates a moved `config.json`. Keep the effective settings from
 `local/gello_cartesian.yaml` used in [08](08-record-demos.md) and [10](10-hil-training.md).
-ACT runs through a residual checkpoint.
+For standalone ACT, use `rwrl deploy-act` with the recording preset and demonstration contract; see the [deployment tutorial](../../site/deploy.md). Residual bundles use the sequence below.
 
 ## 2. Run without operator takeover
 

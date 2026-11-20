@@ -47,6 +47,8 @@
 
 `train`、`record`、`deploy`、`collect-reward` 调用训练、示范、部署、奖励采集入口。参数（含 `--help`）属于对应入口，原样透传；`rwrl train --help` 显示训练解析器。全局 `--preset PATH` 前置 `--config PATH`；两者同时给出为用法错误。全局 `--station`、`--robot`、`--direct`、`--mock`、`--json`、`--yes` 不适用，返回 2。控制台脚本、模块入口、示例脚本仍可用。
 
+`deploy-act` 使用录制配置和示范契约，独立运行 ACT checkpoint。见[部署与推理](../../site/deploy.md)。
+
 `deploy-openpi` 在 GPU 主机评估 WebSocket 策略，并通过守护进程访问机器人。真机部署
 需要 `learning`、`openpi-client` 和 `grpc` 扩展。见 [openpi 部署指南](deploy-openpi.md)。
 

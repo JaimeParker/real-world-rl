@@ -592,10 +592,9 @@ def _env_device(obs: Any) -> torch.device:
 
 
 def _run_episode(args: DeployArgs, env: Any, policy: Any, device: torch.device, seed, *, failed_outcomes=None) -> EpisodeResult:
-    from real_world_rl.policies.base_provider import ResidualPolicyWithBase
-
-    if isinstance(policy, ResidualPolicyWithBase):
-        policy.reset_episode()
+    reset_policy = getattr(policy, "reset_episode", None)
+    if reset_policy is not None:
+        reset_policy()
     obs, _ = env.reset(seed=seed)
     from real_world_rl.contracts.outcomes import EpisodeOutcomeAccumulator
 

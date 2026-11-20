@@ -1,6 +1,6 @@
 # real-world-rl
 
-**文档：** [English](../README.md) · [中文文档入口](../README.zh-CN.md)
+**文档：** [English](../README.md) · [中文文档入口](../README.zh-CN.md) · [中文操作教程](../../site/index.rst)
 
 在 GPU 主机上评估 Pi0.5，请参阅 [openpi 策略部署](deploy-openpi.md)。
 

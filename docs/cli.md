@@ -57,6 +57,8 @@ Global `--preset PATH` prepends `--config PATH`; giving both is a usage error. G
 `--station`, `--robot`, `--direct`, `--mock`, `--json` and `--yes` are inapplicable and return
 exit code 2. The console scripts, module entrypoints and example scripts remain available.
 
+`deploy-act` runs a standalone ACT checkpoint with the recording preset and demonstration contract sidecar. See the [deployment tutorial](../site/deploy.md).
+
 `deploy-openpi` evaluates a websocket policy on the GPU host and reaches the robot through
 the daemon. It uses the `learning`, `openpi-client` and `grpc` extras for live deployment.
 See the [openpi deployment guide](deploy-openpi.md).

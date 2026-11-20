@@ -2,11 +2,14 @@
 
 # real-world-rl 中文文档入口
 
+[中文操作教程](../site/index.rst)：安装、遥操作和真机数据采集、用 ACT 做行为克隆、部署与推理、真机强化学习。
+
 [完整中文文档索引](zh-CN/README.md) — 全部文档的完整中文译文、阅读顺序与操作速查。
 
 <a id="tutorial"></a>
 
 ## 教程
+[安装与初验](../site/install.md) · [遥操作和真机数据采集](../site/collect.md) · [BC 与 ACT](../site/bc.md) · [部署与推理](../site/deploy.md) · [π0.5](../site/openpi.md) · [真机强化学习](../site/rl.md)
 
 Franka + Hand + NUC + GELLO：从空白 NUC 到部署策略。录制与 HIL actor 直接在 NUC 运行，按 00–11 顺序阅读。
 

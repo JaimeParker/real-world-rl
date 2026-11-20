@@ -30,7 +30,7 @@
 | `residual_hil_serl` | `hybrid` 用 `residual_hil_serl_hybrid`，`continuous` 用 `residual_hil_serl` | 对应残差运行的 manifest 或 `.pt`；元数据提供基础提供器 |
 | `silri` | `silri` | `runs/silri-pick-and-place/checkpoints/bundle_manifest.json` or `.pt` |
 
-部署读取保存的训练配置，不接受训练 `--config`。`--config-path` 定位移动后的 `config.json`。保留 [08](08-record-demos.md)、[10](10-hil-training.md) 使用的 `local/gello_cartesian.yaml` 有效设置。ACT 通过残差检查点运行。
+部署读取保存的训练配置，不接受训练 `--config`。`--config-path` 定位移动后的 `config.json`。保留 [08](08-record-demos.md)、[10](10-hil-training.md) 使用的 `local/gello_cartesian.yaml` 有效设置。独立 ACT 使用 `rwrl deploy-act`、录制配置和示范契约，见[部署与推理](../../../site/deploy.md)。下文还给出 residual bundle 的用法。
 
 <a id="2-run-without-operator-takeover"></a>
 

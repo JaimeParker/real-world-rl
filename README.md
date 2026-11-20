@@ -1,6 +1,6 @@
 # real-world-rl
 
-**Documentation:** [English](docs/README.md) · [中文文档入口](docs/README.zh-CN.md)
+**Documentation:** [English](docs/README.md) · [中文文档入口](docs/README.zh-CN.md) · [中文操作教程](site/index.rst)
 
 For GPU-hosted Pi0.5 evaluation, see [Deploy with an openpi policy server](docs/deploy-openpi.md).
 

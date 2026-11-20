@@ -642,6 +642,14 @@ def test_residual_actor_runs_on_an_act_checkpoint_trained_from_the_demos(station
     assert checkpoint == workdir / "runs" / "act" / "checkpoints" / "final.pt"
     assert torch.load(checkpoint, map_location="cpu")["camera_keys"] == sorted(f"rgb_{cam}" for cam in CAMERAS)
 
+    from real_world_rl.cli import main
+    from real_world_rl.contracts.action import contract_sidecar_path
+
+    assert main(["deploy-act", *_env_flags(preset), "--teleop-onset", "arm",
+                 "--checkpoint", str(checkpoint), "--demo-contract", str(contract_sidecar_path(recorded_demos.path)),
+                 "--episodes", "2", "--max-steps-per-episode", "2"]) == 0
+    assert not station.robot_connected()
+
     _rows, provider = _run_residual_actor(preset, f"act:{checkpoint}?temporal_agg=1", station)
     assert provider.spec()["kind"] == "act"
     assert not station.robot_connected()

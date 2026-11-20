@@ -77,6 +77,7 @@ COMMANDS = [
     LearningCommand("train", "Train a real-world policy", "real_world_rl.training.__main__:main"),
     LearningCommand("record", "Record teleoperated demonstrations", "real_world_rl.demos.__main__:main"),
     LearningCommand("deploy", "Deploy a trained policy", "real_world_rl.deploy.checkpoint:main_cli"),
+    LearningCommand("deploy-act", "Deploy a standalone ACT policy", "real_world_rl.deploy.act:main_cli"),
     LearningCommand("deploy-openpi", "Evaluate a remote openpi policy", "real_world_rl.deploy.openpi.loop:main_cli"),
     LearningCommand("collect-reward", "Collect reward-classifier data", "real_world_rl.reward.collect_data:main_cli"),
 ]

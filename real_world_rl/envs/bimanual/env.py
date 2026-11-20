@@ -2,7 +2,7 @@
 
 Each arm is its own ``RealRobotEnv`` (a local device-layer robot or a daemon), built from
 ``BimanualRealRobotEnvConfig.arm_env_config``. The action follows the action-contract layout
-(``real_world_rl.action_contract``): ``[arm_0 block, arm_1 block, gripper_0, gripper_1]``
+(``real_world_rl.contracts.action``): ``[arm_0 block, arm_1 block, gripper_0, gripper_1]``
 in ``arm_names`` order, without the gripper dims when ``gripper_in_action`` is false. The
 observation is ``{"state": {"<arm>_<field>": float32}, "frames": {cam: uint8 HxWx3}}``: every
 state field carries its arm's name as a prefix, cameras keep their (unique) names.
@@ -27,7 +27,7 @@ import torch
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
 
-from real_world_rl.action_contract import (
+from real_world_rl.contracts.action import (
     action_dim_of,
     arm_block_slices,
     gripper_slice,

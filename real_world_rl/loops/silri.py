@@ -158,7 +158,7 @@ class SilriLearnerLoop(HilSerlLearnerLoop):
         return self.agent.onset_to_demo_buffer and bool(transition.get("intervention_onset", False))
 
     def _on_transition(self, transition: dict[str, Any]) -> None:
-        from real_world_rl.trajectory import training_projection
+        from real_world_rl.contracts.trajectory import training_projection
         transition = {**transition, **training_projection(transition)}
         to_demo = self._routes_to_demo(transition)
         actor_id = transition.get("actor_id")

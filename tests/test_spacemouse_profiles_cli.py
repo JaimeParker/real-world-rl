@@ -441,7 +441,7 @@ def test_record_and_training_normalization_freeze_profile_before_serialization(t
 def test_recalibration_is_provenance_and_saved_rotation_is_not_reloaded(tmp_path):
     from dataclasses import replace
     from rl_garden.common.effective_config import json_value
-    from real_world_rl.action_contract import compared_experiment
+    from real_world_rl.contracts.action import compared_experiment
     from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
     from real_world_rl.training.env_building import resolve_teleop_input, reward_sources_spec
     path = station(tmp_path)
@@ -523,7 +523,7 @@ def test_workspace_invalid_is_a_validation_result(tmp_path, capsys):
 
 
 def test_legacy_sidecar_input_rotation_is_not_a_compared_semantic():
-    from real_world_rl.action_contract import compared_experiment
+    from real_world_rl.contracts.action import compared_experiment
     control = {'version': 'spacemouse_serl_v1', 'mode': 'serl', 'motion_threshold': .001,
                'gripper': 'serl_buttons'}
     legacy = {**control, 'input_rotation': np.eye(3).tolist(),

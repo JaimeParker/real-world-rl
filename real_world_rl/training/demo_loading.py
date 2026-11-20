@@ -13,18 +13,18 @@ from typing import Any, Callable, Mapping, Sequence
 
 import torch
 
-from real_world_rl.action_contract import (
+from real_world_rl.contracts.action import (
     read_contract_sidecar,
     validate_transitions_against_contract,
 )
-from real_world_rl.trajectory import TRAINING_EXTRA_KEYS
+from real_world_rl.contracts.trajectory import TRAINING_EXTRA_KEYS
 
 _TRANSITION_TENSOR_KEYS = ("obs", "next_obs", "action", "reward", "done")
 
 
 def training_extras(transition: Mapping[str, Any], adder: Callable[..., None]) -> dict[str, Any]:
     """Project known training columns to the target buffer's declared interface."""
-    from real_world_rl.trajectory import training_projection
+    from real_world_rl.contracts.trajectory import training_projection
     transition = training_projection(transition)
     parameters = inspect.signature(adder).parameters
     accepts_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values())
@@ -70,7 +70,7 @@ def load_demo_pkls(
                 continue
             seen_paths.add(canonical)
             if pkl_path.endswith((".trajectory.pt", ".trajectory.sqlite3")):
-                from real_world_rl.trajectory import validate_record
+                from real_world_rl.contracts.trajectory import validate_record
                 archive_store = None
                 if pkl_path.endswith(".sqlite3"):
                     from real_world_rl.loops.durable import DurableStore, decode
@@ -131,7 +131,7 @@ def load_demo_pkls(
                 transition = dict(transition)
                 if "intervened" not in transition and "human_action_mask" not in transition:
                     transition["intervened"] = True
-                from real_world_rl.trajectory import training_projection
+                from real_world_rl.contracts.trajectory import training_projection
                 transition = training_projection(transition)
                 tensors = {
                     k: (v.to(device) if isinstance(v, torch.Tensor) else v)

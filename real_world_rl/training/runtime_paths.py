@@ -62,9 +62,9 @@ def cleanup_construction(env, *clients):
 
 
 def learner_experiment_kwargs(env, checkpoint_dir=None):
-    from real_world_rl.action_contract import experiment_contract_of, experiment_hash, effective_experiment_of
+    from real_world_rl.contracts.action import experiment_contract_of, experiment_hash, effective_experiment_of
     if checkpoint_dir is not None:
-        from real_world_rl.action_contract import save_experiment_metadata
+        from real_world_rl.contracts.action import save_experiment_metadata
         save_experiment_metadata(env, Path(checkpoint_dir).parent / "experiment.json")
     return dict(experiment_contract=experiment_contract_of(env), experiment_hash=experiment_hash(env),
                 effective_experiment=effective_experiment_of(env))

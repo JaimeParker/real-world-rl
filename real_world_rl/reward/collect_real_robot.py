@@ -30,7 +30,7 @@ from typing import Any, Callable, Literal, Optional, Sequence
 from rl_garden.common.cli_args import ObservationArgs
 from rl_garden.common.env_args import EnvBackendArgs, EnvRunArgs
 
-from real_world_rl.metrics import EpisodeMetrics, EpisodeOutcomeAccumulator
+from real_world_rl.contracts.outcomes import EpisodeMetrics, EpisodeOutcomeAccumulator
 
 from real_world_rl.envs.wrappers.teleop_event_reward import (
     FAILURE_EVENT,
@@ -109,7 +109,7 @@ def collect_classifier_frames(
     wrapper replaces with the operator's action while the operator intervenes. ``frames`` (new
     when ``None``) is filled in place, so a caller keeps what was collected when this raises.
     """
-    from real_world_rl.action_contract import (
+    from real_world_rl.contracts.action import (
         LEGACY_ACTION_CONTRACT,
         get_env_action_contract,
         num_grippers_of,

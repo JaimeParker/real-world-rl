@@ -18,7 +18,7 @@ from typing import Any, Mapping, Optional, Sequence
 import torch
 
 from rl_garden.algorithms.off_policy import OffPolicyAlgorithm
-from real_world_rl.action_contract import (
+from real_world_rl.contracts.action import (
     read_contract_sidecar,
     validate_transitions_against_contract,
     write_contract_sidecar,
@@ -142,7 +142,7 @@ class HilSerlActorLoop(ActorLoop):
         super().__init__(*args, **kwargs)
         self._episode_statistics = _EpisodeStatistics()
         self._episodes_ended = 0
-        from real_world_rl.metrics import EpisodeOutcomeAccumulator, EpisodeMetrics
+        from real_world_rl.contracts.outcomes import EpisodeOutcomeAccumulator, EpisodeMetrics
         self._outcome_accumulator = EpisodeOutcomeAccumulator()
         self._outcome_metrics = EpisodeMetrics()
         self._step_started_at: Optional[float] = None
@@ -197,7 +197,7 @@ class HilSerlActorLoop(ActorLoop):
 
     def _post_episode_statistics(self) -> None:
         finished = self._episode_statistics
-        from real_world_rl.metrics import EpisodeOutcomeAccumulator
+        from real_world_rl.contracts.outcomes import EpisodeOutcomeAccumulator
         terminated, truncated = getattr(self, "_last_outcome_flags", (False, False))
         outcome = self._outcome_accumulator.finish(terminated=terminated, truncated=truncated)
         self._outcome_metrics.add(outcome)
@@ -364,7 +364,7 @@ class HilSerlLearnerLoop(LearnerLoop):
 
     @staticmethod
     def _add_transition(adder, transition: dict[str, Any], device) -> None:
-        from real_world_rl.trajectory import training_projection
+        from real_world_rl.contracts.trajectory import training_projection
         transition = {**transition, **training_projection(transition)}
         tensors = {
             k: (v.to(device) if isinstance(v, torch.Tensor) else v)
@@ -417,7 +417,7 @@ class HilSerlLearnerLoop(LearnerLoop):
         return core, extra
 
     def _on_transition(self, transition: dict[str, Any]) -> None:
-        from real_world_rl.trajectory import training_projection
+        from real_world_rl.contracts.trajectory import training_projection
         transition = {**transition, **training_projection(transition)}
         intervened = bool(transition.get("intervened", False))
         actor_id = transition.get("actor_id")

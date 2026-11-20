@@ -17,9 +17,9 @@ from rl_garden.observations import ObservationConfig
 from real_world_rl.devices.teleop import TeleopConfig
 
 import real_world_rl.envs.backends.real_robot_bimanual  # noqa: F401  (registers the backend)
-from real_world_rl.action_contract import demo_contract_of
+from real_world_rl.contracts.action import demo_contract_of
 from real_world_rl.demos.record import save_demos
-from real_world_rl.deploy import (
+from real_world_rl.deploy.checkpoint import (
     DeployArgs,
     _gripper_count_kwargs,
     _resolve_build_agent,

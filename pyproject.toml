@@ -49,7 +49,7 @@ franky = ["franky-control"]
 piper-sdk = ["piper_sdk"]
 # server/transport/grpc_transport.py: the robot daemon gRPC transport.
 grpc = ["grpcio>=1.60"]
-# openpi_client.py: websocket connection to a GPU-hosted openpi policy server.
+# deploy/openpi/client.py: websocket connection to a GPU-hosted openpi policy server.
 openpi-client = ["websockets>=13"]
 # server/codec.py: lossy JPEG camera frames (daemon --jpeg-quality); needed on the daemon and the client.
 jpeg = ["pillow", "opencv-python-headless"]
@@ -82,7 +82,7 @@ test = ["pytest", "opencv-python-headless", "ipython", "torchvision", "grpcio>=1
 rwrl = "real_world_rl.cli:main"
 real-world-rl-train = "real_world_rl.training.__main__:main"
 real-world-rl-record = "real_world_rl.demos.__main__:main"
-real-world-rl-deploy = "real_world_rl.deploy:run_cli"
+real-world-rl-deploy = "real_world_rl.deploy.checkpoint:run_cli"
 real-world-rl-collect-reward = "real_world_rl.reward.collect_data:main"
 
 [project.entry-points."rlgarden.env_backends"]

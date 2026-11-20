@@ -60,7 +60,7 @@ from real_world_rl.teleop.spacemouse import (
 )
 from real_world_rl.devices.teleop import Teleop, TeleopConfig
 
-from real_world_rl.action_contract import LEGACY_ACTION_CONTRACT
+from real_world_rl.contracts.action import LEGACY_ACTION_CONTRACT
 from real_world_rl.teleop.core.contract import TeleopReading, TeleopSource, held_gripper_action
 from real_world_rl.teleop.core.targets.cartesian_driver import (
     CartesianTrackerDriver,

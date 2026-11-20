@@ -14,7 +14,7 @@ from real_world_rl.tasks.outcome import TaskOutcomeWrapper
 from real_world_rl.envs.real_robot import RealRobotEnv, RealRobotVectorEnv, RealRobotEnvConfig
 from real_world_rl.envs.bimanual import BimanualRealRobotEnv
 from real_world_rl.envs.real_robot.preprocess import CameraPreprocessConfig, preprocess_frame
-from real_world_rl.action_contract import (demo_contract_of, validate_transitions_against_contract,
+from real_world_rl.contracts.action import (demo_contract_of, validate_transitions_against_contract,
     experiment_contract_of, experiment_hash, validate_experiment)
 from real_world_rl.envs.wrappers.experiment import apply_experiment_contract
 
@@ -195,7 +195,7 @@ def test_parallel_manual_labels_require_both_arms_and_failure_veto():
     env.reset()
     _, _, terminated, _, info = env.step(None)
     assert info["task_success"] is None and not bool(terminated)
-    from real_world_rl.metrics import EpisodeOutcomeAccumulator
+    from real_world_rl.contracts.outcomes import EpisodeOutcomeAccumulator
     accumulated = EpisodeOutcomeAccumulator()
     accumulated.observe(info)
     assert accumulated.finish(truncated=True).task_success is None
@@ -213,7 +213,7 @@ def test_classifier_hold_two_real_wrapper_stack_and_dense_before_label():
     env.reset()
     _, reward, terminated, _, info = env.step(None)
     assert not bool(terminated) and float(reward) == -2
-    from real_world_rl.metrics import EpisodeOutcomeAccumulator
+    from real_world_rl.contracts.outcomes import EpisodeOutcomeAccumulator
     accumulated = EpisodeOutcomeAccumulator()
     accumulated.observe({**info, "teleop_events": {"success": True}})
     assert accumulated.finish(truncated=True).task_success is False
@@ -309,8 +309,8 @@ def test_train_record_deploy_rgb_depth_contract_roundtrip_and_early_rejection(tm
     from rl_garden.observations import ObservationConfig
     from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
     from real_world_rl.training.env_building import build_hil_env
-    from real_world_rl.deploy import DeployArgs, build_deploy_env
-    from real_world_rl.action_contract import save_experiment_metadata, read_contract_sidecar
+    from real_world_rl.deploy.checkpoint import DeployArgs, build_deploy_env
+    from real_world_rl.contracts.action import save_experiment_metadata, read_contract_sidecar
     from real_world_rl.demos.record import save_demos
     robot = {"type":"franka", "arm_backend":"fake", "claim":False,
              "gripper":{"backend":"fake"}, "cameras":[{"name":"wrist","backend":"fake",
@@ -344,7 +344,7 @@ def test_train_record_deploy_rgb_depth_contract_roundtrip_and_early_rejection(tm
 
 
 def test_effective_control_mismatch_rejected_before_home(monkeypatch):
-    from real_world_rl.action_contract import effective_experiment_of
+    from real_world_rl.contracts.action import effective_experiment_of
     env = apply_experiment_contract(RealRobotVectorEnv(single()))
     try:
         env.reset()
@@ -360,7 +360,7 @@ def test_effective_control_mismatch_rejected_before_home(monkeypatch):
 
 
 def test_tcp_proxy_is_not_object_task_success_in_real_metric_chain():
-    from real_world_rl.metrics import EpisodeOutcomeAccumulator, EpisodeMetrics
+    from real_world_rl.contracts.outcomes import EpisodeOutcomeAccumulator, EpisodeMetrics
     env = TaskOutcomeWrapper(LabelEnv([{"task_tcp_positions":{"arm":[0,0,0]}}]),
         TaskConfig(name="pick_and_place",success_source="tcp_proxy",targets={"arm":[0,0,0]}),("arm",))
     env.reset()
@@ -459,7 +459,7 @@ def test_demos_recorded_with_other_reward_sources_validate_against_the_training_
 
 
 def test_station_facts_are_provenance_but_rate_and_image_size_are_compared():
-    from real_world_rl.action_contract import compared_experiment, experiment_provenance
+    from real_world_rl.contracts.action import compared_experiment, experiment_provenance
     trained = apply_experiment_contract(RealRobotVectorEnv(single()), source_config=_TRAINING_SOURCES)
     try:
         saved = experiment_contract_of(trained)
@@ -497,8 +497,8 @@ def test_deploy_accepts_a_relocated_or_retrained_arm_classifier_before_connectio
     from rl_garden.observations import ObservationConfig
     from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
     from real_world_rl.training.env_building import build_hil_env
-    from real_world_rl.deploy import DeployArgs, build_deploy_env
-    from real_world_rl.action_contract import save_experiment_metadata
+    from real_world_rl.deploy.checkpoint import DeployArgs, build_deploy_env
+    from real_world_rl.contracts.action import save_experiment_metadata
     from real_world_rl.envs.bimanual import BimanualRealRobotEnvConfig
     import rl_garden.models.reward.success.model as classifier_module
     from real_world_rl.devices import Robot

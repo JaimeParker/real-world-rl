@@ -7,7 +7,7 @@ from gymnasium import spaces
 from real_world_rl.algorithms.masked_imitation import masked_sum_mean, marginal_gripper_ce
 from real_world_rl.buffers.intervention_replay_buffer import InterventionReplayBuffer
 from real_world_rl.teleop.core.action_parts import action_parts, part_mask
-from real_world_rl.trajectory import begin_episode, transition_record, end_episode, validate_record
+from real_world_rl.contracts.trajectory import begin_episode, transition_record, end_episode, validate_record
 
 
 @pytest.mark.parametrize("width", [1, 7, 14, 16])
@@ -154,7 +154,7 @@ def test_local_bc_full_mask_matches_old_loss_and_actor_gradient(squash):
 
 
 def test_durable_archive_reopens_unfinished_episode_as_interrupted(tmp_path):
-    from real_world_rl.trajectory import DurableArchive
+    from real_world_rl.contracts.trajectory import DurableArchive
     path = tmp_path / "archive.sqlite3"
     archive = DurableArchive(path)
     archive.append(begin_episode("episode"))
@@ -168,7 +168,7 @@ def test_durable_archive_reopens_unfinished_episode_as_interrupted(tmp_path):
 
 
 def test_sqlite_demo_view_uses_only_complete_successful_nonsync_human_rows(tmp_path):
-    from real_world_rl.trajectory import DurableArchive
+    from real_world_rl.contracts.trajectory import DurableArchive
     from real_world_rl.training.demo_loading import load_demo_pkls
     path = tmp_path / "demos.trajectory.sqlite3"
     archive = DurableArchive(path)
@@ -189,7 +189,7 @@ def test_sqlite_demo_view_uses_only_complete_successful_nonsync_human_rows(tmp_p
 
 
 def test_syncing_projection_disables_supervision_without_mutating_archive():
-    from real_world_rl.trajectory import training_projection
+    from real_world_rl.contracts.trajectory import training_projection
     record = dict(intervened=True, syncing=True, human_action_mask=torch.ones(1, 3, dtype=torch.bool),
                   override_mask=torch.ones(1, 3, dtype=torch.bool))
     projected = training_projection(record)
@@ -198,7 +198,7 @@ def test_syncing_projection_disables_supervision_without_mutating_archive():
 
 
 def test_truncation_training_boundary_keeps_bootstrap_done_false():
-    from real_world_rl.trajectory import training_projection
+    from real_world_rl.contracts.trajectory import training_projection
     projected = training_projection(dict(done=torch.tensor([False]), terminated=False, truncated=True))
     assert projected["episode_end"] and not projected["done"].any()
     segment = training_projection(dict(done=False, terminated=False, truncated=False, training_segment_end=True))
@@ -273,14 +273,14 @@ def test_no_gripper_continuous_hil_keeps_growing_demo_buffer():
 
 
 def test_explicit_termination_controls_bootstrap_and_legacy_done_survives():
-    from real_world_rl.trajectory import training_projection
+    from real_world_rl.contracts.trajectory import training_projection
     assert not training_projection(dict(done=True, terminated=False, truncated=True))["done"]
     assert training_projection(dict(done=False, terminated=True, truncated=False))["done"]
     assert training_projection(dict(done=True))["done"]
 
 
 def test_durable_archive_sequence_increases_after_restart(tmp_path):
-    from real_world_rl.trajectory import DurableArchive, begin_episode, end_episode
+    from real_world_rl.contracts.trajectory import DurableArchive, begin_episode, end_episode
     path = tmp_path / "sequence.trajectory.sqlite3"
     archive = DurableArchive(path)
     archive.append(begin_episode("one"))
@@ -315,7 +315,7 @@ def test_masked_bc_empty_batch_preserves_adam_momentum(monkeypatch):
 
 @pytest.mark.parametrize("dtype", [torch.bool, torch.float32])
 def test_explicit_termination_projection_preserves_tensor_replay_contract(dtype):
-    from real_world_rl.trajectory import training_projection
+    from real_world_rl.contracts.trajectory import training_projection
     done = torch.ones(1, dtype=dtype)
     projected = training_projection(dict(done=done, terminated=False, truncated=True))
     assert isinstance(projected["done"], torch.Tensor)

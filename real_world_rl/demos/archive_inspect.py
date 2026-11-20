@@ -47,7 +47,7 @@ from typing import Any, Mapping, NamedTuple, Optional, Sequence
 
 import torch
 
-from real_world_rl.action_contract import num_arms_of
+from real_world_rl.contracts.action import num_arms_of
 from real_world_rl.demos.archive_args import (DRIFT_WINDOW_S, SETTLE_HOLD_S, SETTLE_SPEED_MM_S,
                                               add_inspect_arguments)
 from real_world_rl.envs.wrappers.obs_chain import tcp_pose_quat_slice

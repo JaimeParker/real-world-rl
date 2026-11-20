@@ -104,7 +104,7 @@ def build_silri(
         resolve_obs_groups_config,
     )
     from rl_garden.training.inspection import construct_agent
-    from real_world_rl.action_contract import (
+    from real_world_rl.contracts.action import (
         env_num_grippers,
         get_env_action_contract,
     )
@@ -166,7 +166,7 @@ def build_silri(
     agent_kwargs.update(extra_kwargs)
     agent = construct_agent(algorithm_cls or SiLRI, **agent_kwargs)
     if args.load_checkpoint is not None:
-        from real_world_rl.checkpoint_contract import load_with_action_contract
+        from real_world_rl.contracts.checkpoint import load_with_action_contract
         load_with_action_contract(agent, args.load_checkpoint, load_replay_buffer=args.load_replay_buffer)
     return agent
 
@@ -233,7 +233,7 @@ def _run_learner(args) -> None:
 
     from rl_garden.common import Logger, seed_everything
     from rl_garden.common.resolved_config import persist_resolved_config
-    from real_world_rl.action_contract import demo_contract_of
+    from real_world_rl.contracts.action import demo_contract_of
     from real_world_rl.loops.silri import SilriLearnerLoop
 
     seed_everything(args.seed)

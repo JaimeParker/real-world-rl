@@ -35,7 +35,7 @@ from typing import Any, Mapping, Optional
 import gymnasium as gym
 import torch
 
-from real_world_rl.action_contract import (
+from real_world_rl.contracts.action import (
     LEGACY_ACTION_CONTRACT,
     describe_contract,
     get_env_action_contract,

@@ -140,7 +140,7 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
         read_timeout_s: float = DEFAULT_READ_TIMEOUT_S,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        from real_world_rl.action_contract import LEGACY_ACTION_CONTRACT
+        from real_world_rl.contracts.action import LEGACY_ACTION_CONTRACT
 
         if (teleop is None) == (leader_robot is None):
             raise ValueError("pass exactly one leader: teleop=<part or resolver> or leader_robot=<robot>")

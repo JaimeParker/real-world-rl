@@ -314,7 +314,7 @@ def _bimanual_config_from_saved(saved_bimanual: Mapping[str, Any]) -> BimanualRe
 
 def _contract_conflicts(cli: Any, trained: Any, defaults: Any, names: tuple[str, ...], prefix: str = "") -> list[str]:
     """The contract fields given on the CLI (differing from ``defaults``) that contradict training."""
-    from real_world_rl.action_contract import _contract_values_match, json_normalize
+    from real_world_rl.contracts.action import _contract_values_match, json_normalize
     return [
         f"{prefix}{name}: training={getattr(trained, name)!r}, cli={getattr(cli, name)!r}"
         for name in names
@@ -475,7 +475,7 @@ def build_deploy_env(args: DeployArgs, training_args: Any):
     env = compose_hil_wrappers(wrapper_args, env, robot_config,
                               enable_teleop=args.enable_teleop and (task_active or args.teleop_device is not None),
                               source_config={} if saved_spec.get("sources") == {} else None)
-    from real_world_rl.action_contract import validate_experiment
+    from real_world_rl.contracts.action import validate_experiment
     try:
         validate_experiment(env, saved_experiment)
     except BaseException:
@@ -511,7 +511,7 @@ def _gripper_count_kwargs(algo: str, env: Any) -> dict:
     every other algorithm."""
     if algo not in _GRIPPER_COUNT_KEYWORD_ALGOS:
         return {}
-    from real_world_rl.action_contract import env_num_grippers
+    from real_world_rl.contracts.action import env_num_grippers
 
     num_grippers = env_num_grippers(env)
     return {} if num_grippers == 1 else {"num_grippers": num_grippers}
@@ -523,14 +523,14 @@ def restore_policy(args: DeployArgs, training_args: Any, env: Any):
 
     seed_everything(args.seed)
     build_agent = _resolve_build_agent(args.algo)
-    from real_world_rl.action_contract import env_num_grippers
+    from real_world_rl.contracts.action import env_num_grippers
     if args.algo == "rlpd_hybrid" and env_num_grippers(env) == 0:
         from real_world_rl.training.entrypoints.hil_serl import build_hil_agent
         build_agent = build_hil_agent
     agent = build_agent(
         training_args, env, None, logger=None, checkpoint_dir=None, **_gripper_count_kwargs(args.algo, env)
     )
-    from real_world_rl.checkpoint_contract import load_with_action_contract
+    from real_world_rl.contracts.checkpoint import load_with_action_contract
     load_with_action_contract(agent, str(_checkpoint_file(args)), load_replay_buffer=False, load_optimizers=False)
     # Online builders construct on device "auto"; inference runs where --device says.
     policy = agent.policy.to(torch.device(args.device))
@@ -597,7 +597,7 @@ def _run_episode(args: DeployArgs, env: Any, policy: Any, device: torch.device, 
     if isinstance(policy, ResidualPolicyWithBase):
         policy.reset_episode()
     obs, _ = env.reset(seed=seed)
-    from real_world_rl.metrics import EpisodeOutcomeAccumulator
+    from real_world_rl.contracts.outcomes import EpisodeOutcomeAccumulator
 
     accumulator = EpisodeOutcomeAccumulator()
     steps, episode_return, truncated = 0, 0.0, False
@@ -676,7 +676,7 @@ def run_deploy(args: DeployArgs, *, env: Any = None, policy: Any = None) -> list
 
 
 def _print_summary(results: list[EpisodeResult], *, extra_outcomes=()) -> None:
-    from real_world_rl.metrics import EpisodeMetrics
+    from real_world_rl.contracts.outcomes import EpisodeMetrics
 
     metrics = EpisodeMetrics()
     for result in results:

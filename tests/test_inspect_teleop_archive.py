@@ -10,7 +10,7 @@ import pytest
 import torch
 
 from real_world_rl.demos import archive_inspect
-from real_world_rl.trajectory import DurableArchive, begin_episode, end_episode, transition_record
+from real_world_rl.contracts.trajectory import DurableArchive, begin_episode, end_episode, transition_record
 
 CARTESIAN_CONTRACT = {"action_mode": "cartesian_delta", "arm_action_dim": 6, "gripper_in_action": True,
                       "num_joints": 7, "state_fields": ["joint_pos", "tcp_pose"]}

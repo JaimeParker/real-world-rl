@@ -23,7 +23,7 @@ from _teleop_fakes import ContractEnv, TwoArmContractEnv
 
 import real_world_rl.devices.claims as claims
 
-from real_world_rl.action_contract import (
+from real_world_rl.contracts.action import (
     contract_sidecar_path,
     demo_contract_of,
     validate_transitions_against_contract,
@@ -559,7 +559,7 @@ def test_rerecord_drops_the_episode_and_starts_the_next_one():
     ]
     wrapped = _wrap(env, readings)
     transitions, episodes = _record(wrapped)
-    from real_world_rl.metrics import EpisodeMetrics, EpisodeOutcome
+    from real_world_rl.contracts.outcomes import EpisodeMetrics, EpisodeOutcome
     ends = [row for row in wrapped._record_archive if row["record_type"] == "episode_end"]
     discarded = ends[0]["outcome"]
     assert ends[0]["step_count"] == discarded["steps"] == 2
@@ -759,7 +759,7 @@ def test_run_recorder_builds_the_actor_env_saves_and_closes(tmp_path, monkeypatc
     assert output.exists() and contract_sidecar_path(output).exists()
     archive_path = output.with_suffix(".trajectory.sqlite3")
     assert archive_path.exists() and not output.with_suffix(".trajectory.pt").exists()
-    from real_world_rl.trajectory import DurableArchive
+    from real_world_rl.contracts.trajectory import DurableArchive
     archive = DurableArchive(archive_path)
     try:
         records = list(archive)
@@ -989,7 +989,7 @@ def test_run_recorder_interrupted_outcome_and_saved_trace_are_visible(tmp_path, 
     output = tmp_path / "interrupted.pkl"
     with pytest.raises(KeyboardInterrupt):
         run_recorder(_args(output_path=str(output)))
-    from real_world_rl.trajectory import DurableArchive
+    from real_world_rl.contracts.trajectory import DurableArchive
     archive = DurableArchive(output.with_suffix(".trajectory.sqlite3"))
     try:
         rows = list(archive)
@@ -1003,7 +1003,7 @@ def test_run_recorder_interrupted_outcome_and_saved_trace_are_visible(tmp_path, 
 
 @pytest.mark.parametrize("ending", ["success", "failure", "rerecord", "timeout", "episode_end"])
 def test_single_attempt_exits_before_second_reset_and_preserves_archive(tmp_path, monkeypatch, ending):
-    from real_world_rl.trajectory import DurableArchive
+    from real_world_rl.contracts.trajectory import DurableArchive
 
     env = RecordingEnv("joint_delta")
     if ending == "timeout":
@@ -1056,7 +1056,7 @@ def test_invalid_episode_limit_is_rejected_before_env_construction(tmp_path, mon
 
 @pytest.mark.parametrize("failure_phase", ["close", "export"])
 def test_finalization_failure_still_releases_devices_and_preserves_archive(tmp_path, monkeypatch, failure_phase):
-    from real_world_rl.trajectory import DurableArchive
+    from real_world_rl.contracts.trajectory import DurableArchive
 
     env = RecordingEnv("joint_delta")
     wrapped = TeleopEventRewardWrapper(_wrap(env, [_reading(delta=[0.0] * 7, events=("success",))]))
@@ -1087,7 +1087,7 @@ def test_finalization_failure_still_releases_devices_and_preserves_archive(tmp_p
 @pytest.mark.parametrize('rollout_failure', [False, True])
 def test_recorder_cleanup_preserves_first_failure_and_closes_archive(tmp_path, monkeypatch, rollout_failure):
     import real_world_rl.demos.record as recorder
-    from real_world_rl.trajectory import DurableArchive
+    from real_world_rl.contracts.trajectory import DurableArchive
     env = RecordingEnv('joint_abs')
     wrapped = _wrap(env, [SYNC, _reading(Q1, events=('success',), episode_end=True)])
     monkeypatch.setattr(env_building, 'build_hil_env', lambda args, **kwargs: wrapped)

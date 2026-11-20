@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Optional, Sequence
 
-from real_world_rl.action_contract import (
+from real_world_rl.contracts.action import (
     LEGACY_ACTION_CONTRACT,
     get_env_action_contract,
     num_arms_of,

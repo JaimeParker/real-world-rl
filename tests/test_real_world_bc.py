@@ -196,9 +196,9 @@ def test_bc_releases_env_and_logger_on_data_or_training_error(tmp_path, monkeypa
 def test_bc_metadata_roundtrips_classifier_path_provenance_with_semantic_identity(tmp_path, monkeypatch):
     import json
     from _residual_fakes import DictEnv
-    from real_world_rl.action_contract import demo_contract_of, write_contract_sidecar, validate_experiment
+    from real_world_rl.contracts.action import demo_contract_of, write_contract_sidecar, validate_experiment
     from real_world_rl.envs.wrappers.experiment import apply_experiment_contract
-    from real_world_rl.deploy import DeployArgs, _saved_experiment
+    from real_world_rl.deploy.checkpoint import DeployArgs, _saved_experiment
     sources = {"classifier": {"path": "/recording-machine/model.pt", "content_sha256": "a" * 64, "threshold": .5}}
     physical = dict(action_mode="joint_delta", arm_action_dim=3, gripper_in_action=False,
                     num_joints=3, experiment={"task": {"name": "none"}})

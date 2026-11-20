@@ -5,7 +5,7 @@ from typing import Any, Callable, Mapping, Optional, Sequence
 
 from real_world_rl.devices.teleop import Teleop, TeleopConfig
 
-from real_world_rl.action_contract import (
+from real_world_rl.contracts.action import (
     LEGACY_ACTION_CONTRACT,
     get_env_action_contract,
 )

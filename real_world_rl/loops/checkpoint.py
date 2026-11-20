@@ -10,7 +10,7 @@ from typing import Any
 import torch
 
 from real_world_rl.loops.replay_state import serialize_buffer, restore_buffer, validate_buffer
-from real_world_rl.checkpoint_contract import load_with_action_contract
+from real_world_rl.contracts.checkpoint import load_with_action_contract
 
 
 def _sync_file(path: Path) -> None:

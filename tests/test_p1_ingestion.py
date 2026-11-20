@@ -109,7 +109,7 @@ def test_outbox_capacity_stops_collection_and_hash_is_bound_to_database(tmp_path
 
 
 def test_actor_restart_emits_durable_interrupted_episode(tmp_path, monkeypatch):
-    from real_world_rl.trajectory import begin_episode
+    from real_world_rl.contracts.trajectory import begin_episode
     path = tmp_path / "actor.sqlite3"
     first = ActorSyncClient("http://127.0.0.1:1", outbox_path=str(path), preflight=False)
     first.push_record(begin_episode("run/old-session/episode", run_id="run", policy_version=5,
@@ -130,8 +130,8 @@ def test_actor_restart_emits_durable_interrupted_episode(tmp_path, monkeypatch):
 
 
 def test_episode_metrics_rebuild_from_journal_without_training_projection(tmp_path):
-    from real_world_rl.trajectory import begin_episode, end_episode
-    from real_world_rl.metrics import EpisodeOutcome
+    from real_world_rl.contracts.trajectory import begin_episode, end_episode
+    from real_world_rl.contracts.outcomes import EpisodeOutcome
     loop = make_loop(tmp_path)
     records = [begin_episode("e"), end_episode("e", step_count=1,
                outcome=EpisodeOutcome(True, True, 1, 1))]
@@ -308,7 +308,7 @@ def test_bundle_initial_snapshot_retains_effective_sdk_and_actor_rejects_before_
     from test_tasks_and_preprocess import single
     from real_world_rl.envs.real_robot import RealRobotVectorEnv
     from real_world_rl.envs.wrappers.experiment import apply_experiment_contract
-    from real_world_rl.action_contract import effective_experiment_of
+    from real_world_rl.contracts.action import effective_experiment_of
     from real_world_rl.loops.sync import PolicySnapshot
     from real_world_rl.loops.actor import ActorLoop
     monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
@@ -395,7 +395,7 @@ def test_fwbw_trace_segments_and_partial_human_rows_reach_both_buffers(tmp_path,
     forward = traces["forward"]
     assert [record["record_type"] for record in forward] == ["episode_start", "transition", "transition", "episode_end", "episode_start", "transition", "episode_end"]
     assert forward[2]["segment_end"] and not forward[2]["terminated"]
-    from real_world_rl.trajectory import training_projection
+    from real_world_rl.contracts.trajectory import training_projection
     projected = training_projection(forward[2])
     assert bool(torch.as_tensor(projected["episode_end"]).all())
     assert not bool(projected["done"].any())

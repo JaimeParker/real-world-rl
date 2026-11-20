@@ -51,7 +51,7 @@ real_robot_bimanual:
 
 ## 动作
 
-`num_arms=2` 时，`real_world_rl/action_contract.py` 定义的动作约定布局为：
+`num_arms=2` 时，`real_world_rl/contracts/action.py` 定义的动作约定布局为：
 
 ```
 [left arm block, right arm block, left gripper, right gripper]

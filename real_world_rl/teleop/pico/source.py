@@ -134,7 +134,7 @@ class PicoTeleopSource(TeleopPartSource, ToggleableTeleopSource):
         read_timeout_s: float = DEFAULT_READ_TIMEOUT_S,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        from real_world_rl.action_contract import LEGACY_ACTION_CONTRACT
+        from real_world_rl.contracts.action import LEGACY_ACTION_CONTRACT
 
         if teleop is not None and teleop_robot is not None:
             raise ValueError("pass at most one Pico: teleop=<part or resolver> or teleop_robot=<robot>")

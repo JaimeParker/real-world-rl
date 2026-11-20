@@ -236,7 +236,7 @@ def test_serl_without_gripper_needs_no_feedback(serl_clock, monkeypatch):
 
 
 def test_current_env_defaults_unchanged(monkeypatch):
-    from real_world_rl.action_contract import get_env_action_contract
+    from real_world_rl.contracts.action import get_env_action_contract
     import real_world_rl.envs.franka_real.env as env_module
 
     env, bridge = _make_env()

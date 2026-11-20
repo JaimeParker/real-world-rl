@@ -80,7 +80,7 @@ def follower_kwargs_from_env(env: Any, kwargs: dict) -> dict:
     """``kwargs`` with the follower side read from ``env`` where not given: ``env_contract`` (the
     env's action contract, the legacy one without), ``follower_pose_getter`` with the env's
     ``pos_scale_m``/``rot_scale_rad``, and ``safety_box``. Updates and returns ``kwargs``."""
-    from real_world_rl.action_contract import LEGACY_ACTION_CONTRACT, get_env_action_contract
+    from real_world_rl.contracts.action import LEGACY_ACTION_CONTRACT, get_env_action_contract
 
     contract = get_env_action_contract(env)
     kwargs.setdefault("env_contract", LEGACY_ACTION_CONTRACT if contract is None else contract)

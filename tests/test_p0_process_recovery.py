@@ -58,7 +58,7 @@ def loop(agent, store):
     result._received = 0
     result._received_by_actor = {}
     import time
-    from real_world_rl.metrics import EpisodeMetrics
+    from real_world_rl.contracts.outcomes import EpisodeMetrics
     result.ingest_batch_size = 256
     result.admission_capacity = 10000
     result._observation_space = result._action_space = None

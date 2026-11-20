@@ -1,4 +1,4 @@
-from real_world_rl.metrics import EpisodeMetrics, EpisodeOutcomeAccumulator
+from real_world_rl.contracts.outcomes import EpisodeMetrics, EpisodeOutcomeAccumulator
 
 
 def test_explicit_labels_and_manual_failure_precedence():

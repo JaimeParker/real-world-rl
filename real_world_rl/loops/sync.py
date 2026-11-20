@@ -415,8 +415,8 @@ class ActorSyncClient:
             self.push_transition(decode(pending))
         active = self._outbox.active_episode()
         if active is not None:
-            from real_world_rl.trajectory import end_episode
-            from real_world_rl.metrics import EpisodeOutcome
+            from real_world_rl.contracts.trajectory import end_episode
+            from real_world_rl.contracts.outcomes import EpisodeOutcome
             count = active.pop("step_count", 0)
             intervention_steps = active.pop("intervention_steps", 0)
             episode_id = active.pop("episode_id")

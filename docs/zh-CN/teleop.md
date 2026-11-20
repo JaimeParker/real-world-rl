@@ -528,7 +528,7 @@ class JoystickTeleopSource(TeleopSource):
     def close(self) -> None: ...
 ```
 
-`make_teleop_source("joystick", env, port=...)` 随后调用 `JoystickTeleopSource.from_env(env, port=...)`，默认执行 `cls(**kwargs)`；可覆盖 `from_env` 读取环境动作约定（`real_world_rl.action_contract.get_env_action_contract(env)`）。未知名称抛 `ValueError` 并列出已注册名称。注册须先于使用，下游包须在构建环境前导入模块（或通过自己的入口点暴露）。内置源首次使用名称时才导入，因此 `import real_world_rl.teleop` 不加载 `zmq` 或 `hid`。
+`make_teleop_source("joystick", env, port=...)` 随后调用 `JoystickTeleopSource.from_env(env, port=...)`，默认执行 `cls(**kwargs)`；可覆盖 `from_env` 读取环境动作约定（`real_world_rl.contracts.action.get_env_action_contract(env)`）。未知名称抛 `ValueError` 并列出已注册名称。注册须先于使用，下游包须在构建环境前导入模块（或通过自己的入口点暴露）。内置源首次使用名称时才导入，因此 `import real_world_rl.teleop` 不加载 `zmq` 或 `hid`。
 
 动作在环境归一化 `[-1, 1]` 空间中，夹爪在最后。物理单位 twist 的笛卡尔设备（如 `pico_twist`）可参考示范脚本归一化方式。
 

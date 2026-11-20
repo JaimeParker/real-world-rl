@@ -8,7 +8,7 @@ import numpy as np
 
 from real_world_rl.teleop.core.targets.twist_input import rotate_input, diagnostic_input, input_sample_diagnostics
 
-from real_world_rl.action_contract import (
+from real_world_rl.contracts.action import (
     LEGACY_ACTION_CONTRACT,
     get_env_action_contract,
     num_arms_of,

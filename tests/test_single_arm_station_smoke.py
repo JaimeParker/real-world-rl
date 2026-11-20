@@ -38,14 +38,14 @@ from real_world_rl.devices.robots.franka import FRANKA_HOME_JOINTS
 from real_world_rl.discovery.autoconfig import load_station
 
 import real_world_rl.envs.backends.real_robot  # noqa: F401  (registers the backend)
-from real_world_rl.action_contract import (
+from real_world_rl.contracts.action import (
     demo_contract_of,
     get_env_action_contract,
     read_contract_sidecar,
 )
 from real_world_rl.algorithms.residual import ResidualRLPDHybrid
 from real_world_rl.demos.record import parse_record_args, run_recorder
-from real_world_rl.deploy import DeployArgs, restore_training_args, run_deploy
+from real_world_rl.deploy.checkpoint import DeployArgs, restore_training_args, run_deploy
 from real_world_rl.envs.real_robot import RealRobotEnvConfig
 from real_world_rl.loops.hil_serl import HilSerlActorLoop, HilSerlLearnerLoop
 from real_world_rl.loops.residual import ResidualActorLoop

@@ -418,7 +418,7 @@ class RealRobotEnv(gym.Env):
         self._check_workspace_feedback()
         self.robot.arm.set_control_mode(ControlMode.IDLE)
         self.robot.arm.configure_control(self.config.control or {})
-        from real_world_rl.action_contract import json_normalize
+        from real_world_rl.contracts.action import json_normalize
         self._control_metadata = json_normalize({**dict(getattr(self.robot.arm, "control_metadata", {})),
             "resolved_robot": {"home_joints": self.config.home_joints or getattr(self.robot.arm, "home_joints", None) or getattr(self.robot.config, "home_joints", None), "safety_box": self._effective_safety_box,
                                "joint_limits": self._joint_limits, "max_delta_per_step": self._device_max_delta}})

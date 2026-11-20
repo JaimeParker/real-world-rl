@@ -581,10 +581,10 @@ def compose_hil_wrappers(args, env, backend_config, *, enable_teleop=True, sourc
                                               terminate_on_failure=not task_active or task.terminate_on_failure)
 
         if args.use_grasp_penalty:
-            from real_world_rl.action_contract import env_num_grippers
+            from real_world_rl.contracts.action import env_num_grippers
             if env_num_grippers(env) == 0:
                 raise ValueError("grasp penalty requires a gripper in the action contract")
-            from real_world_rl.action_contract import (
+            from real_world_rl.contracts.action import (
                 get_env_action_contract,
                 gripper_slice,
             )
@@ -729,7 +729,7 @@ def build_offline_experiment_env(env, config, observation, saved_contract=None):
     from types import SimpleNamespace
     from real_world_rl.envs.wrappers.obs_chain import apply_obs_chain
     from real_world_rl.envs.wrappers.experiment import apply_experiment_contract
-    from real_world_rl.action_contract import demo_contract_of, validate_transitions_against_contract
+    from real_world_rl.contracts.action import demo_contract_of, validate_transitions_against_contract
     import gymnasium as gym
     spec = (saved_contract or {}).get("experiment", {})
     observed = spec.get("observation", {})
@@ -742,11 +742,11 @@ def build_offline_experiment_env(env, config, observation, saved_contract=None):
                                     convert_obs_rotation=converted, source_config=spec.get("sources", {}))
     expected = demo_contract_of(env)
     if saved_contract and "experiment" in saved_contract and "observation" not in saved_contract["experiment"]:
-        from real_world_rl.action_contract import _requires_experiment_metadata
+        from real_world_rl.contracts.action import _requires_experiment_metadata
         import warnings
         if _requires_experiment_metadata(expected["experiment"]):
             raise ValueError("legacy metadata cannot verify task/control/crop/depth observation processing")
-        from real_world_rl.action_contract import TELEOP_CONTROL_KEY
+        from real_world_rl.contracts.action import TELEOP_CONTROL_KEY
         warnings.warn("legacy raw contract has no final observation/source metadata; using configured default observation view", stacklevel=2)
         # Legacy metadata predates teleop_control: borrowing it would hide that mismatch.
         borrowed_sources = {key: value for key, value in (expected["experiment"].get("sources") or {}).items()

@@ -1,4 +1,4 @@
-"""Tests for the eval-only real-robot deploy entrypoint (real_world_rl/deploy.py)."""
+"""Tests for the eval-only real-robot deploy entrypoint (real_world_rl/deploy/checkpoint.py)."""
 from __future__ import annotations
 
 import gymnasium as gym
@@ -11,7 +11,7 @@ from gymnasium.vector.utils import batch_space
 import real_world_rl.devices.claims as claims
 from real_world_rl.devices.errors import DeviceFault
 
-from real_world_rl.deploy import (
+from real_world_rl.deploy.checkpoint import (
     DEVICE_ERROR_EXIT_CODE,
     DeployArgs,
     EpisodeResult,
@@ -104,7 +104,7 @@ def test_run_deploy_runs_episodes_and_prints_summary(capsys):
     args = DeployArgs(checkpoint="unused.pt", episodes=2)
     results = run_deploy(args, env=env, policy=policy)
 
-    from real_world_rl.metrics import EpisodeOutcome
+    from real_world_rl.contracts.outcomes import EpisodeOutcome
     assert results == [
         EpisodeResult(steps=3, episode_return=3.0, truncated=True, rtt_ms_mean=2.0, health_ok=True,
                       outcome=EpisodeOutcome(None, False, 3, 0, end_reason="timeout"))
@@ -173,7 +173,7 @@ def test_deploy_spacemouse_mode_defaults_and_override_parse():
 @pytest.mark.parametrize("override", [None, "serl"])
 def test_deploy_inherits_or_overrides_serl_mode_before_env_construction(override, monkeypatch):
     import dataclasses
-    from real_world_rl.action_contract import demo_contract_of, effective_experiment_of
+    from real_world_rl.contracts.action import demo_contract_of, effective_experiment_of
     from real_world_rl.training.env_building import build_hil_env
     from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
 
@@ -189,7 +189,7 @@ def test_deploy_inherits_or_overrides_serl_mode_before_env_construction(override
         saved = effective_experiment_of(training_env)
     finally:
         training_env.close()
-    monkeypatch.setattr("real_world_rl.deploy._saved_experiment", lambda _: saved)
+    monkeypatch.setattr("real_world_rl.deploy.checkpoint._saved_experiment", lambda _: saved)
     env = build_deploy_env(cli, trained)
     try:
         contract = demo_contract_of(env)
@@ -200,7 +200,7 @@ def test_deploy_inherits_or_overrides_serl_mode_before_env_construction(override
 
 
 def test_deploy_without_training_config_defaults_to_tracker():
-    from real_world_rl.action_contract import demo_contract_of
+    from real_world_rl.contracts.action import demo_contract_of
 
     cli = _deploy_args("unused", enable_teleop=False)
     env = build_deploy_env(cli, None)
@@ -272,7 +272,7 @@ def test_current_deploy_keeps_cli_xyz_safety_box(cli_box):
 def test_saved_current_semantics_rejects_serl_override_before_construction(monkeypatch):
     import dataclasses
     from types import SimpleNamespace
-    from real_world_rl.deploy import _restore_real_world_fields
+    from real_world_rl.deploy.checkpoint import _restore_real_world_fields
 
     trained = SimpleNamespace()
     cli = _deploy_args("unused", enable_teleop=False, spacemouse_mode="serl")
@@ -291,11 +291,11 @@ def test_saved_current_semantics_rejects_serl_override_before_construction(monke
 
 def test_deploy_preserves_saved_current_without_mode_override(monkeypatch):
     import dataclasses
-    from real_world_rl.action_contract import demo_contract_of
-    from real_world_rl.deploy import _restore_real_world_fields
+    from real_world_rl.contracts.action import demo_contract_of
+    from real_world_rl.deploy.checkpoint import _restore_real_world_fields
     from real_world_rl.training.env_building import build_hil_env
     from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
-    from real_world_rl.action_contract import effective_experiment_of
+    from real_world_rl.contracts.action import effective_experiment_of
 
     cli = _deploy_args("unused", enable_teleop=False)
     # Restored semantics are authoritative even for an older inconsistent config.
@@ -312,7 +312,7 @@ def test_deploy_preserves_saved_current_without_mode_override(monkeypatch):
         metadata["experiment"]["sources"]["teleop_control"] = teleop_control_spec(trained)
     finally:
         env.close()
-    monkeypatch.setattr("real_world_rl.deploy._saved_experiment", lambda _: metadata)
+    monkeypatch.setattr("real_world_rl.deploy.checkpoint._saved_experiment", lambda _: metadata)
     env = build_deploy_env(cli, trained)
     try:
         assert "cartesian_semantics" not in demo_contract_of(env)["experiment"]

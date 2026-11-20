@@ -8,7 +8,7 @@ drives; the recorder calls both. ``as_hold_policy`` adapts a plain callable.
 from typing import Any, Callable, Mapping, Optional
 import numpy as np
 import torch
-from real_world_rl.action_contract import LEGACY_ACTION_CONTRACT, get_env_action_contract, num_arms_of, num_grippers_of
+from real_world_rl.contracts.action import LEGACY_ACTION_CONTRACT, get_env_action_contract, num_arms_of, num_grippers_of
 from real_world_rl.teleop.core.bimanual import find_bimanual_env, normalized_joint_target
 from real_world_rl.teleop.core.part import _find_last_observation_owner
 HoldActionFn = Callable[[Any], torch.Tensor]

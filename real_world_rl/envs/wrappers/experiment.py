@@ -1,6 +1,6 @@
 """Final observation/task contract shared by training, recording and deployment."""
 import gymnasium as gym
-from real_world_rl.action_contract import get_env_action_contract, json_normalize
+from real_world_rl.contracts.action import get_env_action_contract, json_normalize
 
 
 class ExperimentContractWrapper(gym.Wrapper):

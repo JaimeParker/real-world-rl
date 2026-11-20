@@ -62,7 +62,7 @@ class LearnerLoop:
         self.experiment_hash = experiment_hash or "unknown"
         self.experiment_contract = experiment_contract
         self.effective_experiment = effective_experiment
-        from real_world_rl.metrics import EpisodeMetrics
+        from real_world_rl.contracts.outcomes import EpisodeMetrics
         self.episode_metrics = EpisodeMetrics()
         self._episode_starts = {}
         self._admitted = 0
@@ -134,7 +134,7 @@ class LearnerLoop:
 
     def _on_transition(self, transition: dict[str, Any]) -> None:
         from real_world_rl.training.demo_loading import training_extras
-        from real_world_rl.trajectory import training_projection
+        from real_world_rl.contracts.trajectory import training_projection
         transition = {**transition, **training_projection(transition)}
         # actor_id is observability-only metadata, not a buffer field --
         # DictReplayBuffer.add()/TensorReplayBuffer.add() have fixed
@@ -165,7 +165,7 @@ class LearnerLoop:
     def _validate_effective_experiment(self, incoming) -> None:
         if incoming is None:
             return
-        from real_world_rl.action_contract import compared_experiment, semantic_experiment
+        from real_world_rl.contracts.action import compared_experiment, semantic_experiment
 
         def compared(contract):
             if isinstance(contract, Mapping) and "experiment" in contract:
@@ -202,7 +202,7 @@ class LearnerLoop:
     def _consume_record(self, record) -> None:
         kind = record.get("record_type", "transition")
         if kind == "transition":
-            from real_world_rl.trajectory import training_projection
+            from real_world_rl.contracts.trajectory import training_projection
             self._on_transition({**record, **training_projection(record)})
             self._last_ingest_timestamp = record.get("timestamp_s")
         elif kind == "episode_start":
@@ -213,7 +213,7 @@ class LearnerLoop:
         elif kind == "episode_end":
             if record.get("transport_metrics"):
                 self._log_scalars("transport/" + str(record.get("actor_id", "unknown")), record["transport_metrics"], self.received_transitions)
-            from real_world_rl.metrics import EpisodeOutcome
+            from real_world_rl.contracts.outcomes import EpisodeOutcome
             outcome = record.get("outcome")
             if outcome is not None:
                 self.episode_metrics.add(EpisodeOutcome(**outcome))
@@ -279,7 +279,7 @@ class LearnerLoop:
         self._journal_cursor = state["journal_cursor"]
         self._received = state["received"]
         self.effective_experiment = state.get("effective_experiment")
-        from real_world_rl.metrics import EpisodeOutcome
+        from real_world_rl.contracts.outcomes import EpisodeOutcome
         self.episode_metrics.outcomes = [EpisodeOutcome(**outcome) for outcome in state.get("episode_outcomes", [])]
         self._episode_starts = state.get("episode_starts", {})
         self._seed_datasets = state.get("seed_datasets", [])

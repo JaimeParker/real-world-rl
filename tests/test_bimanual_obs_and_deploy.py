@@ -18,7 +18,7 @@ import real_world_rl.devices.claims as claims
 from rl_garden.observations.config import ObservationConfig
 
 import real_world_rl.envs.backends.real_robot_bimanual  # noqa: F401  (registers the backend)
-from real_world_rl.deploy import (
+from real_world_rl.deploy.checkpoint import (
     DeployArgs,
     build_deploy_env,
     resolve_deploy_bimanual_config,

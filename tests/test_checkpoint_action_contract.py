@@ -7,7 +7,7 @@ import torch
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
 
-from real_world_rl.checkpoint_contract import load_policy_state_with_action_contract
+from real_world_rl.contracts.checkpoint import load_policy_state_with_action_contract
 
 
 class SpaceEnv(gym.Env):

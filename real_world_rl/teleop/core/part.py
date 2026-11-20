@@ -176,7 +176,7 @@ class TeleopPartSource(TeleopSource):
     @classmethod
     def for_env(cls, env: Any, **kwargs: Any) -> "TeleopPartSource":
         """Source over the teleop part of the robot behind ``env``'s ``RealRobotEnv``."""
-        from real_world_rl.action_contract import get_env_action_contract
+        from real_world_rl.contracts.action import get_env_action_contract
 
         real_env = _find_last_observation_owner(env)
         contract = get_env_action_contract(env)

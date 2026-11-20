@@ -213,7 +213,7 @@ def test_silri_is_registered_on_the_real_world_cli():
 
 
 def test_silri_row_registers_on_the_online_registry_for_deploy_and_eval():
-    from real_world_rl.deploy import _resolve_build_agent
+    from real_world_rl.deploy.checkpoint import _resolve_build_agent
     from real_world_rl.training import rlgarden_algorithms
 
     from rl_garden.training.online.registry import registry as online_registry

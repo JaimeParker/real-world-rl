@@ -14,7 +14,7 @@ from test_spacemouse_teleop_source import _Part
 
 from real_world_rl.devices.errors import SdkMissing
 
-from real_world_rl.action_contract import LEGACY_ACTION_CONTRACT, demo_contract_of
+from real_world_rl.contracts.action import LEGACY_ACTION_CONTRACT, demo_contract_of
 from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
 from real_world_rl.teleop import make_teleop_source
 from real_world_rl.teleop.core.composite import CompositeTeleopSource
@@ -378,8 +378,8 @@ def test_serl_record_train_deploy_mode_roundtrip(tmp_path, monkeypatch):
     from rl_garden.common.resolved_config import persist_resolved_config
     from rl_garden.training.online.entrypoints.rlpd_hybrid import RLPDHybridArgs
     from real_world_rl.demos.record import parse_record_args
-    from real_world_rl.deploy import DeployArgs, build_deploy_env, restore_training_args
-    from real_world_rl.action_contract import save_experiment_metadata
+    from real_world_rl.deploy.checkpoint import DeployArgs, build_deploy_env, restore_training_args
+    from real_world_rl.contracts.action import save_experiment_metadata
     from real_world_rl.envs.real_robot import RealRobotEnvConfig
     from real_world_rl.training.registry import RealWorldAlgorithmRegistry
 
@@ -424,7 +424,7 @@ def test_serl_record_train_deploy_mode_roundtrip(tmp_path, monkeypatch):
 
     hid = make_hid()
     monkeypatch.setitem(sys.modules, "hid", hid)
-    monkeypatch.setattr("real_world_rl.deploy._training_args_cls", lambda _: RLPDHybridArgs)
+    monkeypatch.setattr("real_world_rl.deploy.checkpoint._training_args_cls", lambda _: RLPDHybridArgs)
     monkeypatch.setattr("rl_garden.common.checkpoint.load_checkpoint_file", lambda *args, **kwargs: {
         "metadata": {"hyperparameters": {"spacemouse_mode": "tracker", "real_robot": {"cartesian_semantics": "current"}}},
     })

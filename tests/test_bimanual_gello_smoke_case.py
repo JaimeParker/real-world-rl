@@ -8,7 +8,7 @@ from pathlib import Path
 from test_bimanual_station_smoke import station_daemons  # noqa: F401 (shared fake gRPC fixture)
 from real_world_rl.demos import archive_inspect
 from real_world_rl.demos.record import parse_record_args, run_recorder
-from real_world_rl.trajectory import DurableArchive, begin_episode
+from real_world_rl.contracts.trajectory import DurableArchive, begin_episode
 
 ROOT = Path(__file__).resolve().parents[1]
 

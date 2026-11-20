@@ -6,7 +6,7 @@ import msgpack
 import numpy as np
 import pytest
 
-from real_world_rl.openpi_client import packb, unpackb
+from real_world_rl.deploy.openpi.client import packb, unpackb
 
 
 def test_codec_uses_openpi_binary_markers_and_text_dtype():
@@ -50,6 +50,6 @@ def test_client_imports_without_learning_or_websockets():
 import sys
 for name in ('torch', 'rl_garden', 'gymnasium', 'websockets'):
     sys.modules[name] = None
-from real_world_rl.openpi_client import packb, unpackb
+from real_world_rl.deploy.openpi.client import packb, unpackb
 assert unpackb(packb({'prompt': 'test'})) == {'prompt': 'test'}
 """], check=True)

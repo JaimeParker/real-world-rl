@@ -24,8 +24,8 @@ def build_residual_hil_serl(args, env, eval_env, logger, checkpoint_dir):
     builders (``algorithm_cls=`` + the residual keywords). The online registry's
     ``build_agent`` for ``residual_hil_serl`` and ``residual_hil_serl_hybrid``.
     ``num_grippers`` comes from ``env``'s action contract."""
-    from real_world_rl.action_contract import env_num_grippers
-    from real_world_rl.checkpoint_contract import build_agent_with_action_contract
+    from real_world_rl.contracts.action import env_num_grippers
+    from real_world_rl.contracts.checkpoint import build_agent_with_action_contract
     from real_world_rl.algorithms.residual import (
         ResidualRLPD,
         ResidualRLPDHybrid,
@@ -150,7 +150,7 @@ def _run_learner(args) -> None:
     from rl_garden.common import Logger, seed_everything
     from rl_garden.common.resolved_config import persist_resolved_config
     from real_world_rl.loops import residual
-    from real_world_rl.action_contract import demo_contract_of
+    from real_world_rl.contracts.action import demo_contract_of
 
     seed_everything(args.seed)
 

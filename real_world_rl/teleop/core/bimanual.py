@@ -32,7 +32,7 @@ from typing import Any, Callable, Iterable, Mapping, Optional, Sequence
 
 import numpy as np
 
-from real_world_rl.action_contract import get_env_action_contract
+from real_world_rl.contracts.action import get_env_action_contract
 from real_world_rl.teleop.core.contract import (
     TeleopReading,
     TeleopSource,

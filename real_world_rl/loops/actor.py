@@ -38,7 +38,7 @@ from real_world_rl.supervise import Heartbeat
 
 from rl_garden.policies.base import BasePolicy
 from real_world_rl.loops.sync import ActorSyncClient
-from real_world_rl.checkpoint_contract import load_policy_state_with_action_contract
+from real_world_rl.contracts.checkpoint import load_policy_state_with_action_contract
 from real_world_rl.teleop.core.operator_keys import operator_quit_requested
 
 
@@ -160,13 +160,13 @@ class ActorLoop:
             raise ValueError("learner policy experiment hash differs from actor")
         saved = getattr(snapshot, "effective_experiment", None) or getattr(snapshot, "experiment_contract", None)
         if saved is not None:
-            from real_world_rl.action_contract import validate_experiment
+            from real_world_rl.contracts.action import validate_experiment
             validate_experiment(self.env, saved)
 
     def _bind_experiment(self) -> None:
         if not hasattr(self.sync_client, "push_record"):
             return
-        from real_world_rl.action_contract import experiment_contract_of, experiment_hash
+        from real_world_rl.contracts.action import experiment_contract_of, experiment_hash
         self.sync_client.bind_experiment(experiment_hash(self.env), experiment_contract_of(self.env))
 
     def _trajectory_metadata(self) -> dict:
@@ -178,9 +178,9 @@ class ActorLoop:
     def _begin_trajectory(self) -> None:
         if not hasattr(self.sync_client, "push_record"):
             return
-        from real_world_rl.trajectory import begin_episode
-        from real_world_rl.metrics import EpisodeOutcomeAccumulator
-        from real_world_rl.action_contract import effective_experiment_of, save_experiment_metadata
+        from real_world_rl.contracts.trajectory import begin_episode
+        from real_world_rl.contracts.outcomes import EpisodeOutcomeAccumulator
+        from real_world_rl.contracts.action import effective_experiment_of, save_experiment_metadata
         save_experiment_metadata(self.env, self.sync_client._outbox.path.with_name("experiment.json"))
         self._trajectory_episode = self.sync_client._new_message_id()
         self._trajectory_step = 0
@@ -192,7 +192,7 @@ class ActorLoop:
     def _archive_transition(self, transition, terminated, truncated, info, policy_action=None, segment_end=False):
         if self._trajectory_episode is None:
             return transition
-        from real_world_rl.trajectory import transition_record
+        from real_world_rl.contracts.trajectory import transition_record
         self._trajectory_outcome.observe(info)
         action = transition["action"]
         transition.setdefault("policy_action", action if policy_action is None else policy_action)
@@ -218,7 +218,7 @@ class ActorLoop:
     def _end_trajectory(self, *, terminated=False, truncated=False, interrupted=False, end_reason=None) -> None:
         if self._trajectory_episode is None:
             return
-        from real_world_rl.trajectory import end_episode
+        from real_world_rl.contracts.trajectory import end_episode
         outcome = self._trajectory_outcome.finish(terminated=terminated, truncated=truncated, interrupted=interrupted, end_reason=end_reason)
         self.sync_client._new_message_id()  # end events also advance the actor sequence
         episode_id = self._trajectory_episode

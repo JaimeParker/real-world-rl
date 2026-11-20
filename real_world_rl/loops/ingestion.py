@@ -48,7 +48,7 @@ def validate_admission(record, *, observation_space=None, action_space=None, exp
     if "record_id" in record and "transition_id" in record and record["record_id"] != record["transition_id"]:
         raise ValueError("record_id and transition_id must agree")
     if "record_type" in record:
-        from real_world_rl.trajectory import validate_record
+        from real_world_rl.contracts.trajectory import validate_record
         validate_record(record)
     if experiment_hash and experiment_hash != "unknown" and record.get("experiment_hash") != experiment_hash:
         raise ValueError("record experiment hash differs from learner")
@@ -71,7 +71,7 @@ def validate_admission(record, *, observation_space=None, action_space=None, exp
         if record.get("record_type") == "episode_end":
             outcome = record.get("outcome")
             if outcome is not None:
-                from real_world_rl.metrics import EpisodeOutcome
+                from real_world_rl.contracts.outcomes import EpisodeOutcome
                 if not isinstance(outcome, dict):
                     raise ValueError("episode outcome must be a mapping")
                 try:

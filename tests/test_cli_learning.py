@@ -153,7 +153,7 @@ def test_training_main_passes_argv_to_registry(monkeypatch):
 
 def test_deploy_main_cli_parses_then_calls_existing_runner(monkeypatch):
     import tyro
-    from real_world_rl import deploy
+    from real_world_rl.deploy import checkpoint as deploy
     parsed = object()
     calls = []
     argv = ['--help']

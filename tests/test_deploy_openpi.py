@@ -11,11 +11,11 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation
 
-from real_world_rl import deploy_openpi
+from real_world_rl.deploy.openpi import loop as deploy_openpi
 from real_world_rl.cli import main
 from real_world_rl.devices.arm import ControlMode
 from real_world_rl.envs.real_robot import RealRobotEnv, RealRobotEnvConfig
-from real_world_rl.openpi_client import OpenPiClient, OpenPiError, packb, unpackb
+from real_world_rl.deploy.openpi.client import OpenPiClient, OpenPiError, packb, unpackb
 
 serve = pytest.importorskip("websockets.asyncio.server").serve
 

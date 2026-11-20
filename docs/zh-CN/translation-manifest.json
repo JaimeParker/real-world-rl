@@ -9,7 +9,7 @@
     {
       "source": "docs/bimanual.md",
       "translation": "docs/zh-CN/bimanual.md",
-      "source_sha256": "659c50d1a859c8143345881f28fb0374a30b2b5f713e3c680d782bb9bccee044"
+      "source_sha256": "08ef24de21b95cc97567c6d2745473f7f3f9a9d820abf363f390e87e1fe502aa"
     },
     {
       "source": "docs/cli.md",
@@ -64,7 +64,7 @@
     {
       "source": "docs/teleop.md",
       "translation": "docs/zh-CN/teleop.md",
-      "source_sha256": "3a0fed096b962cd9b98392fe3854b4f8150f0c6b5fdab1b877d6fe8f0da09f2c"
+      "source_sha256": "806d7b4e577a08d798f57dd9dac3a8e82242e2c807fc1acb0d01690907ee7b17"
     },
     {
       "source": "docs/tutorial/00-overview.md",
@@ -129,7 +129,7 @@
     {
       "source": "README.md",
       "translation": "docs/zh-CN/project-readme.md",
-      "source_sha256": "769712de4f4eb1d0e080bb7dcbe1fa862dd7c0521de50b54bf80571473ac683f"
+      "source_sha256": "f212bc0638d44e0f6a929ca92e98fde966d6936e300c0b8ea13fff4530c4ae70"
     },
     {
       "source": "docs/devices.md",

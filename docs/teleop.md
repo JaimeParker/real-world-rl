@@ -845,7 +845,7 @@ class JoystickTeleopSource(TeleopSource):
 
 `make_teleop_source("joystick", env, port=...)` then calls `JoystickTeleopSource.from_env(env,
 port=...)`, which defaults to `cls(**kwargs)`; override `from_env` to read the env's action
-contract (`real_world_rl.action_contract.get_env_action_contract(env)`). Unknown names
+contract (`real_world_rl.contracts.action.get_env_action_contract(env)`). Unknown names
 raise `ValueError` listing the registered ones. Registration must happen before the name is used,
 so a downstream package imports its module (or exposes it through its own entry point) before
 building the env. Built-in sources are imported on first use of their name, so importing

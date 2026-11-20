@@ -291,7 +291,7 @@ class _DeployEnv(_FakeEnv):
 @pytest.mark.parametrize("algo, variant", [("residual_hil_serl", "continuous"), ("residual_hil_serl_hybrid", "hybrid")])
 def test_deploy_restores_a_residual_checkpoint_with_its_recorded_provider(tmp_path, algo, variant):
     import real_world_rl.training.rlgarden_algorithms  # noqa: F401  (registers the table)
-    from real_world_rl.deploy import (
+    from real_world_rl.deploy.checkpoint import (
         DeployArgs,
         restore_policy,
         restore_training_args,
@@ -325,7 +325,7 @@ def test_deploy_restores_a_residual_checkpoint_with_its_recorded_provider(tmp_pa
 
 
 def test_deploy_base_provider_flag_overrides_the_recorded_spec(tmp_path):
-    from real_world_rl.deploy import DeployArgs, _compose_with_base_provider
+    from real_world_rl.deploy.checkpoint import DeployArgs, _compose_with_base_provider
 
     agent = build_residual_hil_serl(_args(base_provider="act:/missing.ckpt"), _FakeEnv(), None, None, None)
     args = DeployArgs(checkpoint="unused.pt", algo="residual_hil_serl", base_provider="zero")

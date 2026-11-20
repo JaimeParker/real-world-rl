@@ -46,7 +46,7 @@ from real_world_rl.supervise import Heartbeat
 from rl_garden.common.cli_args import ObservationArgs
 from rl_garden.common.env_args import EnvBackendArgs, EnvRunArgs
 
-from real_world_rl.action_contract import (
+from real_world_rl.contracts.action import (
     LEGACY_ACTION_CONTRACT,
     arm_block_slices,
     demo_contract_of,
@@ -292,7 +292,7 @@ def record_demos(
     num_grippers = num_grippers_of(contract)
     control_period_s = 1.0 / args.control_hz
 
-    from real_world_rl.trajectory import DurableArchive
+    from real_world_rl.contracts.trajectory import DurableArchive
     if getattr(env, "_record_archive", None) is None:
         import tempfile
         archive_path = Path(args.output_path).with_suffix(".trajectory.sqlite3") if args.output_path else Path(tempfile.mkdtemp(prefix="rl-record-")) / "trajectory.sqlite3"
@@ -356,17 +356,17 @@ def _record_episode(
     num_grippers: int,
     control_period_s: float,
 ) -> RecordedEpisode:
-    from real_world_rl.trajectory import begin_episode, transition_record, end_episode
+    from real_world_rl.contracts.trajectory import begin_episode, transition_record, end_episode
     archive = getattr(env, "_record_archive", None)
     if archive is None:
         archive = []
         env._record_archive = archive
     episode_id = uuid.uuid4().hex
-    from real_world_rl.action_contract import experiment_hash
+    from real_world_rl.contracts.action import experiment_hash
     archive.append(begin_episode(episode_id, run_id=args.run_id or "unknown", actor_id=args.actor_id, experiment_hash=experiment_hash(env), action_contract=demo_contract_of(env)))
     transitions: list[dict] = []
     gripper_action = gripper_actions_after_reset(num_grippers)
-    from real_world_rl.metrics import EpisodeOutcomeAccumulator
+    from real_world_rl.contracts.outcomes import EpisodeOutcomeAccumulator
 
     outcome_accumulator = EpisodeOutcomeAccumulator()
     failure = False
@@ -588,7 +588,7 @@ def run_recorder(
 
         env = VideoRecorderWrapper(env, save_dir=args.record_video_dir)
 
-    from real_world_rl.trajectory import DurableArchive
+    from real_world_rl.contracts.trajectory import DurableArchive
     try:
         env._record_archive = DurableArchive(output_path.with_suffix(".trajectory.sqlite3"), run_id=args.run_id, actor_id=args.actor_id, experiment_hash=experiment_hash(env))
         for record in env._record_archive:
@@ -645,17 +645,17 @@ def run_recorder(
         try:
             archive = getattr(env, "_record_archive", [])
             if archive:
-                from real_world_rl.trajectory import end_episode
+                from real_world_rl.contracts.trajectory import end_episode
                 if archive[-1]["record_type"] != "episode_end":
                     episode_id = archive[-1]["episode_id"]
-                    from real_world_rl.metrics import EpisodeOutcomeAccumulator
+                    from real_world_rl.contracts.outcomes import EpisodeOutcomeAccumulator
                     interrupted_outcome = EpisodeOutcomeAccumulator()
                     for record in archive:
                         if record["record_type"] == "transition" and record["episode_id"] == episode_id:
                             interrupted_outcome.observe(record)
                     archive.append(end_episode(episode_id, step_count=interrupted_outcome.steps,
                                                outcome=interrupted_outcome.finish(interrupted=True), interrupted=True))
-                from real_world_rl.metrics import EpisodeMetrics, EpisodeOutcome
+                from real_world_rl.contracts.outcomes import EpisodeMetrics, EpisodeOutcome
                 metrics = EpisodeMetrics()
                 for record in archive:
                     if record["record_type"] == "episode_end":

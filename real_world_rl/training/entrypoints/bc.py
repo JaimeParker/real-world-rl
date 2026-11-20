@@ -49,7 +49,7 @@ def run_real_world_bc(args: "RealWorldBCArgs") -> None:
     from rl_garden.common.resolved_config import persist_resolved_config
     from rl_garden.envs.backend_registry import make_training_envs
     from rl_garden.training.offline.runner import _eval_env_request
-    from real_world_rl.action_contract import demo_contract_of
+    from real_world_rl.contracts.action import demo_contract_of
     from real_world_rl.training.demo_loading import load_demo_pkls
 
     import importlib
@@ -96,7 +96,7 @@ def run_real_world_bc(args: "RealWorldBCArgs") -> None:
 
         agent = build_real_world_bc(args, env, None, logger, checkpoint_dir=None)
         if args.load_checkpoint is not None:
-            from real_world_rl.checkpoint_contract import load_with_action_contract
+            from real_world_rl.contracts.checkpoint import load_with_action_contract
             load_with_action_contract(agent, args.load_checkpoint,
                                       load_replay_buffer=args.load_replay_buffer)
         saved_contracts = []
@@ -116,7 +116,7 @@ def run_real_world_bc(args: "RealWorldBCArgs") -> None:
 
         from pathlib import Path
         import json
-        from real_world_rl.action_contract import (
+        from real_world_rl.contracts.action import (
             json_normalize, experiment_contract_of, effective_experiment_of, experiment_hash,
         )
         metadata_path = Path(checkpoint_dir).parent / "experiment.json"

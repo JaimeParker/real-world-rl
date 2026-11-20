@@ -55,7 +55,7 @@ class ResidualMixin:
     checkpoint_eval_unsupported_reason: ClassVar[Optional[str]] = (
         "the residual policy acts on top of a base action provider that rl-garden-eval "
         "does not build; evaluate with residual_hil_serl --role eval or "
-        "real_world_rl.deploy"
+        "real_world_rl.deploy.checkpoint"
     )
     #: Whether the residual covers the env's gripper dim (scaled by
     #: ``residual_gripper_scale``) or leaves it to another head.

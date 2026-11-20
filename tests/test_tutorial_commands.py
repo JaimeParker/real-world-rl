@@ -258,7 +258,7 @@ def parse_recorder(argv: Sequence[str]) -> None:
 def parse_deploy(argv: Sequence[str]) -> None:
     import tyro
 
-    from real_world_rl.deploy import DeployArgs
+    from real_world_rl.deploy.checkpoint import DeployArgs
 
     args = tyro.cli(DeployArgs, args=list(argv))
     _check_base_provider(args.base_provider or "")
@@ -303,7 +303,7 @@ SCRIPT_PARSERS: dict[str, Callable[[Sequence[str]], None]] = {
 MODULE_PARSERS: dict[str, Callable[[Sequence[str]], None]] = {
     "real_world_rl.training": parse_training,
     "real_world_rl.demos": parse_recorder,
-    "real_world_rl.deploy": parse_deploy,
+    "real_world_rl.deploy.checkpoint": parse_deploy,
     "real_world_rl.reward.collect_data": parse_collector,
     "rl_garden.models.act.train_trajectories": parse_act_trainer,
     "rl_garden.models.reward.success.train": parse_classifier_trainer,
@@ -446,7 +446,7 @@ def test_rwrl_learning_parser_hook(monkeypatch, name, parser_name, use_preset_al
 
 # `python -m real_world_rl.*` stays out of the pages (rwrl is the entry point) except these.
 SUPERVISED_CHILD_MODULES = frozenset({
-    "real_world_rl.training", "real_world_rl.demos", "real_world_rl.deploy",
+    "real_world_rl.training", "real_world_rl.demos", "real_world_rl.deploy.checkpoint",
     "real_world_rl.reward.collect_data",
 })  # allowed only as the child of a supervise command
 LEGACY_MODULE = "real_world_rl.legacy.controller.real.franka_bridge"

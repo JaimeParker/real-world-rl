@@ -14,8 +14,8 @@ import numpy as np
 
 from real_world_rl.devices.arm import ControlMode
 from real_world_rl.envs.real_robot import RealRobotEnv, RealRobotEnvConfig
-from real_world_rl.openpi_client import OpenPiClient, OpenPiError
-from real_world_rl.openpi_profiles import PROFILES, GenericProfile, RLinfFrankaProfile
+from real_world_rl.deploy.openpi.client import OpenPiClient, OpenPiError
+from real_world_rl.deploy.openpi.profiles import PROFILES, GenericProfile, RLinfFrankaProfile
 
 
 @dataclass

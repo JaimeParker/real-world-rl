@@ -32,7 +32,7 @@ from real_world_rl.devices.robots.franka import FRANKA_HOME_JOINTS
 from real_world_rl.discovery.autoconfig import load_station
 
 import real_world_rl.envs.backends.real_robot_bimanual  # noqa: F401  (registers the backend)
-from real_world_rl.action_contract import (
+from real_world_rl.contracts.action import (
     demo_contract_of,
     get_env_action_contract,
     read_contract_sidecar,
@@ -44,7 +44,7 @@ from real_world_rl.demos.record import (
     record_demos,
     save_demos,
 )
-from real_world_rl.deploy import DeployArgs, restore_training_args, run_deploy
+from real_world_rl.deploy.checkpoint import DeployArgs, restore_training_args, run_deploy
 from real_world_rl.envs.bimanual import BimanualRealRobotEnvConfig
 from real_world_rl.envs.real_robot import RealRobotEnvConfig
 from real_world_rl.loops.hil_serl import HilSerlActorLoop, HilSerlLearnerLoop

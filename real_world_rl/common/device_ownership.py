@@ -20,7 +20,7 @@ CONTROL_PROGRAMS = {
     "deploy_real_robot.py",
     "real_world_rl.training",
     "real_world_rl.demos",
-    "real_world_rl.deploy",
+    "real_world_rl.deploy.checkpoint",
     "real-world-rl-record",
     "real-world-rl-train",
     "real-world-rl-deploy",

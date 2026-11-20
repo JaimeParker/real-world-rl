@@ -44,7 +44,8 @@ real-world-rl/                   repository real-world-rl (top level)
     teleop/ kinematics/          teleop sources; robot kinematics (numpy)
     training/                    registry, shared args, env building, entrypoints/ (one per method); python -m entry
     demos/ reward/               demo recording, reward-classifier data collection
-    deploy.py                    eval-only deployment of a checkpoint
+    deploy/                      eval-only deployment: checkpoint (rl-garden checkpoints), openpi/ (served openpi policies)
+    contracts/                   data contracts shared across layers: action, checkpoint, trajectory, outcomes
     common/ integrations/        small shared helpers; external integrations (integrations/rlinf)
     devices/ server/             torch-free device layer: devices and backends; the robot daemon and RemoteRobot
     discovery/ doctor/           hardware discovery and station loading; device checks

@@ -1,6 +1,6 @@
 """Named spans over the existing arms-then-grippers action layout."""
 import numpy as np
-from real_world_rl.action_contract import arm_block_slices, num_grippers_of, with_arm_layout, action_dim_of
+from real_world_rl.contracts.action import arm_block_slices, num_grippers_of, with_arm_layout, action_dim_of
 
 
 def action_parts(contract):

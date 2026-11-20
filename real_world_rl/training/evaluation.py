@@ -6,7 +6,7 @@ import sys
 
 import torch
 
-from real_world_rl.metrics import EpisodeMetrics, EpisodeOutcomeAccumulator
+from real_world_rl.contracts.outcomes import EpisodeMetrics, EpisodeOutcomeAccumulator
 
 
 def evaluate_policy(env, policy, *, episodes, seed, predict=None):
@@ -80,8 +80,8 @@ def close_env(env):
 def resolve_eval_checkpoint(args, env):
     """Resolve bundle weights and validate requested/effective identity before reset."""
     from types import SimpleNamespace
-    from real_world_rl.deploy import _checkpoint_file, _saved_experiment
-    from real_world_rl.action_contract import validate_experiment
+    from real_world_rl.deploy.checkpoint import _checkpoint_file, _saved_experiment
+    from real_world_rl.contracts.action import validate_experiment
     request = SimpleNamespace(checkpoint=args.load_checkpoint, config_path=None)
     path = _checkpoint_file(request)
     validate_experiment(env, _saved_experiment(request))

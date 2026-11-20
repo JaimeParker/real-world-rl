@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # Learning-side subpackages of real_world_rl that the device layer must never import.
 LEARNING_SUBPACKAGES = (
     "envs", "loops", "training", "policies", "algorithms", "buffers", "demos", "reward",
-    "deploy", "deploy_openpi", "openpi_profiles",
+    "deploy", "contracts",
 )
 # The torch-free device layer inside real_world_rl, and the legacy code kept beside it.
 DEVICE_LAYER_PACKAGES = ("devices", "server", "discovery", "setup", "supervise", "doctor", "legacy")

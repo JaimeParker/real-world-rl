@@ -18,7 +18,7 @@ from real_world_rl.loops.durable import DurableStore, encode, decode
 from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
 from real_world_rl.training.env_building import build_hil_env
 from real_world_rl.training.runtime_paths import learner_experiment_kwargs
-from real_world_rl.trajectory import begin_episode
+from real_world_rl.contracts.trajectory import begin_episode
 
 
 class SpacePolicy:

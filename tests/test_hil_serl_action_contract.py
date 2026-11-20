@@ -15,7 +15,7 @@ from gymnasium.vector.utils import batch_space
 
 import real_world_rl.devices.claims as claims
 
-from real_world_rl.action_contract import demo_contract_of, read_contract_sidecar
+from real_world_rl.contracts.action import demo_contract_of, read_contract_sidecar
 from real_world_rl.envs.real_robot import RealRobotEnv, RealRobotEnvConfig
 from real_world_rl.envs.real_robot.env import RealRobotVectorEnv
 from real_world_rl.envs.wrappers.grasp_penalty import GraspPenaltyWrapper
@@ -93,7 +93,7 @@ def _cartesian_contract_env(backend, semantics):
 
 @pytest.mark.parametrize("backend", ["real_robot", "franka_real"])
 def test_serl_env_contract_rejects_current_data(backend):
-    from real_world_rl.action_contract import (
+    from real_world_rl.contracts.action import (
         experiment_contract_of, validate_experiment, validate_transitions_against_contract,
     )
 
@@ -118,7 +118,7 @@ def test_serl_env_contract_rejects_current_data(backend):
 @pytest.mark.parametrize("saved_mode", [None, "tracker"])
 def test_serl_source_contract_rejects_legacy_or_tracker_control(saved_mode):
     import copy
-    from real_world_rl.action_contract import validate_transitions_against_contract
+    from real_world_rl.contracts.action import validate_transitions_against_contract
     from real_world_rl.training.env_building import teleop_control_spec
     from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
 
@@ -139,7 +139,7 @@ def test_serl_source_contract_rejects_legacy_or_tracker_control(saved_mode):
 
 @pytest.mark.parametrize("backend", ["real_robot", "franka_real"])
 def test_serl_contract_rejects_missing_or_legacy_semantics(backend):
-    from real_world_rl.action_contract import validate_experiment, validate_transitions_against_contract
+    from real_world_rl.contracts.action import validate_experiment, validate_transitions_against_contract
 
     env = _cartesian_contract_env(backend, "serl")
     expected = demo_contract_of(env)
@@ -159,7 +159,7 @@ def test_serl_contract_rejects_missing_or_legacy_semantics(backend):
 ])
 def test_serl_contract_compares_pose_limits_and_gripper_semantics(backend, key, value):
     import copy
-    from real_world_rl.action_contract import validate_transitions_against_contract
+    from real_world_rl.contracts.action import validate_transitions_against_contract
 
     expected = demo_contract_of(_cartesian_contract_env(backend, "serl"))
     saved = copy.deepcopy(expected)
@@ -170,7 +170,7 @@ def test_serl_contract_compares_pose_limits_and_gripper_semantics(backend, key, 
 
 @pytest.mark.parametrize("backend", ["real_robot", "franka_real"])
 def test_serl_contract_sidecar_round_trips(backend, tmp_path):
-    from real_world_rl.action_contract import validate_transitions_against_contract, write_contract_sidecar
+    from real_world_rl.contracts.action import validate_transitions_against_contract, write_contract_sidecar
 
     expected = demo_contract_of(_cartesian_contract_env(backend, "serl"))
     path = tmp_path / "serl.pkl"
@@ -539,7 +539,7 @@ def _training(real_robot=None, **extra):
 
 
 def _deploy_args(**real_robot_overrides):
-    from real_world_rl.deploy import DeployArgs
+    from real_world_rl.deploy.checkpoint import DeployArgs
 
     return DeployArgs(
         checkpoint="unused.pt",
@@ -548,7 +548,7 @@ def _deploy_args(**real_robot_overrides):
 
 
 def test_deploy_cli_contract_conflict_with_training_raises_listing_both_sides():
-    from real_world_rl.deploy import resolve_deploy_robot_config
+    from real_world_rl.deploy.checkpoint import resolve_deploy_robot_config
 
     trained = RealRobotEnvConfig(remote="h:1", action_mode="joint_delta", num_joints=7)
     args = _deploy_args(action_mode="joint_abs", joint_limits=[[-1.0, 1.0]] * 7)
@@ -559,7 +559,7 @@ def test_deploy_cli_contract_conflict_with_training_raises_listing_both_sides():
 
 
 def test_deploy_default_cli_adopts_training_contract_and_keeps_connection_fields():
-    from real_world_rl.deploy import resolve_deploy_robot_config
+    from real_world_rl.deploy.checkpoint import resolve_deploy_robot_config
 
     trained = RealRobotEnvConfig(
         remote="train-host:1", token="secret", action_mode="joint_delta", num_joints=6,
@@ -576,7 +576,7 @@ def test_deploy_default_cli_adopts_training_contract_and_keeps_connection_fields
 
 
 def test_deploy_cli_agreeing_with_training_is_accepted():
-    from real_world_rl.deploy import resolve_deploy_robot_config
+    from real_world_rl.deploy.checkpoint import resolve_deploy_robot_config
 
     trained = RealRobotEnvConfig(remote="h:1", action_mode="joint_delta")
     resolved = resolve_deploy_robot_config(_deploy_args(action_mode="joint_delta"), _training(trained))
@@ -584,7 +584,7 @@ def test_deploy_cli_agreeing_with_training_is_accepted():
 
 
 def test_deploy_without_training_real_robot_falls_back_to_cli_with_warning(caplog):
-    from real_world_rl.deploy import resolve_deploy_robot_config
+    from real_world_rl.deploy.checkpoint import resolve_deploy_robot_config
 
     args = _deploy_args(action_mode="joint_delta")
     with caplog.at_level("WARNING"):
@@ -595,7 +595,7 @@ def test_deploy_without_training_real_robot_falls_back_to_cli_with_warning(caplo
 def test_restore_training_args_reads_real_robot_and_rotvec_from_persisted_config(tmp_path):
     """persist_resolved_config -> config.json -> restore_training_args round trip."""
     from rl_garden.common.resolved_config import persist_resolved_config
-    from real_world_rl.deploy import DeployArgs, restore_training_args
+    from real_world_rl.deploy.checkpoint import DeployArgs, restore_training_args
     from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
 
     trained = RealRobotEnvConfig(
@@ -619,7 +619,7 @@ def test_restore_training_args_reads_real_robot_and_rotvec_from_persisted_config
 def test_deploy_env_replays_rotvec_so_observation_matches_training_agent(tmp_path, _claim_dir):
     from rl_garden.common.resolved_config import persist_resolved_config
     from rl_garden.training.online.entrypoints.rlpd import RLPDArgs, build_rlpd
-    from real_world_rl.deploy import (
+    from real_world_rl.deploy.checkpoint import (
         DeployArgs, build_deploy_env, restore_policy, restore_training_args,
     )
     from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
@@ -662,7 +662,7 @@ def _joint_abs_contract(**overrides):
 
 
 def test_sidecar_from_real_env_contract_round_trips_without_warning(tmp_path):
-    from real_world_rl.action_contract import write_contract_sidecar
+    from real_world_rl.contracts.action import write_contract_sidecar
 
     contract = _joint_abs_contract()
     assert set(contract) >= {"joint_limits", "xyz_scale_m", "rot_scale_rad", "joint_scale_rad", "state_fields"}
@@ -690,7 +690,7 @@ def test_sidecar_from_real_env_contract_round_trips_without_warning(tmp_path):
     ],
 )
 def test_sidecar_physical_field_mismatch_raises_naming_both_values(tmp_path, field, recorded, replayed):
-    from real_world_rl.action_contract import write_contract_sidecar
+    from real_world_rl.contracts.action import write_contract_sidecar
 
     _write_pkl(tmp_path / "a.pkl", action_dim=8)
     write_contract_sidecar(tmp_path / "a.pkl", _joint_abs_contract(**recorded))
@@ -704,7 +704,7 @@ def test_sidecar_physical_field_mismatch_raises_naming_both_values(tmp_path, fie
 
 
 def test_sidecar_float_scales_compare_with_tolerance(tmp_path):
-    from real_world_rl.action_contract import write_contract_sidecar
+    from real_world_rl.contracts.action import write_contract_sidecar
 
     _write_pkl(tmp_path / "a.pkl", action_dim=8)
     write_contract_sidecar(tmp_path / "a.pkl", _joint_abs_contract(joint_scale_rad=0.05))
@@ -743,7 +743,7 @@ class _TwoCameraEnv(gym.Env):
 
 def test_deploy_restores_classifier_image_keys_so_frame_stacking_matches_training(tmp_path):
     from rl_garden.common.resolved_config import persist_resolved_config
-    from real_world_rl.deploy import DeployArgs, restore_training_args
+    from real_world_rl.deploy.checkpoint import DeployArgs, restore_training_args
     from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
 
     trained_args = HilSerlArgs(
@@ -779,7 +779,7 @@ def test_deploy_restores_classifier_image_keys_so_frame_stacking_matches_trainin
 def test_deploy_joint_abs_requires_device_joint_step_limit(_claim_dir, device_step_limit):
     from real_world_rl.devices.errors import DeviceFault
     from rl_garden.training.online.entrypoints.rlpd import RLPDArgs
-    from real_world_rl.deploy import DeployArgs, build_deploy_env
+    from real_world_rl.deploy.checkpoint import DeployArgs, build_deploy_env
 
     robot = dict(FAKE_FRANKA)
     if device_step_limit:
@@ -803,7 +803,7 @@ def test_deploy_joint_abs_requires_device_joint_step_limit(_claim_dir, device_st
 
 def test_deploy_main_reports_missing_joint_step_limit_as_device_error(_claim_dir, capsys):
     from rl_garden.training.online.entrypoints.rlpd import RLPDArgs
-    from real_world_rl.deploy import DEVICE_ERROR_EXIT_CODE, DeployArgs, build_deploy_env, main
+    from real_world_rl.deploy.checkpoint import DEVICE_ERROR_EXIT_CODE, DeployArgs, build_deploy_env, main
 
     connection = dict(robot=FAKE_FRANKA, home_joints=[0.0] * 7, reset_settle_s=0.0)
     training_args = RLPDArgs(num_envs=1, num_eval_envs=1, buffer_size=8, buffer_device="cpu")
@@ -827,7 +827,7 @@ _TWO_ARM_CART = dict(_CART, num_arms=2, arm_names=["left", "right"])
 
 
 def test_layout_helpers_put_the_arm_blocks_first_and_one_gripper_per_arm_last():
-    from real_world_rl.action_contract import (
+    from real_world_rl.contracts.action import (
         action_dim_of,
         arm_block_slices,
         gripper_slice,
@@ -846,7 +846,7 @@ def test_layout_helpers_put_the_arm_blocks_first_and_one_gripper_per_arm_last():
 
 
 def test_env_num_grippers_reads_the_contract_and_defaults_to_one():
-    from real_world_rl.action_contract import env_num_grippers
+    from real_world_rl.contracts.action import env_num_grippers
 
     two_arms = _ContractEnv("cartesian_delta", 6)
     two_arms.action_contract.update(num_arms=2, arm_names=["left", "right"])
@@ -857,7 +857,7 @@ def test_env_num_grippers_reads_the_contract_and_defaults_to_one():
 
 
 def test_real_robot_env_contract_names_its_single_arm_and_sidecars_carry_it(tmp_path):
-    from real_world_rl.action_contract import write_contract_sidecar
+    from real_world_rl.contracts.action import write_contract_sidecar
 
     env = _real_env()
     contract = env.get_wrapper_attr("action_contract")

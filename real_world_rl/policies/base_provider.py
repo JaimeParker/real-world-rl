@@ -125,7 +125,7 @@ def _restore_real_world_bc_agent(path: str, env: _SpacesOnlyEnv) -> Any:
 
     from rl_garden.common.checkpoint import load_checkpoint_file
     from real_world_rl.training.entrypoints.bc import build_real_world_bc
-    from real_world_rl.deploy import _apply_mapping
+    from real_world_rl.deploy.checkpoint import _apply_mapping
     from real_world_rl.training.registry import registry
 
     registry.discover()
@@ -148,7 +148,7 @@ def _restore_online_agent(path: str, algo: str, env: _SpacesOnlyEnv, **builder_k
     ``deploy`` rebuilds one: the entry's Args from the run's ``config.json`` and the
     checkpoint's hyperparameters, then the entry's ``build_agent`` (``builder_kwargs``, e.g.
     ``num_grippers`` for a multi-arm ``rlpd_hybrid``, go to it)."""
-    from real_world_rl.deploy import (
+    from real_world_rl.deploy.checkpoint import (
         DeployArgs,
         _resolve_build_agent,
         restore_training_args,
@@ -202,7 +202,7 @@ class CheckpointBaseProvider:
         else:
             builder_kwargs = {} if self.num_grippers == 1 else {"num_grippers": self.num_grippers}
             agent = _restore_online_agent(self.path, algo, env, **builder_kwargs)
-        from real_world_rl.checkpoint_contract import load_with_action_contract
+        from real_world_rl.contracts.checkpoint import load_with_action_contract
         load_with_action_contract(agent, self.path, load_replay_buffer=False, load_optimizers=False)
         self._policy = agent.policy.to(self.device).eval()
 

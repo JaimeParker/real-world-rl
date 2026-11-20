@@ -11,7 +11,7 @@ from rl_garden.common.effective_config import apply_strict_mapping
 from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
 from real_world_rl.training.env_building import build_hil_env
 from real_world_rl.training.evaluation import evaluate_policy
-from real_world_rl.action_contract import experiment_hash
+from real_world_rl.contracts.action import experiment_hash
 
 
 def main():

@@ -753,7 +753,7 @@ def test_teleop_input_keeps_the_device_table_path_out_of_source_options(isolated
 
     from real_world_rl.devices.provenance import portable_path
 
-    from real_world_rl.action_contract import compared_experiment
+    from real_world_rl.contracts.action import compared_experiment
 
     station = isolated_site / "local/station.yaml"
     station.parent.mkdir()

@@ -265,7 +265,7 @@ def test_two_interventions_restore_policy_in_one_archived_episode(tmp_path):
     from types import SimpleNamespace
     from test_teleop_intervention_wrapper import _FakeEnv as DeviceEnv, _FakeTeleop, _sample
     from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
-    from real_world_rl.trajectory import DurableArchive
+    from real_world_rl.contracts.trajectory import DurableArchive
 
     device = DeviceEnv()
     wrapped = TeleopInterventionWrapper(device, teleop=_FakeTeleop([

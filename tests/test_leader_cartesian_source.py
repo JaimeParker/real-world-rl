@@ -27,7 +27,7 @@ from real_world_rl.server import RemoteRobot
 from real_world_rl.server.service import RobotService
 from real_world_rl.server.transport import LocalClient
 
-from real_world_rl.action_contract import (
+from real_world_rl.contracts.action import (
     describe_contract,
     validate_transitions_against_contract,
 )

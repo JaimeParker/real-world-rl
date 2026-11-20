@@ -111,8 +111,8 @@ def _run_actor(args) -> None:
 
 
 def build_hil_agent(args, env, eval_env, logger=None, checkpoint_dir=None, **kwargs):
-    from real_world_rl.checkpoint_contract import build_agent_with_action_contract
-    from real_world_rl.action_contract import env_num_grippers
+    from real_world_rl.contracts.checkpoint import build_agent_with_action_contract
+    from real_world_rl.contracts.action import env_num_grippers
     if env_num_grippers(env) == 0:
         from rl_garden.training.online.entrypoints.rlpd import build_rlpd
         from real_world_rl.algorithms.hil_continuous import ContinuousHilRLPD
@@ -126,7 +126,7 @@ def build_hil_agent(args, env, eval_env, logger=None, checkpoint_dir=None, **kwa
 def _gripper_kwargs(env) -> dict:
     """``num_grippers`` for ``build_rlpd_hybrid`` from ``env``'s action contract; empty for a
     single gripper, so the builder's default applies."""
-    from real_world_rl.action_contract import env_num_grippers
+    from real_world_rl.contracts.action import env_num_grippers
 
     num_grippers = env_num_grippers(env)
     return {} if num_grippers == 1 else {"num_grippers": num_grippers}
@@ -158,7 +158,7 @@ def _run_learner(args) -> None:
 
     from rl_garden.common import Logger, seed_everything
     from rl_garden.common.resolved_config import persist_resolved_config
-    from real_world_rl.action_contract import demo_contract_of
+    from real_world_rl.contracts.action import demo_contract_of
     from real_world_rl.loops.hil_serl import HilSerlLearnerLoop
 
     seed_everything(args.seed)

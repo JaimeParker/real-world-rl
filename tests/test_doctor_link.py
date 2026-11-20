@@ -547,3 +547,20 @@ def test_sshd_without_systemd_is_blocked_not_failed(host, monkeypatch, sshd_runn
     result = row(host, "link.sshd")
     assert result.status == "BLOCKED" and "outside containers" in result.hint
     assert ("an sshd process is running" in result.message) == sshd_running
+
+
+@pytest.mark.parametrize("ssh_config,alias", [
+    ("hostname nuc.example.org\nport 6017\n", "[nuc.example.org]:6017"),
+    ("hostname nuc.example.org\nport 22\n", "nuc.example.org"),
+    ("hostname nuc.example.org\nport 6017\nhostkeyalias labnuc\n", "labnuc"),
+])
+def test_fake_ip_hints_name_the_host_key_alias_and_proxy_bypass(host, monkeypatch, ssh_config, alias):
+    monkeypatch.setattr(link.os, "environ", {})
+    monkeypatch.setattr(host, "command",
+                        lambda argv, **kw: (0, ssh_config) if argv[:2] == ["ssh", "-G"] else (0, "198.18.0.40"))
+    link._proxy(host, LinkConfig("127.0.0.1:50061", "nuc"))
+    result = row(host, "link.proxy")
+    assert result.status == "WARN" and "nuc.example.org resolves inside 198.18.0.0/15" in result.message
+    assert f"HostKeyAlias {alias}" in result.hint and f"-o HostKeyAlias={alias} nuc true" in result.hint
+    assert "DOMAIN,nuc.example.org,DIRECT" in result.hint and "fake-ip-filter" in result.hint
+    assert "route-exclude-address" in result.hint and "bandwidth" in result.hint

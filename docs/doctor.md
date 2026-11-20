@@ -148,7 +148,7 @@ addresses in `HOST:PORT` fields. `--mock` skips link probes.
 | `link.firewall` | active ufw and incoming TCP rules for a non-loopback bind | advice only |
 | `link.preprocess` | OpenCV import for `frame_preprocess_cv2_v1` | install the `jpeg` extra |
 | `link.deps` | grpc, msgpack, the openpi websocket client, and a decoder if the daemon uses JPEG | install the missing link packages or the `jpeg` extra |
-| `link.proxy` | proxy environment and whether the SSH target resolves into the 198.18.0.0/15 fake-IP range | prints an `export no_proxy=...` line for your shell |
+| `link.proxy` | proxy environment and whether the SSH target resolves into the 198.18.0.0/15 fake-IP range | prints an `export no_proxy=...` line for your shell; for a fake IP, the two ways off the proxy node ([below](#grpc-and-ssh-red-lights)) |
 | `link.ssh` | key-based login and handshake time, with a warning above 2 s | advice only |
 | `link.tunnel` | local listener, owner and systemd user service state | install autossh and configure or restart the dedicated service |
 | `link.forward` | temporary loopback SSH forward and gRPC describe through it | advice only |
@@ -343,6 +343,7 @@ similar values come from your station. Piper and CAN rows are in the
 | `link.tunnel` missing listener or wrong owner | check the user unit journal or choose a free loopback port |
 | `link.daemon` UNAUTHENTICATED | supply the daemon's token with `--token` or `link.token` |
 | `link.daemon` unreachable or `link.quality` slow | check the tunnel, proxy bypass, daemon bind and link latency before adjusting the control period or watchdog |
+| `link.proxy` SSH target in 198.18.0.0/15 | a TUN proxy (Clash, mihomo) in fake-IP mode routes the tunnel by domain, often through a proxy node; taking it off the node usually raises the tunnel's bandwidth and lowers RTT. Either (a) set `HostName` to the NUC's real IP in `~/.ssh/config` (read it on the NUC with `getent ahostsv4 <host>`) together with `HostKeyAlias` set to the old name, `[host]:port` for a non-22 port, so the `known_hosts` entry still matches (without it: `Host key verification failed`); test first with `ssh -o HostName=<real IP> -o HostKeyAlias=<alias> <host> true`. Or (b) in the proxy config, add the host to `dns.fake-ip-filter` with a `DOMAIN,<host>,DIRECT` rule before the others, or exclude the NUC's IP from the TUN with `tun.route-exclude-address`. A key or a real IP alone does not choose the route: the local DNS answer and the routing table do |
 
 ### Network and FCI
 

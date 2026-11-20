@@ -147,7 +147,7 @@ link:
 | `link.firewall` | ufw 状态及非回环绑定的 TCP 入站规则 | 仅提示 |
 | `link.preprocess` | 可否导入 `frame_preprocess_cv2_v1` 所用的 OpenCV | 安装 `jpeg` 扩展 |
 | `link.deps` | grpc、msgpack、openpi websocket 客户端，以及 daemon 使用 JPEG 时所需的解码器 | 安装缺失的链路依赖或 `jpeg` 扩展 |
-| `link.proxy` | 代理环境变量，以及 SSH 目标是否解析到 198.18.0.0/15 虚拟 IP 地址段 | 输出可在 shell 中执行的 `export no_proxy=...` |
+| `link.proxy` | 代理环境变量，以及 SSH 目标是否解析到 198.18.0.0/15 虚拟 IP 地址段 | 输出可在 shell 中执行的 `export no_proxy=...`；解析到虚拟 IP 时，给出绕开代理节点的两种做法（[见下](#grpc-and-ssh-red-lights)） |
 | `link.ssh` | 密钥登录及握手耗时，超过 2 秒时告警 | 仅提示 |
 | `link.tunnel` | 本地监听端口、进程及 systemd 用户服务状态 | 安装 autossh，配置或重启专用服务 |
 | `link.forward` | 创建临时回环 SSH 转发并通过该端口请求 gRPC describe | 仅提示 |
@@ -295,6 +295,7 @@ doctor 规划一项修复 `PLAN sdk:franky: Install Franky wheel for handshake-c
 | `link.tunnel` 无监听进程或端口被占用 | 查看用户服务日志或选择空闲回环端口 |
 | `link.daemon` UNAUTHENTICATED | 通过 `--token` 或 `link.token` 提供 daemon 的令牌 |
 | `link.daemon` 无法连接或 `link.quality` 延迟过高 | 先检查隧道、代理绕过、daemon 绑定地址及链路延迟，再调整控制周期或看门狗 |
+| `link.proxy` SSH 目标位于 198.18.0.0/15 | fake-IP 模式的 TUN 代理（Clash、mihomo）按域名分流隧道，常把它送往代理节点；绕开代理节点通常能提高隧道带宽并降低 RTT。两种做法任选其一：(a) 在 `~/.ssh/config` 中把 `HostName` 设为 NUC 的真实 IP（在 NUC 上用 `getent ahostsv4 <host>` 查看），同时把 `HostKeyAlias` 设为原来的名字（非 22 端口写作 `[host]:port`），让 `known_hosts` 中的记录仍能匹配（否则会报 `Host key verification failed`）；修改前先用 `ssh -o HostName=<真实 IP> -o HostKeyAlias=<alias> <host> true` 测试。(b) 在代理配置中把该主机加入 `dns.fake-ip-filter`，并在其他规则之前加 `DOMAIN,<host>,DIRECT`，或用 `tun.route-exclude-address` 把 NUC 的 IP 排除在 TUN 之外。走哪条路由由本地 DNS 结果和路由表决定，与 SSH 密钥或主机是否有真实 IP 无关 |
 
 <a id="network-and-fci"></a>
 

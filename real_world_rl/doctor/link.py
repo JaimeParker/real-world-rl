@@ -115,10 +115,14 @@ def _proxy(host, link: LinkConfig) -> None:
     resolution_failed = False
     if link.ssh:
         ssh_host = link.ssh.rpartition("@")[2]
+        ssh_port = "22"
+        key_alias = None
         code, config = host.command(["ssh", "-G", "--", link.ssh], timeout=4)
         if not code:
-            ssh_host = next((line.split()[1] for line in config.splitlines()
-                             if line.startswith("hostname ") and len(line.split()) == 2), ssh_host)
+            settings = {parts[0]: parts[1] for line in config.splitlines() if len(parts := line.split()) == 2}
+            ssh_host = settings.get("hostname", ssh_host)
+            ssh_port = settings.get("port", ssh_port)
+            key_alias = settings.get("hostkeyalias")
         code, addresses = host.command(
             [sys.executable, "-c",
              "import socket, sys; print(*(r[4][0] for r in socket.getaddrinfo(sys.argv[1], None)), sep='\\n')",
@@ -127,7 +131,7 @@ def _proxy(host, link: LinkConfig) -> None:
         resolution_failed = bool(code)
         if not code and any(_fake_ip(value) for value in addresses.split()):
             warnings.append(f"{ssh_host} resolves inside 198.18.0.0/15 (proxy fake-IP range)")
-            hints.append("bypass the SSH destination in the TUN proxy or use the NUC's real IP")
+            hints.extend(_fake_ip_hints(link.ssh, ssh_host, ssh_port, key_alias))
     if warnings:
         host.add(key, "WARN", "; ".join(warnings), "\n".join(hints))
     elif resolution_failed:
@@ -135,6 +139,22 @@ def _proxy(host, link: LinkConfig) -> None:
                  "check DNS and link.ssh; SSH configuration aliases may resolve only inside SSH")
     else:
         host.add(key, "PASS", "no proxy interception detected")
+
+
+def _fake_ip_hints(destination: str, ssh_host: str, ssh_port: str, key_alias: str | None) -> list[str]:
+    """Two ways off the proxy node for an SSH destination that resolves to a fake IP."""
+    alias = key_alias or (ssh_host if ssh_port == "22" else f"[{ssh_host}]:{ssh_port}")
+    return [
+        f"{ssh_host} resolves to a proxy fake IP, so the SSH tunnel runs through the proxy; taking it "
+        "off the proxy node usually raises the tunnel's bandwidth and lowers its RTT. Either:",
+        f"(a) in ~/.ssh/config, for Host {destination}: HostName <the NUC's real IP> (on the NUC: "
+        f"getent ahostsv4 {ssh_host}) and HostKeyAlias {alias}, which keeps the known_hosts entry "
+        "(without it ssh reports 'Host key verification failed'); test first with "
+        f"ssh -o HostName=<real IP> -o HostKeyAlias={alias} {destination} true",
+        f"(b) in the proxy (Clash/mihomo) config: add {ssh_host} to dns.fake-ip-filter and a rule "
+        f"DOMAIN,{ssh_host},DIRECT before the others, or exclude the NUC's real IP from the TUN with "
+        "tun.route-exclude-address",
+    ]
 
 
 def _fake_ip(value: str) -> bool:

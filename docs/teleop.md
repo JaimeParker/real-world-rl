@@ -125,10 +125,13 @@ or use `tracker` when there is no training configuration.
 | Terminal/keyboard | `t`/`h` ignored with a warning on state changes; labels/end/quit still work. | Same keys: `s`/`f`/`r`/Esc/`q` provide labels/end/quit. `t`/`h` do not control takeover and warn on state changes. |
 
 For an inclined robot base, `teleop_options_yaml` may supply `input_rotation`, a
-finite proper 3×3 rotation matrix `base_R_input`. Both SpaceMouse modes rotate
-translation and angular input into the robot base frame. Axis inversions and the
-tracker's per-axis deadzone precede rotation; SERL takeover still uses the raw
-six-axis norm. Each rotated three-vector is uniformly reduced only when needed
+finite proper 3×3 rotation matrix `base_R_input`. Tracker mode rotates
+translation and angular input into the robot base frame. Serl mode, like HIL-SERL, drives the
+raw base frame and keeps the rotation as provenance only, unless the options set
+`use_profile_rotation: true` (see
+[SERL controller: SpaceMouse in serl mode](serl-controller.md#spacemouse-in-serl-mode-the-raw-base-frame)).
+Axis inversions and the tracker's per-axis deadzone precede rotation; SERL takeover still uses
+the raw six-axis norm. Each rotated three-vector is uniformly reduced only when needed
 to fit the action cube, preserving its direction. No origin translation is
 applied. The resolved matrix and profile name/file/yaw are saved in non-compared
 `teleop_input` provenance before resolved configuration is persisted. Restoring a run uses
@@ -174,7 +177,8 @@ Deploy preserves the saved env semantics; a `--spacemouse-mode serl` override
 conflicts with a saved `cartesian_semantics: current`.
 
 Use the same mode for recording, training and deployment. SERL records this
-compared `teleop_control` contract (nondefault `invert_axes` adds that list):
+compared `teleop_control` contract (nondefault `invert_axes` adds that list, and options that
+carry an `input_rotation` add `use_profile_rotation`):
 
 ```json
 {"version": "spacemouse_serl_v1", "mode": "serl", "motion_threshold": 0.001, "gripper": "serl_buttons"}
@@ -182,8 +186,8 @@ compared `teleop_control` contract (nondefault `invert_axes` adds that list):
 
 SERL requires one six-axis `cartesian_delta` arm and full arm/gripper selection.
 Actions stay in the base frame after the fixed HID map
-`[-y, x, z, -roll, -pitch, -yaw]` and any configured input rotation;
-relative frames, relative observations and `action_indices` are not supported.
+`[-y, x, z, -roll, -pitch, -yaw]` (and a configured input rotation only with
+`use_profile_rotation: true`); relative frames, relative observations and `action_indices` are not supported.
 `teleop_options_yaml` may set `device_index` (default `0`), `invert_axes`
 (default `[]`), `poll_interval_s` (default `0.005`) and `read_timeout_s`
 (default `1.0`). Tracker options, `deadzone`, `hold_s`, gripper-holding getters

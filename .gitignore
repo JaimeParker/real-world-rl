@@ -19,3 +19,26 @@ temp/
 docs/internal/
 
 .venv/
+
+# --- C/C++ / CMake / scikit-build / pybind11 (native/) ---
+build/
+build-*/
+out/
+_skbuild/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+Testing/
+compile_commands.json
+.cache/
+*.o
+*.a
+*.so
+*.so.*
+*.dylib
+*.pyd
+*.dll
+*.whl
+wheelhouse/
+dist/

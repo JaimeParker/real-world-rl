@@ -111,6 +111,7 @@ def test_one_arm_with_defaults_calibrates_writes_and_passes_the_doctor(tmp_path)
         "cartesian_damping": [89.0, 89.0, 89.0, 7.0, 7.0, 7.0],
         "translational_error_clip": [0.01, 0.01, 0.01], "rotational_error_clip": [0.10, 0.10, 0.10],
     }
+    assert config.serl is None and config.load is None
     assert config.cartesian_controller == "impedance"
     assert [(camera.name, camera.serial) for camera in config.cameras] == list(zip(["wrist", "front", "front_2"], SERIALS))
     options = config.teleop.options
@@ -612,3 +613,28 @@ def test_invalid_camera_flags_are_rejected(tmp_path, flags, message, capsys):
     error = capsys.readouterr().err
     assert "error:" not in output
     assert code == 2 and message in error and not out.exists()
+
+
+def test_robot_model_and_serl_auto_recover_round_trip_and_fr3_limit_defaults(tmp_path):
+    from real_world_rl.devices.robots.franka import DATASHEET_JOINT_LIMITS
+    out = tmp_path / "station.yaml"
+    assert run([*FLAGGED_ONE_ARM, "--output", out], never_asked)[0] == 0
+    text = out.read_text()
+    assert "robot_model: panda" in text and "serl_auto_recover: null" in text
+    edited = []
+    for line in text.splitlines(keepends=True):
+        if line.lstrip().startswith("robot_model:"):
+            line = line.replace("robot_model: panda", "robot_model: fr3", 1)
+        elif line.lstrip().startswith("serl_auto_recover:"):
+            line = line.replace("serl_auto_recover: null", "serl_auto_recover: {enabled: false, max_per_episode: 3}", 1)
+        elif line.lstrip().startswith("joint_limits:"):
+            line = line.split("joint_limits:")[0] + "joint_limits: null\n"
+        edited.append(line)
+    out.write_text("".join(edited))
+    again = tmp_path / "again.yaml"
+    code, output = run(["--mock", "--non-interactive", "--station", out, "--output", again], never_asked)
+    assert code == 0, output
+    config = load_station(again).select().config
+    assert config.robot_model == "fr3"
+    assert config.serl_auto_recover == {"enabled": False, "max_per_episode": 3}
+    assert config.joint_limits == [list(pair) for pair in DATASHEET_JOINT_LIMITS["fr3"]]  # FR3 datasheet default

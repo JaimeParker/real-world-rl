@@ -45,6 +45,12 @@ class RealRobotEnvConfig:
     preprocess: dict = field(default_factory=dict)
     task: TaskConfig = field(default_factory=TaskConfig)
     control: Optional[dict] = None
+    # Named SERL compliance profiles for cartesian_controller: serl, e.g.
+    # {compliance: {...}, precision: {...}} (compliance_param.cfg names, partial). Switching to one
+    # is a partial update on top of the arm's current parameters, as HIL-SERL's update_param
+    # (real_world_rl.devices.control.serl_profile_update -> arm.update_serl_params); keys it omits
+    # keep their previous values. Out-of-range values are clamped like SERL's dynamic_reconfigure.
+    serl_profiles: Optional[dict] = None
     action_mode: Literal["cartesian_delta", "joint_delta", "joint_abs"] = "cartesian_delta"
     control_hz: float = 10.0
     xyz_scale_m: float = 0.02
@@ -111,6 +117,9 @@ class RealRobotEnvConfig:
         for preprocessing in self.preprocess.values(): preprocessing.__post_init__()
         if self.control is not None and not isinstance(self.control, dict):
             raise ValueError("control must be a mapping or None")
+        if self.serl_profiles is not None:
+            from real_world_rl.devices.control import validate_serl_profiles
+            self.serl_profiles = validate_serl_profiles(self.serl_profiles, where="real_robot.serl_profiles")
         if len(set(self.cameras)) != len(self.cameras) or len(set(self.depth_cameras)) != len(self.depth_cameras):
             raise ValueError("camera names must be unique within each modality")
         if self.capture_cameras and set(self.preprocess) - set(self.capture_cameras):

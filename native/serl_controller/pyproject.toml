@@ -1,0 +1,47 @@
+[build-system]
+# pybind11 is pinned to the version franky v2.0.0 is built with
+# (franky/docker/common/dependency_versions: PYBIND11_VERSION=3.0.4). The
+# SerlCartesianImpedanceMotion binding derives from franky's own pybind11 class,
+# which only works if both extensions share pybind11's internals.
+requires = ["scikit-build-core>=0.10", "pybind11==3.0.4"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "serl-controller"
+dynamic = ["version"]
+description = "SERL's Franka Cartesian impedance controller as a franky torque motion (ROS-free)"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT AND BSD-3-Clause" }  # see LICENSE (SERL port: MIT; ros_control soft limits: BSD-3-Clause)
+authors = [{ name = "real-world-rl contributors" }]
+dependencies = ["numpy"]
+classifiers = [
+  "Programming Language :: C++",
+  "Programming Language :: Python :: 3",
+  "Operating System :: POSIX :: Linux",
+]
+
+[project.optional-dependencies]
+# franky is deliberately not a hard dependency: the matching franky wheel comes
+# from the same build (see README, "ABI coupling").
+test = ["pytest"]
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.version = ">=3.24"
+build-dir = "build/{wheel_tag}"
+wheel.packages = ["python/serl_controller"]
+install.components = ["python"]
+sdist.exclude = ["build"]
+
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.regex"
+input = "VERSION"
+regex = '^(?P<value>\d+\.\d+\.\d+)'
+
+[tool.scikit-build.cmake.define]
+SERL_CONTROLLER_BUILD_PYTHON = "ON"
+SERL_CONTROLLER_BUILD_TESTS = "OFF"
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]

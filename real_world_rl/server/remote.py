@@ -29,6 +29,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _TRANSPORTS = ("grpc", "local")
+# Client deadline of a blocking move_to_joints on a cartesian_controller: serl daemon (SERL's joint
+# reset: 2 s + up to 31 polls of 1 s, the end of the 10 s blend, the finish); other calls keep timeout_s.
+SERL_JOINT_RESET_DEADLINE_S = 60.0
 _DEFAULT_BINARY_THRESHOLD = 0.5
 # gripper.wait_idle: the client deadline is the wait's own timeout plus this margin.
 GRIPPER_WAIT_IDLE_DEADLINE_MARGIN_S = 5.0
@@ -128,6 +131,16 @@ class RemoteArm(_RemotePart, Arm):
         return dict(self._remote_control_metadata.get("effective", {}))
 
     @property
+    def serl_params(self) -> dict | None:
+        return self._call("serl_params")
+
+    def update_serl_params(self, updates) -> dict:
+        from real_world_rl.devices.control import serl_param_updates
+        serl_param_updates(updates, where="update_serl_params")  # fail before the round trip
+        # The daemon's arm clamps (and records what it clamped); send the values as given.
+        return self._call("update_serl_params", params={key: float(value) for key, value in updates.items()})
+
+    @property
     def control_metadata(self) -> dict:
         return dict(self._remote_control_metadata)
 
@@ -160,7 +173,25 @@ class RemoteArm(_RemotePart, Arm):
         self._call("move_to_pose", pose=np.asarray(pose), blocking=blocking)
 
     def _move_to_joints(self, q: np.ndarray, blocking: bool = True) -> None:
+        if blocking and self._remote_control_metadata.get("cartesian_controller") == "serl":
+            # SERL's joint reset: a 10 s blend plus up to ~32 s of polling, longer than timeout_s.
+            self._require_connected()
+            self._client.call_with_deadline("arm.move_to_joints", SERL_JOINT_RESET_DEADLINE_S,
+                                            q=np.asarray(q), blocking=blocking)
+            return
         self._call("move_to_joints", q=np.asarray(q), blocking=blocking)
+
+    @property
+    def last_joint_reset(self) -> dict | None:
+        return self._call("last_joint_reset")
+
+    @property
+    def serl_auto_recovery(self) -> dict | None:
+        return self._call("serl_auto_recovery")
+
+    def reset_serl_auto_recovery(self) -> None:
+        if self._remote_control_metadata.get("cartesian_controller") == "serl":  # else a no-op, no round trip
+            self._call("reset_serl_auto_recovery")
 
     def begin_stop_trace(self):
         self._call("begin_stop_trace")

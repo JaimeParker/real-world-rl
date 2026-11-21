@@ -1,0 +1,83 @@
+serl_controller -- licences and provenance
+==========================================
+
+serl_controller is distributed under the MIT License below (the licence of the code it is
+ported from). Parts of it, and some files used only by its tests, come from other projects
+under their own licences, listed here.
+
+1. SERL's controllers (MIT) -- the package as a whole
+-----------------------------------------------------
+Ported from rail-berkeley/serl_franka_controllers
+(https://github.com/rail-berkeley/serl_franka_controllers), commit 1f140ef:
+
+  src/law.cpp, include/serl_controller/law.hpp
+      <- src/cartesian_impedance_controller.cpp, include/serl_franka_controllers/cartesian_impedance_controller.h
+  src/params.cpp, include/serl_controller/params.hpp
+      <- cfg/compliance_param.cfg
+  include/serl_controller/pseudo_inversion.hpp
+      <- include/serl_franka_controllers/pseudo_inversion.h (itself a public-domain file by
+         Enrico Corvaglia, CentroEPiaggio/kuka-lwr)
+  src/joint_reset.cpp, include/serl_controller/joint_reset.hpp (SerlJointPositionLaw)
+      <- src/joint_position_controller.cpp, include/serl_franka_controllers/joint_position_controller.h
+  src/motion.cpp, src/joint_reset_motion.cpp, include/serl_controller/{motion,joint_reset_motion}.hpp,
+  python/bindings.cpp
+      run / bind the ports above (new code, same licence).
+
+Verbatim copies, for the golden tests only (not in the wheel): tests/cpp/golden/serl_original/
+(its own LICENSE; checksums in SHA256SUMS).
+
+MIT License
+
+Copyright (c) 2024 RAIL Berkeley
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+2. ros_control joint_limits_interface (BSD-3-Clause) -- PositionJointSoftLimits
+-------------------------------------------------------------------------------
+PositionJointSoftLimits (src/joint_reset.cpp, include/serl_controller/joint_reset.hpp) is
+ported from ros-controls/ros_control (https://github.com/ros-controls/ros_control),
+noetic-devel @ 633c374, joint_limits_interface/include/joint_limits_interface/
+joint_limits_interface.h (PositionJointSoftLimitsHandle, internal::saturate).
+Copyright (C) 2013, PAL Robotics S.L.; Copyright (c) 2008, Willow Garage, Inc.
+BSD-3-Clause: the full notice is reproduced in src/joint_reset.cpp next to the ported code;
+ros_control's LICENSE is tests/cpp/golden/ros_control_original/LICENSE.
+
+Verbatim copies, for the golden tests only: tests/cpp/golden/ros_control_original/
+(LICENSE, SHA256SUMS).
+
+The ROS stand-in tests/cpp/golden/ros_stubs/ros/time.h reproduces roscpp_core's
+ros::Duration arithmetic (ros/roscpp_core noetic-devel @ a1a1942, Copyright (c) 2008,
+Willow Garage, Inc., BSD-3-Clause; full notice in that file). Test only.
+
+3. franka_ros (Apache-2.0) -- joint limit values, golden-test copies
+--------------------------------------------------------------------
+The Panda / FR3 joint limit tables (frankaPandaJointLimits / frankaFr3JointLimits in
+src/joint_reset.cpp) are the values of frankaemika/franka_ros
+(https://github.com/frankaemika/franka_ros) @ ddd2fff,
+franka_description/robots/{panda,fr3}/joint_limits.yaml, through the `franka-limits` xacro
+macro. Copyright (c) Franka Robotics GmbH (formerly Franka Emika GmbH), Apache License 2.0.
+
+Verbatim copies, for the golden tests only (not in the wheel): tests/cpp/golden/franka_ros_original/
+(the Apache-2.0 licence text is its LICENSE; checksums in SHA256SUMS).
+
+4. Build-time dependencies (not included)
+-----------------------------------------
+franky (TimSchneider42/franky, v2.0.0, MIT), libfranka (frankarobotics/libfranka, Apache-2.0),
+pybind11 (BSD-3-Clause), Eigen (MPL-2.0) and doctest (MIT, tests only) are used unmodified and
+are not part of this package's sources; the franky wheel built alongside carries its own licences.

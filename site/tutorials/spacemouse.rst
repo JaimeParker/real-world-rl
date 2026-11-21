@@ -183,8 +183,8 @@ roll／pitch／yaw 分别绕前向 X、左向 Y、向上 Z 旋转（右手规则
 
 .. note::
 
-   机械臂由谁执行这些目标，取决于 station 的 ``cartesian_controller`` （``impedance`` 默认、``internal``），
-   与这里的 tracker／serl 模式无关，两者可以任意组合；
+   机械臂由谁执行这些目标，取决于 station 的 ``cartesian_controller`` （``impedance`` 默认、``internal``、``serl``），
+   与这里的 tracker／serl 模式无关，两者可以任意组合。想换成 SERL 原版控制器时看 :doc:`serl-controller`；
    换的只是 station 里的一行，方向档案和 preset 都不用改。
 
 tracker 的领先上限不能超过 preset 一步的动作尺度，否则会话启动时报
@@ -251,6 +251,11 @@ stderr 也不会再打印 ``using preset``。
 **你应该看到**：运动输入超过 0.001 或任一夹爪按钮按住时接管；
 松开帽和按钮交还。button_0 按住关闭，button_1 按住打开，同时按时关闭优先。
 它输出原始归一化输入，不使用 tracker 的目标速度与领先限制。
+和 HIL-SERL 一样，这个输入直接当作\ **机器人基座系**\ 的动作：第 3 步方向档案里的旋转默认\ **不用**，
+推帽 +x 就是基座 +x。确实想让 serl 模式也套用档案旋转时，在 station 的 ``teleop.options``
+写 ``use_profile_rotation: true`` （只接受 true／false；tracker 模式始终使用档案）。
+这个选择会写进录制的 teleop_control 记录；用旧版本录制、隐式套用了档案旋转的 RL 运行，
+在新版本恢复（resume）时会因为记录不一致被拒绝，而不是悄悄换方向。
 会话同时把环境 ``cartesian_semantics`` 切成 ``serl``；增加 RPY 裁剪并改变夹爪执行约定，
 不要把两种模式的数据按相同 contract 合并训练。终端 t/h 在这里同样无效。
 
@@ -259,6 +264,7 @@ stderr 也不会再打印 ``using preset``。
 * ``serl requires complete safety_box`` 或 ``safety_box_rpy``：补齐新 preset 的环境层边界；仅 station 中有位置边界还不够。
 * 以为短按会保持接管：SERL 使用当前输入和按钮电平，改回 tracker 才有锁存接管。
 * 想调 tracker 速度却没有效果：SERL 不使用这些选项；重新审阅环境尺度及位置／姿态边界。
+* 方向和 tracker 模式不一样：serl 模式默认是原始基座系，不套档案旋转；站在机器人对面操作时方向会反，这是预期行为。
 
 .. note::
 
@@ -271,4 +277,5 @@ stderr 也不会再打印 ``using preset``。
 检查清单：能读六轴和按钮；方向档案已保存并选中；单轴运动符合预期；
 能接管、开闭爪、交还并退出。
 
-选择 GELLO 的读者转到 :doc:`gello`；完成 SpaceMouse 练习后直接进入 :doc:`record`。
+选择 GELLO 的读者转到 :doc:`gello`；想换成 SERL 原版控制器时先看 :doc:`serl-controller`；
+否则完成 SpaceMouse 练习后直接进入 :doc:`record`。

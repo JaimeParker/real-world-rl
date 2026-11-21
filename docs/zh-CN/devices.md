@@ -60,7 +60,11 @@ robot_ip: 172.16.0.2          # FCI IP set in Desk (default 172.16.0.2)
 # bridge_url: http://127.0.0.1:5000   # serl_http only: URL of the legacy Flask bridge
 realtime: ignore              # ignore (default) | enforce (requires a PREEMPT_RT kernel)
 relative_dynamics_factor: 0.2 # franky velocity/accel/jerk scale for move_to_* and internal servo (default 0.2)
-cartesian_controller: impedance  # impedance (default) | internal；见下文「Cartesian 伺服控制器」
+cartesian_controller: impedance  # impedance (default) | internal | serl；见下文「Cartesian 伺服控制器」
+serl: null                    # cartesian_controller: serl：SERL 柔顺参数（见「SERL 控制器」）
+robot_model: panda            # panda (default) | fr3: joint limits of SERL's joint reset; confirm in Desk
+serl_auto_recover: null       # cartesian_controller: serl: {enabled, max_per_episode}; null = {true, 5}
+load: null                    # 可选负载 {mass_kg, center_of_mass_m: [x, y, z], inertia: 3x3}，连接后设置
 home_joints: [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]  # 7 values (default shown)
 safety_box: [0.3, -0.3, 0.05, 0.7, 0.3, 0.6]  # [xmin, ymin, zmin, xmax, ymax, zmax] m, base frame of tcp_pose (O_T_EE)
 joint_limits:                 # 7 [lo, hi] pairs in rad; home_joints must lie inside
@@ -132,10 +136,19 @@ cameras: []
 - `serl_http` 不支持关节空间控制，且需要运行旧版桥接服务（见[旧模块](#legacy)）。
 - **Franka Hand 指令（`gripper.backend: franky`）。** 工作站里的夹爪按 HIL-SERL 的 `franka_gripper_server` 的方式控制：闭合是以 `speed_m_s`（0.3 m/s）、`grasp_force_n`（130 N）抓取到 `close_width_m`（0.01 m），抓取容差足够宽，空抓也算成功；张开是以同样速度移动到 `open_width_m`（null：完全张开）。`null` 保留这些默认值，因此**没有写这些键的已有工作站现在也会用这些值**，不再是原来的 0.05 m/s、20 N、抓到 0 m。指令不会阻塞调用方：一个工作线程一次执行一条指令，新指令会替换排队中的指令（最新的生效），失败的指令会在下一次调用时抛出 `DeviceFault`。`gripper.wait_idle(timeout_s)` 等待夹爪完成；`rwrl gripper open|close|move` 会先调用它再打印宽度。`grasp_force_n` 须在 (0, 130] 内，宽度须在 `[0, max_width_m]` 内。在 Python 里直接构造的 `FrankyGripper` 仍是阻塞指令，并使用自己的默认值（0.05 m/s、20 N）。对新的 Franka Hand，`rwrl setup` 会显式写入这三个值。
 
-**Cartesian 伺服控制器（Franka，`franky`）。** `cartesian_controller` 决定由谁执行 Cartesian 伺服目标（`servo_cartesian`，即每个 `cartesian_delta` 环境步，无论来自遥操作还是策略）。关节伺服在所有模式下都是 franky 的关节阻抗 tracker，`move_to_pose` 和 `move_to_joints` 始终是 Ruckig 运动。
+**Cartesian 伺服控制器（Franka，`franky`）。** `cartesian_controller` 决定由谁执行 Cartesian 伺服目标（`servo_cartesian`，即每个 `cartesian_delta` 环境步，无论来自遥操作还是策略）。关节伺服在所有模式下都是 franky 的关节阻抗 tracker，`move_to_pose` 始终是 Ruckig 运动；`move_to_joints` 也用 Ruckig，只有 `serl` 模式改用 SERL 的关节复位。
 
-- `impedance`（默认）：franky 的扭矩级 `CartesianImpedanceTracker` 像弹簧一样把 TCP 拉向目标，增益来自 `control:`（见[控制参数](control-profiles.md)）。非实时内核也能用。franky 自带的默认刚度是 500 N/m，配合约 1 cm 的领先量只能推约 5 N，低于关节静摩擦，于是机械臂滞后、在未建模负载下下垂并偏离指令方向。因此 `rwrl setup` 给新的 franky 机械臂写入近似 SERL 默认值的增益（`real_world_rl.devices.control.FRANKY_SETUP_CONTROL`）：`translational_stiffness: 2000`、`rotational_stiffness: 75`、`cartesian_damping: [89, 89, 89, 7, 7, 7]`、`translational_error_clip: [0.01]*3`（最多 20 N）、`rotational_error_clip: [0.10]*3`。旋转部分是**近似值**：franky 的旋转误差是旋转向量 θ·axis，SERL 用的是四元数虚部 sin(θ/2)·axis ≈ (θ/2)·axis，所以 SERL 的 150 Nm/rad 在这里是 75，SERL 的 0.05 限幅是 2·asin(0.05) ≈ 0.10 rad，只在小角度下相等。`--control null` 保留 SDK 默认值。
+- `impedance`（默认）：franky 的扭矩级 `CartesianImpedanceTracker` 像弹簧一样把 TCP 拉向目标，增益来自 `control:`（见[控制参数](control-profiles.md)）。非实时内核也能用。franky 自带的默认刚度是 500 N/m，配合约 1 cm 的领先量只能推约 5 N，低于关节静摩擦，于是机械臂滞后、在未建模负载下下垂并偏离指令方向。因此 `rwrl setup` 给新的 franky 机械臂写入近似 SERL 默认值的增益（`real_world_rl.devices.control.FRANKY_SETUP_CONTROL`）：`translational_stiffness: 2000`、`rotational_stiffness: 75`、`cartesian_damping: [89, 89, 89, 7, 7, 7]`、`translational_error_clip: [0.01]*3`（最多 20 N）、`rotational_error_clip: [0.10]*3`。旋转部分是**近似值**：franky 的旋转误差是旋转向量 θ·axis，SERL 用的是四元数虚部 sin(θ/2)·axis ≈ (θ/2)·axis，所以 SERL 的 150 Nm/rad 在这里是 75，SERL 的 0.05 限幅是 2·asin(0.05) ≈ 0.10 rad，只在小角度下相等。要用 SERL 自己的控制器请选 `serl`。`--control null` 保留 SDK 默认值。
 - `internal`：由机器人自己的控制器执行目标，IK 和负载都由它处理（Desk 里设置的负载仍用于它的重力模型和碰撞检测）。每个目标变成一个基座坐标系下的 `CartesianVelocityMotion`，在 `INTERNAL_HORIZON_S`（0.2 s）内消除位姿误差，限幅为 `INTERNAL_MAX_SPEED_M_S`（0.25 m/s）和 `INTERNAL_MAX_SPEED_RAD_S`（1.0 rad/s），并受 `relative_dynamics_factor` 限制。每个新目标都会抢占正在执行的运动，franky 从当前状态重新规划。一个运动把速度保持 `INTERNAL_HOLD_MS`（300 ms）后自行停下，所以客户端停止发送目标时机械臂会停下。libfranka 的运动生成接口在 1 kHz 下出现任何不连续都会中止（`cartesian_motion_generator_*_discontinuity`），因此请使用 PREEMPT_RT 内核并设置 `realtime: enforce`（否则 `rwrl doctor` 以 `mode:internal_realtime` 警告）。若运动被 reflex 终止，下一次伺服调用会抛出可恢复的 `DeviceFault`，用 `rwrl recover` 清除。这些常量位于 `real_world_rl/devices/backends/arms/franky.py`。此模式尚未在硬件上验证。
+- `serl`：SERL 自己的控制器，从 `serl_franka_controllers` 逐位一致地移植，由 `serl_controller` wheel 在 franky 的 1 kHz 循环里运行。Cartesian 伺服是 SERL 的笛卡尔阻抗控制器（参数来自 `serl:`），`move_to_joints` 是 SERL 的关节复位。需要配对的 franky 与 `serl_controller` wheel，见 [SERL 控制器](serl-controller.md)。
+
+**负载（`load:`，Franka，`franky`，所有模式）。** `load: {mass_kg, center_of_mass_m: [x, y, z], inertia}`（质心在法兰坐标系下，惯量相对质心，单位 kg·m²，3×3 行或 9 个数，须对称）在每次连接后、任何运动之前通过 libfranka 的 `Robot::setLoad` 下发，与 HIL-SERL `franka_server` 的 `/set_load` 调用 franka_control 的 `SetLoad` 服务相同。`null` 保留机器人已有的负载（Desk 的末端设置）。调用被拒时 `connect()` 抛出 `DeviceFault`。生效值见 `control_metadata["load"]`。
+
+<a id="serl-controller-cartesian_controller-serl"></a>
+
+### SERL 控制器（`cartesian_controller: serl`）
+
+SERL 自己的笛卡尔阻抗控制器和关节复位，由 `serl_controller` wheel 运行。运行方式、`serl:` 参数和参数组、`robot_model`、`serl_auto_recover`、配对的 wheel、诊断检查行、如何选择和切换控制器，以及与 HIL-SERL 的已知差异，都在 [SERL 控制器](serl-controller.md)。
 
 可不接触硬件，仅构建机器人以检查文件：
 
@@ -162,7 +175,7 @@ franka (franka)
 
 向导先探测硬件：`172.16.0.2`、`172.16.1.2`、`$ROBOT_IP`、`--robot-ip` 及 `--scan-subnet CIDR` 中各主机的 TCP 22/443/1337；所有带 SDK 的相机后端的序列号（RealSense、ZED）；各 `/dev/serial/by-id/usb-FTDI_*` 和 `usb-ROBOTIS_*` 串口上以 57600 至 4000000 波特率广播的 Dynamixel ping；以及 SpaceMouse。随后逐臂询问机器人 IP、机械臂及夹爪后端、home 关节、相机（`1=wrist,2=front`）、遥操作设备（GELLO 串口与舵机 ID，最后一个 ID 默认作为夹爪扳机）、介入模式和守护进程端口，并内联标定每套 GELLO（与[设备约定](#add-a-teleop-device)中的标定 CLI 相同步骤；跳过时写入零偏移与 `# TODO calibrate` 注释）。最后写入带注释的工作站 YAML，运行 doctor 并输出后续命令。
 
-每条机械臂都获得设备侧限制：Panda 数据表的 `joint_limits`（`--joint-limits`）、伺服步长上限 `max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}`（`--max-delta-xyz-m`、`--max-delta-joint-rad`），以及交互询问的 `safety_box`（基坐标系，单位米，建议 `[0.3, -0.3, 0.05, 0.7, 0.3, 0.6]`，`--safety-box`），安全框必须包含 home 位姿。
+每条机械臂都获得设备侧限制：其 `robot_model` 数据表的 `joint_limits`（除非 `robot_model: fr3`，否则为 Panda；`--joint-limits`）、伺服步长上限 `max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}`（`--max-delta-xyz-m`、`--max-delta-joint-rad`），以及交互询问的 `safety_box`（基坐标系，单位米，建议 `[0.3, -0.3, 0.05, 0.7, 0.3, 0.6]`，`--safety-box`），安全框必须包含 home 位姿。
 
 在机器人 PC 的仓库根目录中，激活项目环境后操作。命令见[配置教程](tutorial/02-setup.md)。
 
@@ -289,7 +302,7 @@ GPU side:   RemoteRobot ── GrpcClient (msgpack over gRPC, token metadata, re
 
 | 后端 | SDK（扩展） | 关节控制 | 力/力矩（`tcp_force`/`tcp_torque`） | 说明 |
 |---|---|---|---|---|
-| arm `franky` | `franky`（`franky`） | 支持 | 支持 | 伺服模式使用扭矩级阻抗 tracker（`cartesian_controller: internal` 时，Cartesian 伺服改用 Cartesian 速度运动），`move_to_*` 使用 Ruckig（仅 `IDLE`）；应用 `realtime` 和 `relative_dynamics_factor` |
+| arm `franky` | `franky`（`franky`） | 支持 | 支持 | 伺服模式使用扭矩级阻抗 tracker（`cartesian_controller: internal` 时，Cartesian 伺服改用 Cartesian 速度运动；`serl` 时使用 `serl_controller` wheel 中 SERL 的控制器与关节复位），`move_to_*` 使用 Ruckig（仅 `IDLE`）；应用 `realtime`、`relative_dynamics_factor` 和 `load` |
 | arm `serl_http` | 无（HTTP） | 不支持 | 支持 | `bridge_url` 上旧 ROS1 桥接的客户端；仅笛卡尔伺服；状态无 `joint_pos`/`joint_vel` |
 | arm `pyagxarm` | `pyAgxArm`（`pyagxarm`） | 支持 | 不支持 | Piper 默认后端；探测或指定 `firmware_profile`；状态为 `tcp_pose`、`joint_pos`、`joint_vel`（法兰位姿） |
 | arm `piper_sdk` | `piper_sdk`（`piper-sdk`） | 支持 | 不支持 | 厂商 SDK，固定 1 Mbit/s；`stop()` 重发实测关节以保持位置 |
@@ -451,7 +464,7 @@ pip install -e '.[dev,grpc]'
 python -m pytest tests/devices -q
 ```
 
-测试使用 fake 后端和 SDK 桩，无需硬件。缺少 `grpcio` 时跳过 gRPC 测试。维护者在远程容器运行：
+测试使用 fake 后端和 SDK 桩（fake `franky` 与 fake `serl_controller`），无需硬件。缺少 `grpcio` 时跳过 gRPC 测试。原生 `serl_controller` 包有自己的 C++（CTest）与 Python 测试，由其 Docker 构建运行（见其 README）；仓库测试套件不收集它们。维护者在远程容器运行：
 
 ```bash
 docker exec <container> bash -lc 'cd <checkout> && python -m pytest tests/devices -q'

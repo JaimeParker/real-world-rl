@@ -50,12 +50,15 @@
      - 怎么得到这个值
    * - ``robot_ip``
      - 在 NUC 浏览器打开现场 Franka Desk，取当前可访问的 ``https://实际IP/desk/`` 中的 IP。
+   * - ``robot_model``
+     - 在同一个 Desk 的系统设置里看系统版本：4.x 是 Franka Emika Robot，填 ``panda``；
+       5.x 是 Franka Research 3，填 ``fr3``。
 
 其余字段保持默认：``type``、``name``、``arm_backend``、``realtime``、
 ``relative_dynamics_factor``、``cartesian_controller``、``claim``。
 ``cartesian_controller: impedance`` 表示由 franky 的阻抗 tracker 执行末端目标，普通内核也能用；
-另一个选项 ``internal`` 以后只改这一行即可切换。
-这里使用 ``franky``；需要强制实时内核时才把
+另外两个选项 ``internal`` 和 ``serl`` 以后只改这一行即可切换，见 :doc:`serl-controller`。
+``robot_model`` 决定 SERL 关节复位用哪张关节限位表，也是 ``rwrl setup`` 给 ``joint_limits`` 的默认来源。这里使用 ``franky``；需要强制实时内核时才把
 ``realtime`` 改成 ``enforce``，并先准备 PREEMPT_RT。归位速度需要调整时再审阅
 ``relative_dynamics_factor``，它控制 ``move_to_*`` 的速度、加速度和 jerk 比例。
 ``claim: true`` 保留本机设备独占锁。

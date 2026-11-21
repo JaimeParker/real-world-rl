@@ -36,6 +36,13 @@ real-world-rl 中文教程
 
       找到串口和关节 ID，检查方向、偏移与夹爪标定；对齐主从姿态后接管、操作和交还，区分关节与笛卡尔动作。
 
+   .. grid-item-card:: 路线一 2C. 选择 Franka 控制器
+      :link: tutorials/serl-controller
+      :link-type: doc
+      :shadow: none
+
+      对比 impedance、internal 与 SERL 控制器；装实时内核和配对 wheel，填 serl 参数、自动恢复与夹爪值，用 doctor 和 1 cm 运动验收。
+
    .. grid-item-card:: 路线一 3. 录制与标注
       :link: tutorials/record
       :link-type: doc
@@ -121,6 +128,7 @@ real-world-rl 中文教程
    tutorials/station
    tutorials/spacemouse
    tutorials/gello
+   tutorials/serl-controller
    tutorials/record
    tutorials/inspect
    tutorials/bc-data

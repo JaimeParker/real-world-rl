@@ -287,3 +287,7 @@ RLinf 从 [`configs/rlinf/realworld_rlgarden_franka.yaml`](../../configs/rlinf/r
 实验恢复、自主/辅助指标、部件接管、轨迹归档见[真机实验](real-world-experiments.md)。人工动作掩码让局部示范在 BC、residual、SiLRI 训练中保持对齐，无夹爪 HIL 使用连续策略。硬件验证仍待完成。
 
 当前 learner 恢复使用 `bundle_manifest.json`、配套 checkpoint 目录和 SQLite journal。Actor 上传用持久 outbox，重启应保留身份/路径。所选部件和观测预处理进入实验约定。见[教程 10](tutorial/10-hil-training.md#9-resume-an-interrupted-run)和[机械臂控制配置](control-profiles.md)。
+
+## 致谢与引用
+
+`native/serl_controller` 中的 SERL 控制器是 [serl_franka_controllers](https://github.com/rail-berkeley/serl_franka_controllers)（MIT，`1f140ef`）的去 ROS 移植；SERL 控制模式、SpaceMouse 介入和 Franka Hand 参数沿用 [SERL](https://github.com/rail-berkeley/serl)（Apache-2.0，`1fa2af7`）和 [HIL-SERL](https://github.com/rail-berkeley/hil-serl)（Apache-2.0，`c32939b`）；`rlinf` 笛卡尔约定和 RLinf 集成沿用 [RLinf](https://github.com/RLinf/RLinf)（Apache-2.0）。Franka 后端是 [franky](https://github.com/TimSchneider42/franky)（MIT），底层为 [libfranka](https://github.com/frankaemika/libfranka)（Apache-2.0）；golden 测试原样收录 [franka_ros](https://github.com/frankaemika/franka_ros)（Apache-2.0）和 ros_control 的 `joint_limits_interface`（BSD-3-Clause）。各项的版本、文件位置、许可证以及 SERL、HIL-SERL、RLinf 论文的 BibTeX 见 [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)。

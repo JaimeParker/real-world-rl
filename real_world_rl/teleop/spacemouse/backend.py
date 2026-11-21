@@ -27,9 +27,10 @@ _OPEN_GRIPPER, _CLOSED_GRIPPER = 1.0, 0.0
 _NUM_BUTTONS = 2
 # Each button's ``buttons`` level key and latched press event, by index.
 BUTTON_NAMES = tuple(f"button_{index}" for index in range(_NUM_BUTTONS))
-# axis_lock is the tracker source's (teleop/spacemouse/source.py); the device ignores it.
+# axis_lock is the tracker source's (teleop/spacemouse/source.py) and use_profile_rotation the
+# serl source's (teleop/spacemouse/serl.py); the device ignores both.
 _OPTION_KEYS = {"device_index", "deadzone", "invert_axes", "poll_interval_s", "axis_lock",
-                _spacemouse_hid.DEVICE_TABLE_OPTION}
+                "use_profile_rotation", _spacemouse_hid.DEVICE_TABLE_OPTION}
 _sleep = time.sleep  # module-level so tests can observe the poll cadence
 
 

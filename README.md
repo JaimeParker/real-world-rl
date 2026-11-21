@@ -433,3 +433,19 @@ SQLite journal. Actor uploads use a persistent outbox; keep actor identity/path 
 Selected parts and observation preprocessing enter the experiment contract. See
 [tutorial 10](docs/tutorial/10-hil-training.md#9-resume-an-interrupted-run) and
 [Arm control profiles](docs/control-profiles.md).
+
+## Acknowledgements and citation
+
+The SERL controller in `native/serl_controller` is a ROS-free port of
+[serl_franka_controllers](https://github.com/rail-berkeley/serl_franka_controllers)
+(MIT, `1f140ef`); the SERL control mode, the SpaceMouse intervention and the
+Franka Hand values follow [SERL](https://github.com/rail-berkeley/serl)
+(Apache-2.0, `1fa2af7`) and [HIL-SERL](https://github.com/rail-berkeley/hil-serl)
+(Apache-2.0, `c32939b`); the `rlinf` Cartesian conventions and the RLinf
+integration follow [RLinf](https://github.com/RLinf/RLinf) (Apache-2.0). The
+Franka backend is [franky](https://github.com/TimSchneider42/franky) (MIT) on
+[libfranka](https://github.com/frankaemika/libfranka) (Apache-2.0); the golden
+tests vendor [franka_ros](https://github.com/frankaemika/franka_ros) (Apache-2.0)
+and ros_control's `joint_limits_interface` (BSD-3-Clause) verbatim. Revisions,
+file locations, licences and BibTeX for the SERL, HIL-SERL and RLinf papers are
+in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

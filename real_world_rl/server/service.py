@@ -49,6 +49,11 @@ METHODS = (
     "arm.control_mode",
     "arm.configure_control",
     "arm.control_metadata",
+    "arm.serl_params",
+    "arm.update_serl_params",
+    "arm.last_joint_reset",
+    "arm.serl_auto_recovery",
+    "arm.reset_serl_auto_recovery",
     "arm.health",
     "arm.preflight",
     "gripper.open",
@@ -149,6 +154,11 @@ class RobotService:
             "arm.control_mode": self._arm_control_mode,
             "arm.configure_control": self._arm_configure_control,
             "arm.control_metadata": self._arm_control_metadata,
+            "arm.serl_params": self._arm_serl_params,
+            "arm.update_serl_params": self._arm_update_serl_params,
+            "arm.last_joint_reset": self._arm_last_joint_reset,
+            "arm.serl_auto_recovery": self._arm_serl_auto_recovery,
+            "arm.reset_serl_auto_recovery": self._arm_reset_serl_auto_recovery,
             "arm.health": self._arm_health,
             "arm.preflight": self._arm_preflight,
             "gripper.open": self._gripper_open,
@@ -368,6 +378,25 @@ class RobotService:
     def _arm_control_metadata(self) -> dict:
         with self._lock:
             return self.robot.arm.control_metadata
+
+    def _arm_serl_params(self) -> dict | None:
+        return self.robot.arm.serl_params
+
+    def _arm_last_joint_reset(self) -> dict | None:
+        return getattr(self.robot.arm, "last_joint_reset", None)
+
+    def _arm_serl_auto_recovery(self) -> dict | None:
+        return getattr(self.robot.arm, "serl_auto_recovery", None)
+
+    def _arm_reset_serl_auto_recovery(self) -> None:
+        with self._lock:
+            reset = getattr(self.robot.arm, "reset_serl_auto_recovery", None)
+            if callable(reset):
+                reset()
+
+    def _arm_update_serl_params(self, params: dict) -> dict:
+        with self._lock:
+            return self.robot.arm.update_serl_params(params)
 
     def _arm_control_mode(self) -> str:
         return self.robot.arm.control_mode.value

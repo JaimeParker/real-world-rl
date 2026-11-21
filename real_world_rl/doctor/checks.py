@@ -24,6 +24,8 @@ from real_world_rl.devices import (
 from real_world_rl.devices.backends.arms.franky import (
     franka_unreachable_hint,
     parse_libfranka_mismatch,
+    serl_build_pairing,
+    robot_model_for_server_version,
     server_version_cross_check,
 )
 from real_world_rl.devices.claims import DeviceClaim, claim_key
@@ -159,7 +161,31 @@ def _sdk_layer(config: RobotConfig) -> tuple[list[Check], bool]:
                 "pip install the backend extra or check arm_backend",
             )
         checks.append(_make_check(1, name, fn))
+    if getattr(config, "cartesian_controller", None) == "serl" and config.arm_backend == "franky":
+        checks.append(_guarded(1, "sdk:serl_controller", _serl_pairing_result))
+        checks.append(_guarded(1, "config:serl_control", lambda: _serl_control_result(config)))
     return checks, resolved
+
+
+def _serl_control_result(config: RobotConfig) -> CheckResult:
+    """WARN when ``control:`` sets franky Cartesian tracker gains that serl mode never uses."""
+    from real_world_rl.devices.robots.franka import serl_ignored_control_keys
+    ignored = serl_ignored_control_keys(config)
+    if not ignored:
+        return CheckResult(1, "config:serl_control", True, "no control: keys ignored by cartesian_controller: serl")
+    return CheckResult(
+        1, "config:serl_control", True,
+        f"cartesian_controller: serl ignores control: {ignored} (franky Cartesian tracker gains); "
+        "Cartesian servo runs SERL's controller with the serl: parameters",
+        hint="move the gains to serl: (SERL names, see docs/serl-controller.md) or drop them; they apply again "
+        "with cartesian_controller: impedance", warning=True, details={"ignored": ignored})
+
+
+def _serl_pairing_result() -> CheckResult:
+    """serl_controller must come from the same build as the installed franky wheel (it derives
+    from franky's C++ motion classes and links that wheel's libfranky / libfranka)."""
+    ok, message, hint, details = serl_build_pairing()
+    return CheckResult(1, "sdk:serl_controller", ok, message, hint, details=details)
 
 
 def _os_checks(config: RobotConfig) -> list[tuple[str, Check]]:
@@ -562,9 +588,14 @@ def _deps_result(config: RobotConfig, *, serves_daemon: bool) -> CheckResult:
     return CheckResult(0, LAYER_NAMES[0], outcome.ok, outcome.message, outcome.hint, warning=outcome.warning)
 
 
-def libfranka_mismatch_hint(server_version: int, config_path: str | None) -> str:
+def libfranka_mismatch_hint(server_version: int, config_path: str | None, robot_model: str | None = None) -> str:
+    model_note = ""
+    if robot_model is not None and robot_model_for_server_version(server_version) != robot_model:
+        model_note = (f"; robot server {server_version} implies robot_model: "
+                      f"{robot_model_for_server_version(server_version)}, the station says {robot_model} "
+                      "(confirm the model in Desk)")
     return (
-        f"{server_version_cross_check(server_version)}; then: "
+        f"{server_version_cross_check(server_version)}{model_note}; then: "
         f"rwrl doctor --station {config_path or '<cfg>'} --install-sdk"
     )
 
@@ -577,12 +608,14 @@ def _version_mismatch_result(error: VersionMismatch, robot: Robot, config_path: 
     if versions is None or error.device != robot.arm.name:
         return CheckResult(3, "handshake", False, error.message, error.hint)
     server_version, library_version = versions
+    hint = libfranka_mismatch_hint(server_version, config_path,
+                                   getattr(getattr(robot, "config", None), "robot_model", None))
     return CheckResult(
         3,
         "handshake",
         False,
         f"libfranka mismatch: robot server {server_version}, installed library {library_version}",
-        libfranka_mismatch_hint(server_version, config_path),
+        hint,
         details={LIBFRANKA_SERVER_VERSION: server_version, LIBFRANKA_LIBRARY_VERSION: library_version},
     )
 

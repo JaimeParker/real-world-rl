@@ -7,6 +7,7 @@ robot_ip: REPLACE_WITH_FCI_IP
 realtime: ignore
 relative_dynamics_factor: 0.2
 cartesian_controller: impedance
+robot_model: panda
 claim: true
 # end arm
 # start home

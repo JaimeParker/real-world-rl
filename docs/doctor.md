@@ -170,11 +170,11 @@ A `teleop:` section adds rows to layers 1, 2 and 4.
 | Layer | Rows | Notes |
 |---|---|---|
 | 0 deps | `deps` | the extras this robot needs: one per backend, plus `grpc` with a `daemon:` block; without one a missing `grpc` is only a `WARN` |
-| 1 sdk | `sdk:arm`, `sdk:gripper`, `sdk:camera:<name>`, `sdk:teleop:<backend>` | each backend resolves and its SDK imports; an unknown backend skips layers 3-5 |
+| 1 sdk | `sdk:arm`, `sdk:gripper`, `sdk:camera:<name>`, `sdk:teleop:<backend>`; with `cartesian_controller: serl` also `sdk:serl_controller`, `config:serl_control` | each backend resolves and its SDK imports; an unknown backend skips layers 3-5; the serl rows are in [SERL controller: doctor checks](serl-controller.md#doctor-checks) |
 | 2 os | `os:ping`, `os:tcp`, `os:camera:<name>`, `os:teleop:<name>`, `os:hid`, `os:serial`, `os:groups`, `os:brltty`, `os:latency_timer`, `os:can_*` | network, device nodes, permissions; `os:tcp` is informational |
 | 3 handshake | `handshake` | takes the robot's device claim (unless `claim: false`), then `connect()`; a failure skips layers 4-5 |
 | 4 feedback | `feedback:arm`, `feedback:gripper`, `feedback:camera:<name>`, `feedback:teleop:<name>` | each device returns data; a camera must deliver a frame within 2 s |
-| 5 mode | `mode:robot_mode`, `mode:libfranka_version`, `mode:realtime_kernel`, `mode:internal_realtime` (`cartesian_controller: internal`), or `mode:none` | backend preflight |
+| 5 mode | `mode:robot_mode`, `mode:libfranka_version`, `mode:realtime_kernel`, `mode:robot_model`, `mode:internal_realtime` (`cartesian_controller: internal`), `mode:serl_realtime` (`cartesian_controller: serl`), or `mode:none` | backend preflight |
 
 `<robot>.device` is `FAIL` when the device probe itself fails and `BLOCKED` when another
 process holds the station. The [detailed examples](#device-diagnostic-details) below show the device messages.
@@ -451,6 +451,17 @@ Inspect the cell, release the activation device or clear the error in Desk, then
 | `realtime.limits` FAIL or `PENDING_ACTION` | rtprio and memlock limits are missing or not yet effective | `rwrl doctor --fix` writes them; log out and back in |
 | `<robot>.mode:realtime_kernel` FAIL `realtime: enforce but the kernel is not PREEMPT_RT` | the station enforces realtime | install an RT kernel or set `realtime: ignore` |
 | `<robot>.mode:internal_realtime` WARN | `cartesian_controller: internal` without `realtime: enforce`; libfranka's Cartesian velocity interface aborts on any 1 kHz discontinuity | install an RT kernel and set `realtime: enforce` |
+| `<robot>.mode:serl_realtime` WARN | `cartesian_controller: serl` without `realtime: enforce` (SERL ran with realtime enforced) | install an RT kernel and set `realtime: enforce` |
+
+### Robot model
+
+`<robot>.mode:robot_model` compares the station's `robot_model` (`panda` | `fr3`) with the
+connected robot: its server version when the franky build exposes one, otherwise the joint names
+of the URDF the robot serves (`Robot.model_urdf`). A WARN names the mismatch. With
+`cartesian_controller: serl` it also warns when neither is known, because SERL's joint reset uses
+that model's joint limits. Confirm the model in Desk → Settings → System (system 4.x = Franka
+Emika Robot / `panda`, 5.x = Franka Research 3 / `fr3`); see
+[SERL controller: robot_model](serl-controller.md#robot_model-panda-or-fr3).
 
 ## Device diagnostic details
 

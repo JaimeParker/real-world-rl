@@ -1,4 +1,9 @@
-"""HIL-SERL SpaceMouse intervention: raw base-frame twist and button levels."""
+"""HIL-SERL SpaceMouse intervention: raw base-frame twist and button levels.
+
+As in HIL-SERL (``SpaceMouseExpert`` and ``SpacemouseIntervention``), the device twist reaches the
+env in the robot base frame with no operator rotation: an operator profile's ``input_rotation``
+is applied only with ``use_profile_rotation: true``.
+"""
 from __future__ import annotations
 
 import logging
@@ -19,6 +24,8 @@ from real_world_rl.teleop.spacemouse.options import SpaceMouseOptions
 
 # The teleop_control block's version string (compared on resume; never change it).
 SERL_CONTROL_VERSION = "spacemouse_serl_v1"
+# Serl mode drives in the raw base frame unless the profile rotation is explicitly enabled.
+DEFAULT_USE_PROFILE_ROTATION = False
 MOTION_THRESHOLD = 0.001
 # These belong to the tracker path, never to native SERL intervention.
 TRACKER_OPTIONS = frozenset({
@@ -43,13 +50,18 @@ class SpaceMouseSerlTeleopSource(SpaceMouseOptions, TeleopSource):
 
     @classmethod
     def control_spec(cls, *, tracker_options, source_options) -> dict:
-        """The serl semantics: motion threshold, button gripper, inverted axes and the compared
+        """The serl semantics: motion threshold, button gripper, inverted axes, whether a
+        configured operator ``input_rotation`` is applied (``use_profile_rotation``, recorded only
+        when the options carry a rotation, so blocks without one keep their form) and the compared
         input frame (the diagnostics filter)."""
         options = source_options()
         spec = {"version": SERL_CONTROL_VERSION, "mode": "serl",
                 "motion_threshold": MOTION_THRESHOLD, "gripper": "serl_buttons"}
         if options.get("invert_axes"):
             spec["invert_axes"] = list(options["invert_axes"])
+        if options.get("input_rotation") is not None:
+            spec["use_profile_rotation"] = _use_profile_rotation(
+                options.get("use_profile_rotation", DEFAULT_USE_PROFILE_ROTATION))
         spec.update(cls.compared_input_frame(options))
         return spec
 
@@ -61,6 +73,7 @@ class SpaceMouseSerlTeleopSource(SpaceMouseOptions, TeleopSource):
         device_index: int = 0,
         invert_axes: Sequence[int] = (),
         input_rotation=None,
+        use_profile_rotation: bool = DEFAULT_USE_PROFILE_ROTATION,
         expected_device_identity=None,
         diagnostic_axes="all",
         diagnostic_gain=1.,
@@ -102,6 +115,8 @@ class SpaceMouseSerlTeleopSource(SpaceMouseOptions, TeleopSource):
         self._part = teleop
         from real_world_rl.teleop.core.targets.twist_input import validate_input_rotation
         self._input_rotation = validate_input_rotation(input_rotation)
+        # Keep the validated rotation as provenance; drive with it only when enabled.
+        self._drive_rotation = self._input_rotation if _use_profile_rotation(use_profile_rotation) else None
         diagnostic_input(np.zeros(6), diagnostic_axes, diagnostic_gain)
         self._diagnostic_axes, self._diagnostic_gain = diagnostic_axes, diagnostic_gain
         from real_world_rl.teleop.spacemouse.profiles import validate_device_identity
@@ -164,7 +179,7 @@ class SpaceMouseSerlTeleopSource(SpaceMouseOptions, TeleopSource):
         left = bool(sample.buttons.get("button_0", False))
         right = bool(sample.buttons.get("button_1", False))
         intervened = bool(np.linalg.norm(twist) > MOTION_THRESHOLD)
-        action = diagnostic_input(rotate_input(twist, self._input_rotation),
+        action = diagnostic_input(rotate_input(twist, self._drive_rotation),
                                   self._diagnostic_axes, self._diagnostic_gain)
         diagnostics = input_sample_diagnostics(sample, action)
         if self.has_gripper:
@@ -182,3 +197,9 @@ class SpaceMouseSerlTeleopSource(SpaceMouseOptions, TeleopSource):
             action=action, intervened=intervened,
             timestamp=float(sample.timestamp), buttons={"left": left, "right": right},
         )
+
+
+def _use_profile_rotation(value: Any) -> bool:
+    if type(value) is not bool:
+        raise ValueError(f"use_profile_rotation must be true or false, got {value!r}")
+    return value

@@ -143,6 +143,42 @@ class Arm(ControllablePart, BackendRegistry, ABC):
                 "capabilities": list(self.CONTROL_CAPABILITIES), "effective": self.control_config,
                 "unspecified": "unknown backend defaults"}
 
+    # -- SERL compliance parameters (cartesian_controller: serl) --------------------------
+
+    @property
+    def serl_params(self) -> dict | None:
+        """The full SERL compliance parameter set the Cartesian controller runs with (or will
+        start with), or None when this arm does not run SERL's controller."""
+        return None
+
+    @property
+    def last_joint_reset(self) -> dict | None:
+        """The outcome of the last SERL joint reset (``move_to_joints`` with cartesian_controller:
+        serl): target, reached, polls, max_abs_error_rad, duration_s, soft_limited_ticks; else None."""
+        return None
+
+    @property
+    def serl_auto_recovery(self) -> dict | None:
+        """cartesian_controller: serl: the station ``serl_auto_recover`` policy (enabled,
+        max_per_episode) with episode_count, total_count and the last auto-recovery (error text,
+        measured tcp_pose, time); else None."""
+        return None
+
+    def reset_serl_auto_recovery(self) -> None:
+        """Start a new serl_auto_recover episode (the per-episode count back to 0). RealRobotEnv
+        calls it on every reset; entering Cartesian servo does it too. A no-op elsewhere."""
+
+    def update_serl_params(self, updates) -> dict:
+        """Partial live update of SERL's compliance parameters (dynamic_reconfigure semantics:
+        merge into the current set, clamp into the compliance_param.cfg ranges). Applied at the
+        next 1 kHz tick while the SERL controller runs, otherwise when it next starts; persists
+        until changed again. Returns the full effective set. Only ``cartesian_controller: serl``."""
+        raise DeviceFault(
+            f"{type(self).__name__} has no SERL compliance parameters",
+            hint="use the franky arm backend with cartesian_controller: serl",
+            device=self.name,
+        )
+
     @property
     def num_joints(self) -> int:
         return self._num_joints

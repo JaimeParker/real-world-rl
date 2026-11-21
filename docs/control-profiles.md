@@ -89,3 +89,41 @@ Pass one mapping for both arms or one per arm. Omit the flag to preserve the
 existing profile, and use `--control null` to remove it. Existing camera width
 and height settings describe the source stream; crop/ROI and policy resize
 belong to the experiment preprocessing configuration.
+
+## SERL compliance parameters and profiles
+
+With `cartesian_controller: serl` the Cartesian controller is SERL's own, and its parameters
+are SERL's: the station `serl:` block (names, defaults and ranges of `compliance_param.cfg`,
+omitted keys keep the `.cfg` defaults), optional named profiles in the task preset, and live
+partial updates:
+
+```yaml
+# station
+cartesian_controller: serl
+serl: {translational_stiffness: 2000.0, rotational_stiffness: 150.0}
+# task preset
+real_robot:
+  serl_profiles:
+    compliance: {translational_clip_x: 0.0075, translational_clip_neg_x: 0.002}
+    precision: {translational_clip_x: 0.1, translational_clip_neg_x: 0.1, rotational_stiffness: 250}
+```
+
+```python
+from real_world_rl.devices.control import serl_profile_update
+update = serl_profile_update(preset_profiles, "precision")  # the profile's keys only
+effective = arm.update_serl_params(update)   # merged into the current values (HIL-SERL update_param);
+                                             # any mode; applied at the next 1 kHz tick if running
+arm.serl_params                              # the full effective set
+```
+
+A profile is a partial update on top of the current values, so keys it omits keep the previous
+profile's values; validation warns when profiles set different keys (the switching order then
+matters).
+
+Values outside a `.cfg` range are clamped (as dynamic_reconfigure does) and reported in
+`control_metadata["serl"]["clamped"]`; unknown keys fail. Unlike `configure_control`, SERL
+parameters are not bounded by the station values: the `.cfg` ranges are the bound, as in SERL.
+`control:`'s Cartesian tracker keys are ignored in this mode (a warning at station load and a
+`config:serl_control` WARN in `rwrl doctor` name them).
+The full table, HIL-SERL's `ram_insertion` profiles as an example and the controller details are
+in [SERL controller](serl-controller.md#parameters).

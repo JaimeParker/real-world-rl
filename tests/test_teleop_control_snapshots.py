@@ -161,13 +161,29 @@ def test_spacemouse_serl_with_inverted_axes_rotation_and_diagnostics(isolated_si
     control, frozen_input = _blocks(args)
     assert control == (
         '{"version": "spacemouse_serl_v1", "mode": "serl", "motion_threshold": 0.001, '
-        '"gripper": "serl_buttons", "invert_axes": [0, 5], '
+        '"gripper": "serl_buttons", "invert_axes": [0, 5], "use_profile_rotation": false, '
         '"input_diagnostic": {"axes": "rotation", "gain": 0.25}}'
     )
     assert frozen_input == (
         f'{{"options_file": {json.dumps(portable_path(path))}, '
         '"source_options": {"invert_axes": [0, 5], "input_rotation": [[0, -1, 0], [1, 0, 0], [0, 0, 1]]}}'
     )
+
+
+def test_spacemouse_serl_with_the_profile_rotation_enabled(isolated_site):
+    # Serl mode drives the raw base frame unless use_profile_rotation is set; a rotation in the
+    # options records the choice, so a resume across the default change is refused, not silent.
+    path = _options_yaml(isolated_site, f"input_rotation: {ROTATION}\nuse_profile_rotation: true\n")
+    args = HilSerlArgs(teleop_device="spacemouse", spacemouse_mode="serl", teleop_options_yaml=path)
+    control, frozen_input = _blocks(args)
+    assert control == SERL_DEFAULT[:-1] + ', "use_profile_rotation": true}'
+    assert frozen_input == (
+        f'{{"options_file": {json.dumps(portable_path(path))}, '
+        '"source_options": {"input_rotation": [[0, -1, 0], [1, 0, 0], [0, 0, 1]], "use_profile_rotation": true}}'
+    )
+    restored = HilSerlArgs(teleop_device="spacemouse", spacemouse_mode="serl",
+                           teleop_input=json.loads(frozen_input))
+    assert _blocks(restored) == (control, frozen_input)
 
 
 def test_spacemouse_with_event_device_freezes_the_same_input(isolated_site):

@@ -946,3 +946,668 @@ def test_cartesian_controller_is_validated_and_read_from_the_station():
         FrankaConfig(cartesian_controller="motion")
     arm = FrankyArm.from_config(FrankaConfig(cartesian_controller="internal"))
     assert arm.cartesian_controller == "internal"
+
+
+# --- cartesian_controller: serl ------------------------------------------------------------
+
+from real_world_rl.devices.control import SERL_PARAM_DEFAULTS, SERL_PARAM_RANGES  # noqa: E402
+
+HIL_SERL_DEFAULT_RESET = [0.0, 0.0, 0.0, -1.9, -0.0, 2.0, 0.0]
+
+
+def make_fake_serl_controller(log: list[str]) -> types.ModuleType:
+    """The parts of the serl_controller extension the backend uses, with its clamping semantics."""
+    sc = types.ModuleType("serl_controller")
+    sc.__version__ = "0.1.0"
+    sc.SERL_COMMIT = "1f140ef"
+    sc.WITH_FRANKY = True
+    sc.JOINT_BLEND_DURATION_S = 10.0
+    sc.FRANKA_ROS_LIMIT_RATE = True
+    sc.FRANKA_ROS_CUTOFF_FREQUENCY = 100.0
+    sc.BUILD_INFO = {"serl_controller_version": "0.1.0", "build_id": "fake-build", "with_franky": True}
+
+    def clamp(params):
+        return {k: min(max(float(v), SERL_PARAM_RANGES[k][0]), SERL_PARAM_RANGES[k][1]) for k, v in params.items()}
+
+    class SerlCartesianImpedanceMotion:
+        instances: list = []
+
+        def __init__(self, params):
+            log.append("SerlCartesianImpedanceMotion")
+            self.params = {**SERL_PARAM_DEFAULTS, **clamp(params)}
+            self.targets: list[tuple] = []
+            self.updates: list[dict] = []
+            SerlCartesianImpedanceMotion.instances.append(self)
+
+        def set_target(self, position, quat_xyzw):
+            log.append("SerlCartesianImpedanceMotion.set_target")
+            self.targets.append((list(position), list(quat_xyzw)))
+            return len(self.targets)
+
+        def snapshot(self):
+            return {"tick": 1}
+
+        def update_params(self, updates):
+            log.append("SerlCartesianImpedanceMotion.update_params")
+            self.updates.append(dict(updates))
+            self.params.update(clamp(updates))
+            return dict(self.params)
+
+    class SerlJointPositionMotion:
+        instances: list = []
+
+        def __init__(self, target, robot_model="panda"):
+            log.append("SerlJointPositionMotion")
+            self.robot_model = robot_model
+            self.target = np.asarray(target, dtype=np.float64)
+            self.elapsed_s = 0.0
+            self.finish_requested = False
+            SerlJointPositionMotion.instances.append(self)
+
+        def finish(self):
+            log.append("SerlJointPositionMotion.finish")
+            self.finish_requested = True
+
+        def snapshot(self):
+            return {"elapsed_s": self.elapsed_s, "finished": self.finish_requested, "soft_limited_ticks": 3}
+
+    sc.SerlCartesianImpedanceMotion = SerlCartesianImpedanceMotion
+    sc.SerlJointPositionMotion = SerlJointPositionMotion
+    return sc
+
+
+@pytest.fixture
+def serl_controller(monkeypatch, log, franky):
+    fake = make_fake_serl_controller(log)
+    monkeypatch.setitem(sys.modules, "serl_controller", fake)
+    return fake
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """Simulated time for the SERL joint reset: every sleep advances the running blend motion and,
+    while ``converge`` is set, moves the measured joints along SERL's blend."""
+    state = {"robot": None, "converge": True, "slept": 0.0}
+
+    def fake_sleep(seconds):
+        state["slept"] += seconds
+        robot = state["robot"]
+        if robot is None or not robot.moves:
+            return
+        motion = robot.moves[-1][0]
+        if type(motion).__name__ != "SerlJointPositionMotion" or not robot.is_in_control:
+            return
+        start = state.setdefault(id(motion), np.asarray(robot.state.q, dtype=np.float64).copy())
+        motion.elapsed_s += seconds
+        if state["converge"]:
+            t = min(motion.elapsed_s, 10.0)
+            robot.state.q = (t / 10.0) * motion.target + ((10 - t) / 10.0) * start
+
+    monkeypatch.setattr(franky_arm_module, "_sleep", fake_sleep)
+    return state
+
+
+@pytest.fixture
+def serl_arm(franky, serl_controller, clock):
+    arm = FrankyArm(robot_ip="10.0.0.2", realtime="enforce", cartesian_controller="serl",
+                    serl={"translational_stiffness": 1500.0})
+    arm.connect()
+    clock["robot"] = arm._handle.robot
+    yield arm
+    arm.disconnect()
+
+
+def test_serl_servo_starts_serl_motion_with_station_params_and_franka_ros_filters(serl_arm, serl_controller, log):
+    serl_arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    robot = serl_arm._handle.robot
+    motion, asynchronous = robot.moves[-1]
+    assert isinstance(motion, serl_controller.SerlCartesianImpedanceMotion) and asynchronous
+    assert robot.move_options[-1] == {"limit_rate": True, "cutoff_frequency": 100.0}
+    assert motion.params == {**SERL_PARAM_DEFAULTS, "translational_stiffness": 1500.0}
+    assert serl_arm._handle.tracker is None
+    pose = np.array([0.31, -0.1, 0.5, *QUAT_Z90_XYZW])
+    serl_arm.send_action({"tcp_pose": pose})
+    assert motion.targets == [(pose[:3].tolist(), pose[3:].tolist())]  # xyz + quat (x, y, z, w)
+    assert np.allclose(serl_arm.last_cartesian_target, pose)
+
+
+def test_serl_mode_exit_stops_with_torque_stop_motion_and_joint_servo_stays_franky(serl_arm, franky, log):
+    serl_arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    log.clear()
+    serl_arm.set_control_mode(ControlMode.JOINT_SERVO)
+    assert log[:4] == ["move:TorqueStopMotion", "join_motion", "join_motion", "recover_from_errors"]
+    assert log[-2:] == ["JointImpedanceTracker", "move:JointImpedanceTracker"]
+    assert serl_arm._handle.serl_motion is None
+    serl_arm.set_control_mode(ControlMode.IDLE)
+    assert serl_arm._handle.tracker is None and not serl_arm._handle.robot.is_in_control
+
+
+def test_serl_reflex_is_a_recoverable_fault_refused_until_recover(serl_arm, franky, serl_controller):
+    serl_arm._serl_auto_recover = {"enabled": False, "max_per_episode": 5}  # serl_auto_recover: {enabled: false}
+    serl_arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    robot = serl_arm._handle.robot
+    pose = np.array([0.3, -0.1, 0.5, *QUAT_Z90_XYZW])
+    robot.is_in_control = False
+    robot.pending_motion_error = franky.ControlException("libfranka: Move command aborted: cartesian_reflex")
+    with pytest.raises(DeviceFault, match="cartesian_reflex") as info:
+        serl_arm.send_action({"tcp_pose": pose})
+    assert info.value.recoverable and not serl_arm.health().ok
+    with pytest.raises(DeviceFault, match="unrecovered errors"):
+        serl_arm.send_action({"tcp_pose": pose})
+    serl_arm.recover()
+    serl_arm.send_action({"tcp_pose": pose})  # a fresh SERL controller, like relaunching impedance.launch
+    assert len(serl_controller.SerlCartesianImpedanceMotion.instances) == 2
+    assert serl_controller.SerlCartesianImpedanceMotion.instances[-1].targets[-1][0] == pose[:3].tolist()
+
+
+def _serl_reflex(robot, franky, text="libfranka: Move command aborted: cartesian_reflex"):
+    robot.is_in_control = False
+    robot.pending_motion_error = franky.ControlException(text)
+    robot.state.robot_mode = franky.RobotMode.Reflex
+
+
+def test_serl_reflex_auto_recovers_restarts_and_applies_the_target(serl_arm, franky, serl_controller, log, caplog):
+    serl_arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    robot = serl_arm._handle.robot
+    first = serl_arm._handle.serl_motion
+    _serl_reflex(robot, franky)
+    serl_arm.health()  # a health poll in between notes the robot's errors; auto-recovery clears them too
+    log.clear()
+    pose = np.array([0.31, -0.1, 0.5, *QUAT_Z90_XYZW])
+    with caplog.at_level("WARNING"):
+        serl_arm.send_action({"tcp_pose": pose})
+    second = serl_arm._handle.serl_motion
+    assert second is not first and isinstance(second, serl_controller.SerlCartesianImpedanceMotion)
+    assert log == ["join_motion", "recover_from_errors", "SerlCartesianImpedanceMotion",
+                   "move:SerlCartesianImpedanceMotion", "SerlCartesianImpedanceMotion.set_target"]
+    assert robot.move_options[-1] == {"limit_rate": True, "cutoff_frequency": 100.0}
+    assert second.targets == [(pose[:3].tolist(), pose[3:].tolist())] and first.targets == []
+    assert "cartesian_reflex" in caplog.text and "auto-recovery 1/5" in caplog.text
+    assert serl_arm.health().ok and serl_arm.control_mode is ControlMode.CARTESIAN_SERVO
+    status = serl_arm.serl_auto_recovery
+    assert (status["enabled"], status["max_per_episode"], status["episode_count"], status["total_count"]) == (True, 5, 1, 1)
+    assert "cartesian_reflex" in status["last"]["error"] and len(status["last"]["tcp_pose"]) == 7
+    assert serl_arm.control_metadata["serl"]["auto_recover"] == {"enabled": True, "max_per_episode": 5}
+
+
+def test_serl_auto_recover_cap_faults_and_episode_resets(franky, serl_controller, clock):
+    arm = FrankyArm(robot_ip="10.0.0.2", cartesian_controller="serl",
+                    serl_auto_recover={"enabled": True, "max_per_episode": 2})
+    arm.connect()
+    arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    robot = arm._handle.robot
+    pose = np.array([0.3, -0.1, 0.5, *QUAT_Z90_XYZW])
+    for _ in range(2):
+        _serl_reflex(robot, franky)
+        arm.send_action({"tcp_pose": pose})
+    assert arm.serl_auto_recovery["episode_count"] == 2
+    _serl_reflex(robot, franky, "libfranka: communication_constraints_violation")
+    with pytest.raises(DeviceFault, match="max_per_episode 2 reached") as info:
+        arm.send_action({"tcp_pose": pose})
+    assert info.value.recoverable and "communication_constraints_violation" in info.value.message
+    with pytest.raises(DeviceFault, match="unrecovered errors"):
+        arm.send_action({"tcp_pose": pose})
+    arm.recover()  # an explicit recover does not start a new episode ...
+    arm.send_action({"tcp_pose": pose})
+    _serl_reflex(robot, franky)
+    with pytest.raises(DeviceFault, match="max_per_episode"):
+        arm.send_action({"tcp_pose": pose})
+    arm.recover()
+    arm.reset_serl_auto_recovery()  # ... the env reset does
+    arm.send_action({"tcp_pose": pose})
+    _serl_reflex(robot, franky)
+    arm.send_action({"tcp_pose": pose})
+    assert arm.serl_auto_recovery["episode_count"] == 1 and arm.serl_auto_recovery["total_count"] == 3
+    arm.set_control_mode(ControlMode.IDLE)
+    arm.set_control_mode(ControlMode.CARTESIAN_SERVO)  # and so does entering Cartesian servo
+    assert arm.serl_auto_recovery["episode_count"] == 0
+    arm.disconnect()
+
+
+def test_serl_auto_recover_disabled_and_unrecoverable_stay_faults(franky, serl_controller, clock):
+    arm = FrankyArm.from_config(FrankaConfig(cartesian_controller="serl", serl_auto_recover={"enabled": False}))
+    assert arm.serl_auto_recovery["enabled"] is False and arm.serl_auto_recovery["max_per_episode"] == 5
+    arm.connect()
+    arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    pose = np.array([0.3, -0.1, 0.5, *QUAT_Z90_XYZW])
+    _serl_reflex(arm._handle.robot, franky)
+    with pytest.raises(DeviceFault, match="cartesian_reflex"):
+        arm.send_action({"tcp_pose": pose})
+    assert arm.serl_auto_recovery["total_count"] == 0
+    arm.disconnect()
+    arm = FrankyArm(robot_ip="10.0.0.2", cartesian_controller="serl")
+    arm.connect()
+    arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    robot = arm._handle.robot
+    _serl_reflex(robot, franky)
+    robot.recover_from_errors = lambda: False  # e.g. the external activation device is pressed
+    with pytest.raises(DeviceFault, match="could not clear") as info:
+        arm.send_action({"tcp_pose": pose})
+    assert info.value.recoverable and arm.serl_auto_recovery["total_count"] == 0
+    arm.disconnect()
+    arm = FrankyArm(robot_ip="10.0.0.2", cartesian_controller="serl")
+    arm.connect()
+    arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    robot = arm._handle.robot
+    robot.is_in_control = False  # ended by a stop from elsewhere, not by a reflex: not auto-recovered
+    robot.pending_motion_error = franky.ControlException("libfranka: Move command preempted!")
+    with pytest.raises(DeviceFault, match="preempted"):
+        arm.send_action({"tcp_pose": pose})
+    assert arm.serl_auto_recovery["total_count"] == 0
+    arm.disconnect()
+
+
+def test_serl_auto_recover_config_validation():
+    from real_world_rl.devices.control import serl_auto_recover_config
+    assert serl_auto_recover_config(None) == {"enabled": True, "max_per_episode": 5}
+    assert FrankaConfig(serl_auto_recover={"max_per_episode": 0}).serl_auto_recover == {"enabled": True, "max_per_episode": 0}
+    for bad, match in (({"cap": 1}, "unknown"), ({"enabled": "yes"}, "true or false"),
+                       ({"max_per_episode": -1}, ">= 0"), ({"max_per_episode": 1.5}, ">= 0"), ([1], "mapping")):
+        with pytest.raises(ValueError, match=match):
+            FrankaConfig(serl_auto_recover=bad)
+
+
+@pytest.mark.parametrize("controller", ["impedance", "internal"])
+def test_auto_recover_is_serl_only(franky, controller):
+    arm = FrankyArm(robot_ip="10.0.0.2", cartesian_controller=controller)
+    assert arm.serl_auto_recovery is None
+
+
+def test_serl_plain_stop_restarts_the_controller_on_the_next_target(serl_arm, serl_controller):
+    serl_arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    serl_arm.stop()
+    assert serl_arm._handle.serl_motion is None and serl_arm.last_cartesian_target is None
+    serl_arm.send_action({"tcp_pose": np.array([0.3, -0.1, 0.5, *QUAT_Z90_XYZW])})
+    assert len(serl_controller.SerlCartesianImpedanceMotion.instances) == 2
+
+
+def test_serl_live_param_update_merges_clamps_and_persists(serl_arm, serl_controller):
+    serl_arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    motion = serl_arm._handle.serl_motion
+    effective = serl_arm.update_serl_params({"translational_clip_x": 0.0075, "rotational_clip_x": 0.5})
+    assert motion.updates == [{"translational_clip_x": 0.0075, "rotational_clip_x": 0.1}]
+    assert effective["translational_clip_x"] == 0.0075 and effective["rotational_clip_x"] == 0.1
+    assert effective["translational_stiffness"] == 1500.0  # partial: the rest is kept
+    assert serl_arm.serl_params == effective
+    metadata = serl_arm.control_metadata["serl"]
+    assert metadata["params"] == effective and metadata["station_params"]["rotational_clip_x"] == 0.05
+    assert metadata["clamped"]["rotational_clip_x"] == {"requested": 0.5, "applied": 0.1}
+    assert metadata["limit_rate"] is True and metadata["cutoff_frequency"] == 100.0
+    assert serl_arm.control_metadata["cartesian_controller"] == "serl"
+    with pytest.raises(ValueError, match="unknown SERL compliance"):
+        serl_arm.update_serl_params({"stiffness": 1.0})
+    with pytest.raises(ValueError, match="finite"):
+        serl_arm.update_serl_params({"rotational_Ki": float("nan")})
+    assert serl_arm.serl_params == effective
+    serl_arm.set_control_mode(ControlMode.IDLE)
+    serl_arm.update_serl_params({"rotational_stiffness": 250.0})  # stored for the next start
+    serl_arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    restarted = serl_arm._handle.serl_motion
+    assert restarted is not motion and restarted.params == {**effective, "rotational_stiffness": 250.0}
+
+
+def test_update_serl_params_needs_serl_mode(arm):
+    assert arm.serl_params is None
+    with pytest.raises(DeviceFault, match="SERL"):
+        arm.update_serl_params({"translational_stiffness": 1000.0})
+
+
+def test_serl_joint_reset_blends_polls_finishes_and_recovers(serl_arm, serl_controller, log, clock):
+    log.clear()
+    serl_arm.move_to_joints(np.array(HIL_SERL_DEFAULT_RESET))
+    robot = serl_arm._handle.robot
+    motion, asynchronous = robot.moves[-1]
+    assert isinstance(motion, serl_controller.SerlJointPositionMotion) and asynchronous
+    assert robot.move_options[-1] == {"limit_rate": True, "cutoff_frequency": 100.0}
+    np.testing.assert_array_equal(motion.target, HIL_SERL_DEFAULT_RESET)
+    assert motion.robot_model == "panda"  # franka_hw's soft limits with franka_control's panda URDF (default)
+    assert motion.finish_requested and motion.elapsed_s > 10.0  # ended in the hold phase
+    assert log[-3:] == ["SerlJointPositionMotion.finish", "join_motion", "recover_from_errors"]
+    report = serl_arm.last_joint_reset
+    assert report["reached"] and report["max_abs_error_rad"] < 1e-2
+    assert serl_arm._handle.joint_reset is None and serl_arm.control_mode is ControlMode.IDLE
+    # the caller restarts the impedance controller, as franka_server does after jointreset
+    serl_arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    assert type(robot.moves[-1][0]).__name__ == "SerlCartesianImpedanceMotion"
+
+
+def test_serl_joint_reset_uses_the_station_robot_model(franky, serl_controller, clock):
+    arm = FrankyArm.from_config(FrankaConfig(cartesian_controller="serl", robot_model="fr3"))
+    arm.connect()
+    clock["robot"] = arm._handle.robot
+    arm.move_to_joints(np.array(HIL_SERL_DEFAULT_RESET))
+    assert arm._handle.robot.moves[-1][0].robot_model == "fr3"
+    assert arm.last_joint_reset["robot_model"] == "fr3" and arm.control_metadata["serl"]["robot_model"] == "fr3"
+    with pytest.raises(ValueError, match="robot_model"):
+        FrankaConfig(robot_model="fer")
+    with pytest.raises(ValueError, match="robot_model"):
+        FrankyArm(robot_ip="10.0.0.2", robot_model="FR3")
+    arm.disconnect()
+
+
+@pytest.mark.parametrize("model, server, controller, warning, text", [
+    ("panda", 9, "impedance", True, "Franka Research 3"),
+    ("fr3", 5, "serl", True, "Franka Emika Robot"),
+    ("fr3", 9, "serl", False, "server version 9"),
+    ("panda", 5, "impedance", False, "server version 5"),
+    ("panda", None, "serl", True, "could not be cross-checked"),
+    ("panda", None, "impedance", False, "unknown"),
+])
+def test_preflight_cross_checks_robot_model_with_server_version(franky, serl_controller, model, server, controller,
+                                                                warning, text):
+    arm = FrankyArm(robot_ip="10.0.0.2", robot_model=model, cartesian_controller=controller)
+    arm.connect()
+    if server is not None:
+        arm._handle.robot.server_version = server
+    check = {result.name: result for result in arm.preflight()}["mode:robot_model"]
+    assert check.ok and check.warning is warning and text in check.message
+    if warning:
+        assert "Desk" in check.hint and "robot_model: panda | fr3" in check.hint
+    arm.disconnect()
+
+
+@pytest.mark.parametrize("model, urdf, warning, text", [
+    ("fr3", '<robot name="fr3"><joint name="fr3_joint1"/></robot>', False, "robot URDF: fr3"),
+    ("panda", '<robot name="fr3"><joint name="fr3_joint1"/></robot>', True, "URDF (Robot.model_urdf) is a fr3"),
+    ("panda", '<robot><joint name="panda_joint1"/></robot>', False, "robot URDF: panda"),
+    ("fr3", "<robot/>", True, "could not be cross-checked"),
+])
+def test_preflight_robot_model_from_urdf_when_franky_has_no_server_version(franky, serl_controller, model, urdf,
+                                                                           warning, text):
+    # franky 2.0 binds Robot.model_urdf but no Robot.server_version (only Gripper.server_version).
+    arm = FrankyArm(robot_ip="10.0.0.2", robot_model=model, cartesian_controller="serl")
+    arm.connect()
+    assert not hasattr(arm._handle.robot, "server_version")
+    arm._handle.robot.model_urdf = urdf
+    check = {result.name: result for result in arm.preflight()}["mode:robot_model"]
+    assert check.ok and check.warning is warning and text in check.message
+    arm.disconnect()
+
+
+def test_robot_model_from_urdf_needs_exactly_one_model():
+    assert franky_arm_module.robot_model_from_urdf("x fr3_joint7 y") == "fr3"
+    assert franky_arm_module.robot_model_from_urdf("panda_joint1") == "panda"
+    assert franky_arm_module.robot_model_from_urdf("panda_joint1 fr3_joint1") is None
+    assert franky_arm_module.robot_model_from_urdf(None) is None
+
+
+def test_serl_joint_reset_timeout_continues_like_franka_server(serl_arm, clock, caplog):
+    clock["converge"] = False  # the arm never gets there (blocked)
+    serl_arm.move_to_joints(np.array(HIL_SERL_DEFAULT_RESET))
+    report = serl_arm.last_joint_reset
+    assert not report["reached"] and report["polls"] == franky_arm_module.SERL_JOINT_RESET_MAX_POLLS + 1
+    assert "joint reset TIMEOUT" in caplog.text
+    assert serl_arm._handle.robot.moves[-1][0].finish_requested
+
+
+def test_serl_joint_reset_reflex_is_a_fault(serl_arm, franky, clock, monkeypatch):
+    robot = serl_arm._handle.robot
+
+    def reflex(seconds):
+        robot.is_in_control = False
+        robot.pending_motion_error = franky.ControlException("libfranka: joint_position_limits_violation")
+
+    monkeypatch.setattr(franky_arm_module, "_sleep", reflex)
+    with pytest.raises(DeviceFault, match="joint_position_limits_violation") as info:
+        serl_arm.move_to_joints(np.array(HIL_SERL_DEFAULT_RESET))
+    assert info.value.recoverable and serl_arm._handle.joint_reset is None
+
+
+def test_serl_joint_reset_non_blocking_holds_until_stop(serl_arm, log):
+    serl_arm.move_to_joints(np.array(HIL_SERL_DEFAULT_RESET), blocking=False)
+    motion = serl_arm._handle.joint_reset
+    assert motion is not None and not motion.finish_requested
+    serl_arm.stop()
+    assert serl_arm._handle.joint_reset is None and "robot.stop" in log
+
+
+def test_serl_move_to_pose_stays_ruckig(serl_arm, franky):
+    serl_arm.move_to_pose(np.array([0.3, -0.1, 0.5, *QUAT_Z90_XYZW]))
+    assert isinstance(serl_arm._handle.robot.moves[-1][0], franky.CartesianMotion)
+
+
+def test_serl_needs_the_serl_controller_package(franky, monkeypatch):
+    monkeypatch.setitem(sys.modules, "serl_controller", None)
+    arm = FrankyArm(robot_ip="10.0.0.2", cartesian_controller="serl")
+    arm.connect()
+    with pytest.raises(SdkMissing) as info:
+        arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    assert "franky_control" in info.value.hint and "serl_controller" in info.value.hint
+    assert "same build" in info.value.hint.lower()
+    assert "error" in arm.control_metadata["serl"]
+
+
+def test_serl_controller_that_does_not_load_is_a_version_mismatch(franky, monkeypatch):
+    import importlib
+    real_import = importlib.import_module
+
+    def failing(name, *args, **kwargs):
+        if name == "serl_controller":
+            raise ImportError("libfranka-ed02dacf.so.0.17.0: cannot open shared object file")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(franky_arm_module.importlib, "import_module", failing)
+    with pytest.raises(VersionMismatch, match="libfranka-ed02dacf"):
+        franky_arm_module.require_serl_controller("arm")
+
+
+def test_serl_config_from_station(franky, serl_controller):
+    config = FrankaConfig(cartesian_controller="serl", serl={"rotational_clip_x": 0.5, "translational_Ki": 1})
+    assert config.serl == {"rotational_clip_x": 0.1, "translational_Ki": 1.0}  # clamped like dynamic_reconfigure
+    arm = FrankyArm.from_config(config)
+    assert arm.serl_params == {**SERL_PARAM_DEFAULTS, "rotational_clip_x": 0.1, "translational_Ki": 1.0}
+    with pytest.raises(ValueError, match="unknown SERL"):
+        FrankaConfig(cartesian_controller="serl", serl={"stiffness": 1.0})
+    with pytest.raises(ValueError, match="arm_backend franky"):
+        FrankaConfig(cartesian_controller="serl", arm_backend="serl_http")
+
+
+def test_station_load_is_set_after_connect_in_every_mode(franky, log):
+    load = {"mass_kg": 0.5, "center_of_mass_m": [0.0, 0.01, 0.05],
+            "inertia": [[0.01, 0.001, 0.0], [0.001, 0.02, 0.0], [0.0, 0.0, 0.03]]}
+    config = FrankaConfig(load=load)
+    assert config.load["inertia"] == [0.01, 0.001, 0.0, 0.001, 0.02, 0.0, 0.0, 0.0, 0.03]
+    for controller in ("impedance", "internal", "serl"):
+        arm = FrankyArm.from_config(dataclasses.replace(config, cartesian_controller=controller))
+        arm.connect()
+        assert arm._handle.robot.loads == [(0.5, [0.0, 0.01, 0.05], config.load["inertia"])]
+        assert arm.control_metadata["load"] == config.load
+        arm.disconnect()
+
+
+def test_station_load_validation_and_failure(franky):
+    with pytest.raises(ValueError, match="symmetric"):
+        FrankaConfig(load={"mass_kg": 1.0, "center_of_mass_m": [0, 0, 0], "inertia": [1, 2, 0, 0, 1, 0, 0, 0, 1]})
+    with pytest.raises(ValueError, match="missing"):
+        FrankaConfig(load={"mass_kg": 1.0})
+    with pytest.raises(ValueError, match="mass_kg"):
+        FrankaConfig(load={"mass_kg": -1.0, "center_of_mass_m": [0, 0, 0], "inertia": [0] * 9})
+    arm = FrankyArm(robot_ip="10.0.0.2", load={"mass_kg": 1.0, "center_of_mass_m": [0, 0, 0], "inertia": [0] * 9})
+    franky.Robot.set_load = lambda self, *args: (_ for _ in ()).throw(franky.CommandException("rejected"))
+    with pytest.raises(DeviceFault, match="set_load"):
+        arm.connect()
+
+
+def test_serl_preflight_warns_without_enforced_realtime(franky, serl_controller, monkeypatch, tmp_path):
+    monkeypatch.setattr(franky_arm_module, "REALTIME_KERNEL_FLAG_PATH", str(tmp_path / "none"))
+    arm = FrankyArm(robot_ip="10.0.0.2", realtime="ignore", cartesian_controller="serl")
+    arm.connect()
+    check = {result.name: result for result in arm.preflight()}["mode:serl_realtime"]
+    assert check.ok and check.warning and "realtime: enforce" in check.hint
+    enforced = FrankyArm(robot_ip="10.0.0.2", realtime="enforce", cartesian_controller="serl")
+    enforced.connect()
+    check = {result.name: result for result in enforced.preflight()}["mode:serl_realtime"]
+    assert check.ok and not check.warning
+    plain = FrankyArm(robot_ip="10.0.0.2")
+    plain.connect()
+    assert "mode:serl_realtime" not in {result.name for result in plain.preflight()}
+
+
+# --- serl_controller / franky build pairing (doctor) ---
+
+def _fake_site(tmp_path, *, franky_version="2.0.0+libfranka.0.17.0", libfranky=b"libfranky-bytes",
+               built_sha=None, libfranka="libfranka-ed02dacf.so.0.17.0", with_libfranka=True):
+    import hashlib
+    import json
+    site = tmp_path / "site"
+    (site / "serl_controller").mkdir(parents=True)
+    (site / "franky").mkdir()
+    (site / "franky_control.libs").mkdir()
+    (site / "franky" / "libfranky.so").write_bytes(libfranky)
+    if with_libfranka:
+        (site / "franky_control.libs" / libfranka).write_bytes(b"x")
+    info = {"serl_controller_version": "0.1.0", "with_franky": True, "franky_dist_version": "2.0.0+libfranka.0.17.0",
+            "libfranky_sha256": built_sha or hashlib.sha256(b"libfranky-bytes").hexdigest(),
+            "libfranka_file": libfranka, "build_id": "rwrl-franky-build-test"}
+    (site / "serl_controller" / "build_info.json").write_text(json.dumps(info))
+    return site, franky_version
+
+
+@pytest.fixture
+def fake_site(monkeypatch, tmp_path):
+    def install(**kwargs):
+        site, version = _fake_site(tmp_path, **kwargs)
+        monkeypatch.setattr(franky_arm_module, "_package_dir",
+                            lambda name: site / name if (site / name).is_dir() else None)
+        monkeypatch.setattr(franky_arm_module.importlib.metadata, "version",
+                            lambda dist: version if dist == "franky-control" else "0")
+        return site
+    return install
+
+
+def test_pairing_ok_for_the_same_build(fake_site):
+    fake_site()
+    ok, message, hint, details = franky_arm_module.serl_build_pairing()
+    assert ok and "same build" in message and "rwrl-franky-build-test" in message
+
+
+@pytest.mark.parametrize("kwargs, needle", [
+    ({"franky_version": "2.0.0"}, "built against franky_control 2.0.0+libfranka.0.17.0, installed is 2.0.0"),
+    ({"libfranky": b"official-wheel"}, "not the wheel serl_controller was built against"),
+    ({"with_libfranka": False}, "libfranka-ed02dacf.so.0.17.0"),
+])
+def test_pairing_fails_for_another_franky_wheel(fake_site, kwargs, needle):
+    fake_site(**kwargs)
+    ok, message, hint, _ = franky_arm_module.serl_build_pairing()
+    assert not ok and needle in message
+    assert "pip uninstall -y franky-control serl-controller" in hint and "same build" in hint.lower()
+
+
+def test_pairing_fails_without_serl_controller(monkeypatch):
+    monkeypatch.setattr(franky_arm_module, "_package_dir", lambda name: None)
+    ok, message, _, _ = franky_arm_module.serl_build_pairing()
+    assert not ok and "not installed" in message
+
+
+def test_doctor_sdk_layer_checks_the_pairing_only_in_serl_mode(fake_site):
+    from real_world_rl.doctor.checks import _sdk_layer
+    fake_site(franky_version="2.0.0")
+    checks, _ = _sdk_layer(FrankaConfig(cartesian_controller="serl"))
+    results = {result.name: result for result in (check() for check in checks)}
+    serl = results["sdk:serl_controller"]
+    assert serl.layer == 1 and not serl.ok and "installed is 2.0.0" in serl.message and serl.hint
+    checks, _ = _sdk_layer(FrankaConfig())
+    assert "sdk:serl_controller" not in {check().name for check in checks}
+
+
+# --- live SERL parameters over the daemon ---
+
+def test_serl_params_over_grpc(franky, serl_controller, clock, tmp_path, monkeypatch):
+    pytest.importorskip("grpc")
+    import real_world_rl.devices.claims as claims
+    from real_world_rl.devices import Robot
+    from real_world_rl.devices.robots.franka import FrankaRobot
+    from real_world_rl.server.service import RobotService
+    from real_world_rl.server.transport import GrpcTransport
+
+    monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
+    robot = FrankaRobot(FrankaConfig(cartesian_controller="serl", gripper=None, claim=False,
+                                     serl={"translational_stiffness": 1800.0}))
+    service = RobotService(robot, watchdog_s=5.0)
+    transport = GrpcTransport()
+    transport.start(service, "127.0.0.1:0")
+    remote = Robot.from_dict({"type": "remote", "address": f"127.0.0.1:{transport.port}", "timeout_s": 2.0})
+    try:
+        remote.connect()
+        arm = remote.arm
+        assert arm.serl_params["translational_stiffness"] == 1800.0
+        assert arm.control_metadata["serl"]["station_params"]["translational_stiffness"] == 1800.0
+        arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+        effective = arm.update_serl_params({"rotational_stiffness": 250, "rotational_clip_z": 0.5})
+        assert effective["rotational_stiffness"] == 250.0 and effective["rotational_clip_z"] == 0.1
+        motion = robot.arm._handle.serl_motion
+        assert motion.updates == [{"rotational_stiffness": 250.0, "rotational_clip_z": 0.1}]
+        assert robot.arm.control_metadata["serl"]["clamped"]["rotational_clip_z"]["requested"] == 0.5
+        assert arm.serl_params == effective
+        with pytest.raises(ValueError):
+            arm.update_serl_params({"nope": 1.0})  # refused client-side, nothing sent
+        assert len(motion.updates) == 1
+        arm.set_control_mode(ControlMode.IDLE)
+        clock["robot"] = robot.arm._handle.robot
+        arm.move_to_joints(np.array(HIL_SERL_DEFAULT_RESET))  # SERL joint reset through the daemon
+        assert robot.arm.last_joint_reset["reached"]
+        report = arm.last_joint_reset  # over gRPC
+        assert report == robot.arm.last_joint_reset and report["soft_limited_ticks"] == 3
+        assert report["robot_model"] == "panda"
+        # serl_auto_recover over the daemon: a reflex is cleared on the next target, counted, exposed
+        assert arm.serl_auto_recovery == robot.arm.serl_auto_recovery and arm.serl_auto_recovery["total_count"] == 0
+        arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+        _serl_reflex(robot.arm._handle.robot, franky)
+        pose = np.array([0.3, -0.1, 0.5, *QUAT_Z90_XYZW])
+        arm.send_action({"tcp_pose": pose})
+        assert robot.arm._handle.serl_motion.targets[-1][0] == pose[:3].tolist()
+        status = arm.serl_auto_recovery
+        assert status["episode_count"] == 1 and "cartesian_reflex" in status["last"]["error"]
+        arm.reset_serl_auto_recovery()
+        assert robot.arm.serl_auto_recovery["episode_count"] == 0 and arm.serl_auto_recovery["total_count"] == 1
+    finally:
+        remote.disconnect()
+        transport.stop(grace_s=0.1)
+        service.close()
+
+
+def test_only_the_serl_joint_reset_gets_a_long_grpc_deadline(monkeypatch):
+    pytest.importorskip("grpc")
+    from real_world_rl.server.remote import SERL_JOINT_RESET_DEADLINE_S, RemoteArm
+    from real_world_rl.server.transport.grpc_transport import GrpcClient
+
+    deadlines = []
+
+    class Owner:
+        is_connected = True
+
+    client = GrpcClient("127.0.0.1:1", timeout_s=5.0)
+    monkeypatch.setattr(client, "_invoke", lambda method, kwargs, timeout_s=None: (
+        deadlines.append((method, timeout_s)), {"result": None})[1])
+
+    def remote(controller):
+        arm = RemoteArm("arm", num_joints=7, supported_state_fields=("joint_pos",), client=client, owner=Owner(),
+                        control_metadata={"cartesian_controller": controller, "capabilities": [], "effective": {}})
+        monkeypatch.setattr(arm, "_require_connected", lambda: None)
+        return arm
+
+    q = np.zeros(7)
+    remote("serl")._move_to_joints(q, blocking=True)
+    remote("serl")._move_to_joints(q, blocking=False)
+    remote("impedance")._move_to_joints(q, blocking=True)
+    remote("serl")._move_to_pose(np.array([0.3, 0, 0.5, 0, 0, 0, 1.0]), blocking=True)
+    assert deadlines == [("arm.move_to_joints", SERL_JOINT_RESET_DEADLINE_S), ("arm.move_to_joints", 5.0),
+                         ("arm.move_to_joints", 5.0), ("arm.move_to_pose", 5.0)]
+
+
+def test_serl_mode_warns_about_ignored_cartesian_control_keys(caplog):
+    from real_world_rl.doctor.checks import _sdk_layer
+    from real_world_rl.devices.robots.franka import serl_ignored_control_keys
+    control = {"translational_stiffness": 2000.0, "rotational_error_clip": [0.05] * 3, "max_delta_tau": 0.5,
+               "joint_stiffness": [100.0] * 7}
+    with caplog.at_level("WARNING"):
+        config = FrankaConfig(cartesian_controller="serl", control=control)
+    assert "ignores control: ['translational_stiffness', 'rotational_error_clip']" in caplog.text
+    assert serl_ignored_control_keys(config) == ["translational_stiffness", "rotational_error_clip"]
+    assert serl_ignored_control_keys(FrankaConfig(control=control)) == []
+    checks, _ = _sdk_layer(config)
+    result = {r.name: r for r in (check() for check in checks)}["config:serl_control"]
+    assert result.ok and result.warning and "translational_stiffness" in result.message
+    clean, _ = _sdk_layer(FrankaConfig(cartesian_controller="serl", control={"max_delta_tau": 0.5}))
+    result = {r.name: r for r in (check() for check in clean)}["config:serl_control"]
+    assert result.ok and not result.warning

@@ -4,7 +4,7 @@
     {
       "source": "docs/README.md",
       "translation": "docs/zh-CN/README.md",
-      "source_sha256": "9ed83b588e0c02baf1442f4c7db4f9cd6f1309066abe593b5faedc4e70f865f7"
+      "source_sha256": "186a1e306a614b339d93b56e8545723d513b9e82befbc4441775beea353b16d7"
     },
     {
       "source": "docs/bimanual.md",
@@ -69,7 +69,7 @@
     {
       "source": "docs/teleop.md",
       "translation": "docs/zh-CN/teleop.md",
-      "source_sha256": "1155c7fe4b83ec564bff8345820b5d96647145aee5562265c5286f7888daea17"
+      "source_sha256": "8cf563591b3fd3562c8f84b637e542fada86854b3a59b6af3f4579a3571d9429"
     },
     {
       "source": "docs/tutorial/00-overview.md",
@@ -134,12 +134,12 @@
     {
       "source": "README.md",
       "translation": "docs/zh-CN/project-readme.md",
-      "source_sha256": "b5892284c94cedd2524e0984b2371b38c9bce044ef7774965a38e806c5602093"
+      "source_sha256": "4c8493242a5a54a0d9de5b5bd100ba52afc855649d7fbcc8497f0ef539991ad9"
     },
     {
       "source": "docs/devices.md",
       "translation": "docs/zh-CN/devices.md",
-      "source_sha256": "a4f8ee97b97fe99c0e606885a56f7047c3f4410f2ba79f70c10044a7555ecae1"
+      "source_sha256": "6c10a652f445121d6e07ebe05dd5199c43558a99cde809f8ae95c33559481237"
     },
     {
       "source": "rl-garden/rl_garden/models/act/README.md",
@@ -149,7 +149,7 @@
     {
       "source": "docs/control-profiles.md",
       "translation": "docs/zh-CN/control-profiles.md",
-      "source_sha256": "f4a381a075dbd096142ef1f3d8abf6b15eb8ee9fbfe8c9f1c5fb779123ec02bb"
+      "source_sha256": "71ab5fac2e44e0efeb4a5a6acf0944bf89c6e2d068b1c7f01e92e58b99fcdc5b"
     },
     {
       "source": "docs/testing/README.md",
@@ -194,7 +194,7 @@
     {
       "source": "docs/doctor.md",
       "translation": "docs/zh-CN/doctor.md",
-      "source_sha256": "9f173a1a05b0a5643dad175dba5dee7fa6ebe79f04688cc80bb61c4e2455d6f6"
+      "source_sha256": "4bda0ceb266b42d8db9dc158059c7e31a53d51993f979fec972cdbb9ce403529"
     },
     {
       "source": "docs/intervening.md",
@@ -205,6 +205,16 @@
       "source": "docs/remote-actor.md",
       "translation": "docs/zh-CN/remote-actor.md",
       "source_sha256": "429c7b6f9f75f730de26d0211bf72b143b9fd3843769a2a48ff31e1738b7adea"
+    },
+    {
+      "source": "docs/serl-controller.md",
+      "translation": "docs/zh-CN/serl-controller.md",
+      "source_sha256": "f36491eb79dafb871f11886cff42b079881e83a0ea16c563d704ee16246cc4b2"
+    },
+    {
+      "source": "docs/serl-robot-validation.md",
+      "translation": "docs/zh-CN/serl-robot-validation.md",
+      "source_sha256": "c7ef5c918b626b25a60bd19ec615f3b719205904393cda8ba5f797a05ea2c35e"
     }
   ]
 }

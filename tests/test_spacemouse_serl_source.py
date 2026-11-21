@@ -61,10 +61,26 @@ def test_serl_norm_uses_all_six_axes_strictly_above_001():
     assert source.poll().intervened  # individually below threshold, jointly above
 
 
-def test_serl_rotates_translation_and_rotation_without_touching_buttons():
+def test_serl_drives_the_raw_base_frame_by_default_despite_a_profile_rotation():
+    # HIL-SERL applies no operator rotation; the profile rotation stays provenance only.
     from scipy.spatial.transform import Rotation
     rotation = Rotation.from_euler("x", 42, degrees=True).as_matrix()
     part, source = _source(input_rotation=rotation.tolist())
+    part.twist = np.array([0.3, -0.2, .5, 0.1, 0, .2])
+    reading = source.poll()
+    np.testing.assert_allclose(reading.action[:6], part.twist, atol=1e-7)
+    assert reading.diagnostics["base_input_after_filter"] == pytest.approx(part.twist.tolist())
+
+
+def test_serl_use_profile_rotation_must_be_a_bool():
+    with pytest.raises(ValueError, match="use_profile_rotation"):
+        _source(use_profile_rotation="yes")
+
+
+def test_serl_rotates_translation_and_rotation_without_touching_buttons():
+    from scipy.spatial.transform import Rotation
+    rotation = Rotation.from_euler("x", 42, degrees=True).as_matrix()
+    part, source = _source(input_rotation=rotation.tolist(), use_profile_rotation=True)
     part.twist = np.array([0, 0, .5, 0, 0, .2])
     reading = source.poll()
     np.testing.assert_allclose(reading.action[:3], rotation @ part.twist[:3], atol=1e-7)
@@ -562,3 +578,9 @@ def test_serl_input_evidence_uses_consumed_sample_and_survives_composite():
     assert reading.diagnostics['decoded_axes'] == decoded
     decoded[0] = 99.
     assert reading.diagnostics['decoded_axes'][0] == 1.
+
+
+def test_tracker_mode_always_applies_the_profile_rotation():
+    with pytest.raises(ValueError, match="serl-mode option"):
+        SpaceMouseTeleopSource(_Part(), follower_pose_getter=lambda: None, env_contract={
+            **LEGACY_ACTION_CONTRACT, "gripper_in_action": False}, use_profile_rotation=False)

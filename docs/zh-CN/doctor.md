@@ -168,11 +168,11 @@ link:
 | 层 | 报告行 | 说明 |
 |---|---|---|
 | 0 deps | `deps` | 各后端所需扩展，含 `daemon:` 时另需 `grpc`；无此块时缺 `grpc` 仅为 `WARN` |
-| 1 sdk | `sdk:arm`, `sdk:gripper`, `sdk:camera:<name>`, `sdk:teleop:<backend>` | 后端解析及 SDK 导入；未知后端跳过第 3–5 层 |
+| 1 sdk | `sdk:arm`, `sdk:gripper`, `sdk:camera:<name>`, `sdk:teleop:<backend>`；`cartesian_controller: serl` 时还有 `sdk:serl_controller`、`config:serl_control` | 后端解析及 SDK 导入；未知后端跳过第 3–5 层；serl 相关行见 [SERL 控制器：诊断检查](serl-controller.md#doctor-checks) |
 | 2 os | `os:ping`, `os:tcp`, `os:camera:<name>`, `os:teleop:<name>`, `os:hid`, `os:serial`, `os:groups`, `os:brltty`, `os:latency_timer`, `os:can_*` | 网络、设备节点、权限；`os:tcp` 仅供参考 |
 | 3 handshake | `handshake` | 获取设备占用声明（除非 `claim: false`），再 `connect()`；失败跳过第 4–5 层 |
 | 4 feedback | `feedback:arm`, `feedback:gripper`, `feedback:camera:<name>`, `feedback:teleop:<name>` | 各设备返回数据；相机须在 2 s 内出帧 |
-| 5 mode | `mode:robot_mode`, `mode:libfranka_version`, `mode:realtime_kernel`, `mode:internal_realtime`（`cartesian_controller: internal`）, or `mode:none` | 后端预检 |
+| 5 mode | `mode:robot_mode`, `mode:libfranka_version`, `mode:realtime_kernel`, `mode:robot_model`, `mode:internal_realtime`（`cartesian_controller: internal`）, `mode:serl_realtime`（`cartesian_controller: serl`）, or `mode:none` | 后端预检 |
 
 设备探测本身失败时 `<robot>.device` 为 `FAIL`；其他进程占用站点时为 `BLOCKED`。下方[详细示例](#device-diagnostic-details)展示设备消息。
 
@@ -413,6 +413,13 @@ echo 1 | sudo tee "/sys/bus/usb-serial/devices/$GELLO_TTY/latency_timer"
 | `realtime.limits` FAIL or `PENDING_ACTION` | rtprio、memlock 限制缺失或未生效 | `rwrl doctor --fix` 写入，重新登录 |
 | `<robot>.mode:realtime_kernel` FAIL `realtime: enforce but the kernel is not PREEMPT_RT` | 站点强制实时 | 安装 RT 内核或设 `realtime: ignore` |
 | `<robot>.mode:internal_realtime` WARN | `cartesian_controller: internal` 但未设 `realtime: enforce`；libfranka 的 Cartesian 速度接口在 1 kHz 下出现任何不连续都会中止 | 安装 RT 内核并设 `realtime: enforce` |
+| `<robot>.mode:serl_realtime` WARN | `cartesian_controller: serl` 但未设 `realtime: enforce`（SERL 在强制实时下运行） | 安装 RT 内核并设 `realtime: enforce` |
+
+<a id="robot-model"></a>
+
+### 机器人型号
+
+`<robot>.mode:robot_model` 把工作站的 `robot_model`（`panda` | `fr3`）与已连接的机器人对照：franky 构建提供服务器版本时用服务器版本，否则用机器人提供的 URDF（`Robot.model_urdf`）中的关节名。WARN 会指出不一致；`cartesian_controller: serl` 时两者都拿不到也会警告，因为 SERL 的关节复位使用该型号的关节限位。请在 Desk → Settings → System 中确认型号（系统 4.x = Franka Emika Robot / `panda`，5.x = Franka Research 3 / `fr3`）；见 [SERL 控制器：robot_model](serl-controller.md#robot_model-panda-or-fr3)。
 
 <a id="device-diagnostic-details"></a>
 

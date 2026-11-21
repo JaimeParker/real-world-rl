@@ -55,3 +55,32 @@ rwrl --station local/station.yaml setup --control '{max_delta_tau: 0.5}'
 ```
 
 可传一份双臂共用映射，或逐臂映射。不传参数会保留现有配置，`--control null` 会删除配置。现有相机宽高描述源视频流；裁剪/ROI 和策略缩放属于实验预处理配置。
+
+<a id="serl-compliance-parameters-and-profiles"></a>
+
+## SERL 柔顺参数与参数组
+
+设置 `cartesian_controller: serl` 时，笛卡尔控制器是 SERL 自己的，参数也是 SERL 的：工作站 `serl:` 块（名称、默认值和范围同 `compliance_param.cfg`，省略的键保留 `.cfg` 默认值）、任务 preset 中可选的命名参数组，以及运行时的部分更新：
+
+```yaml
+# station
+cartesian_controller: serl
+serl: {translational_stiffness: 2000.0, rotational_stiffness: 150.0}
+# task preset
+real_robot:
+  serl_profiles:
+    compliance: {translational_clip_x: 0.0075, translational_clip_neg_x: 0.002}
+    precision: {translational_clip_x: 0.1, translational_clip_neg_x: 0.1, rotational_stiffness: 250}
+```
+
+```python
+from real_world_rl.devices.control import serl_profile_update
+update = serl_profile_update(preset_profiles, "precision")  # the profile's keys only
+effective = arm.update_serl_params(update)   # merged into the current values (HIL-SERL update_param);
+                                             # any mode; applied at the next 1 kHz tick if running
+arm.serl_params                              # the full effective set
+```
+
+参数组是在当前值之上的部分更新，未设置的键保留上一个参数组的值；若各参数组设置的键不同，校验时会警告（此时切换顺序有影响）。
+
+超出 `.cfg` 范围的值会被钳制（与 dynamic_reconfigure 相同），并报告在 `control_metadata["serl"]["clamped"]`；未知键报错。与 `configure_control` 不同，SERL 参数不受工作站值约束：上限就是 `.cfg` 范围，与 SERL 相同。该模式下 `control:` 的 Cartesian tracker 键被忽略（加载工作站时的警告和 `rwrl doctor` 的 `config:serl_control` WARN 会列出它们）。完整参数表、以 HIL-SERL `ram_insertion` 为例的参数组以及控制器细节见 [SERL 控制器](serl-controller.md#parameters)。

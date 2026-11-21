@@ -98,21 +98,60 @@ Run an openpi policy against a remote rwrl daemon (eval only).
 │ --real-robot.control {None}|{[STR STR [STR STR ...]]}                        │
 │       (H, W) every camera frame is resized to; None keeps the camera's       │
 │       native size. (default: None)                                           │
+│ --real-robot.serl-profiles {None}|{[STR STR [STR STR ...]]}                  │
+│       Named SERL compliance profiles for cartesian_controller: serl, e.g.    │
+│       {compliance: {...}, precision: {...}} (compliance_param.cfg names,     │
+│       partial). Switching to one is a partial update on top of the arm's     │
+│       current parameters, as HIL-SERL's update_param                         │
+│       (real_world_rl.devices.control.serl_profile_update ->                  │
+│       arm.update_serl_params); keys it omits keep their previous values.     │
+│       Out-of-range values are clamped like SERL's dynamic_reconfigure.       │
+│       (default: None)                                                        │
 │ --real-robot.action-mode {cartesian_delta,joint_delta,joint_abs}             │
-│       (H, W) every camera frame is resized to; None keeps the camera's       │
-│       native size. (default: cartesian_delta)                                │
+│       Named SERL compliance profiles for cartesian_controller: serl, e.g.    │
+│       {compliance: {...}, precision: {...}} (compliance_param.cfg names,     │
+│       partial). Switching to one is a partial update on top of the arm's     │
+│       current parameters, as HIL-SERL's update_param                         │
+│       (real_world_rl.devices.control.serl_profile_update ->                  │
+│       arm.update_serl_params); keys it omits keep their previous values.     │
+│       Out-of-range values are clamped like SERL's dynamic_reconfigure.       │
+│       (default: cartesian_delta)                                             │
 │ --real-robot.control-hz FLOAT                                                │
-│       (H, W) every camera frame is resized to; None keeps the camera's       │
-│       native size. (default: 10.0)                                           │
+│       Named SERL compliance profiles for cartesian_controller: serl, e.g.    │
+│       {compliance: {...}, precision: {...}} (compliance_param.cfg names,     │
+│       partial). Switching to one is a partial update on top of the arm's     │
+│       current parameters, as HIL-SERL's update_param                         │
+│       (real_world_rl.devices.control.serl_profile_update ->                  │
+│       arm.update_serl_params); keys it omits keep their previous values.     │
+│       Out-of-range values are clamped like SERL's dynamic_reconfigure.       │
+│       (default: 10.0)                                                        │
 │ --real-robot.xyz-scale-m FLOAT                                               │
-│       (H, W) every camera frame is resized to; None keeps the camera's       │
-│       native size. (default: 0.02)                                           │
+│       Named SERL compliance profiles for cartesian_controller: serl, e.g.    │
+│       {compliance: {...}, precision: {...}} (compliance_param.cfg names,     │
+│       partial). Switching to one is a partial update on top of the arm's     │
+│       current parameters, as HIL-SERL's update_param                         │
+│       (real_world_rl.devices.control.serl_profile_update ->                  │
+│       arm.update_serl_params); keys it omits keep their previous values.     │
+│       Out-of-range values are clamped like SERL's dynamic_reconfigure.       │
+│       (default: 0.02)                                                        │
 │ --real-robot.rot-scale-rad FLOAT                                             │
-│       (H, W) every camera frame is resized to; None keeps the camera's       │
-│       native size. (default: 0.1)                                            │
+│       Named SERL compliance profiles for cartesian_controller: serl, e.g.    │
+│       {compliance: {...}, precision: {...}} (compliance_param.cfg names,     │
+│       partial). Switching to one is a partial update on top of the arm's     │
+│       current parameters, as HIL-SERL's update_param                         │
+│       (real_world_rl.devices.control.serl_profile_update ->                  │
+│       arm.update_serl_params); keys it omits keep their previous values.     │
+│       Out-of-range values are clamped like SERL's dynamic_reconfigure.       │
+│       (default: 0.1)                                                         │
 │ --real-robot.joint-scale-rad FLOAT                                           │
-│       (H, W) every camera frame is resized to; None keeps the camera's       │
-│       native size. (default: 0.05)                                           │
+│       Named SERL compliance profiles for cartesian_controller: serl, e.g.    │
+│       {compliance: {...}, precision: {...}} (compliance_param.cfg names,     │
+│       partial). Switching to one is a partial update on top of the arm's     │
+│       current parameters, as HIL-SERL's update_param                         │
+│       (real_world_rl.devices.control.serl_profile_update ->                  │
+│       arm.update_serl_params); keys it omits keep their previous values.     │
+│       Out-of-range values are clamped like SERL's dynamic_reconfigure.       │
+│       (default: 0.05)                                                        │
 │ --real-robot.safety-box {None}|{[FLOAT [FLOAT ...]]}                         │
 │       The source of truth for limits is the robot yaml on the robot PC       │
 │       (enforced by the device layer). The three fields below are optional    │

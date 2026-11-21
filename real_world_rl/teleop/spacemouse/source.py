@@ -154,6 +154,7 @@ class SpaceMouseTeleopSource(SpaceMouseOptions, ToggleableTeleopSource):
         axis_lock: str = DEFAULT_AXIS_LOCK,
         invert_axes: Sequence[int] = (),
         input_rotation=None,
+        use_profile_rotation: bool = True,
         expected_device_identity=None,
         diagnostic_axes="all",
         diagnostic_gain=1.,
@@ -172,6 +173,9 @@ class SpaceMouseTeleopSource(SpaceMouseOptions, ToggleableTeleopSource):
         read_timeout_s: float = DEFAULT_READ_TIMEOUT_S,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
+        if use_profile_rotation is not True:
+            raise ValueError("use_profile_rotation is a spacemouse serl-mode option: the tracker mode "
+                             "always applies the operator profile's input_rotation")
         if not 0.0 <= deadzone < 1.0:
             raise ValueError(f"deadzone must be in [0, 1) of full scale, got {deadzone}")
         tracker_config = validated_tracker_config(

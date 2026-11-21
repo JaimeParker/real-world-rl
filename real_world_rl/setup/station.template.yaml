@@ -17,7 +17,11 @@ robot_ip: {{robot_ip}}        # FCI IP set in Desk
 bridge_url: {{bridge_url}}    # serl_http only: URL of controller/real/franka_bridge.py
 realtime: {{realtime}}        # ignore | enforce (enforce needs a PREEMPT_RT kernel)
 relative_dynamics_factor: {{relative_dynamics_factor}}  # franky velocity/acc/jerk scale for move_to_* (and internal servo)
-cartesian_controller: {{cartesian_controller}}  # impedance (franky torque tracker, `control` gains) | internal (the robot's own controller follows velocity motions; wants realtime: enforce)
+cartesian_controller: {{cartesian_controller}}  # impedance (franky torque tracker, `control` gains) | internal (the robot's own controller follows velocity motions; wants realtime: enforce) | serl (SERL's controller + joint reset, `serl` gains; needs the matching franky + serl_controller wheels, wants realtime: enforce)
+serl: {{serl}}                # cartesian_controller: serl: SERL compliance parameters (compliance_param.cfg names); omitted ones keep the .cfg defaults
+robot_model: {{robot_model}}  # panda (Franka Emika Robot / FER) | fr3 (Franka Research 3); confirm in Desk. Selects the joint limits of SERL's joint reset
+serl_auto_recover: {{serl_auto_recover}}  # cartesian_controller: serl: {enabled, max_per_episode}; a reflex is cleared on the next servo target and SERL's controller restarted (HIL-SERL's /clearerr), at most max_per_episode times per episode; null = {enabled: true, max_per_episode: 5}
+load: {{load}}                # optional payload {mass_kg, center_of_mass_m: [x, y, z], inertia: 3x3}, set after every connect; null leaves the robot's
 home_joints: {{home_joints}}  # 7 values, rad
 # Safety limits, enforced by the arm (and so by the daemon): servo targets are clipped,
 # move_to_* targets outside them are refused. null = no limit (not recommended).
@@ -26,7 +30,7 @@ task_frame: {{task_frame}}  # optional named rigid transform base_T_frame
 workspace: {{workspace}}    # optional task-frame bounds; targets outside are rejected
 # workspace measured_margin_m defaults to 0.003 m; measured_margin_rad to 0.03 rad.
 # Both are nonnegative feedback-only margins; target checks keep 1e-9 tolerance.
-joint_limits: {{joint_limits}}  # 7 [lo, hi] pairs, rad (default: Panda datasheet); home_joints must lie inside
+joint_limits: {{joint_limits}}  # 7 [lo, hi] pairs, rad (wizard default: the robot_model datasheet, Panda or FR3); home_joints must lie inside
 max_delta_per_step: {{max_delta_per_step}}  # servo step cap from the measured state; default {xyz_m: 0.05, joint_rad: 0.04}
 control: {{control}}          # optional franky impedance settings (cartesian_controller: impedance; joint servo in every mode), applied while IDLE; null keeps SDK defaults
 claim: {{claim}}              # default true: daemon robot claim and SpaceMouse HID endpoint claim

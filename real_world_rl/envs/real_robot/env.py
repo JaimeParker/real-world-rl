@@ -447,6 +447,9 @@ class RealRobotEnv(gym.Env):
     def _reset_finish(self):
         from real_world_rl.devices.arm import ControlMode
         self.robot.arm.set_control_mode(ControlMode.CARTESIAN_SERVO if self.config.action_mode == "cartesian_delta" else ControlMode.JOINT_SERVO)
+        reset_recovery = getattr(self.robot.arm, "reset_serl_auto_recovery", None)
+        if callable(reset_recovery):
+            reset_recovery()  # a new serl_auto_recover episode (cartesian_controller: serl)
         raw = self.robot.get_observation(**self._frame_kwargs)
         self._elapsed_steps = 0
         self._diagnostic_reset_index += 1
@@ -786,6 +789,7 @@ class RealRobotEnv(gym.Env):
                 "image_size": self.config.image_size,
                 "preprocess": {name: value.as_options() for name, value in self.config.preprocess.items()},
                 **self._serl_experiment(),
+                **({"serl_profiles": self.config.serl_profiles} if self.config.serl_profiles else {}),
                 **({"spatial_constraints": self._spatial_contract} if self._spatial_contract else {})}
 
     def _serl_experiment(self) -> dict:

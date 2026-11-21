@@ -1,0 +1,11 @@
+{
+  "serl_controller_version": "@PROJECT_VERSION@",
+  "serl_commit": "1f140ef",
+  "with_franky": @SERL_CONTROLLER_WITH_FRANKY_JSON@,
+  "franky_dist_version": "@SERL_CONTROLLER_FRANKY_DIST_VERSION@",
+  "franky_commit": "@SERL_CONTROLLER_FRANKY_COMMIT@",
+  "libfranky_sha256": "@SERL_CONTROLLER_LIBFRANKY_SHA256@",
+  "libfranka_file": "@SERL_CONTROLLER_LIBFRANKA_FILE@",
+  "libfranka_version": "@SERL_CONTROLLER_LIBFRANKA_VERSION@",
+  "build_id": "@SERL_CONTROLLER_BUILD_ID@"
+}

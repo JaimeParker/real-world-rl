@@ -98,7 +98,7 @@ remote_address: <robot-host>:<port>
 | 夹爪执行 | 原环境行为。 | 缩放动作 `<= -0.5` 且实测归一化宽度 `> 0.85` 才关闭；`>= 0.5` 且宽度 `< 0.85` 才打开。距上次命令时间须严格大于 `gripper_sleep_s`（默认 `0.6 s`），随后 sleep 相同间隔。零为中立。 |
 | 终端/键盘 | 忽略 `t`/`h`，状态变化时警告；标记/结束/退出仍可用。 | 同样按键：`s`/`f`/`r`/Esc/`q` 标记/结束/退出。`t`/`h` 不控制接管，状态变化时警告。 |
 
-机器人基座倾斜时，`teleop_options_yaml` 可提供 `input_rotation`，即有限且合法的 3×3 旋转矩阵 `base_R_input`。两种模式均将平移和角输入旋转到机器人基坐标。轴反转和 tracker 逐轴死区先于旋转；SERL 接管仍用原始六轴范数。旋转后的每个三向量仅在需要时等比缩小至动作立方体内，保留方向。不施加原点平移。解析矩阵和档案名/文件/yaw 在持久化解析配置前保存为不参与比较的 `teleop_input` 来源信息。恢复使用数值选项，不重读已改变档案。记录动作为基坐标，因此操作员重标定不会使旧示范或恢复约定失效。旧安全框仍在机器人基坐标系。可选工作站 `task_frame`、`workspace` 增加桌面约束，与原限制取交集；输入旋转本身不移动安全边界。两者都不改变机器人安装/重力配置或负载模型。
+机器人基座倾斜时，`teleop_options_yaml` 可提供 `input_rotation`，即有限且合法的 3×3 旋转矩阵 `base_R_input`。tracker 模式将平移和角输入旋转到机器人基坐标；serl 模式与 HIL-SERL 一样直接驱动原始基坐标，旋转只作为来源信息保存，除非选项设置 `use_profile_rotation: true`（见 [SERL 控制器：serl 模式下的 SpaceMouse](serl-controller.md#spacemouse-in-serl-mode-the-raw-base-frame)）。轴反转和 tracker 逐轴死区先于旋转；SERL 接管仍用原始六轴范数。旋转后的每个三向量仅在需要时等比缩小至动作立方体内，保留方向。不施加原点平移。解析矩阵和档案名/文件/yaw 在持久化解析配置前保存为不参与比较的 `teleop_input` 来源信息。恢复使用数值选项，不重读已改变档案。记录动作为基坐标，因此操作员重标定不会使旧示范或恢复约定失效。旧安全框仍在机器人基坐标系。可选工作站 `task_frame`、`workspace` 增加桌面约束，与原限制取交集；输入旋转本身不移动安全边界。两者都不改变机器人安装/重力配置或负载模型。
 
 SpaceMouse tracker 在发送请求目标前、速度/领先限制后均检查任务工作空间。候选被拒绝时交还控制，并将 recorder 保持锚定在实测位姿；按钮 0 可再次接管。训练中交还后，策略通过相同设备约束恢复。策略位置目标在任务坐标逐分量裁剪，超过 `max_angle_rad` 的旋转通过缩放相对参考 rotvec 投影到 SO(3) 锥。SERL 先执行原 XYZ/RPY 框裁剪，再作工作空间投影。实测 TCP 超出工作空间及反馈裕量会锁存故障。裕量默认 `measured_margin_m: 0.003`、`measured_margin_rad: 0.03`，已接受目标仍用 `1e-9` 容差。设备和环境约束对两种遥操作模式及策略动作均有最终约束力。
 
@@ -106,13 +106,13 @@ SpaceMouse tracker 在发送请求目标前、速度/领先限制后均检查任
 
 SERL 须先配置工作站 **XYZ 和 RPY 安全框**，缺任一个均为构建错误。`real_robot` 中为 `safety_box`（`[xmin, ymin, zmin, xmax, ymax, zmax]`）、`safety_box_rpy_low`、`safety_box_rpy_high`；缩放仍为 `xyz_scale_m`/`rot_scale_rad`。`franka_real` 中将 `safety_box_low`、`safety_box_high` 和两项 RPY 限制放入 `franka_real.env_kwargs_json`，使用原位置/旋转缩放。模式在构建环境前选择 `cartesian_semantics: serl`，不打开遥操作设备的 learner 也如此。显式配置 `current` 与此模式冲突；未设置的程序化 dataclass 默认值会提升为 `serl`。训练/录制参数序列化前完成模式解析，所以保存的 SERL 配置同时含 `spacemouse_mode: serl` 与 `cartesian_semantics: serl`。Deploy 保留保存的环境语义；`--spacemouse-mode serl` 覆盖与已存 `cartesian_semantics: current` 冲突。
 
-录制、训练、部署使用同一模式。SERL 记录以下参与比较的 `teleop_control` 约定（非默认 `invert_axes` 还会加入该列表）：
+录制、训练、部署使用同一模式。SERL 记录以下参与比较的 `teleop_control` 约定（非默认 `invert_axes` 还会加入该列表，带 `input_rotation` 的选项还会加入 `use_profile_rotation`）：
 
 ```json
 {"version": "spacemouse_serl_v1", "mode": "serl", "motion_threshold": 0.001, "gripper": "serl_buttons"}
 ```
 
-SERL 要求单个六轴 `cartesian_delta` 机械臂，完整选择机械臂/夹爪。固定 HID 映射 `[-y, x, z, -roll, -pitch, -yaw]` 及配置的输入旋转后，动作仍在基坐标系；不支持相对坐标系、相对观测或 `action_indices`。`teleop_options_yaml` 可设 `device_index`（默认 `0`）、`invert_axes`（默认 `[]`）、`poll_interval_s`（默认 `0.005`）、`read_timeout_s`（默认 `1.0`）。此模式拒绝 tracker 选项、`deadzone`、`hold_s`、夹爪保持 getter 和嵌套 `mode` 键；使用顶层模式参数。设备层 `max_delta_xyz_m` 与位姿框仍生效，可能比原生 HIL-SERL 更紧。硬件行为与安装仍**未验证**。`spacemouse_twist` 仍是独立仿真源，按钮/保持式夹爪行为不同，不是 SERL 模式。
+SERL 要求单个六轴 `cartesian_delta` 机械臂，完整选择机械臂/夹爪。固定 HID 映射 `[-y, x, z, -roll, -pitch, -yaw]`（仅在 `use_profile_rotation: true` 时再加配置的输入旋转）后，动作仍在基坐标系；不支持相对坐标系、相对观测或 `action_indices`。`teleop_options_yaml` 可设 `device_index`（默认 `0`）、`invert_axes`（默认 `[]`）、`poll_interval_s`（默认 `0.005`）、`read_timeout_s`（默认 `1.0`）。此模式拒绝 tracker 选项、`deadzone`、`hold_s`、夹爪保持 getter 和嵌套 `mode` 键；使用顶层模式参数。设备层 `max_delta_xyz_m` 与位姿框仍生效，可能比原生 HIL-SERL 更紧。硬件行为与安装仍**未验证**。`spacemouse_twist` 仍是独立仿真源，按钮/保持式夹爪行为不同，不是 SERL 模式。
 
 <a id="spacemouse-installation-and-linux-permissions"></a>
 

@@ -244,8 +244,12 @@ def test_handshake_reports_both_versions(arm_mismatch):
         "the robot server version 10 comes from libfranka's handshake error (authoritative); "
         "to cross-check, read the system version in Desk → Settings → System and look it up in the "
         "compatibility matrix https://frankarobotics.github.io/docs/compatibility.html; "
+        # server 10 is a system 5.x robot (FR3); the default robot_model is panda
+        "robot server 10 implies robot_model: fr3, the station says panda (confirm the model in Desk); "
         "then: rwrl doctor --station <cfg> --install-sdk"
     )
+    fr3 = next(r for r in run_doctor(fake_station_config(robot_model="fr3")) if r.name == "handshake")
+    assert "implies robot_model" not in fr3.hint
     assert handshake.details[LIBFRANKA_SERVER_VERSION] == 10
 
 

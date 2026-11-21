@@ -33,6 +33,9 @@ Beside the robot while recording and training: the
 - [GELLO leader arm: hardware, calibration, robot yaml](gello.md)
 - [SpaceMouse commissioning: profiles, task-frame workspace, sessions](spacemouse-commissioning.md)
 - [Device layer: station files, backends, safety rules](devices.md)
+- [SERL controller](serl-controller.md): choosing and switching Franka controllers, SERL's own
+  controller and joint reset, auto-recovery, known differences from HIL-SERL
+- [SERL controller: robot validation](serl-robot-validation.md): the ordered hardware checklist
 - [Robot daemon: serving, RemoteRobot and supervision](daemon.md)
 - [Evaluate Pi0.5 with an openpi policy server](deploy-openpi.md)
 - [Arm control profiles](control-profiles.md): station gains, backend capabilities and

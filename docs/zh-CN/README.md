@@ -35,6 +35,8 @@
 - [GELLO 主臂：硬件、标定、机器人 YAML](gello.md)
 - [SpaceMouse 调试：档案、任务工作空间、会话](spacemouse-commissioning.md)
 - [设备层：工作站文件、后端、安全规则](devices.md)
+- [SERL 控制器](serl-controller.md)：选择与切换 Franka 控制器、SERL 原版控制器与关节复位、自动恢复、与 HIL-SERL 的已知差异
+- [SERL 控制器：真机验证](serl-robot-validation.md)：按顺序执行的硬件检查清单
 - [机器人守护进程：服务、RemoteRobot 与进程监督](daemon.md)
 - [通过 openpi 策略服务评估 Pi0.5](deploy-openpi.md)
 - [机械臂控制配置](control-profiles.md)：工作站增益、后端能力与生效设置

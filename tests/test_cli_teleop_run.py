@@ -58,6 +58,10 @@ SPACEMOUSE_CONFIG = b"""real_robot:
     relative_dynamics_factor: 0.2
     realtime: ignore
     cartesian_controller: impedance
+    serl: null
+    load: null
+    robot_model: panda
+    serl_auto_recover: null
   remote: null
   token: null
 env_backend: real_robot

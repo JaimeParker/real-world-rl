@@ -36,6 +36,13 @@ real-world-rl tutorials
 
       English version pending.
 
+   .. grid-item-card:: Serl Controller
+      :link: tutorials/serl-controller
+      :link-type: doc
+      :shadow: none
+
+      English version pending.
+
    .. grid-item-card:: Record
       :link: tutorials/record
       :link-type: doc
@@ -121,6 +128,7 @@ real-world-rl tutorials
    tutorials/station
    tutorials/spacemouse
    tutorials/gello
+   tutorials/serl-controller
    tutorials/record
    tutorials/inspect
    tutorials/bc-data

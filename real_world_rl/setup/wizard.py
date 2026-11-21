@@ -30,7 +30,7 @@ from real_world_rl.teleop.gello.calibrate import (
     calibrate_gello,
     wrap_centers_from_joint_limits,
 )
-from real_world_rl.devices.robots.franka import FRANKA_HOME_JOINTS, FrankaConfig
+from real_world_rl.devices.robots.franka import DATASHEET_JOINT_LIMITS, FRANKA_HOME_JOINTS, FrankaConfig
 from real_world_rl.discovery.autoconfig import DEFAULT_DAEMON_BIND, Station
 from real_world_rl.devices.backends.cameras.zed_common import select_mode
 from real_world_rl.setup.probes import SerialBusProbe, SimulatedGelloBus, StationProbe
@@ -53,16 +53,13 @@ ZED_BACKENDS = ("zed", "zed_uvc")
 # smallest 16:9 stream (VGA, downscaled) unless --camera-resolution says otherwise.
 ZED_DEFAULT_STREAM = {"width": 640, "height": 360, "fps": 30}
 EXTRA_CAMERA_NAME = "front"
-# Panda datasheet joint limits (rad); their midpoints are the GELLO wrap centres when the yaml sets none.
-PANDA_JOINT_LIMITS = (
-    (-2.8973, 2.8973),
-    (-1.7628, 1.7628),
-    (-2.8973, 2.8973),
-    (-3.0718, -0.0698),
-    (-2.8973, 2.8973),
-    (-0.0175, 3.7525),
-    (-2.8973, 2.8973),
-)
+# Datasheet joint limits (rad) of the station's robot_model (Panda unless robot_model: fr3); their
+# midpoints are the GELLO wrap centres when the yaml sets none.
+PANDA_JOINT_LIMITS = DATASHEET_JOINT_LIMITS["panda"]
+
+
+def datasheet_joint_limits(config: RobotConfig):
+    return DATASHEET_JOINT_LIMITS.get(getattr(config, "robot_model", "panda"), PANDA_JOINT_LIMITS)
 # Offered per arm: [xmin, ymin, zmin, xmax, ymax, zmax] in m, base frame, a table-top workspace
 # in front of a Panda.
 SUGGESTED_SAFETY_BOX = (0.3, -0.3, 0.05, 0.7, 0.3, 0.6)
@@ -186,7 +183,7 @@ def _rounded(value: float) -> float:
 
 
 def gello_wrap_centers(config: RobotConfig) -> list[float]:
-    limits = config.joint_limits if config.joint_limits is not None else PANDA_JOINT_LIMITS
+    limits = config.joint_limits if config.joint_limits is not None else datasheet_joint_limits(config)
     return [_rounded(center) for center in wrap_centers_from_joint_limits(limits)]
 
 
@@ -626,7 +623,7 @@ def _ask_robot(
     joint_limits = prompt.unasked(
         "--joint-limits", answers.for_arm("joint_limits", "--joint-limits", index, count), _parse_joint_limits,
         prior=None if config.joint_limits is None else _float_list_text(_flattened(config.joint_limits)),
-        default=_float_list_text(_flattened(PANDA_JOINT_LIMITS)),
+        default=_float_list_text(_flattened(datasheet_joint_limits(config))),
     )
 
     def parse_home(text: str) -> list[float] | None:
@@ -1068,7 +1065,7 @@ def _calibrate(
                 baudrate=options["baudrate"],
                 calibration_pose=FRANKA_CALIBRATION_POSE,
                 joint_signs=options["joint_signs"],
-                joint_limits=config.joint_limits if config.joint_limits is not None else PANDA_JOINT_LIMITS,
+                joint_limits=config.joint_limits if config.joint_limits is not None else datasheet_joint_limits(config),
                 ask=prompt.ask,
                 echo=prompt.echo,
                 bus=bus,

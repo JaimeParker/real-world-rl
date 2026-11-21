@@ -140,3 +140,85 @@ def test_wizard_optional_control_input_roundtrips_and_from_preserves():
     parsed = build_parser().parse_args(["--non-interactive", "--only", "daemon", "--control", "{max_delta_tau: -1}"])
     with pytest.raises(WizardError, match="control"):
         run_wizard(mock_station_probe(), answers_from_args(parsed, draft), never, lambda _: None)
+
+
+# --- SERL compliance parameters (cartesian_controller: serl) ---
+
+def test_serl_parameter_table_is_serl_compliance_param_cfg():
+    from real_world_rl.devices.control import SERL_COMPLIANCE_PARAMS, SERL_PARAM_DEFAULTS
+    assert len(SERL_COMPLIANCE_PARAMS) == 20
+    assert SERL_COMPLIANCE_PARAMS[0] == ("translational_stiffness", 2000.0, 0.0, 6000.0)
+    assert SERL_PARAM_DEFAULTS["translational_damping"] == 89.0 and SERL_PARAM_DEFAULTS["rotational_damping"] == 7.0
+    assert SERL_PARAM_DEFAULTS["nullspace_stiffness"] == 0.2 and SERL_PARAM_DEFAULTS["joint1_nullspace_stiffness"] == 100.0
+    assert SERL_PARAM_DEFAULTS["translational_clip_neg_z"] == 0.01 and SERL_PARAM_DEFAULTS["rotational_clip_y"] == 0.05
+    assert SERL_PARAM_DEFAULTS["translational_Ki"] == 0.0 and SERL_PARAM_DEFAULTS["rotational_Ki"] == 0.0
+
+
+def test_serl_table_matches_the_vendored_cfg():
+    """The Python table and the native package's vendored compliance_param.cfg agree."""
+    import re
+    from pathlib import Path
+    from real_world_rl.devices.control import SERL_COMPLIANCE_PARAMS
+    cfg = (Path(__file__).resolve().parents[2] / "native/serl_controller/tests/cpp/golden/serl_original/cfg/compliance_param.cfg")
+    if not cfg.is_file():
+        pytest.skip("native/ sources not present")
+    rows = re.findall(r'gen\.add\("(\w+)", double_t, 0, "[^"]*", ([\d.]+), ([\d.]+), ([\d.]+)\)', cfg.read_text())
+    assert [(n, float(d), float(lo), float(hi)) for n, d, lo, hi in rows] == list(SERL_COMPLIANCE_PARAMS)
+
+
+def test_serl_profiles_are_partial_updates_on_the_current_params(caplog):
+    from real_world_rl.devices.control import (SERL_PARAM_DEFAULTS, apply_serl_profile, resolve_serl_params,
+                                               serl_param_updates, serl_profile_update, validate_serl_profiles)
+    station = resolve_serl_params({"translational_stiffness": 1800.0})
+    profiles = {"compliance": {"translational_clip_x": 0.0075},
+                "precision": {"translational_clip_x": 0.1, "rotational_clip_x": 0.5, "rotational_stiffness": 250}}
+    with caplog.at_level("WARNING"):
+        validate_serl_profiles(profiles)
+    assert "switching order matters" in caplog.text and "rotational_clip_x" in caplog.text
+    assert serl_profile_update(profiles, "compliance") == {"translational_clip_x": 0.0075}
+    precision = apply_serl_profile(station, profiles, "precision")
+    assert precision["rotational_clip_x"] == 0.1 and precision["rotational_stiffness"] == 250.0
+    assert precision["translational_stiffness"] == 1800.0
+    # HIL-SERL semantics: compliance after precision keeps precision's rotational values
+    compliance = apply_serl_profile(precision, profiles, "compliance")
+    assert compliance["translational_clip_x"] == 0.0075 and compliance["rotational_stiffness"] == 250.0
+    assert apply_serl_profile(station, profiles, "compliance")["rotational_stiffness"] == SERL_PARAM_DEFAULTS["rotational_stiffness"]
+    with pytest.raises(KeyError, match="unknown serl profile"):
+        serl_profile_update(profiles, "reset")
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        validate_serl_profiles({"a": {"translational_clip_x": 0.01}, "b": {"translational_clip_x": 0.02}})
+    assert "switching order" not in caplog.text
+    values, clamped = serl_param_updates({"translational_stiffness": -5})
+    assert values == {"translational_stiffness": 0.0} and clamped["translational_stiffness"]["requested"] == -5.0
+    for invalid in ({"x": {}}, {"": {"rotational_Ki": 1}}, {"a": {"bad": 1}}, {"a": {"rotational_Ki": True}}, ["a"]):
+        with pytest.raises(ValueError):
+            validate_serl_profiles(invalid)
+
+
+def test_task_preset_serl_profiles_are_validated():
+    pytest.importorskip("gymnasium")
+    from real_world_rl.envs.real_robot.config import RealRobotEnvConfig
+    config = RealRobotEnvConfig(serl_profiles={"compliance": {"translational_clip_x": 0.0075},
+                                               "precision": {"rotational_clip_x": 0.5}})
+    assert config.serl_profiles["precision"] == {"rotational_clip_x": 0.1}
+    with pytest.raises(ValueError, match="unknown SERL"):
+        RealRobotEnvConfig(serl_profiles={"compliance": {"stiffness": 1.0}})
+    assert RealRobotEnvConfig().serl_profiles is None
+
+
+def test_station_renderer_writes_serl_and_load():
+    import yaml
+    from real_world_rl.setup.render import check_rendered_station, render_station_yaml
+    from real_world_rl.setup.wizard import ArmDraft, StationDraft
+    config = FrankaConfig(cartesian_controller="serl", realtime="enforce",
+                          serl={"translational_stiffness": 2000.0, "rotational_clip_neg_z": 0.02},
+                          load={"mass_kg": 0.3, "center_of_mass_m": [0, 0, 0.04], "inertia": [0.001, 0, 0, 0, 0.001, 0, 0, 0, 0.001]})
+    draft = StationDraft([ArmDraft("robot", config)])
+    text = render_station_yaml(draft)
+    rendered = yaml.safe_load(text)
+    assert rendered["cartesian_controller"] == "serl" and rendered["serl"] == config.serl
+    assert rendered["load"] == config.load
+    check_rendered_station(text, draft)
+    default = yaml.safe_load(render_station_yaml(StationDraft([ArmDraft("robot", FrankaConfig())])))
+    assert default["serl"] is None and default["load"] is None

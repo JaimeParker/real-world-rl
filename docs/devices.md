@@ -85,7 +85,11 @@ robot_ip: 172.16.0.2          # FCI IP set in Desk (default 172.16.0.2)
 # bridge_url: http://127.0.0.1:5000   # serl_http only: URL of the legacy Flask bridge
 realtime: ignore              # ignore (default) | enforce (requires a PREEMPT_RT kernel)
 relative_dynamics_factor: 0.2 # franky velocity/accel/jerk scale for move_to_* and internal servo (default 0.2)
-cartesian_controller: impedance  # impedance (default) | internal; see "Cartesian servo controller" below
+cartesian_controller: impedance  # impedance (default) | internal | serl; see "Cartesian servo controller" below
+serl: null                    # cartesian_controller: serl: SERL compliance parameters (see "SERL controller")
+robot_model: panda            # panda (default) | fr3: joint limits of SERL's joint reset; confirm in Desk
+serl_auto_recover: null       # cartesian_controller: serl: {enabled, max_per_episode}; null = {true, 5}
+load: null                    # optional payload {mass_kg, center_of_mass_m: [x, y, z], inertia: 3x3}, set after connect
 home_joints: [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]  # 7 values (default shown)
 safety_box: [0.3, -0.3, 0.05, 0.7, 0.3, 0.6]  # [xmin, ymin, zmin, xmax, ymax, zmax] m, base frame of tcp_pose (O_T_EE)
 joint_limits:                 # 7 [lo, hi] pairs in rad; home_joints must lie inside
@@ -180,8 +184,8 @@ Notes:
 
 **Cartesian servo controller (Franka, `franky`).** `cartesian_controller` picks who executes
 Cartesian servo targets (`servo_cartesian`, i.e. every `cartesian_delta` env step, teleop or
-policy). Joint servo is franky's joint impedance tracker in every mode, and `move_to_pose` and
-`move_to_joints` are always Ruckig motions.
+policy). Joint servo is franky's joint impedance tracker in every mode, and `move_to_pose` is
+always a Ruckig motion; `move_to_joints` is Ruckig except with `serl` (SERL's joint reset).
 
 - `impedance` (default): franky's torque-level `CartesianImpedanceTracker` pulls the TCP towards
   the target like a spring, with the gains from `control:` (see
@@ -195,7 +199,7 @@ policy). Joint servo is franky's joint impedance tracker in every mode, and `mov
   [0.10]*3`. The rotational values are **approximate**: franky's rotation error is the rotation
   vector θ·axis, SERL's is the quaternion vector part sin(θ/2)·axis ≈ (θ/2)·axis, so SERL's
   150 Nm/rad is 75 here and SERL's 0.05 clip is 2·asin(0.05) ≈ 0.10 rad; they agree for small
-  angles only. `--control null` keeps the SDK defaults.
+  angles only. For SERL's own controller use `serl`. `--control null` keeps the SDK defaults.
 - `internal`: the robot's own controller executes the target, so it handles the IK and the
   payload (the Desk load setting still feeds its gravity model and collision detection). Each
   target becomes a `CartesianVelocityMotion` in the base frame that closes the pose error in
@@ -209,6 +213,24 @@ policy). Joint servo is franky's joint impedance tracker in every mode, and `mov
   recoverable `DeviceFault`; `rwrl recover` clears it. The constants live in
   `real_world_rl/devices/backends/arms/franky.py`. This mode has not been validated on hardware
   yet.
+- `serl`: SERL's own controllers, ported bit-for-bit from `serl_franka_controllers` and run
+  inside franky's 1 kHz loop by the `serl_controller` wheel. Cartesian servo is SERL's Cartesian
+  impedance controller (parameters from `serl:`), `move_to_joints` is SERL's joint reset. Needs
+  the matching franky + `serl_controller` wheels; see [SERL controller](serl-controller.md).
+
+**Payload (`load:`, Franka, `franky`, every mode).** `load: {mass_kg, center_of_mass_m: [x, y, z],
+inertia}` (centre of mass in the flange frame, inertia about it in kg·m², 3×3 rows or 9 values,
+symmetric) is sent with libfranka's `Robot::setLoad` right after every connect, before any
+motion, the way HIL-SERL's `franka_server` `/set_load` calls franka_control's `SetLoad` service.
+`null` leaves whatever load the robot has (Desk's end-effector settings). A rejected call fails
+`connect()` with a `DeviceFault`. The effective value is in `control_metadata["load"]`.
+
+### SERL controller (`cartesian_controller: serl`)
+
+SERL's own Cartesian impedance controller and joint reset, run by the `serl_controller` wheel:
+what runs, the `serl:` parameters and profiles, `robot_model`, `serl_auto_recover`, the matching
+wheel pair, the doctor rows, choosing and switching controllers, and the known differences from
+HIL-SERL are in [SERL controller](serl-controller.md).
 
 Build a robot without touching hardware to check the file:
 
@@ -241,7 +263,8 @@ steps as the calibration CLI in [device contract](#add-a-teleop-device); skipped
 with a `# TODO calibrate` comment), writes the annotated station yaml, runs the doctor on it and
 prints the next commands.
 
-Every arm gets device-side safety limits: the Panda datasheet `joint_limits` (`--joint-limits`),
+Every arm gets device-side safety limits: the datasheet `joint_limits` of its `robot_model`
+(Panda unless `robot_model: fr3`; `--joint-limits`),
 a servo step cap `max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}` (`--max-delta-xyz-m`,
 `--max-delta-joint-rad`) and a `safety_box` it asks for (base frame, metres, suggested
 `[0.3, -0.3, 0.05, 0.7, 0.3, 0.6]`, `--safety-box`), which must contain the home pose.
@@ -418,7 +441,7 @@ own.
 
 | Backend | SDK (extra) | Joint control | Wrench (`tcp_force`/`tcp_torque`) | Notes |
 |---|---|---|---|---|
-| arm `franky` | `franky` (`franky`) | yes | yes | torque-level impedance trackers for servo modes (or, with `cartesian_controller: internal`, Cartesian velocity motions for Cartesian servo), Ruckig `move_to_*` (`IDLE` only); `realtime` and `relative_dynamics_factor` apply here |
+| arm `franky` | `franky` (`franky`) | yes | yes | torque-level impedance trackers for servo modes (or, with `cartesian_controller: internal`, Cartesian velocity motions for Cartesian servo; with `serl`, SERL's controller and joint reset from the `serl_controller` wheel), Ruckig `move_to_*` (`IDLE` only); `realtime`, `relative_dynamics_factor` and `load` apply here |
 | arm `serl_http` | none (HTTP) | no | yes | legacy client of the ROS1 bridge at `bridge_url`; Cartesian servo only; state has no `joint_pos`/`joint_vel` |
 | arm `pyagxarm` | `pyAgxArm` (`pyagxarm`) | yes | no | Piper default; `firmware_profile` probed or set; state `tcp_pose`, `joint_pos`, `joint_vel` (flange pose) |
 | arm `piper_sdk` | `piper_sdk` (`piper-sdk`) | yes | no | vendor SDK, fixed at 1 Mbit/s; `stop()` holds by re-sending the measured joints |
@@ -673,8 +696,10 @@ pip install -e '.[dev,grpc]'
 python -m pytest tests/devices -q
 ```
 
-The tests use the fake backends and SDK stubs. No hardware is needed. The gRPC tests are
-skipped when `grpcio` is missing. The maintainers run them in a remote container:
+The tests use the fake backends and SDK stubs (a fake `franky` and a fake `serl_controller`).
+No hardware is needed. The gRPC tests are skipped when `grpcio` is missing. The native
+`serl_controller` package has its own C++ (CTest) and Python tests, run by its Docker build (see
+its README); the repository suite does not collect them. The maintainers run them in a remote container:
 
 ```bash
 docker exec <container> bash -lc 'cd <checkout> && python -m pytest tests/devices -q'

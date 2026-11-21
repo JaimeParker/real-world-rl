@@ -172,7 +172,9 @@ Python 录制器默认保留原自动回合行为。传 `--episode-end-behavior 
 
 ### 实时输入标定与诊断
 
-省略 `--samples` 运行交互标定向导。它只打开 SpaceMouse，要求任务坐标系带符号平移/旋转，默认每标签记录三秒（`--duration-s`）。提示描述预期 TCP 方向，操作员按当前位置选择自然推动方向。旋转符号遵循右手规则。此向导从不连接机器人。
+省略 `--samples` 运行交互标定向导。它只打开 SpaceMouse，要求任务坐标系带符号平移/旋转，默认每标签记录三秒（`--duration-s`）。提示描述预期 TCP 方向，操作员按当前位置选择自然推动方向。每条提示先给操作员的说法，再给数据标签，例如 `roll + (about forward X: tilt the cap so its right side goes down) [+rx]`：roll、pitch、yaw 分别绕前向 X、左向 Y、向上 Z 旋转（右手规则），所以 `+ry` 是帽子前倾（前缘向下），`+rz` 是从上方看逆时针扭帽。`+rx`…`-rz` 仍是样本文件和 `--capture-label` 的数据键。此向导从不连接机器人。
+
+tracker 模式每次读数只保留一组轴（默认 `axis_lock: dominant`；在 station 的 `teleop.options` 写 `axis_lock: "off"` 则六轴全部通过）：推帽时帽子也会倾斜，因此平移、旋转中峰值较大的一组生效，另一组清零。此设置属于参与比较的 `teleop_control` 块。
 
 ```bash
 rwrl --station local/station.yaml teleop calibrate \
@@ -183,7 +185,21 @@ rwrl --station local/station.yaml --json teleop diagnose \
 
 `--use` 保存候选，经审阅后在工作站选择它。无 `--save` 或 `--use` 时仅产生候选。若档案保存后取消工作站保存，档案仍可用，但不自动选择。
 
-输入诊断记录解码轴、固定轴映射、任务/基坐标输入、按钮、报告计数和时间戳。仅输入诊断从不向机械臂发命令。报告保存在可写源码目录的 `local/teleop/` 或用户状态目录，`--report-dir` 覆盖父目录。每次运行有私有目录，包含 JSONL 样本、带标签 JSON 样本和汇总。采集失败保留错误报告。缺少旋转标签会报告未验证，不视为通过。
+输入诊断记录解码轴、固定轴映射、任务/基坐标输入、按钮、报告计数和时间戳。
+
+**HID 排空。** 仓库内置的 HID 读取器每次轮询会读完所有排队的报告（最多 64 个，`MAX_REPORTS_PER_POLL`），而不是只读一个：最新的轴值生效，一次轮询内按下又松开的按钮仍算一次按下。HIL-SERL 的 `SpaceMouseExpert` 在忙循环里读取，状态从不落后于设备；排空让周期性轮询同样保持最新。原来每次轮询只读一个报告，设备发送速度高于轮询频率时状态就会落后（Zizhu 的 SpaceMouse 峰值接近 70 报告/秒）。每次轮询的诊断（会话 `diagnostics-*.jsonl` 中的 `teleop.input`）包含 `hid_report_count`（报告总数）、`hid_reports_this_poll`（本次轮询读到的报告数；0 = 没有新报告，持续大于 1 = 设备发送快于轮询）和 `hid_last_report_monotonic_s`。
+
+**缩放与领先量上限。** tracker 要求 `xyz_scale_m >= teleop_lead_cap_m` 且 `rot_scale_rad >= teleop_lead_cap_rad`，这样一个环境步就能到达领先量上限允许的任何指令；否则源拒绝启动并给出两个值。默认上限（0.05 m / 0.3 rad）大于 SERL 式的每步缩放，所以 preset 降低缩放时也要降低上限。Zizhu 的 preset 使用 SERL 插销任务的缩放：
+
+```yaml
+real_robot:
+  xyz_scale_m: 0.02           # SERL peg: 0.02 m / 0.1 rad (HIL-SERL ram 0.01/0.06, usb 0.015/0.1)
+  rot_scale_rad: 0.1
+teleop_lead_cap_m: 0.02       # <= xyz_scale_m
+teleop_lead_cap_rad: 0.05     # <= rot_scale_rad
+```
+
+**操作员状态行。** 有干预 wrapper 时（训练、录制、`rwrl teleop run`），每次变化在 stderr 打印一行：操作员接管时打印 `INTERVENTION ON: the operator drives the arm`；干预持续关闭 0.3 s（`INTERVENTION_OFF_HOLD_S`）后打印 `INTERVENTION OFF: the operator handed back`，这样只在摇杆移动时才干预的 serl SpaceMouse 不会来回跳；驾驶中 reset 时打印 `INTERVENTION OFF: episode reset`；设备事件打印 `EPISODE MARK: success`（或 `failure`、`rerecord`）和 `EPISODE END: the operator ended the episode`。`announce_interventions=False` 关闭这些输出。仅输入诊断从不向机械臂发命令。报告保存在可写源码目录的 `local/teleop/` 或用户状态目录，`--report-dir` 覆盖父目录。每次运行有私有目录，包含 JSONL 样本、带标签 JSON 样本和汇总。采集失败保留错误报告。缺少旋转标签会报告未验证，不视为通过。
 
 实时交互采集需要终端。代理可用 `--samples` 拟合同样的带标签 JSON；`--yes` 不会生成人工方向标签。受支持 SpaceMouse 读取器获取建议性设备路径 claim，第二个项目读取器会被拒绝，直到第一个关闭。诊断也检查现有硬件进程拥有者，不接管其设备。
 

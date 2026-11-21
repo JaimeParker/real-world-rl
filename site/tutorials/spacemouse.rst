@@ -72,6 +72,10 @@
 ``decoded``、``mapped``、``task_input``、``base_input``、``buttons`` 和 ``fresh_report``。
 用它检查轴正负和按钮电平；缓存的轮询读数不算新 HID 报告。
 
+每次轮询会把积压的 HID 报告一次读完（最多 64 条），只保留最新的轴值，期间按下又松开的按钮也不会漏。
+所以输入不会落后于设备。诊断记录里的 ``hid_reports_this_poll`` 是这次轮询读到的报告数：
+推帽时一般是 0–2；长期很大说明轮询太慢。
+
 **如果不对**：
 
 * 一轴操作带出其他轴：先减小手部耦合、逐轴重试，再查看原始 decoded 与 mapped。
@@ -89,6 +93,10 @@
    :end-before: # end calibrate
 
 按提示依次静置，再沿指定的正负方向操作，每组默认采样 3 秒。
+提示用操作员的说法描述方向，方括号里是数据标签，例如
+``roll + (about forward X: tilt the cap so its right side goes down) [+rx]`` ：
+roll／pitch／yaw 分别绕前向 X、左向 Y、向上 Z 旋转（右手规则）。
+``+ry`` 是帽子前倾、前缘向下，``+rz`` 是从上方看逆时针扭帽。
 ``--frame base`` 指方向标签按机器人基座系解释；``--profile operator-base`` 是自己取的档案名。
 ``--output`` 相对 station 所在目录，因此写入 ``local/spacemouse-profiles.yaml``。
 ``--use`` 会在确认后保存档案，并写入 station 的 ``teleop_profiles`` 引用。
@@ -164,8 +172,25 @@
 交还后录制器保持当前位置。终端的 ``t``／``h`` 不控制这个模式。
 最后按 ``s`` 标记练习成功，在保持阶段按 ``q`` 退出。
 
-**你应该看到**：只有按 button_0 后推帽才运动；接管瞬间保持上次夹爪命令，
+**你应该看到**：按 button_0 接管时终端打印 ``INTERVENTION ON: the operator drives the arm`` ，
+交还后约 0.3 s 打印 ``INTERVENTION OFF: the operator handed back`` ；按 ``s`` 或 ``f`` 打印
+``EPISODE MARK: success`` 或 ``failure`` 。只有按 button_0 后推帽才运动；接管瞬间保持上次夹爪命令，
 不会自动打开。松帽不等于交还。完成回合后显示 EPISODE_HOLD，详见 :doc:`record`。
+
+推帽时手腕难免让帽子同时倾斜。tracker 模式默认 ``axis_lock: dominant`` ：每次读数只保留
+平移、旋转两组中峰值较大的一组，另一组清零，所以单纯推 x 不会带出 pitch。
+需要同时平移和旋转时，在 station 的 ``teleop.options`` 写 ``axis_lock: "off"`` （serl 模式不接受此项）。
+
+.. note::
+
+   机械臂由谁执行这些目标，取决于 station 的 ``cartesian_controller`` （``impedance`` 默认、``internal``），
+   与这里的 tracker／serl 模式无关，两者可以任意组合；
+   换的只是 station 里的一行，方向档案和 preset 都不用改。
+
+tracker 的领先上限不能超过 preset 一步的动作尺度，否则会话启动时报
+``needs xyz_scale_m >= lead_cap_m and rot_scale_rad >= lead_cap_rad``。
+例如 Zizhu 按 SERL 的习惯把 ``real_robot.xyz_scale_m`` 设为 0.02、``rot_scale_rad`` 设为 0.1，
+于是在 preset 顶层同时写 ``teleop_lead_cap_m: 0.02`` （角度上限 0.05 不超过 0.1，保持默认）。
 
 **如果不对**：
 

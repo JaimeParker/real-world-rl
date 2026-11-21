@@ -64,7 +64,7 @@
     {
       "source": "docs/spacemouse-commissioning.md",
       "translation": "docs/zh-CN/spacemouse-commissioning.md",
-      "source_sha256": "d673c93dbdc3395ce908544d50ffbbda3de43e890de82ebb2d8b794af501e016"
+      "source_sha256": "dad53658dd565a90e1c68b0815df3bc179a901ae0006d15fdc2b7e3ef80e174b"
     },
     {
       "source": "docs/teleop.md",
@@ -139,7 +139,7 @@
     {
       "source": "docs/devices.md",
       "translation": "docs/zh-CN/devices.md",
-      "source_sha256": "58532d22a23de4b97716513c46e1f36a5437eea3bc7521a15d1fbd790b85afae"
+      "source_sha256": "a4f8ee97b97fe99c0e606885a56f7047c3f4410f2ba79f70c10044a7555ecae1"
     },
     {
       "source": "rl-garden/rl_garden/models/act/README.md",
@@ -149,7 +149,7 @@
     {
       "source": "docs/control-profiles.md",
       "translation": "docs/zh-CN/control-profiles.md",
-      "source_sha256": "f262106b1275686ce06a5972dfeb6dc58ab35392b016b4a41fbf158150d5e4c6"
+      "source_sha256": "f4a381a075dbd096142ef1f3d8abf6b15eb8ee9fbfe8c9f1c5fb779123ec02bb"
     },
     {
       "source": "docs/testing/README.md",
@@ -194,7 +194,7 @@
     {
       "source": "docs/doctor.md",
       "translation": "docs/zh-CN/doctor.md",
-      "source_sha256": "6111859d68788d169cf9f32e15f875559db962a2a4fb7f24f802dab2bef7b659"
+      "source_sha256": "9f173a1a05b0a5643dad175dba5dee7fa6ebe79f04688cc80bb61c4e2455d6f6"
     },
     {
       "source": "docs/intervening.md",

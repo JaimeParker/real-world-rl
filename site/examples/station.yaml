@@ -6,6 +6,7 @@ arm_backend: franky
 robot_ip: REPLACE_WITH_FCI_IP
 realtime: ignore
 relative_dynamics_factor: 0.2
+cartesian_controller: impedance
 claim: true
 # end arm
 # start home
@@ -28,6 +29,10 @@ gripper:
   mode: binary
   binary_threshold: 0.5
   shares_arm_session: false
+  speed_m_s: 0.3
+  grasp_force_n: 130.0
+  close_width_m: 0.01
+  open_width_m: null
 # end gripper
 # start camera
 cameras:

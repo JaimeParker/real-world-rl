@@ -228,3 +228,62 @@ def test_a_two_arm_source_of_the_wrong_width_is_rejected():
     source = _TwoArmScriptedSource([_reading(False)], arm_action_dim=7)
     with pytest.raises(ValueError, match="16-D actions"):
         InterventionWrapper(TwoArmContractEnv(), source)
+
+
+# -- operator status lines -------------------------------------------------------------------
+
+
+class _Clock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+def _announcing(flags, **kwargs):
+    clock = _Clock()
+    source = ScriptedTeleopSource([_reading(flag) for flag in flags])
+    return InterventionWrapper(FakeEnv(), source, clock=clock, **kwargs), clock
+
+
+def _status_lines(capsys):
+    return [line for line in capsys.readouterr().err.splitlines() if line.startswith(("INTERVENTION", "EPISODE"))]
+
+
+def test_a_take_over_and_a_hand_back_each_print_one_line(capsys):
+    wrapped, clock = _announcing([False, True, True, True, False, False, False])
+    for _ in range(7):
+        wrapped.step(torch.zeros(1, 7))
+        clock.now += 0.25
+    assert _status_lines(capsys) == ["INTERVENTION ON: the operator drives the arm",
+                                     "INTERVENTION OFF: the operator handed back"]
+
+
+def test_a_motion_driven_source_that_flickers_does_not_flap(capsys):
+    # serl SpaceMouse: intervened only while the puck moves; short pauses stay one intervention.
+    wrapped, clock = _announcing([True, False, True, False, True, False, False, False, False])
+    for _ in range(9):
+        wrapped.step(torch.zeros(1, 7))
+        clock.now += 0.125
+    assert _status_lines(capsys) == ["INTERVENTION ON: the operator drives the arm",
+                                     "INTERVENTION OFF: the operator handed back"]
+
+
+def test_a_reset_while_intervening_says_so_and_announce_can_be_off(capsys):
+    wrapped, _ = _announcing([True])
+    wrapped.step(torch.zeros(1, 7))
+    wrapped.reset()
+    assert _status_lines(capsys)[-1] == "INTERVENTION OFF: episode reset"
+    quiet, _ = _announcing([True, False], announce_interventions=False)
+    quiet.step(torch.zeros(1, 7))
+    quiet.step(torch.zeros(1, 7))
+    assert _status_lines(capsys) == []
+
+
+def test_outcome_events_and_the_episode_end_are_announced(capsys):
+    source = ScriptedTeleopSource([_reading(False, events={"success": True}), _reading(False, episode_end=True)])
+    wrapped = InterventionWrapper(FakeEnv(), source)
+    wrapped.step(torch.zeros(1, 7))
+    wrapped.step(torch.zeros(1, 7))
+    assert _status_lines(capsys) == ["EPISODE MARK: success", "EPISODE END: the operator ended the episode"]

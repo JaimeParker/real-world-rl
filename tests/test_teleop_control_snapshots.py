@@ -26,6 +26,8 @@ TRACKER_DEFAULT = (
     '{"version": "cartesian_tracker_v1", "lead_cap_m": 0.05, "lead_cap_rad": 0.3, '
     '"speed_m_s": 0.05, "speed_rad_s": 0.3}'
 )
+# The SpaceMouse tracker also records its axis lock (one translation/rotation group per poll).
+SPACEMOUSE_TRACKER_DEFAULT = TRACKER_DEFAULT[:-1] + ', "axis_lock": "dominant"}'
 SERL_DEFAULT = (
     '{"version": "spacemouse_serl_v1", "mode": "serl", "motion_threshold": 0.001, '
     '"gripper": "serl_buttons"}'
@@ -61,7 +63,7 @@ def _blocks(args) -> tuple[str, str]:
 @pytest.mark.parametrize(
     "fields,control,frozen_input",
     [
-        pytest.param({"teleop_device": "spacemouse"}, TRACKER_DEFAULT, NONE, id="spacemouse-tracker"),
+        pytest.param({"teleop_device": "spacemouse"}, SPACEMOUSE_TRACKER_DEFAULT, NONE, id="spacemouse-tracker"),
         pytest.param({"teleop_device": "spacemouse", "spacemouse_mode": "serl"}, SERL_DEFAULT, NONE,
                      id="spacemouse-serl"),
         pytest.param({"teleop_device": "leader_cartesian"}, TRACKER_DEFAULT, NONE, id="leader_cartesian"),
@@ -79,7 +81,7 @@ def _blocks(args) -> tuple[str, str]:
                      id="composite-fake-stdin"),
         pytest.param({"teleop_device": "gello", "teleop_event_device": "jsonl"}, NONE, NONE,
                      id="composite-gello-jsonl"),
-        pytest.param({"teleop_device": "spacemouse", "teleop_event_device": "stdin"}, TRACKER_DEFAULT, NONE,
+        pytest.param({"teleop_device": "spacemouse", "teleop_event_device": "stdin"}, SPACEMOUSE_TRACKER_DEFAULT, NONE,
                      id="composite-spacemouse-stdin"),
         pytest.param({"teleop_device": "spacemouse", "spacemouse_mode": "serl", "teleop_event_device": "keyboard"},
                      SERL_DEFAULT, NONE, id="composite-serl-keyboard"),
@@ -105,7 +107,7 @@ def test_every_device_with_defaults(isolated_site, fields, control, frozen_input
         pytest.param(
             {"teleop_device": "spacemouse", "teleop_lead_cap_rad": 0.2, "teleop_target_speed_m_s": 0.04},
             '{"version": "cartesian_tracker_v1", "lead_cap_m": 0.05, "lead_cap_rad": 0.2, '
-            '"speed_m_s": 0.04, "speed_rad_s": 0.3}',
+            '"speed_m_s": 0.04, "speed_rad_s": 0.3, "axis_lock": "dominant"}',
             id="spacemouse",
         ),
         pytest.param(
@@ -140,7 +142,8 @@ def test_spacemouse_tracker_with_rotation_and_diagnostics(isolated_site):
     control, frozen_input = _blocks(args)
     assert control == (
         '{"version": "cartesian_tracker_v1", "lead_cap_m": 0.05, "lead_cap_rad": 0.3, '
-        '"speed_m_s": 0.05, "speed_rad_s": 0.3, "input_diagnostic": {"axes": "translation", "gain": 0.5}}'
+        '"speed_m_s": 0.05, "speed_rad_s": 0.3, "axis_lock": "dominant", '
+        '"input_diagnostic": {"axes": "translation", "gain": 0.5}}'
     )
     assert frozen_input == (
         f'{{"options_file": {json.dumps(portable_path(path))}, '
@@ -171,7 +174,7 @@ def test_spacemouse_with_event_device_freezes_the_same_input(isolated_site):
     path = _options_yaml(isolated_site, "device_index: 2\n")
     args = HilSerlArgs(teleop_device="spacemouse", teleop_event_device="stdin", teleop_options_yaml=path)
     assert _blocks(args) == (
-        TRACKER_DEFAULT,
+        SPACEMOUSE_TRACKER_DEFAULT,
         f'{{"options_file": {json.dumps(portable_path(path))}, "source_options": {{"device_index": 2}}}}',
     )
 

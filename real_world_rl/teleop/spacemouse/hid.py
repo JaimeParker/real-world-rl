@@ -778,6 +778,11 @@ def require_sdk() -> ModuleType:
     return sdk
 
 
+# Reports drained per poll at most, so a misbehaving device cannot hold the poll thread; a
+# SpaceMouse sends far fewer between two polls (Zizhu's peaked near 70 reports/s).
+MAX_REPORTS_PER_POLL = 64
+
+
 class _HidReader:
     def __init__(self, handle: Any, spec: DeviceSpec) -> None:
         self._handle = handle
@@ -786,6 +791,7 @@ class _HidReader:
         self.device_spec = {}  # DeviceTable.spec_provenance of the decoding entry
         self.report_count = 0
         self.last_report_monotonic = None
+        self.last_drain_count = None
         self._spec = spec
         self._state = State(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, [0] * len(spec.button_mapping))
         self._report_size = 1 + max(
@@ -794,10 +800,10 @@ class _HidReader:
         )
 
     def read(self) -> State:
+        """Consume at most one nonblocking report, as PySpaceMouse's ``read`` does. Split reports
+        update their axes only; an empty read preserves the last state."""
         if self._handle is None:
             raise OSError("read from a closed SpaceMouse")
-        # One nonblocking report per poll, as in the native reader. Split reports
-        # update their axes only; an empty read must preserve the last state.
         report = self._handle.read(self._report_size)
         if report:
             import time
@@ -805,6 +811,29 @@ class _HidReader:
             self.last_report_monotonic = time.monotonic()
             self._process(report)
         return self._state
+
+    def read_pending(self, max_reports: int = MAX_REPORTS_PER_POLL) -> tuple[State, list[bool]]:
+        """Drain every queued nonblocking report (at most ``max_reports``) and return the latest
+        state with, per button, whether it was pressed (a 0 -> 1 transition) in any drained report.
+
+        HIL-SERL's ``SpaceMouseExpert`` reads in a busy loop, so its state is never behind the
+        device; draining keeps a periodic poll just as current (the latest axes win) and a press
+        released again before the drain ends is still reported. ``last_drain_count`` is the number
+        of reports this call consumed."""
+        pressed = [False] * len(self._state.buttons)
+        count = 0
+        while count < max_reports:
+            before = self._state.buttons
+            previous_count = self.report_count
+            state = self.read()
+            if self.report_count == previous_count:
+                break
+            count += 1
+            for index, (now, then) in enumerate(zip(state.buttons, before)):
+                if now and not then:
+                    pressed[index] = True
+        self.last_drain_count = count
+        return self._state, pressed
 
     def _process(self, report: Sequence[int]) -> None:
         updates: dict[str, Any] = {}

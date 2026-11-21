@@ -28,12 +28,12 @@ def _options_yaml(tmp_path, text: str) -> str:
     return str(path)
 
 
-@pytest.mark.parametrize("device", ["spacemouse", "leader_cartesian"])
-def test_tracker_teleop_control(device):
+@pytest.mark.parametrize("device, extra", [("spacemouse", ', "axis_lock": "dominant"'), ("leader_cartesian", "")])
+def test_tracker_teleop_control(device, extra):
     spec = env_building.teleop_control_spec(HilSerlArgs(teleop_device=device))
     assert json.dumps(spec) == (
         '{"version": "cartesian_tracker_v1", "lead_cap_m": 0.05, "lead_cap_rad": 0.3, '
-        '"speed_m_s": 0.05, "speed_rad_s": 0.3}'
+        f'"speed_m_s": 0.05, "speed_rad_s": 0.3{extra}}}'
     )
 
 
@@ -44,7 +44,8 @@ def test_spacemouse_tracker_teleop_control_with_input_rotation_and_diagnostics(i
     )
     assert json.dumps(env_building.teleop_control_spec(args)) == (
         '{"version": "cartesian_tracker_v1", "lead_cap_m": 0.05, "lead_cap_rad": 0.3, '
-        '"speed_m_s": 0.05, "speed_rad_s": 0.3, "input_diagnostic": {"axes": "translation", "gain": 0.5}}'
+        '"speed_m_s": 0.05, "speed_rad_s": 0.3, "axis_lock": "dominant", '
+        '"input_diagnostic": {"axes": "translation", "gain": 0.5}}'
     )
 
 

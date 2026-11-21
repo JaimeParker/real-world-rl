@@ -1,7 +1,7 @@
 """Torch-free impedance settings supported by the arm control contract.
 
-Omitted settings keep the backend/SDK defaults. Configuration is applied while
-IDLE and takes effect when the next servo tracker starts.
+``ArmControlConfig``: franky tracker settings. Omitted settings keep the backend/SDK defaults.
+Configuration is applied while IDLE and takes effect when the next servo tracker starts.
 """
 from __future__ import annotations
 
@@ -10,6 +10,22 @@ import math
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+# What ``rwrl setup`` writes for a new franky arm (cartesian_controller: impedance). franky's own
+# default stiffness (500 N/m) with a ~1 cm teleop lead pushes the TCP with ~5 N, below the joints'
+# static friction, so the arm lags and drifts off the commanded direction. These approximate SERL's
+# default Cartesian impedance (compliance_param.cfg) for small errors; the translational error clip
+# bounds the force (2000 N/m x 1 cm = 20 N) however far the command leads. APPROXIMATE for rotation:
+# franky's rotation error is the rotation vector theta*axis, SERL's is the quaternion vector part
+# sin(theta/2)*axis ~ (theta/2)*axis. So SERL's 150 Nm/rad is franky's 75, SERL's clip 0.05 (on
+# sin(theta/2)) is franky's 2*asin(0.05) ~ 0.10 rad, and the damping is given explicitly (SERL's
+# 89 / 7, on the measured twist in both). Equal only for small angles.
+FRANKY_SETUP_CONTROL = {
+    "translational_stiffness": 2000.0,
+    "rotational_stiffness": 75.0,
+    "cartesian_damping": [89.0, 89.0, 89.0, 7.0, 7.0, 7.0],
+    "translational_error_clip": [0.01, 0.01, 0.01],
+    "rotational_error_clip": [0.10, 0.10, 0.10],
+}
 
 @dataclass(frozen=True)
 class ArmControlConfig:

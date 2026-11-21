@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 
 _TRANSPORTS = ("grpc", "local")
 _DEFAULT_BINARY_THRESHOLD = 0.5
+# gripper.wait_idle: the client deadline is the wait's own timeout plus this margin.
+GRIPPER_WAIT_IDLE_DEADLINE_MARGIN_S = 5.0
 
 
 @dataclass
@@ -233,6 +235,21 @@ class RemoteGripper(_RemotePart, Gripper):
     @property
     def width(self) -> float:
         return float(self._call("width"))
+
+    def wait_idle(self, timeout_s: float | None = None) -> bool:
+        """Wait on the daemon for an asynchronous gripper command (e.g. a Franka Hand) to finish.
+
+        A daemon older than ``gripper.wait_idle`` does not have it: returns True without waiting,
+        like a synchronous gripper."""
+        self._require_connected()
+        deadline = GRIPPER_WAIT_IDLE_DEADLINE_MARGIN_S + (0.0 if timeout_s is None else float(timeout_s))
+        try:
+            return bool(self._client.call_with_deadline("gripper.wait_idle", deadline, timeout_s=timeout_s))
+        except ValueError as error:
+            if "unknown method 'gripper.wait_idle'" not in str(error):
+                raise
+            logger.debug("daemon has no gripper.wait_idle (older daemon); not waiting")
+            return True
 
 
 class RemoteCamera(_RemotePart, Part):

@@ -22,7 +22,7 @@ _CAPTURE_LABELS = ("+x", "+y", "-x", "-y", "+z", "-z", "+rx", "-rx", "+ry", "-ry
 CALIBRATE_DEFAULTS = {"duration_s": 3., "frame": "table", "max_error_deg": 25., "neutral_threshold": .05}
 _CALIBRATE_FLAGS = (
     ("--samples", dict(help="JSON mapping +x,+y,-x,-y to normalized N x 6 samples")),
-    ("--capture-label", dict(choices=_CAPTURE_LABELS, help="capture one direction; replace that group in --samples")),
+    ("--capture-label", dict(choices=_CAPTURE_LABELS, help="capture one direction (+rx/+ry/+rz are roll/pitch/yaw about X/Y/Z); replace that group in --samples")),
     ("--append-trial", dict(action="store_true",
                             help="retain existing trials for --capture-label instead of replacing")),
     ("--profile", dict(help="profile name; required with --backend spacemouse")),
@@ -225,7 +225,9 @@ def run_session(args, ctx):
                   "neutral_threshold": resolved["profile"]["neutral_threshold"]},
         env_overrides={"cartesian_semantics": "serl"} if mode == "serl" else {},
         confirm_detail=(f"target SpaceMouse {mode} session on {selected.config.name}; task reset may home; "
-                        "s/f ends episode and holds; n resets next; q exits; max delta 0.0000 session"),
+                        + ("button 0 takes over / hands back, button 1 toggles the gripper; " if mode == "tracker"
+                           else "moving the puck intervenes; ")
+                        + "s/f ends episode and holds; n resets next; q exits"),
         provenance_files={"profiles": resolved["file"]}, summary_extra={"profile": resolved["name"]},
         diagnose=diagnostic)
     return run_supervised_session(args, ctx, plan)

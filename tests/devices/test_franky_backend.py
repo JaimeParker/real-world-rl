@@ -1,6 +1,7 @@
 """Hardware-free tests for the franky Franka arm/gripper backends against a fake ``franky`` module."""
 from __future__ import annotations
 
+import dataclasses
 import enum
 import sys
 import types
@@ -62,6 +63,23 @@ def make_fake_franky(log: list[str]) -> types.ModuleType:
         def __init__(self, target):
             self.target = np.asarray(target)
 
+    class Twist:
+        def __init__(self, linear, angular):
+            self.linear, self.angular = np.asarray(linear), np.asarray(angular)
+
+    class RobotVelocity:
+        def __init__(self, twist):
+            self.twist = twist
+
+    class Duration:
+        def __init__(self, ms):
+            self.ms = ms
+
+    class CartesianVelocityMotion:
+        def __init__(self, target, duration, relative_dynamics_factor=1.0):
+            self.target, self.duration = target, duration
+            self.relative_dynamics_factor = relative_dynamics_factor
+
     class RobotState:
         def __init__(self):
             self.O_T_EE = Affine([0.3, -0.1, 0.5], QUAT_Z90_XYZW)
@@ -91,11 +109,21 @@ def make_fake_franky(log: list[str]) -> types.ModuleType:
             self.has_errors = False
             self.pending_motion_error: Exception | None = None
             self.moves: list[tuple[object, bool]] = []
+            self.move_options: list[dict] = []
+            self.loads: list[tuple] = []
+            self.set_load_error: Exception | None = None
 
-        def move(self, motion, asynchronous=False):
+        def move(self, motion, asynchronous=False, limit_rate=None, cutoff_frequency=None):
             log.append(f"move:{type(motion).__name__}")
             self.moves.append((motion, asynchronous))
+            self.move_options.append({"limit_rate": limit_rate, "cutoff_frequency": cutoff_frequency})
             self.is_in_control = isinstance(motion, _Tracker) or asynchronous
+
+        def set_load(self, load_mass, F_x_Cload, load_inertia):
+            log.append("set_load")
+            if self.set_load_error is not None:
+                raise self.set_load_error
+            self.loads.append((load_mass, list(F_x_Cload), list(load_inertia)))
 
         def join_motion(self, timeout=None):
             log.append("join_motion")
@@ -162,6 +190,9 @@ def make_fake_franky(log: list[str]) -> types.ModuleType:
     franky.Affine = Affine
     franky.CartesianMotion = CartesianMotion
     franky.JointMotion = JointMotion
+    franky.Twist, franky.RobotVelocity, franky.Duration = Twist, RobotVelocity, Duration
+    franky.CartesianVelocityMotion = CartesianVelocityMotion
+    franky.TorqueStopMotion = type("TorqueStopMotion", (), {})
     franky.Robot = Robot
     franky.Gripper = Gripper
     franky.CartesianImpedanceTracker = type("CartesianImpedanceTracker", (_Tracker,), {})
@@ -834,3 +865,84 @@ def test_recorder_mark_failure_cannot_prevent_stop(arm, monkeypatch):
     assert arm._handle.tracker is None
     assert result['assessment']['status'] == 'BLOCKED'
     assert any('recorder marking failed' in message for message in result['trace']['sampling_errors'])
+
+
+# --- cartesian_controller: internal ---------------------------------------------------------
+
+
+@pytest.fixture
+def internal_arm(franky):
+    arm = FrankyArm(robot_ip="10.0.0.2", realtime="ignore", cartesian_controller="internal")
+    arm.connect()
+    yield arm
+    arm.disconnect()
+
+
+def test_internal_controller_sends_velocity_motions_not_a_tracker(internal_arm, franky, log):
+    log.clear()
+    internal_arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    assert "CartesianImpedanceTracker" not in log
+    assert internal_arm._handle.tracker is None
+    measured = np.array([0.3, -0.1, 0.5])
+    internal_arm.send_action({"tcp_pose": np.array([*(measured + [0.01, 0.0, 0.0]), *QUAT_Z90_XYZW])})
+    motion, asynchronous = internal_arm._handle.robot.moves[-1]
+    assert asynchronous and isinstance(motion, franky.CartesianVelocityMotion)
+    twist = motion.target.twist
+    np.testing.assert_allclose(twist.linear, [0.01 / franky_arm_module.INTERNAL_HORIZON_S, 0, 0], atol=1e-12)
+    np.testing.assert_allclose(twist.angular, 0.0, atol=1e-9)
+    assert motion.duration.ms == franky_arm_module.INTERNAL_HOLD_MS
+    assert motion.relative_dynamics_factor == internal_arm.relative_dynamics_factor
+    internal_arm.send_action({"tcp_pose": np.array([*measured, *QUAT_Z90_XYZW])})
+    assert len(internal_arm._handle.robot.moves) == 2  # every target preempts the last motion
+
+
+def test_internal_twist_is_clipped_and_rotates_about_the_base_frame():
+    identity = np.array([0.0, 0.0, 0.0, 1.0])
+    yaw = np.array([0.0, 0.0, np.sin(0.05), np.cos(0.05)])  # +0.1 rad about base z
+    linear, angular = franky_arm_module.internal_servo_twist(
+        np.array([1.0, 0.0, 0.0, *yaw]), np.zeros(3), identity)
+    np.testing.assert_allclose(linear, [franky_arm_module.INTERNAL_MAX_SPEED_M_S, 0, 0])
+    np.testing.assert_allclose(angular, [0, 0, 0.1 / franky_arm_module.INTERNAL_HORIZON_S], atol=1e-9)
+    flip = np.array([1.0, 0.0, 0.0, 0.0])  # pi about x
+    _, angular = franky_arm_module.internal_servo_twist(np.array([0, 0, 0, *flip]), np.zeros(3), identity)
+    np.testing.assert_allclose(np.linalg.norm(angular), franky_arm_module.INTERNAL_MAX_SPEED_RAD_S)
+
+
+def test_internal_motion_killed_by_a_reflex_is_a_fault(internal_arm, franky):
+    internal_arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    pose = np.array([0.3, -0.1, 0.5, *QUAT_Z90_XYZW])
+    internal_arm.send_action({"tcp_pose": pose})
+    robot = internal_arm._handle.robot
+    robot.is_in_control = False
+    robot.pending_motion_error = franky.ControlException("cartesian_motion_generator_joint_velocity_discontinuity")
+    with pytest.raises(DeviceFault, match="discontinuity"):
+        internal_arm.send_action({"tcp_pose": pose})
+    with pytest.raises(DeviceFault, match="unrecovered"):
+        internal_arm.send_action({"tcp_pose": pose})
+
+
+def test_internal_motion_that_came_to_rest_restarts(internal_arm, franky):
+    internal_arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    pose = np.array([0.3, -0.1, 0.5, *QUAT_Z90_XYZW])
+    internal_arm.send_action({"tcp_pose": pose})
+    internal_arm._handle.robot.is_in_control = False  # its hold time ran out
+    internal_arm.send_action({"tcp_pose": pose})
+    assert len(internal_arm._handle.robot.moves) == 2
+
+
+def test_internal_controller_mode_exit_stops_the_motion(internal_arm, franky, log):
+    internal_arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+    internal_arm.send_action({"tcp_pose": np.array([0.3, -0.1, 0.5, *QUAT_Z90_XYZW])})
+    log.clear()
+    internal_arm.set_control_mode(ControlMode.IDLE)
+    assert log[:2] == ["robot.stop", "join_motion"]
+    assert not internal_arm._handle.streaming
+
+
+def test_cartesian_controller_is_validated_and_read_from_the_station():
+    with pytest.raises(ValueError, match="cartesian_controller"):
+        FrankyArm(robot_ip="10.0.0.2", cartesian_controller="motion")
+    with pytest.raises(ValueError, match="cartesian_controller"):
+        FrankaConfig(cartesian_controller="motion")
+    arm = FrankyArm.from_config(FrankaConfig(cartesian_controller="internal"))
+    assert arm.cartesian_controller == "internal"

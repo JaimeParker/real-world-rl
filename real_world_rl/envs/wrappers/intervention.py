@@ -11,6 +11,12 @@ intervenes, executes the operator's action instead of the policy's. It writes in
 - ``human_episode_end``: the operator's episode-end button (python bool), always;
 - ``teleop_events``: the device's ``success``/``failure``/``rerecord`` edges, only when some fired.
 
+With ``announce_interventions`` (the default) the operator sees one stderr line per change:
+``INTERVENTION ON`` when the operator takes over, ``INTERVENTION OFF`` once intervention has
+stayed off for ``INTERVENTION_OFF_HOLD_S`` (so a motion-driven source such as the serl SpaceMouse,
+which intervenes while the puck moves, does not flap), and ``EPISODE MARK`` / ``EPISODE END`` for
+the device's outcome events and episode-end press.
+
 An episode-end press ends the episode: ``step()`` returns ``truncated=True`` (as in HIL-SERL), so
 actor loops reset without treating it as terminal. ``reset()`` resets the env first and the
 source second, so events latched while the robot homes are dropped.
@@ -30,7 +36,8 @@ half).
 """
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional
+import time
+from typing import Any, Callable, Mapping, Optional
 
 import gymnasium as gym
 import torch
@@ -46,6 +53,9 @@ from real_world_rl.contracts.action import (
 from real_world_rl.teleop.core.contract import TeleopSource, as_teleop_source, declares_capability
 from real_world_rl.teleop.core.registry import UnknownTeleopSourceError, make_teleop_source, source_class
 
+# Intervention must stay off this long before INTERVENTION OFF is announced.
+INTERVENTION_OFF_HOLD_S = 0.3
+_OUTCOME_EVENTS = ("success", "failure", "rerecord")
 # RealRobotEnv opens the gripper on reset.
 _GRIPPER_ACTION_AFTER_RESET = 1.0
 _FULL_ACTION_REQUIRED = (
@@ -69,8 +79,13 @@ class InterventionWrapper(gym.Wrapper):
     ``source`` is validated against the env's action contract, then started (``source.start()``).
     """
 
-    def __init__(self, env: gym.Env, source: TeleopSource, *, selected_parts=None, idle_behavior="hold") -> None:
+    def __init__(self, env: gym.Env, source: TeleopSource, *, selected_parts=None, idle_behavior="hold",
+                 announce_interventions: bool = True, clock: Callable[[], float] = time.monotonic) -> None:
         super().__init__(env)
+        self._announce = bool(announce_interventions)
+        self._clock = clock
+        self._announced_on = False
+        self._off_since: Optional[float] = None
         # Set before anything reads them: __getattr__ forwards unknown attributes to the env.
         # One gripper per arm: the env must have gripper_in_action (checked below).
         self.source = as_teleop_source(source)
@@ -166,7 +181,34 @@ class InterventionWrapper(gym.Wrapper):
         self.source.reset()
         self._last_gripper_action = self._gripper_actions_after_reset()
         self._previously_intervened = False
+        if self._announced_on:
+            self._status("INTERVENTION OFF: episode reset")
+        self._announced_on, self._off_since = False, None
         return result
+
+    def _status(self, text: str) -> None:
+        if self._announce:
+            from real_world_rl.teleop.core.session import operator_status
+            operator_status(text)
+
+    def _announce_step(self, intervened: bool, reading) -> None:
+        if intervened:
+            self._off_since = None
+            if not self._announced_on:
+                self._announced_on = True
+                self._status("INTERVENTION ON: the operator drives the arm")
+        elif self._announced_on:
+            now = self._clock()
+            if self._off_since is None:
+                self._off_since = now
+            if now - self._off_since >= INTERVENTION_OFF_HOLD_S:
+                self._announced_on, self._off_since = False, None
+                self._status("INTERVENTION OFF: the operator handed back")
+        marks = [name for name in _OUTCOME_EVENTS if reading.events.get(name)]
+        if marks:
+            self._status("EPISODE MARK: " + ", ".join(marks))
+        if reading.episode_end:
+            self._status("EPISODE END: the operator ended the episode")
 
     def step(self, action: torch.Tensor):
         reading = self.source.poll()
@@ -178,6 +220,7 @@ class InterventionWrapper(gym.Wrapper):
         intervened = bool(human_mask.any())
         onset = intervened and not self._previously_intervened
         self._previously_intervened = intervened
+        self._announce_step(intervened, reading)
         policy_action = action if isinstance(action, torch.Tensor) else torch.as_tensor(action)
         info_extra = {}
         if intervened:
@@ -274,6 +317,7 @@ class TeleopInterventionWrapper(InterventionWrapper):
     ) -> None:
         selected_parts = teleop_kwargs.pop("selected_parts", None)
         idle_behavior = teleop_kwargs.pop("idle_behavior", "hold")
+        announce = teleop_kwargs.pop("announce_interventions", True)
         if teleop is not None:
             source = as_teleop_source(teleop)
         else:
@@ -281,4 +325,5 @@ class TeleopInterventionWrapper(InterventionWrapper):
                 # Read lazily: the wrapper's bookkeeping attribute does not exist yet.
                 teleop_kwargs = {"last_gripper_action_getter": lambda: self._last_gripper_action, **teleop_kwargs}
             source = make_teleop_source(device, env, **teleop_kwargs)
-        super().__init__(env, source, selected_parts=selected_parts, idle_behavior=idle_behavior)
+        super().__init__(env, source, selected_parts=selected_parts, idle_behavior=idle_behavior,
+                         announce_interventions=announce)

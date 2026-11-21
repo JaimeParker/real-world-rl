@@ -26,6 +26,26 @@ def rotate_input(twist, rotation):
     return result
 
 
+AXIS_LOCKS = ("dominant", "off")
+
+
+def lock_dominant_group(twist, axis_lock="dominant"):
+    """``dominant``: keep only the larger of the translation and rotation groups of a device twist.
+
+    Pushing a SpaceMouse cap also tilts it (and twisting it shifts it), so a pure push reads as
+    translation plus a large rotation; the group with the larger peak axis is the one the operator
+    meant and the other is zeroed. ``off`` returns the twist unchanged."""
+    if axis_lock not in AXIS_LOCKS:
+        raise ValueError(f"axis_lock must be one of {AXIS_LOCKS}, got {axis_lock!r}")
+    result = np.asarray(twist, dtype=np.float64).copy().reshape(6)
+    if axis_lock == "dominant":
+        if np.max(np.abs(result[3:])) > np.max(np.abs(result[:3])):
+            result[:3] = 0.0
+        else:
+            result[3:] = 0.0
+    return result
+
+
 def input_frame_contract(options):
     rotation = validate_input_rotation(options.get("input_rotation"))
     result = {} if rotation is None else {

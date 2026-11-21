@@ -57,6 +57,7 @@ SPACEMOUSE_CONFIG = b"""real_robot:
     bridge_url: http://127.0.0.1:5000
     relative_dynamics_factor: 0.2
     realtime: ignore
+    cartesian_controller: impedance
   remote: null
   token: null
 env_backend: real_robot

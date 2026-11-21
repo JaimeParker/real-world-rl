@@ -59,7 +59,8 @@ arm_backend: franky           # franky (default) | serl_http (legacy ROS1 bridge
 robot_ip: 172.16.0.2          # FCI IP set in Desk (default 172.16.0.2)
 # bridge_url: http://127.0.0.1:5000   # serl_http only: URL of the legacy Flask bridge
 realtime: ignore              # ignore (default) | enforce (requires a PREEMPT_RT kernel)
-relative_dynamics_factor: 0.2 # franky velocity/accel/jerk scale for move_to_* (default 0.2)
+relative_dynamics_factor: 0.2 # franky velocity/accel/jerk scale for move_to_* and internal servo (default 0.2)
+cartesian_controller: impedance  # impedance (default) | internal；见下文「Cartesian 伺服控制器」
 home_joints: [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]  # 7 values (default shown)
 safety_box: [0.3, -0.3, 0.05, 0.7, 0.3, 0.6]  # [xmin, ymin, zmin, xmax, ymax, zmax] m, base frame of tcp_pose (O_T_EE)
 joint_limits:                 # 7 [lo, hi] pairs in rad; home_joints must lie inside
@@ -78,6 +79,10 @@ gripper:                      # null = no gripper
   mode: binary                # binary (default) | continuous
   binary_threshold: 0.5       # binary mode: an action > threshold opens
   shares_arm_session: false   # the Franka Hand opens its own connection
+  speed_m_s: null             # franky: finger speed of open/close; null = 0.3 (HIL-SERL)
+  grasp_force_n: null         # franky: grasp force, at most 130 N; null = 130 (HIL-SERL)
+  close_width_m: null         # franky: grasp target width; null = 0.01 (HIL-SERL)
+  open_width_m: null          # franky: open width; null = fully open (HIL-SERL)
 cameras:                      # default: []
   - name: wrist
     backend: realsense        # realsense (default) | zed | zed_uvc | fake
@@ -125,6 +130,12 @@ cameras: []
 - `pyagxarm` 和 `piper_sdk` 夹爪必须设置 `shares_arm_session: true`，`franky` 和 `serl_http` 则禁止这样设置。不匹配会在构建时抛出 `ValueError`。
 - 使用 `arm_backend: piper_sdk` 时还须设置 `gripper.backend: piper_sdk`。此后端忽略 `firmware_profile`，始终以 1 Mbit/s 打开总线，因此仅核对接口的 `bitrate`。
 - `serl_http` 不支持关节空间控制，且需要运行旧版桥接服务（见[旧模块](#legacy)）。
+- **Franka Hand 指令（`gripper.backend: franky`）。** 工作站里的夹爪按 HIL-SERL 的 `franka_gripper_server` 的方式控制：闭合是以 `speed_m_s`（0.3 m/s）、`grasp_force_n`（130 N）抓取到 `close_width_m`（0.01 m），抓取容差足够宽，空抓也算成功；张开是以同样速度移动到 `open_width_m`（null：完全张开）。`null` 保留这些默认值，因此**没有写这些键的已有工作站现在也会用这些值**，不再是原来的 0.05 m/s、20 N、抓到 0 m。指令不会阻塞调用方：一个工作线程一次执行一条指令，新指令会替换排队中的指令（最新的生效），失败的指令会在下一次调用时抛出 `DeviceFault`。`gripper.wait_idle(timeout_s)` 等待夹爪完成；`rwrl gripper open|close|move` 会先调用它再打印宽度。`grasp_force_n` 须在 (0, 130] 内，宽度须在 `[0, max_width_m]` 内。在 Python 里直接构造的 `FrankyGripper` 仍是阻塞指令，并使用自己的默认值（0.05 m/s、20 N）。对新的 Franka Hand，`rwrl setup` 会显式写入这三个值。
+
+**Cartesian 伺服控制器（Franka，`franky`）。** `cartesian_controller` 决定由谁执行 Cartesian 伺服目标（`servo_cartesian`，即每个 `cartesian_delta` 环境步，无论来自遥操作还是策略）。关节伺服在所有模式下都是 franky 的关节阻抗 tracker，`move_to_pose` 和 `move_to_joints` 始终是 Ruckig 运动。
+
+- `impedance`（默认）：franky 的扭矩级 `CartesianImpedanceTracker` 像弹簧一样把 TCP 拉向目标，增益来自 `control:`（见[控制参数](control-profiles.md)）。非实时内核也能用。franky 自带的默认刚度是 500 N/m，配合约 1 cm 的领先量只能推约 5 N，低于关节静摩擦，于是机械臂滞后、在未建模负载下下垂并偏离指令方向。因此 `rwrl setup` 给新的 franky 机械臂写入近似 SERL 默认值的增益（`real_world_rl.devices.control.FRANKY_SETUP_CONTROL`）：`translational_stiffness: 2000`、`rotational_stiffness: 75`、`cartesian_damping: [89, 89, 89, 7, 7, 7]`、`translational_error_clip: [0.01]*3`（最多 20 N）、`rotational_error_clip: [0.10]*3`。旋转部分是**近似值**：franky 的旋转误差是旋转向量 θ·axis，SERL 用的是四元数虚部 sin(θ/2)·axis ≈ (θ/2)·axis，所以 SERL 的 150 Nm/rad 在这里是 75，SERL 的 0.05 限幅是 2·asin(0.05) ≈ 0.10 rad，只在小角度下相等。`--control null` 保留 SDK 默认值。
+- `internal`：由机器人自己的控制器执行目标，IK 和负载都由它处理（Desk 里设置的负载仍用于它的重力模型和碰撞检测）。每个目标变成一个基座坐标系下的 `CartesianVelocityMotion`，在 `INTERNAL_HORIZON_S`（0.2 s）内消除位姿误差，限幅为 `INTERNAL_MAX_SPEED_M_S`（0.25 m/s）和 `INTERNAL_MAX_SPEED_RAD_S`（1.0 rad/s），并受 `relative_dynamics_factor` 限制。每个新目标都会抢占正在执行的运动，franky 从当前状态重新规划。一个运动把速度保持 `INTERNAL_HOLD_MS`（300 ms）后自行停下，所以客户端停止发送目标时机械臂会停下。libfranka 的运动生成接口在 1 kHz 下出现任何不连续都会中止（`cartesian_motion_generator_*_discontinuity`），因此请使用 PREEMPT_RT 内核并设置 `realtime: enforce`（否则 `rwrl doctor` 以 `mode:internal_realtime` 警告）。若运动被 reflex 终止，下一次伺服调用会抛出可恢复的 `DeviceFault`，用 `rwrl recover` 清除。这些常量位于 `real_world_rl/devices/backends/arms/franky.py`。此模式尚未在硬件上验证。
 
 可不接触硬件，仅构建机器人以检查文件：
 
@@ -278,7 +289,7 @@ GPU side:   RemoteRobot ── GrpcClient (msgpack over gRPC, token metadata, re
 
 | 后端 | SDK（扩展） | 关节控制 | 力/力矩（`tcp_force`/`tcp_torque`） | 说明 |
 |---|---|---|---|---|
-| arm `franky` | `franky`（`franky`） | 支持 | 支持 | 伺服模式使用扭矩级阻抗 tracker，`move_to_*` 使用 Ruckig（仅 `IDLE`）；应用 `realtime` 和 `relative_dynamics_factor` |
+| arm `franky` | `franky`（`franky`） | 支持 | 支持 | 伺服模式使用扭矩级阻抗 tracker（`cartesian_controller: internal` 时，Cartesian 伺服改用 Cartesian 速度运动），`move_to_*` 使用 Ruckig（仅 `IDLE`）；应用 `realtime` 和 `relative_dynamics_factor` |
 | arm `serl_http` | 无（HTTP） | 不支持 | 支持 | `bridge_url` 上旧 ROS1 桥接的客户端；仅笛卡尔伺服；状态无 `joint_pos`/`joint_vel` |
 | arm `pyagxarm` | `pyAgxArm`（`pyagxarm`） | 支持 | 不支持 | Piper 默认后端；探测或指定 `firmware_profile`；状态为 `tcp_pose`、`joint_pos`、`joint_vel`（法兰位姿） |
 | arm `piper_sdk` | `piper_sdk`（`piper-sdk`） | 支持 | 不支持 | 厂商 SDK，固定 1 Mbit/s；`stop()` 重发实测关节以保持位置 |

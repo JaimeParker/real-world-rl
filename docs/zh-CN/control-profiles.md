@@ -17,6 +17,19 @@ control:
 
 以下是示意设置。操作硬件前应按实际负载、工具、任务和已安装 SDK 选择并验证数值。自动测试覆盖 fake SDK 与本地 RPC；机器人稳定性需要上机测量。
 
+除非指定 `--control`，`rwrl setup` 会为新的 franky 机械臂写入 `FRANKY_SETUP_CONTROL`；franky 自带的 500 N/m 太软，在约 1 cm 的遥操作领先量下推不动受关节摩擦的机械臂：
+
+```yaml
+control:
+  translational_stiffness: 2000.0
+  rotational_stiffness: 75.0                       # SERL's 150, approximate (see below)
+  cartesian_damping: [89.0, 89.0, 89.0, 7.0, 7.0, 7.0]
+  translational_error_clip: [0.01, 0.01, 0.01]
+  rotational_error_clip: [0.10, 0.10, 0.10]        # SERL's 0.05, approximate
+```
+
+这些值在 franky 的 tracker 中近似 SERL 的默认柔顺参数（`compliance_param.cfg`）。旋转部分是近似值：franky 的旋转误差是旋转向量 θ·axis，SERL 是四元数虚部 sin(θ/2)·axis ≈ (θ/2)·axis，所以 SERL 的 150 Nm/rad 变成 75，0.05 的限幅变成 2·asin(0.05) ≈ 0.10 rad，只在小角度下相等；阻尼（对速度的 89 / 7）两者相同，这里显式给出。这些增益只在 `cartesian_controller: impedance` 时生效（关节相关键在所有模式下用于关节伺服），见[设备](devices.md#station-file-reference)。
+
 `real_world_rl.devices.control.ArmControlConfig` 无需导入 torch 即可验证有限数值和向量大小。笛卡尔增益使用 tracker 的标量平移/旋转刚度参数、六轴阻尼向量和三轴误差裁剪。关节控制具有独立 `joint_stiffness`、`joint_damping` 向量，长度与机械臂关节数一致。`max_delta_tau` 和 `gains_time_constant` 传给两类 tracker。
 
 实验配置可覆盖工作站增益，但只能减小已声明的扭矩变化速率限制与误差裁剪。现有工作空间和伺服步长上限继续由 `ArmSafety` 独立执行，控制配置与这些限制共同生效。

@@ -84,7 +84,8 @@ arm_backend: franky           # franky (default) | serl_http (legacy ROS1 bridge
 robot_ip: 172.16.0.2          # FCI IP set in Desk (default 172.16.0.2)
 # bridge_url: http://127.0.0.1:5000   # serl_http only: URL of the legacy Flask bridge
 realtime: ignore              # ignore (default) | enforce (requires a PREEMPT_RT kernel)
-relative_dynamics_factor: 0.2 # franky velocity/accel/jerk scale for move_to_* (default 0.2)
+relative_dynamics_factor: 0.2 # franky velocity/accel/jerk scale for move_to_* and internal servo (default 0.2)
+cartesian_controller: impedance  # impedance (default) | internal; see "Cartesian servo controller" below
 home_joints: [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]  # 7 values (default shown)
 safety_box: [0.3, -0.3, 0.05, 0.7, 0.3, 0.6]  # [xmin, ymin, zmin, xmax, ymax, zmax] m, base frame of tcp_pose (O_T_EE)
 joint_limits:                 # 7 [lo, hi] pairs in rad; home_joints must lie inside
@@ -103,6 +104,10 @@ gripper:                      # null = no gripper
   mode: binary                # binary (default) | continuous
   binary_threshold: 0.5       # binary mode: an action > threshold opens
   shares_arm_session: false   # the Franka Hand opens its own connection
+  speed_m_s: null             # franky: finger speed of open/close; null = 0.3 (HIL-SERL)
+  grasp_force_n: null         # franky: grasp force, at most 130 N; null = 130 (HIL-SERL)
+  close_width_m: null         # franky: grasp target width; null = 0.01 (HIL-SERL)
+  open_width_m: null          # franky: open width; null = fully open (HIL-SERL)
 cameras:                      # default: []
   - name: wrist
     backend: realsense        # realsense (default) | zed | zed_uvc | fake
@@ -159,6 +164,51 @@ Notes:
   `firmware_profile` and always opens the bus at 1 Mbit/s, so `bitrate` is only checked
   against the interface.
 - `serl_http` has no joint-space control and needs the legacy bridge running (see [Legacy](#legacy)).
+- **Franka Hand commands (`gripper.backend: franky`).** A station gripper commands the hand the
+  way HIL-SERL's `franka_gripper_server` does. Close is a grasp to `close_width_m` (0.01 m) at
+  `speed_m_s` (0.3 m/s) with `grasp_force_n` (130 N), with grasp tolerances wide enough that
+  closing on nothing still succeeds. Open moves to `open_width_m` (null: fully open) at the same
+  speed. `null` keeps these defaults, so **existing stations without the keys now get these
+  values** instead of the earlier 0.05 m/s, 20 N and a grasp to 0 m. Commands do not block the
+  caller. A worker thread runs one command at a time, a newer command replaces a queued one (the
+  latest wins), and a failed command raises a `DeviceFault` from the next call.
+  `gripper.wait_idle(timeout_s)` waits for the hand to finish; `rwrl gripper open|close|move`
+  calls it before printing the width. `grasp_force_n` must be in (0, 130]. Widths must be in
+  `[0, max_width_m]`. A `FrankyGripper` constructed directly in Python keeps the blocking
+  commands and its own defaults (0.05 m/s, 20 N). For a new Franka Hand, `rwrl setup` writes the
+  three values explicitly.
+
+**Cartesian servo controller (Franka, `franky`).** `cartesian_controller` picks who executes
+Cartesian servo targets (`servo_cartesian`, i.e. every `cartesian_delta` env step, teleop or
+policy). Joint servo is franky's joint impedance tracker in every mode, and `move_to_pose` and
+`move_to_joints` are always Ruckig motions.
+
+- `impedance` (default): franky's torque-level `CartesianImpedanceTracker` pulls the TCP towards
+  the target like a spring, with the gains from `control:` (see
+  [control profiles](control-profiles.md)). It tolerates a non-realtime kernel. franky's own
+  default stiffness is 500 N/m. With a ~1 cm lead that pushes with ~5 N, below the joints'
+  static friction, so the arm lags, sags under an unmodelled payload and drifts off the commanded
+  direction. `rwrl setup` therefore writes gains that approximate SERL's defaults for a new
+  franky arm (`real_world_rl.devices.control.FRANKY_SETUP_CONTROL`):
+  `translational_stiffness: 2000`, `rotational_stiffness: 75`, `cartesian_damping: [89, 89, 89,
+  7, 7, 7]`, `translational_error_clip: [0.01]*3` (at most 20 N), `rotational_error_clip:
+  [0.10]*3`. The rotational values are **approximate**: franky's rotation error is the rotation
+  vector θ·axis, SERL's is the quaternion vector part sin(θ/2)·axis ≈ (θ/2)·axis, so SERL's
+  150 Nm/rad is 75 here and SERL's 0.05 clip is 2·asin(0.05) ≈ 0.10 rad; they agree for small
+  angles only. `--control null` keeps the SDK defaults.
+- `internal`: the robot's own controller executes the target, so it handles the IK and the
+  payload (the Desk load setting still feeds its gravity model and collision detection). Each
+  target becomes a `CartesianVelocityMotion` in the base frame that closes the pose error in
+  `INTERNAL_HORIZON_S` (0.2 s), clipped to `INTERNAL_MAX_SPEED_M_S` (0.25 m/s) and
+  `INTERNAL_MAX_SPEED_RAD_S` (1.0 rad/s), within `relative_dynamics_factor` of the robot's
+  limits. Every target preempts the running motion, and franky re-plans from there. A motion
+  holds its twist for `INTERNAL_HOLD_MS` (300 ms) and then comes to rest, so a client that
+  stops sending targets stops the arm. libfranka's motion-generator interfaces abort on any
+  1 kHz discontinuity (`cartesian_motion_generator_*_discontinuity`), so use a PREEMPT_RT kernel
+  and `realtime: enforce` (`rwrl doctor` warns with `mode:internal_realtime` otherwise). A motion that a reflex kills makes the next servo call raise a
+  recoverable `DeviceFault`; `rwrl recover` clears it. The constants live in
+  `real_world_rl/devices/backends/arms/franky.py`. This mode has not been validated on hardware
+  yet.
 
 Build a robot without touching hardware to check the file:
 
@@ -368,7 +418,7 @@ own.
 
 | Backend | SDK (extra) | Joint control | Wrench (`tcp_force`/`tcp_torque`) | Notes |
 |---|---|---|---|---|
-| arm `franky` | `franky` (`franky`) | yes | yes | torque-level impedance trackers for servo modes, Ruckig `move_to_*` (`IDLE` only); `realtime` and `relative_dynamics_factor` apply here |
+| arm `franky` | `franky` (`franky`) | yes | yes | torque-level impedance trackers for servo modes (or, with `cartesian_controller: internal`, Cartesian velocity motions for Cartesian servo), Ruckig `move_to_*` (`IDLE` only); `realtime` and `relative_dynamics_factor` apply here |
 | arm `serl_http` | none (HTTP) | no | yes | legacy client of the ROS1 bridge at `bridge_url`; Cartesian servo only; state has no `joint_pos`/`joint_vel` |
 | arm `pyagxarm` | `pyAgxArm` (`pyagxarm`) | yes | no | Piper default; `firmware_profile` probed or set; state `tcp_pose`, `joint_pos`, `joint_vel` (flange pose) |
 | arm `piper_sdk` | `piper_sdk` (`piper-sdk`) | yes | no | vendor SDK, fixed at 1 Mbit/s; `stop()` holds by re-sending the measured joints |

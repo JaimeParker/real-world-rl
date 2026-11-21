@@ -1,7 +1,11 @@
 """Franka arm backend on franky (https://github.com/TimSchneider42/franky), imported lazily.
 
 Servo modes stream targets into franky's torque-level impedance trackers; ``move_to_*`` runs
-Ruckig-planned position motions. libfranka refuses to switch control-signal type while a motion
+Ruckig-planned position motions. ``cartesian_controller: internal`` instead hands Cartesian servo
+targets to the robot's own controller: each target becomes a Cartesian velocity motion (libfranka's
+velocity interface, the robot solves the joint motion) that preempts the previous one; see
+``_servo_internal``. That interface aborts on any 1 kHz discontinuity, so it wants a PREEMPT_RT
+kernel (``realtime: enforce``). libfranka refuses to switch control-signal type while a motion
 runs, so every mode change joins the running motion and recovers before starting the next one.
 """
 from __future__ import annotations
@@ -47,6 +51,14 @@ FRANKY_VERSION_HINT = (
     "reads N from the handshake error and installs the wheel)"
 )
 _BLOCKING_ROBOT_MODES = ("Reflex", "UserStopped", "Guiding")
+CARTESIAN_CONTROLLERS = ("impedance", "internal")
+# cartesian_controller: internal. A servo target becomes the twist that closes the pose error in
+# INTERNAL_HORIZON_S, clipped to the speed limits, held for INTERNAL_HOLD_MS; with no newer target
+# the motion then decelerates to rest on its own, so a stalled client stops the arm.
+INTERNAL_HORIZON_S = 0.2
+INTERNAL_MAX_SPEED_M_S = 0.25
+INTERNAL_MAX_SPEED_RAD_S = 1.0
+INTERNAL_HOLD_MS = 300
 # "libfranka: Incompatible library version (server version: 10, library version: 9)."; other
 # builds word it "Incompatible library version. Server version: 10\nLibrary version: 9".
 _LIBFRANKA_MISMATCH = re.compile(
@@ -124,6 +136,7 @@ def franky_version() -> str:
 class _FrankyHandle:
     robot: Any
     tracker: Any = None
+    streaming: bool = False  # cartesian_controller: internal, a velocity motion was sent
 
 
 @Arm.register("franky")
@@ -139,12 +152,17 @@ class FrankyArm(Arm):
         robot_ip: str,
         relative_dynamics_factor: float = 0.2,
         realtime: str = "ignore",
+        cartesian_controller: str = "impedance",
         home_joints: list[float] | None = None,
         safety: ArmSafety | None = None,
     ) -> None:
         super().__init__(name, num_joints=7, safety=safety)
         if realtime not in ("ignore", "enforce"):
             raise ValueError(f"realtime '{realtime}' invalid; choose from ['ignore', 'enforce']")
+        if cartesian_controller not in CARTESIAN_CONTROLLERS:
+            raise ValueError(f"cartesian_controller '{cartesian_controller}' invalid; "
+                             f"choose from {list(CARTESIAN_CONTROLLERS)}")
+        self.cartesian_controller = cartesian_controller
         self.robot_ip = robot_ip
         self.relative_dynamics_factor = relative_dynamics_factor
         self.realtime = realtime
@@ -164,6 +182,7 @@ class FrankyArm(Arm):
             robot_ip=config.robot_ip,
             relative_dynamics_factor=config.relative_dynamics_factor,
             realtime=config.realtime,
+            cartesian_controller=getattr(config, "cartesian_controller", "impedance"),
             home_joints=config.home_joints,
             safety=ArmSafety.from_config(config),
         )
@@ -264,8 +283,51 @@ class FrankyArm(Arm):
     # --- commands ---
 
     def _servo_cartesian(self, pose: np.ndarray) -> None:
+        if self.cartesian_controller == "internal":
+            self._servo_internal(self._checked(pose, (7,)))
+            return
         tracker = self._live_tracker(ControlMode.CARTESIAN_SERVO)
         tracker.set_target(self._affine(pose))
+
+    def _servo_internal(self, pose: np.ndarray) -> None:
+        """Hand ``pose`` to the robot's own controller as a Cartesian velocity motion.
+
+        The twist (base frame) closes the error between ``pose`` and the measured TCP pose in
+        ``INTERNAL_HORIZON_S``, clipped to ``INTERNAL_MAX_SPEED_*``. Each call preempts the
+        running velocity motion, so Ruckig re-plans from the current velocity to the new one
+        within ``relative_dynamics_factor`` of the robot's limits; the robot solves the joint
+        motion. The motion holds the twist ``INTERNAL_HOLD_MS`` and then comes to rest."""
+        franky = self.require_sdk()
+        self._require_servo_mode(ControlMode.CARTESIAN_SERVO)
+        handle = self._handle
+        robot = handle.robot
+        if handle.streaming and not robot.is_in_control:
+            # The last motion ended: at rest after its hold time, or killed by a reflex.
+            handle.streaming = False
+            try:
+                robot.join_motion()
+            except Exception as error:
+                if not _is_preemption(error):
+                    message = f"franka Cartesian velocity motion stopped: {error}"
+                    self._note_error(message)
+                    raise DeviceFault(message, hint="call recover(); the next servo command restarts it",
+                                      device=self.name, recoverable=True) from error
+        if self._errors or getattr(robot, "has_errors", False):
+            details = self._errors or [str(robot.state.current_errors)]
+            raise DeviceFault(f"arm '{self.name}' has unrecovered errors: {details}",
+                              hint="call recover() before servoing", device=self.name, recoverable=True)
+        measured = robot.state.O_T_EE
+        linear, angular = internal_servo_twist(
+            pose, np.asarray(measured.translation, dtype=np.float64),
+            np.asarray(measured.quaternion, dtype=np.float64))
+        motion = franky.CartesianVelocityMotion(
+            franky.RobotVelocity(franky.Twist(linear, angular)),
+            duration=franky.Duration(INTERNAL_HOLD_MS),
+            relative_dynamics_factor=self.relative_dynamics_factor,
+        )
+        with self._control_exceptions_as_faults("Cartesian velocity motion"):
+            robot.move(motion, asynchronous=True)
+        handle.streaming = True
 
     def _servo_joints(self, q: np.ndarray) -> None:
         tracker = self._live_tracker(ControlMode.JOINT_SERVO)
@@ -454,6 +516,9 @@ class FrankyArm(Arm):
         handle = self._handle
         self._stop_motion(handle)
         self._settle_and_recover(handle.robot)
+        handle.streaming = False
+        if mode is ControlMode.CARTESIAN_SERVO and self.cartesian_controller == "internal":
+            return  # the first servo target starts the velocity motion
         if mode is not ControlMode.IDLE:
             handle.tracker = self._new_tracker(handle.robot, mode)
 
@@ -469,11 +534,25 @@ class FrankyArm(Arm):
     def preflight(self) -> list["CheckResult"]:
         from real_world_rl.doctor.checks import CheckResult
 
-        return [
+        results = [
             self._realtime_kernel_check(CheckResult),
             self._robot_mode_check(CheckResult),
             CheckResult(5, "mode:libfranka_version", True, f"franky {franky_version()}"),
         ]
+        if self.cartesian_controller == "internal":
+            results.append(self._internal_realtime_check(CheckResult))
+        return results
+
+    def _internal_realtime_check(self, check_result: type) -> "CheckResult":
+        """libfranka's velocity interface aborts on any 1 kHz discontinuity (see _servo_internal)."""
+        if self.realtime == "enforce":
+            return check_result(5, "mode:internal_realtime", True,
+                                "cartesian_controller: internal with realtime: enforce")
+        return check_result(
+            5, "mode:internal_realtime", True,
+            f"cartesian_controller: internal with realtime: {self.realtime}: libfranka's Cartesian velocity "
+            "interface aborts on any 1 kHz discontinuity, which control jitter without a PREEMPT_RT kernel trips",
+            hint="install a PREEMPT_RT kernel and set realtime: enforce", warning=True)
 
     def _realtime_kernel_check(self, check_result: type) -> "CheckResult":
         has_rt_kernel = _read_realtime_flag() == "1"
@@ -511,7 +590,8 @@ class FrankyArm(Arm):
 
     @property
     def control_metadata(self) -> dict:
-        metadata = {**super().control_metadata, "sdk_version": franky_version(), "sdk_defaults": {}}
+        metadata = {**super().control_metadata, "sdk_version": franky_version(), "sdk_defaults": {},
+                    "cartesian_controller": self.cartesian_controller}
         if self.is_connected:
             franky = self.require_sdk()
             for mode, tracker in (("cartesian_servo", franky.CartesianImpedanceTracker), ("joint_servo", franky.JointImpedanceTracker)):
@@ -578,15 +658,7 @@ class FrankyArm(Arm):
     def _live_tracker(self, mode: ControlMode) -> Any:
         """Return the running tracker for ``mode``, restarting it after a plain stop() and
         surfacing a reflex that killed it (franky would otherwise drop targets silently)."""
-        self._require_connected()
-        if self._trace_in_progress:
-            raise DeviceFault("normal stop observation in progress", device=self.name)
-        if self._control_mode is not mode:
-            raise DeviceFault(
-                f"arm '{self.name}' is in {self._control_mode.value} mode, not {mode.value}",
-                hint=f"call set_control_mode(ControlMode.{mode.name}) first",
-                device=self.name,
-            )
+        self._require_servo_mode(mode)
         handle = self._handle
         if handle.tracker is not None and not handle.robot.is_in_control:
             handle.tracker = None
@@ -609,6 +681,17 @@ class FrankyArm(Arm):
             self._enter_control_mode(mode)
         return handle.tracker
 
+    def _require_servo_mode(self, mode: ControlMode) -> None:
+        self._require_connected()
+        if self._trace_in_progress:
+            raise DeviceFault("normal stop observation in progress", device=self.name)
+        if self._control_mode is not mode:
+            raise DeviceFault(
+                f"arm '{self.name}' is in {self._control_mode.value} mode, not {mode.value}",
+                hint=f"call set_control_mode(ControlMode.{mode.name}) first",
+                device=self.name,
+            )
+
     def _stop_motion(self, handle: _FrankyHandle, *, raise_on_error=False) -> None:
         with self._stop_lock:
             self._stop_motion_unlocked(handle, raise_on_error=raise_on_error)
@@ -617,6 +700,7 @@ class FrankyArm(Arm):
         # Detach before attempting stop: cleanup may retry the robot-level stop,
         # but must not call the same failed tracker a second time.
         tracker, handle.tracker = handle.tracker, None
+        handle.streaming = False
         operation = "impedance tracker" if tracker is not None else "franka motion"
         try:
             if tracker is not None:
@@ -678,6 +762,47 @@ class FrankyArm(Arm):
         if value.shape != shape:
             raise ValueError(f"expected shape {shape}, got {value.shape}")
         return value
+
+
+def internal_servo_twist(target: np.ndarray, position: np.ndarray, quaternion_xyzw: np.ndarray):
+    """``(linear m/s, angular rad/s)`` in the base frame that move the measured pose
+    ``(position, quaternion_xyzw)`` to ``target`` (``xyz + quat_xyzw``) in ``INTERNAL_HORIZON_S``,
+    each clipped by norm to ``INTERNAL_MAX_SPEED_M_S``/``INTERNAL_MAX_SPEED_RAD_S``."""
+    linear = (np.asarray(target[:3], dtype=np.float64) - position) / INTERNAL_HORIZON_S
+    error = _quaternion_matrix(target[3:]) @ _quaternion_matrix(quaternion_xyzw).T
+    angular = _rotation_vector(error) / INTERNAL_HORIZON_S
+    return (_clip_norm(linear, INTERNAL_MAX_SPEED_M_S).tolist(),
+            _clip_norm(angular, INTERNAL_MAX_SPEED_RAD_S).tolist())
+
+
+def _clip_norm(vector: np.ndarray, limit: float) -> np.ndarray:
+    norm = float(np.linalg.norm(vector))
+    return vector if norm <= limit else vector * (limit / norm)
+
+
+def _quaternion_matrix(quaternion_xyzw) -> np.ndarray:
+    x, y, z, w = np.asarray(quaternion_xyzw, dtype=np.float64) / np.linalg.norm(quaternion_xyzw)
+    return np.array([
+        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+    ])
+
+
+def _rotation_vector(matrix: np.ndarray) -> np.ndarray:
+    """Axis * angle of a rotation matrix, angle in [0, pi]."""
+    cos = float(np.clip((np.trace(matrix) - 1.0) / 2.0, -1.0, 1.0))
+    angle = math.acos(cos)
+    axis = np.array([matrix[2, 1] - matrix[1, 2], matrix[0, 2] - matrix[2, 0], matrix[1, 0] - matrix[0, 1]])
+    if angle < 1e-9:
+        return 0.5 * axis  # small angle: the skew part is the rotation vector
+    if math.pi - angle < 1e-6:
+        # Near pi the skew part vanishes; take the axis from the symmetric part.
+        diagonal = np.sqrt(np.clip((np.diag(matrix) + 1.0) / 2.0, 0.0, None))
+        index = int(np.argmax(diagonal))
+        axis = (matrix[:, index] + np.eye(3)[:, index]) / 2.0
+        return angle * axis / np.linalg.norm(axis)
+    return angle * axis / (2.0 * math.sin(angle))
 
 
 def _is_preemption(error: Exception) -> bool:

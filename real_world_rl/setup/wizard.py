@@ -5,6 +5,7 @@ values) without asking. The joint limits and the servo step cap are written with
 their flag, else the ``--station`` value, else the wizard's default."""
 from __future__ import annotations
 
+import copy
 import dataclasses
 import ipaddress
 import math
@@ -519,6 +520,10 @@ def _arm_draft(
     if answers.only is None:
         config = _ask_robot(prompt, answers, probe, context, config, taken)
     control_text = answers.for_arm("controls", "--control", context.index, context.count)
+    if (control_text is None and prior is None and config.control is None
+            and getattr(config, "arm_backend", None) == "franky"):
+        from real_world_rl.devices.control import FRANKY_SETUP_CONTROL
+        config = dataclasses.replace(config, control=copy.deepcopy(FRANKY_SETUP_CONTROL))
     if control_text is not None:
         import yaml
         from real_world_rl.devices.control import ArmControlConfig
@@ -607,6 +612,14 @@ def _ask_robot(
         gripper = dataclasses.replace(config.gripper, backend=gripper_choice)
     else:
         gripper = GripperConfig(backend=gripper_choice, max_width_m=0.08, mode="binary")
+    if prior is None and gripper is not None and gripper.backend == "franky":
+        # A new Franka Hand is written with HIL-SERL's commands (null would mean the same).
+        from real_world_rl.devices.backends.grippers.franky import (
+            SERL_CLOSE_WIDTH_M, SERL_GRASP_FORCE_N, SERL_SPEED_M_S)
+        gripper = dataclasses.replace(
+            gripper, speed_m_s=SERL_SPEED_M_S if gripper.speed_m_s is None else gripper.speed_m_s,
+            grasp_force_n=SERL_GRASP_FORCE_N if gripper.grasp_force_n is None else gripper.grasp_force_n,
+            close_width_m=SERL_CLOSE_WIDTH_M if gripper.close_width_m is None else gripper.close_width_m)
     config = dataclasses.replace(config, robot_ip=robot_ip, arm_backend=arm_backend, gripper=gripper)
 
     # A previous station (--station) without limits (null) gets the wizard's defaults.

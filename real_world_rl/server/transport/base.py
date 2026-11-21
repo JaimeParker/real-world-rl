@@ -22,6 +22,7 @@ READ_ONLY_METHODS = frozenset(
         "arm.health",
         "arm.preflight",
         "gripper.width",
+        "gripper.wait_idle",  # only waits; safe to retry and allowed during a normal stop
     }
 )
 
@@ -75,6 +76,10 @@ class TransportClient(ABC):
     @abstractmethod
     def call(self, method: str, **kwargs: Any) -> Any:
         """Raise the remote ``DeviceError`` subclass re-typed, or ``TransportError``."""
+
+    def call_with_deadline(self, method: str, deadline_s: float, **kwargs: Any) -> Any:
+        """``call`` that may wait at least ``deadline_s`` (transports without deadlines ignore it)."""
+        return self.call(method, **kwargs)
 
     @abstractmethod
     def subscribe(self, method: str, rate_hz: float) -> Iterator[Any]:

@@ -10,6 +10,29 @@ from real_world_rl.teleop.core.targets.twist_input import validate_input_rotatio
 
 _DIRECTIONS = {"+x": (1., 0.), "+y": (0., 1.), "-x": (-1., 0.), "-y": (0., -1.)}
 
+# What each direction label asks of the operator, standing behind the arm in the fixed tabletop
+# frame (forward +X, left +Y, up +Z). The labels themselves (+rx ...) stay the data keys; the
+# rotation signs follow the right-hand rule about that frame's axes.
+DISPLAY = {
+    "+x": "forward (push the cap away from you)",
+    "-x": "back (pull the cap towards you)",
+    "+y": "left (push the cap to your left)",
+    "-y": "right (push the cap to your right)",
+    "+z": "up (lift the cap)",
+    "-z": "down (press the cap down)",
+    "+rx": "roll + (about forward X: tilt the cap so its right side goes down)",
+    "-rx": "roll - (about forward X: tilt the cap so its left side goes down)",
+    "+ry": "pitch + (about left Y: tilt the cap forward, front edge down)",
+    "-ry": "pitch - (about left Y: tilt the cap back, front edge up)",
+    "+rz": "yaw + (about up Z: twist the cap counter-clockwise, seen from above)",
+    "-rz": "yaw - (about up Z: twist the cap clockwise, seen from above)",
+}
+
+
+def describe_label(label: str) -> str:
+    """``"roll + (...) [+rx]"``: the operator's wording, then the data label."""
+    return f"{DISPLAY[label]} [{label}]" if label in DISPLAY else str(label)
+
 
 def yaw_rotation(yaw_rad: float) -> np.ndarray:
     """Map device vectors into the operator's fixed task frame."""
@@ -31,13 +54,13 @@ def sample_trials(value, label):
     """Accept legacy N x 6 rows or explicitly separated, equally weighted pushes."""
     values = value.get("trials") if isinstance(value, Mapping) else [value]
     if not isinstance(values, (list, tuple)) or not values:
-        raise ValueError(f"{label}: expected one or more trials")
+        raise ValueError(f"{describe_label(label)}: expected one or more trials")
     trials = []
     for value in values:
         rows = np.asarray(value, dtype=float)
         if (rows.ndim != 2 or rows.shape[1] != 6 or not np.isfinite(rows).all()
                 or np.any(abs(rows) > 1)):
-            raise ValueError(f"{label}: expected normalized finite N x 6 samples per trial")
+            raise ValueError(f"{describe_label(label)}: expected normalized finite N x 6 samples per trial")
         trials.append(rows)
     return trials
 
@@ -64,11 +87,11 @@ def fit_yaw(
             norms = np.linalg.norm(rows[:, :2], axis=1)
             active = norms >= min_signal
             if not active.any():
-                raise ValueError(f"{label}: insufficient horizontal signal; resample")
+                raise ValueError(f"{describe_label(label)}: insufficient horizontal signal; resample")
             mean = (rows[active, :2] / norms[active, None]).mean(axis=0)
             coherence = float(np.linalg.norm(mean))
             if coherence < 0.8:
-                raise ValueError(f"{label}: inconsistent push direction; resample")
+                raise ValueError(f"{describe_label(label)}: inconsistent push direction; resample")
             directions[label].append(mean / coherence)
             trials.append({
                 "active_samples": int(active.sum()), "coherence": coherence,
@@ -96,7 +119,7 @@ def fit_yaw(
             diagnostic["error_deg"] = error
             errors.append(error)
             if error > max_error_deg:
-                raise ValueError(f"{label}: direction error {error:.1f} degrees; resample or inspect axis mapping")
+                raise ValueError(f"{describe_label(label)}: direction error {error:.1f} degrees; resample or inspect axis mapping")
         diagnostics[label]["error_deg"] = max(errors)
     return {"schema_version": 1, "yaw_rad": yaw, "directions": diagnostics,
             "max_error_deg": max_error_deg, "min_signal": min_signal,
@@ -123,22 +146,22 @@ def validate_axes(samples: Mapping[str, Sequence], yaw_rad: float, *,
             continue
         rows = np.asarray(samples[label], dtype=float)
         if rows.ndim != 2 or rows.shape[1] != 6 or not np.isfinite(rows).all() or np.any(abs(rows) > 1):
-            raise ValueError(f"{label}: expected normalized finite N x 6 samples")
+            raise ValueError(f"{describe_label(label)}: expected normalized finite N x 6 samples")
         start = 3 if 'r' in label else 0
         vectors = rows[:, start:start+3]
         norms = np.linalg.norm(vectors, axis=1)
         active = norms >= min_signal
         if not active.any():
-            raise ValueError(f"{label}: insufficient signal")
+            raise ValueError(f"{describe_label(label)}: insufficient signal")
         mean = (vectors[active] / norms[active, None]).mean(axis=0)
         if np.linalg.norm(mean) < .8:
-            raise ValueError(f"{label}: inconsistent direction")
+            raise ValueError(f"{describe_label(label)}: inconsistent direction")
         actual = rotation @ (mean / np.linalg.norm(mean))
         expected = np.zeros(3)
         expected['xyz'.index(label[-1])] = 1 if label[0] == '+' else -1
         error = math.degrees(math.acos(float(np.clip(actual @ expected, -1, 1))))
         if error > max_error_deg:
-            raise ValueError(f"{label}: direction error {error:.1f}; inspect rotation mapping")
+            raise ValueError(f"{describe_label(label)}: direction error {error:.1f}; inspect rotation mapping")
         residuals[label] = error
     return {"axis_errors_deg": residuals,
             "vertical_validated": all(label in residuals for label in ('+z', '-z')),

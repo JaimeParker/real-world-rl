@@ -102,6 +102,16 @@ def test_one_arm_with_defaults_calibrates_writes_and_passes_the_doctor(tmp_path)
     robot = load_station(out).select()
     config = robot.config
     assert config.name == "arm" and config.robot_ip == "172.16.0.2" and config.arm_backend == "franky"
+    from real_world_rl.devices.control import FRANKY_SETUP_CONTROL
+    assert config.control == FRANKY_SETUP_CONTROL  # a new franky arm gets SERL-like stiffness
+    # SERL's compliance_param.cfg defaults mapped to franky's rotation-vector error (approximate):
+    # 150 Nm/rad on sin(theta/2) -> 75 on theta; clip 0.05 on sin(theta/2) -> ~0.10 rad.
+    assert config.control == {
+        "translational_stiffness": 2000.0, "rotational_stiffness": 75.0,
+        "cartesian_damping": [89.0, 89.0, 89.0, 7.0, 7.0, 7.0],
+        "translational_error_clip": [0.01, 0.01, 0.01], "rotational_error_clip": [0.10, 0.10, 0.10],
+    }
+    assert config.cartesian_controller == "impedance"
     assert [(camera.name, camera.serial) for camera in config.cameras] == list(zip(["wrist", "front", "front_2"], SERIALS))
     options = config.teleop.options
     assert config.teleop.backend == "gello" and options["port"] == probes.MOCK_GELLO_PORTS[0]

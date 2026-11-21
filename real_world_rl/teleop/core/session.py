@@ -22,6 +22,12 @@ SESSION_SOURCE_REQUIRED = (
 )
 
 
+
+
+def operator_status(text: str) -> None:
+    """One ``PHASE: ...`` line for the operator, on stderr, flushed at once."""
+    print(text, file=sys.stderr, flush=True)
+
 def is_session_source(source) -> bool:
     """Whether the session gate can wait on ``source``: a composite whose motion half is a
     ``SessionInputSource``."""
@@ -94,10 +100,10 @@ def wait_after_episode(env, source, *, allow_next, control_hz,
     heartbeat = Heartbeat.from_env()
     neutral_since = None
     next_requested = starting
-    print("START_NEUTRAL: release motion controls or align an always-on leader with the follower; q exits control." if starting else
-          "EPISODE_HOLD: motion input ignored; q exits control. " +
-          ("n starts the next episode (task reset may move/home the arm)." if allow_next else
-           "Episode budget reached; next is disabled."), file=sys.stderr, flush=True)
+    operator_status("START_NEUTRAL: release motion controls or align an always-on leader with the follower; q exits control." if starting else
+                    "EPISODE_HOLD: motion input ignored; q exits control. " +
+                    ("n starts the next episode (task reset may move/home the arm)." if allow_next else
+                     "Episode budget reached; next is disabled."))
     while True:
         start = clock()
         events = source.events.poll().events

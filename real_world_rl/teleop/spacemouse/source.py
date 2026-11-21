@@ -30,6 +30,10 @@ every button press latched until the next read. This source gives them their mea
   back too: the next button-0 press takes over again. A stalled control loop (more than
   ``max_dt_s`` between two intervened polls) holds at the measured pose and the next poll takes
   over again from there.
+- **One axis group at a time.** Pushing the cap also tilts it, so a pure push reads as
+  translation plus a large rotation. With ``axis_lock="dominant"`` (the default) each poll keeps
+  only the group, translation or rotation, with the larger peak axis (in the device frame, after
+  the deadzone) and zeroes the other; ``axis_lock="off"`` passes all six axes through.
 
 Under ``CompositeTeleopSource`` (``--teleop-event-device stdin`` or ``keyboard``) the outcome
 labels (``s``/``f``/``r``), episode end (Esc) and quit (``q``) come from the event device; the
@@ -53,7 +57,12 @@ from typing import Any, Callable, Mapping, Optional, Sequence
 
 import numpy as np
 
-from real_world_rl.teleop.core.targets.twist_input import rotate_input, diagnostic_input, input_sample_diagnostics
+from real_world_rl.teleop.core.targets.twist_input import (
+    diagnostic_input,
+    input_sample_diagnostics,
+    lock_dominant_group,
+    rotate_input,
+)
 
 from real_world_rl.teleop.spacemouse import (
     backend as _spacemouse_backend,  # registers "spacemouse"
@@ -85,6 +94,8 @@ GRIPPER_BUTTON = 1
 _OPEN_GRIPPER, _CLOSED_GRIPPER = 1.0, -1.0
 # Per axis, of full scale: the SpaceMouse Compact's rest noise stays below it.
 DEFAULT_DEADZONE = 0.05
+# Only the larger of the translation/rotation groups drives (``twist_input.lock_dominant_group``).
+DEFAULT_AXIS_LOCK = "dominant"
 
 PoseGetter = Callable[[], Optional[np.ndarray]]
 
@@ -126,7 +137,9 @@ class SpaceMouseTeleopSource(SpaceMouseOptions, ToggleableTeleopSource):
     def control_spec(cls, *, tracker_options, source_options) -> dict:
         """The tracker's block plus the compared input frame (the diagnostics filter)."""
         spec = tracker_control_spec(tracker_options)
-        spec.update(cls.compared_input_frame(source_options()))
+        options = source_options()
+        spec["axis_lock"] = options.get("axis_lock", DEFAULT_AXIS_LOCK)
+        spec.update(cls.compared_input_frame(options))
         return spec
 
     def __init__(
@@ -138,6 +151,7 @@ class SpaceMouseTeleopSource(SpaceMouseOptions, ToggleableTeleopSource):
         env_contract: Optional[Mapping[str, Any]] = None,
         device_index: int = 0,
         deadzone: float = DEFAULT_DEADZONE,
+        axis_lock: str = DEFAULT_AXIS_LOCK,
         invert_axes: Sequence[int] = (),
         input_rotation=None,
         expected_device_identity=None,
@@ -185,6 +199,8 @@ class SpaceMouseTeleopSource(SpaceMouseOptions, ToggleableTeleopSource):
             pos_scale_m=pos_scale_m, rot_scale_rad=rot_scale_rad, clock=clock,
         )
         self._deadzone = float(deadzone)
+        lock_dominant_group(np.zeros(6), axis_lock)
+        self._axis_lock = axis_lock
         from real_world_rl.teleop.core.targets.twist_input import validate_input_rotation
         self._input_rotation = validate_input_rotation(input_rotation)
         diagnostic_input(np.zeros(6), diagnostic_axes, diagnostic_gain)
@@ -356,6 +372,7 @@ class SpaceMouseTeleopSource(SpaceMouseOptions, ToggleableTeleopSource):
     def _twist(self, action: Any) -> np.ndarray:
         twist = np.clip(np.asarray(action, dtype=np.float64).reshape(_CARTESIAN_ARM_DIM), -1.0, 1.0)
         twist[np.abs(twist) <= self._deadzone] = 0.0
+        twist = lock_dominant_group(twist, self._axis_lock)
         return diagnostic_input(rotate_input(twist, self._input_rotation),
                                 self._diagnostic_axes, self._diagnostic_gain)
 

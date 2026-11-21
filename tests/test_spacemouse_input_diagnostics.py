@@ -123,3 +123,22 @@ def test_open_input_decodes_with_the_station_device_table(tmp_path, monkeypatch)
     with open_input(config) as reader:
         assert reader.identity['model'] == 'BT'
         assert reader.device_spec['source'] == 'local' and reader.device_spec['hid_id'] == '256f:c63a'
+
+
+def test_the_capture_prompt_names_roll_pitch_yaw_and_keeps_the_label(tmp_path, monkeypatch, capsys):
+    import contextlib
+    import types
+    from real_world_rl.teleop.spacemouse import diagnostics
+    from real_world_rl.teleop.spacemouse.calibration import DISPLAY, describe_label
+
+    reader = types.SimpleNamespace(identity={}, device_spec={})
+    monkeypatch.setattr(diagnostics, "open_input", lambda config: contextlib.nullcontext(reader))
+    monkeypatch.setattr(diagnostics, "capture", lambda reader, **kwargs: [])
+    config = types.SimpleNamespace(teleop=types.SimpleNamespace(options={}))
+    monkeypatch.setattr("dataclasses.asdict", lambda config: {})
+    diagnostics.collect(config, duration_s=1., directory=tmp_path, labels=["+rx", "-rz"], interactive=False)
+    err = capsys.readouterr().err
+    assert "Task direction roll + (about forward X: tilt the cap so its right side goes down) [+rx]" in err
+    assert "yaw - (about up Z: twist the cap clockwise, seen from above) [-rz]" in err
+    assert set(DISPLAY) == set(diagnostics.LABELS)
+    assert describe_label("+ry").startswith("pitch +")

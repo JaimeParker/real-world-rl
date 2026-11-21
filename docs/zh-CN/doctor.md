@@ -172,7 +172,7 @@ link:
 | 2 os | `os:ping`, `os:tcp`, `os:camera:<name>`, `os:teleop:<name>`, `os:hid`, `os:serial`, `os:groups`, `os:brltty`, `os:latency_timer`, `os:can_*` | 网络、设备节点、权限；`os:tcp` 仅供参考 |
 | 3 handshake | `handshake` | 获取设备占用声明（除非 `claim: false`），再 `connect()`；失败跳过第 4–5 层 |
 | 4 feedback | `feedback:arm`, `feedback:gripper`, `feedback:camera:<name>`, `feedback:teleop:<name>` | 各设备返回数据；相机须在 2 s 内出帧 |
-| 5 mode | `mode:robot_mode`, `mode:libfranka_version`, `mode:realtime_kernel`, or `mode:none` | 后端预检 |
+| 5 mode | `mode:robot_mode`, `mode:libfranka_version`, `mode:realtime_kernel`, `mode:internal_realtime`（`cartesian_controller: internal`）, or `mode:none` | 后端预检 |
 
 设备探测本身失败时 `<robot>.device` 为 `FAIL`；其他进程占用站点时为 `BLOCKED`。下方[详细示例](#device-diagnostic-details)展示设备消息。
 
@@ -412,6 +412,7 @@ echo 1 | sudo tee "/sys/bus/usb-serial/devices/$GELLO_TTY/latency_timer"
 | `realtime.kernel` WARN | 非 PREEMPT_RT 内核 | `realtime: ignore` 允许但可能控制抖动；`realtime: enforce` 要求手动安装 RT 内核 |
 | `realtime.limits` FAIL or `PENDING_ACTION` | rtprio、memlock 限制缺失或未生效 | `rwrl doctor --fix` 写入，重新登录 |
 | `<robot>.mode:realtime_kernel` FAIL `realtime: enforce but the kernel is not PREEMPT_RT` | 站点强制实时 | 安装 RT 内核或设 `realtime: ignore` |
+| `<robot>.mode:internal_realtime` WARN | `cartesian_controller: internal` 但未设 `realtime: enforce`；libfranka 的 Cartesian 速度接口在 1 kHz 下出现任何不连续都会中止 | 安装 RT 内核并设 `realtime: enforce` |
 
 <a id="device-diagnostic-details"></a>
 

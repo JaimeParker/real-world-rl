@@ -27,7 +27,9 @@ _OPEN_GRIPPER, _CLOSED_GRIPPER = 1.0, 0.0
 _NUM_BUTTONS = 2
 # Each button's ``buttons`` level key and latched press event, by index.
 BUTTON_NAMES = tuple(f"button_{index}" for index in range(_NUM_BUTTONS))
-_OPTION_KEYS = {"device_index", "deadzone", "invert_axes", "poll_interval_s", _spacemouse_hid.DEVICE_TABLE_OPTION}
+# axis_lock is the tracker source's (teleop/spacemouse/source.py); the device ignores it.
+_OPTION_KEYS = {"device_index", "deadzone", "invert_axes", "poll_interval_s", "axis_lock",
+                _spacemouse_hid.DEVICE_TABLE_OPTION}
 _sleep = time.sleep  # module-level so tests can observe the poll cadence
 
 
@@ -204,13 +206,23 @@ class SpaceMouseTeleop(Teleop):
 
     def _poll_device(self, handle: Any) -> RawReading:
         _sleep(self._poll_interval_s)
-        state = handle.read()
+        # Drain every queued report (the in-tree reader's read_pending): the latest axes win and a
+        # press released again within one poll still latches its event. A handle without it
+        # (a test fake) is read one report per poll.
+        read_pending = getattr(handle, "read_pending", None)
+        if callable(read_pending):
+            state, drained_presses = read_pending()
+        else:
+            state, drained_presses = handle.read(), ()
+        drained_presses = [bool(b) for b in list(drained_presses)[:_NUM_BUTTONS]]
+        drained_presses += [False] * (_NUM_BUTTONS - len(drained_presses))
         twist = map_spacemouse_axes(
             [state.x, state.y, state.z, state.roll, state.pitch, state.yaw], self._invert_axes)
         pressed = [bool(b) for b in list(state.buttons)[:_NUM_BUTTONS]]
         pressed += [False] * (_NUM_BUTTONS - len(pressed))
         with self._state_lock:
-            rising = [now and not before for now, before in zip(pressed, self._previous_buttons)]
+            rising = [drained or (now and not before)
+                      for drained, now, before in zip(drained_presses, pressed, self._previous_buttons)]
             self._previous_buttons = pressed
             if rising[GRIPPER_BUTTON]:
                 self._gripper = _CLOSED_GRIPPER if self._gripper == _OPEN_GRIPPER else _OPEN_GRIPPER
@@ -224,5 +236,6 @@ class SpaceMouseTeleop(Teleop):
             diagnostics={"decoded_axes": [state.x, state.y, state.z, state.roll, state.pitch, state.yaw],
                          "decoded_axis_order": ["x", "y", "z", "roll", "pitch", "yaw"],
                          "hid_report_count": getattr(handle, "report_count", None),
+                         "hid_reports_this_poll": getattr(handle, "last_drain_count", None),
                          "hid_last_report_monotonic_s": getattr(handle, "last_report_monotonic", None)},
         )

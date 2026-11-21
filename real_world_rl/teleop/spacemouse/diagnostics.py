@@ -15,10 +15,12 @@ import numpy as np
 from real_world_rl.teleop.spacemouse.backend import map_spacemouse_axes
 from real_world_rl.common.json_io import write_json
 
-from real_world_rl.teleop.spacemouse.calibration import yaw_rotation
+from real_world_rl.teleop.spacemouse.calibration import DISPLAY, describe_label, yaw_rotation
 from real_world_rl.teleop.core.targets.twist_input import rotate_input
 
 LABELS = ('+x', '+y', '-x', '-y', '+z', '-z', '+rx', '-rx', '+ry', '-ry', '+rz', '-rz')
+# Operator wording of each label (calibration.DISPLAY): roll/pitch/yaw, not rx/ry/rz.
+assert set(DISPLAY) == set(LABELS)
 
 
 def report_directory(directory=None):
@@ -111,11 +113,11 @@ def collect(config, *, duration_s, directory=None, labels=None, rotation=None, y
                 os.chmod(report / 'samples.jsonl', 0o600)
                 for label in labels if labels is not None else [None]:
                     if label is not None:
-                        print(f'Task direction {label}: ' + ('release the puck, then press Enter. '
+                        print(f'Task direction {describe_label(label)}: ' + ('release the puck, then press Enter. '
                               if interactive else 'capture starts now. ') +
                               f'For the next {duration_s:g}s, push/rotate in the direction '
                               'you want the TCP to follow. Fixed tabletop axes: forward +X, left +Y, '
-                              'up +Z when standing behind the arm. Rotation signs use the right-hand rule.',
+                              'up +Z when standing behind the arm; roll/pitch/yaw turn about X/Y/Z.',
                               file=sys.stderr, flush=True)
                         if interactive and sys.stdin.readline() == '':
                             raise EOFError('operator input closed')

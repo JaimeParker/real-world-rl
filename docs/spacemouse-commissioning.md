@@ -341,8 +341,19 @@ Omit `--samples` to run the interactive calibration wizard. It opens only the
 SpaceMouse, asks for signed task-frame translations and rotations, and records
 three seconds per label by default (`--duration-s`). The prompts describe the
 intended TCP direction; the operator chooses the natural push direction from
-their current position. Rotation signs follow the right-hand rule. The robot
-is never connected by this wizard.
+their current position. Each prompt gives the operator's wording and then the
+data label, for example `roll + (about forward X: tilt the cap so its right side
+goes down) [+rx]`: roll, pitch and yaw turn about forward X, left Y and up Z
+(right-hand rule), so `+ry` tilts the cap forward (front edge down) and `+rz`
+twists it counter-clockwise seen from above. The labels `+rx`…`-rz` stay the data
+keys of the sample files and `--capture-label`. The robot is never connected by
+this wizard.
+
+In tracker mode the source keeps one axis group per poll (`axis_lock: dominant`,
+the default; set `axis_lock: "off"` in the station's `teleop.options` to pass all
+six axes): pushing the cap also tilts it, so the group with the larger peak axis,
+translation or rotation, drives and the other is zeroed. The setting is part of
+the compared `teleop_control` block.
 
 ```bash
 rwrl --station local/station.yaml teleop calibrate \
@@ -357,7 +368,40 @@ saving is cancelled after profile saving, the saved profile remains available
 but is not automatically selected.
 
 Input diagnosis records decoded axes, the fixed axis mapping, task/base-frame
-inputs, buttons, report counters and timestamps. An input-only diagnostic never
+inputs, buttons, report counters and timestamps.
+
+**HID drain.** The in-tree HID reader drains every queued report on each poll (at most 64,
+`MAX_REPORTS_PER_POLL`) instead of reading one. The latest axes win, and a button pressed and
+released again within one poll still counts as a press. HIL-SERL's `SpaceMouseExpert` reads in a
+busy loop, so its state is never behind the device, and the drain keeps a periodic poll just as
+current. Reading one report per poll let the state fall behind whenever the device sent faster
+than the poll rate (Zizhu's SpaceMouse peaked near 70 reports/s). The per-poll diagnostics
+(`teleop.input` in a session's `diagnostics-*.jsonl`) carry `hid_report_count` (total reports),
+`hid_reports_this_poll` (reports this poll consumed; 0 = nothing new, a steady value above 1 =
+the device sends faster than the poll) and `hid_last_report_monotonic_s`.
+
+**Scales and the lead cap.** The tracker needs `xyz_scale_m >= teleop_lead_cap_m` and
+`rot_scale_rad >= teleop_lead_cap_rad`, so that one env step can reach every command the lead cap
+allows. Otherwise the source refuses to start and names both values. The defaults (lead cap
+0.05 m / 0.3 rad) are larger than SERL-like per-step scales, so a preset that lowers the scales
+must lower the caps too. Zizhu's preset uses SERL's peg-insertion scales:
+
+```yaml
+real_robot:
+  xyz_scale_m: 0.02           # SERL peg: 0.02 m / 0.1 rad (HIL-SERL ram 0.01/0.06, usb 0.015/0.1)
+  rot_scale_rad: 0.1
+teleop_lead_cap_m: 0.02       # <= xyz_scale_m
+teleop_lead_cap_rad: 0.05     # <= rot_scale_rad
+```
+
+**Operator status lines.** With an intervention wrapper (training, recording, `rwrl teleop run`),
+the operator sees one stderr line per change. `INTERVENTION ON: the operator drives the arm` is
+printed when the operator takes over. `INTERVENTION OFF: the operator handed back` is printed once
+intervention has stayed off for 0.3 s (`INTERVENTION_OFF_HOLD_S`), so the serl SpaceMouse, which
+intervenes only while the puck moves, does not flap. `INTERVENTION OFF: episode reset` is printed
+at a reset while driving. `EPISODE MARK: success` (or `failure`, `rerecord`) and `EPISODE END:
+the operator ended the episode` are printed for the device's events. `announce_interventions=False`
+turns them off. An input-only diagnostic never
 commands the arm. Reports are stored under `local/teleop/` in a writable source
 checkout or the user's state directory; `--report-dir` overrides the parent.
 Each run has a private directory containing JSONL samples, labelled JSON samples

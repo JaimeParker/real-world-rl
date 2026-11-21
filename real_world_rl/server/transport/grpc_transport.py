@@ -207,15 +207,22 @@ class GrpcClient(TransportClient):
     # -- calls ---------------------------------------------------------------
 
     def call(self, method: str, **kwargs: Any) -> Any:
+        return self._call(method, kwargs, self.timeout_s)
+
+    def call_with_deadline(self, method: str, deadline_s: float, **kwargs: Any) -> Any:
+        """``call`` with a deadline of at least ``deadline_s`` for this one call."""
+        return self._call(method, kwargs, max(self.timeout_s, deadline_s))
+
+    def _call(self, method: str, kwargs: dict, timeout_s: float) -> Any:
         try:
-            response = self._invoke(method, kwargs)
+            response = self._invoke(method, kwargs, timeout_s)
         except grpc.RpcError as error:
             if error.code() != grpc.StatusCode.UNAVAILABLE:
                 raise self._map_rpc_error(error, method) from None
             if not (self._reconnect() and is_read_only(method)):
                 raise self._lost_connection(method) from None
             try:
-                response = self._invoke(method, kwargs)
+                response = self._invoke(method, kwargs, timeout_s)
             except grpc.RpcError as retry_error:
                 raise self._map_rpc_error(retry_error, method) from None
         return self._unwrap(response)
@@ -247,11 +254,12 @@ class GrpcClient(TransportClient):
                 device=self.address,
             )
 
-    def _invoke(self, method: str, kwargs: dict) -> dict:
+    def _invoke(self, method: str, kwargs: dict, timeout_s: float | None = None) -> dict:
         self._require_open(method)
         start = time.perf_counter()
         response, self.last_response_bytes = self._call_rpc(
-            {"method": method, "kwargs": kwargs}, timeout=self.timeout_s, metadata=self._metadata
+            {"method": method, "kwargs": kwargs}, timeout=self.timeout_s if timeout_s is None else timeout_s,
+            metadata=self._metadata
         )
         self._last_rtt_ms = (time.perf_counter() - start) * 1000.0
         return response
@@ -292,7 +300,7 @@ class GrpcClient(TransportClient):
         if code == grpc.StatusCode.DEADLINE_EXCEEDED:
             rtt = "unknown" if self._last_rtt_ms is None else f"{self._last_rtt_ms:.0f}"
             return TransportError(
-                f"'{method}' exceeded {self.timeout_s}s (last RTT {rtt} ms)",
+                f"'{method}' exceeded its deadline (timeout_s {self.timeout_s}s; last RTT {rtt} ms)",
                 hint="check network load / Wi-Fi; raise timeout_s only if RTT is consistently high",
                 device=self.address,
                 recoverable=True,

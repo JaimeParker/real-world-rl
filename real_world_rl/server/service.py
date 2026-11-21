@@ -55,6 +55,7 @@ METHODS = (
     "gripper.close",
     "gripper.move",
     "gripper.width",
+    "gripper.wait_idle",
     CAMERA_READ_METHOD,
     TELEOP_READ_METHOD,
     TELEOP_RESET_METHOD,
@@ -154,6 +155,7 @@ class RobotService:
             "gripper.close": self._gripper_close,
             "gripper.move": self._gripper_move,
             "gripper.width": self._gripper_width,
+            "gripper.wait_idle": self._gripper_wait_idle,
         }
         for name in robot.cameras:
             self._methods[f"camera.{name}.read"] = self._camera_reader(name)
@@ -402,6 +404,11 @@ class RobotService:
 
     def _gripper_width(self) -> float:
         return float(self._require_gripper().width)
+
+    def _gripper_wait_idle(self, timeout_s: float | None = None) -> bool:
+        # Not under self._lock: waiting for an asynchronous gripper must not stall arm RPCs.
+        wait_idle = getattr(self._require_gripper(), "wait_idle", None)
+        return True if wait_idle is None else bool(wait_idle(None if timeout_s is None else float(timeout_s)))
 
     # -- camera.<name>.read --------------------------------------------------
 

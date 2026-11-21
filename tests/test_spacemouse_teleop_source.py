@@ -259,6 +259,30 @@ def test_rest_noise_within_the_deadzone_does_not_move_the_command():
         _source(deadzone=1.0)
 
 
+@pytest.mark.parametrize("axis_lock, moves_rotation", [("dominant", False), ("off", True)])
+def test_a_push_that_also_tilts_the_cap_drives_translation_only(axis_lock, moves_rotation):
+    session = _Session(axis_lock=axis_lock)
+    session.take_over()
+    session.part.twist = np.array([0.7, 0.0, 0.0, 0.0, 0.45, 0.0])  # +x push, cap tilted
+    for _ in range(4):
+        session.poll()
+    command = session.tracker.command
+    turned = Rotation.from_quat(command[3:]) * Rotation.from_quat(HOME_TCP[3:]).inv()
+    assert command[0] > HOME_TCP[0]
+    assert bool(np.linalg.norm(turned.as_rotvec()) > 1e-6) is moves_rotation
+
+
+def test_a_twist_of_the_cap_that_also_shifts_it_drives_rotation_only():
+    session = _Session()
+    session.take_over()
+    session.part.twist = np.array([0.2, 0.0, 0.0, 0.0, 0.0, 0.6])
+    for _ in range(4):
+        session.poll()
+    np.testing.assert_allclose(session.tracker.command[:3], HOME_TCP[:3], atol=1e-9)
+    with pytest.raises(ValueError, match="axis_lock"):
+        _source(axis_lock="x_only")
+
+
 # -- buttons ---------------------------------------------------------------------------------
 
 
@@ -461,13 +485,14 @@ def test_tracker_flags_reach_the_source_and_the_contract_block():
         "motion_kwargs": _TRACKER_KWARGS,
     }
     block = env_building.reward_sources_spec(args)["teleop_control"]
-    assert block == CartesianTrackerConfig(lead_cap_m=0.04, lead_cap_rad=0.2, speed_m_s=0.03, speed_rad_s=0.1).describe()
-    assert block == {"version": "cartesian_tracker_v1", "lead_cap_m": 0.04, "lead_cap_rad": 0.2,
-                     "speed_m_s": 0.03, "speed_rad_s": 0.1}
-    # The block is the tracker's alone: the same for a GELLO through leader_cartesian.
+    tracker = CartesianTrackerConfig(lead_cap_m=0.04, lead_cap_rad=0.2, speed_m_s=0.03, speed_rad_s=0.1).describe()
+    assert tracker == {"version": "cartesian_tracker_v1", "lead_cap_m": 0.04, "lead_cap_rad": 0.2,
+                       "speed_m_s": 0.03, "speed_rad_s": 0.1}
+    # The tracker's block plus the SpaceMouse axis lock; a GELLO through leader_cartesian has none.
+    assert block == {**tracker, "axis_lock": "dominant"}
     gello = dataclasses.replace(args, teleop_device="leader_cartesian")
-    assert env_building.reward_sources_spec(gello)["teleop_control"] == block
-    assert _source(**_TRACKER_KWARGS).cartesian_tracker.describe() == block
+    assert env_building.reward_sources_spec(gello)["teleop_control"] == tracker
+    assert _source(**_TRACKER_KWARGS).cartesian_tracker.describe() == tracker
 
 
 def test_options_yaml_configures_the_device_but_not_the_tracker(tmp_path):

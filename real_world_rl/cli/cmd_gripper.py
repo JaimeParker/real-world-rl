@@ -4,6 +4,9 @@ import math
 from .command import Context, Result
 from .errors import CliError, USAGE_EXIT_CODE
 
+# How long ``rwrl gripper open|close|move`` waits for an asynchronous gripper before reporting.
+GRIPPER_COMMAND_WAIT_S = 10.0
+
 
 def gripper_feedback(gripper) -> tuple[dict, str]:
     norm = float(gripper.width)
@@ -29,6 +32,10 @@ def gripper_command(args, connection, ctx: Context) -> tuple[dict, str]:
             gripper.move(target)
         else:
             getattr(gripper, args.action)()
+        # A station Franka Hand commands asynchronously: report the width once it has moved.
+        wait_idle = getattr(gripper, "wait_idle", None)
+        if callable(wait_idle):
+            wait_idle(GRIPPER_COMMAND_WAIT_S)
     data, text = gripper_feedback(gripper)
     return {"gripper": data}, text
 

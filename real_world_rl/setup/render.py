@@ -37,10 +37,11 @@ _ROBOT_INDENT = "    "
 # Every field each section of the template writes; rendering a config with another field fails
 # instead of silently dropping it.
 _ROBOT_FIELDS = {
-    "name", "arm_backend", "robot_ip", "bridge_url", "realtime", "relative_dynamics_factor", "home_joints",
+    "name", "arm_backend", "robot_ip", "bridge_url", "realtime", "relative_dynamics_factor", "cartesian_controller", "home_joints",
     "task_frame", "workspace", "safety_box", "joint_limits", "max_delta_per_step", "control", "claim", "gripper", "cameras", "teleop",
 }
-_GRIPPER_FIELDS = {"backend", "max_width_m", "mode", "binary_threshold", "shares_arm_session"}
+_GRIPPER_FIELDS = {"backend", "max_width_m", "mode", "binary_threshold", "shares_arm_session",
+                   "speed_m_s", "grasp_force_n", "close_width_m", "open_width_m"}
 _CAMERA_FIELDS = {"name", "serial", "width", "height", "fps", "enable_depth", "backend", "depth_mode"}
 _TELEOP_FIELDS = {"name", "backend", "hold_s", "options"}
 

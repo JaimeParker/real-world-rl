@@ -17,6 +17,9 @@ class DeviceCommand:
     station_attribute: str | None = None
     # Name of a function in the command module that returns a Result for --json, instead of printing.
     json_result: str | None = None
+    # None of them takes --preset; a `supervise` child of `teleop run` must not announce, or fail
+    # on, a remembered preset its parent already resolved.
+    uses_selection: bool = False
 
     def register(self, parser):
         import_module(f"{__package__}.cmd_{self.name.replace('-', '_')}").build_parser(parser)

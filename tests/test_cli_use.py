@@ -171,3 +171,10 @@ def test_the_selection_error_reaches_the_user_as_a_cli_error(workdir):
     (workdir / "local" / ".rwrl-use.json").write_text("[]")
     with pytest.raises(CliError, match="JSON object"):
         registry.fill_selected_preset(argparse.Namespace(preset=None), Echo())
+
+
+def test_device_commands_ignore_a_stale_preset_selection(workdir, capsys):
+    """``teleop run`` spawns ``rwrl supervise``; its parent resolved the preset already."""
+    station_paths.write_selection({"preset": "configs/gone.yaml"})
+    assert rwrl("supervise", "--", "true") == 0
+    assert "from rwrl use" not in capsys.readouterr().err

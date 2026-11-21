@@ -275,3 +275,45 @@ def test_preflight_tolerates_an_older_daemon_that_sends_has_autofix(connected, m
     monkeypatch.setattr(connected.arm, "_call", lambda method, **kwargs: [row])
     (result,) = connected.arm.preflight()
     assert (result.name, result.ok) == ("mode:none", True)
+
+
+def test_remote_gripper_wait_idle_forwards_to_the_daemon_gripper(service, connected, monkeypatch):
+    calls = []
+    monkeypatch.setattr(service.robot.gripper, "wait_idle", lambda timeout_s=None: calls.append(timeout_s) or False,
+                        raising=False)
+    assert connected.gripper.wait_idle(2.5) is False
+    assert calls == [2.5]
+    assert "gripper.wait_idle" in service.methods
+
+
+def test_remote_gripper_wait_idle_without_daemon_side_wait_is_idle(service, connected):
+    assert not hasattr(service.robot.gripper, "wait_idle")  # the fake gripper is synchronous
+    assert connected.gripper.wait_idle(1.0) is True
+
+
+def test_remote_gripper_wait_idle_uses_a_deadline_beyond_the_wait(service, connected, monkeypatch):
+    from real_world_rl.server.remote import GRIPPER_WAIT_IDLE_DEADLINE_MARGIN_S
+    deadlines = []
+    client = connected.gripper._client
+    original = client.call_with_deadline
+    monkeypatch.setattr(client, "call_with_deadline",
+                        lambda method, deadline_s, **kw: deadlines.append((method, deadline_s)) or original(
+                            method, deadline_s, **kw))
+    connected.gripper.wait_idle(10.0)
+    assert deadlines == [("gripper.wait_idle", 10.0 + GRIPPER_WAIT_IDLE_DEADLINE_MARGIN_S)]
+
+
+def test_remote_gripper_wait_idle_tolerates_an_older_daemon(service, connected, monkeypatch):
+    # An older daemon has no gripper.wait_idle: the client reports idle instead of failing the command.
+    monkeypatch.delitem(service._methods, "gripper.wait_idle")
+    assert connected.gripper.wait_idle(1.0) is True
+    monkeypatch.setitem(service._methods, "gripper.wait_idle", lambda timeout_s=None: (_ for _ in ()).throw(
+        ValueError("timeout_s bad")))
+    with pytest.raises(ValueError, match="timeout_s bad"):
+        connected.gripper.wait_idle(1.0)
+
+
+def test_gripper_wait_idle_is_retryable_and_not_under_the_service_lock(service):
+    from real_world_rl.server.transport import is_read_only
+    assert is_read_only("gripper.wait_idle")
+    assert service.dispatch("gripper.wait_idle", {"timeout_s": 0.1}) is True

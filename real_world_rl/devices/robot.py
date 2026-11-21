@@ -16,6 +16,8 @@ from real_world_rl.devices.gripper import Gripper, GripperMode
 from real_world_rl.devices.teleop import Teleop, TeleopConfig
 
 _SAFETY_BOX_LENGTH = 6
+# The Franka Hand's maximum grasp force (HIL-SERL grasps with it).
+MAX_GRASP_FORCE_N = 130.0
 _MAX_DELTA_KEYS = ("xyz_m", "joint_rad")
 
 
@@ -32,6 +34,30 @@ class GripperConfig:
     mode: str = "binary"
     binary_threshold: float = 0.5
     shares_arm_session: bool = False
+    # Franka Hand (franky backend) commands; other backends ignore them. None takes the backend
+    # default, which for franky is HIL-SERL's franka_gripper_server: grasp to 0.01 m at 0.3 m/s
+    # with 130 N, open fully (franky open = move to the hand's maximum width) at 0.3 m/s.
+    speed_m_s: float | None = None
+    grasp_force_n: float | None = None
+    close_width_m: float | None = None
+    open_width_m: float | None = None  # None: fully open
+
+    def __post_init__(self) -> None:
+        import math
+        for name in ("speed_m_s", "grasp_force_n", "close_width_m", "open_width_m"):
+            value = getattr(self, name)
+            if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
+                                      or not math.isfinite(value)):
+                raise ValueError(f"gripper {name} must be a finite number or null, got {value!r}")
+        if self.speed_m_s is not None and self.speed_m_s <= 0:
+            raise ValueError(f"gripper speed_m_s must be > 0, got {self.speed_m_s}")
+        if self.grasp_force_n is not None and not 0 < self.grasp_force_n <= MAX_GRASP_FORCE_N:
+            raise ValueError(f"gripper grasp_force_n must be in (0, {MAX_GRASP_FORCE_N:g}] N "
+                             f"(the Franka Hand's maximum), got {self.grasp_force_n}")
+        for name in ("close_width_m", "open_width_m"):
+            value = getattr(self, name)
+            if value is not None and not 0 <= value <= self.max_width_m:
+                raise ValueError(f"gripper {name} must be in [0, max_width_m {self.max_width_m}], got {value}")
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "GripperConfig":

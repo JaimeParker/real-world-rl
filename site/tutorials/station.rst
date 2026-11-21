@@ -52,7 +52,10 @@
      - 在 NUC 浏览器打开现场 Franka Desk，取当前可访问的 ``https://实际IP/desk/`` 中的 IP。
 
 其余字段保持默认：``type``、``name``、``arm_backend``、``realtime``、
-``relative_dynamics_factor``、``claim``。这里使用 ``franky``；需要强制实时内核时才把
+``relative_dynamics_factor``、``cartesian_controller``、``claim``。
+``cartesian_controller: impedance`` 表示由 franky 的阻抗 tracker 执行末端目标，普通内核也能用；
+另一个选项 ``internal`` 以后只改这一行即可切换。
+这里使用 ``franky``；需要强制实时内核时才把
 ``realtime`` 改成 ``enforce``，并先准备 PREEMPT_RT。归位速度需要调整时再审阅
 ``relative_dynamics_factor``，它控制 ``move_to_*`` 的速度、加速度和 jerk 比例。
 ``claim: true`` 保留本机设备独占锁。
@@ -278,6 +281,10 @@
 
 其余字段保持默认：``backend: franky``、``mode: binary``、``binary_threshold: 0.5``、
 ``shares_arm_session: false``。Hand 独立连接；二值模式下设备动作大于 0.5 时打开。
+后四个键是 HIL-SERL 的夹爪命令：闭合以 ``speed_m_s`` 0.3 m/s、``grasp_force_n`` 130 N 抓到
+``close_width_m`` 0.01 m（空抓也算成功），张开到 ``open_width_m`` （``null`` 为完全张开）。
+命令在后台执行、不阻塞控制步，连续按键只执行最新一次。省略这些键时取同样的值，
+所以旧 station 不改也会用这些值；夹易碎物体时先调小 ``grasp_force_n`` （上限 130）。
 任务确实需要连续宽度时才改成 ``continuous``，并一起核对动作约定。
 
 **如果不对**：

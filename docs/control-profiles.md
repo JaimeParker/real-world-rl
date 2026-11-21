@@ -17,6 +17,27 @@ These are illustrative settings. Choose and validate values for the actual
 payload, tool, task and installed SDK before operating hardware. Automated tests
 exercise fake SDKs and local RPC; they do not measure robot stability.
 
+`rwrl setup` writes `FRANKY_SETUP_CONTROL` for a new franky arm unless `--control` is given;
+franky's own 500 N/m is too soft to move the arm against joint friction with a centimetre of
+teleop lead:
+
+```yaml
+control:
+  translational_stiffness: 2000.0
+  rotational_stiffness: 75.0                       # SERL's 150, approximate (see below)
+  cartesian_damping: [89.0, 89.0, 89.0, 7.0, 7.0, 7.0]
+  translational_error_clip: [0.01, 0.01, 0.01]
+  rotational_error_clip: [0.10, 0.10, 0.10]        # SERL's 0.05, approximate
+```
+
+These approximate SERL's default compliance (`compliance_param.cfg`) in franky's tracker. The
+rotational values are approximate: franky's rotation error is the rotation vector θ·axis, SERL's
+the quaternion vector part sin(θ/2)·axis ≈ (θ/2)·axis, so SERL's 150 Nm/rad becomes 75 and its
+0.05 clip becomes 2·asin(0.05) ≈ 0.10 rad, equal for small angles only; the damping (89 / 7 on
+the twist) is the same in both and given explicitly. These gains only apply with
+`cartesian_controller: impedance` (and the joint keys to joint servo in every mode); see
+[devices](devices.md#station-file-reference).
+
 `real_world_rl.devices.control.ArmControlConfig` validates finite values and vector sizes
 without importing torch. Cartesian gains use the tracker’s scalar translational
 and rotational stiffness keywords, a six-axis damping vector, and three-axis

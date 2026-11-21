@@ -1,0 +1,32 @@
+# start output
+usage: rwrl doctor [-h] [--station PATH] [--robot NAME] [--preset PATH]
+                   [--mock] [--json] [--yes] [--fix] [--install-sdk]
+                   [--report-dir REPORT_DIR] [--link HOST:PORT]
+                   [--ssh [USER@]HOST] [--remote-bind HOST:PORT]
+                   [--policy HOST:PORT] [--token TOKEN]
+
+Robot-host diagnostics: inspect, preview, confirm, repair, then inspect again.
+
+options:
+  -h, --help            show this help message and exit
+  --station PATH        station yaml; default: station config lookup
+  --robot NAME          robot name in a multi-robot station
+  --preset PATH         env preset yaml for home and reset gripper
+  --mock                use doctor fake backends for direct connections
+  --json                one JSON result on stdout
+  --yes                 skip motion or doctor repair confirmation (preflight
+                        checks still apply)
+  --fix
+  --install-sdk         repair only a handshake-confirmed Franky mismatch
+  --report-dir REPORT_DIR
+                        report base directory (overrides
+                        RWRL_DOCTOR_REPORT_DIR)
+  --link HOST:PORT      probe the client route to the robot daemon
+  --ssh [USER@]HOST     NUC ssh destination (USER@HOST or a ~/.ssh/config
+                        alias): probe the SSH host and local forwarding
+  --remote-bind HOST:PORT
+                        daemon address as seen on the NUC, for --ssh
+                        forwarding checks (default 127.0.0.1:50051)
+  --policy HOST:PORT    connect to openpi and read metadata
+  --token TOKEN         authenticate the daemon link probes
+# end output

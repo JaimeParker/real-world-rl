@@ -1,0 +1,9 @@
+# start output
+PASS           link.daemon.bind: 127.0.0.1:50051: loopback (SSH tunnel)
+FAIL           link.daemon.listen: 127.0.0.1:50051: no TCP listener
+    hint: check the daemon log and the configured bind, then start rwrl daemon if needed
+FAIL           link.sshd: no active ssh.service, sshd.service or ssh.socket
+    hint: check the SSH server on the NUC, or use the same-LAN gRPC route
+SKIPPED        link.firewall: loopback daemon bind; no direct LAN ingress needed
+PASS           link.preprocess: OpenCV importable for frame_preprocess_cv2_v1
+# end output

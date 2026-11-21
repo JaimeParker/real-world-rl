@@ -1,0 +1,6 @@
+# start mock
+type: franka
+arm_backend: fake
+gripper:
+  backend: fake
+# end mock

@@ -1,0 +1,17 @@
+# start teleop
+teleop:
+  name: spacemouse
+  backend: spacemouse
+  options:
+    device_index: 0
+    deadzone: 0.001
+    invert_axes: []
+    poll_interval_s: 0.005
+# end teleop
+# start serl
+# In a COPY of local/task.yaml named local/task-serl.yaml, merge into real_robot:
+real_robot:
+  safety_box: [REPLACE_XMIN, REPLACE_YMIN, REPLACE_ZMIN, REPLACE_XMAX, REPLACE_YMAX, REPLACE_ZMAX]
+  safety_box_rpy_low: [REPLACE_ABS_ROLL_MIN, REPLACE_PITCH_MIN, REPLACE_YAW_MIN]
+  safety_box_rpy_high: [REPLACE_ABS_ROLL_MAX, REPLACE_PITCH_MAX, REPLACE_YAW_MAX]
+# end serl

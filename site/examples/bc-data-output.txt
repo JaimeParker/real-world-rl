@@ -1,0 +1,8 @@
+# start summary
+transitions: 8
+observations: {'rgb_wrist': [1, 128, 128, 3], 'state': [1, 27]}
+dtypes: {'rgb_wrist': 'torch.uint8', 'state': 'torch.float32'}
+action dimension: 7
+human masks: {'1111110': 4, '1111111': 4}
+first action: [[0.20000000298023224, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]]
+# end summary

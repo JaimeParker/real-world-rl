@@ -1,0 +1,17 @@
+# start smoke
+received=1 demo_buffer_size=0
+received=2 demo_buffer_size=1
+received=3 demo_buffer_size=1
+received=4 demo_buffer_size=1
+received=5 demo_buffer_size=2
+received=6 demo_buffer_size=2
+learner/received=6
+learner/update=6
+learner/buffer_size=6
+learner/demo_buffer_size=2
+learner/intervened_received=2
+global_update=6 actor_params_loaded=6
+actor_last_global_update=5
+outcomes={'success_rate': 0.0, 'autonomous_success_rate': 0.0, 'tcp_proxy_success_rate': 0.0, 'task_success_rate': 0.5, 'episode_intervention_rate': 1.0, 'step_intervention_rate': 0.3333333333333333, 'completed_episodes': 2, 'unknown_episodes': 0, 'interrupted_episodes': 0, 'discarded_episodes': 0}
+restored_received=6 restored_update=6 restored_demo=2
+# end smoke

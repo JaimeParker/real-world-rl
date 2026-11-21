@@ -1,0 +1,8 @@
+# start inference
+observation shapes: {'rgb_wrist': [1, 128, 128, 3], 'state': [1, 27]}
+demo action: tensor([[0.2000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 1.0000]])
+predicted action: tensor([[ 0.1761,  0.3752,  0.0555,  0.0061, -0.0918,  0.2009,  0.1481]])
+human_action_mask: tensor([[1, 1, 1, 1, 1, 1, 1]], dtype=torch.int32)
+masked MSE: 0.131285
+record: local/bc-runs/first-bc/offline-check.json
+# end inference

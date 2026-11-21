@@ -1,0 +1,234 @@
+# start output
+usage: /home/jaimeparker/Projects/rlgarden-real-world/real_world_rl/cli/__main__.py [-h] [OPTIONS]
+
+Run an openpi policy against a remote rwrl daemon (eval only).
+
+╭─ options ────────────────────────────────────────────────────────────────────╮
+│ -h, --help                                                                   │
+│       show this help message and exit                                        │
+│ --prompt STR                                                                 │
+│       (required)                                                             │
+│ --policy-host STR                                                            │
+│       (default: 127.0.0.1)                                                   │
+│ --policy-port INT                                                            │
+│       (default: 8000)                                                        │
+│ --api-key {None}|STR                                                         │
+│       (default: None)                                                        │
+│ --policy-timeout-s FLOAT                                                     │
+│       (default: 30.0)                                                        │
+│ --profile {rlinf_franka,generic}                                             │
+│       (default: rlinf_franka)                                                │
+│ --episodes INT                                                               │
+│       (default: 1)                                                           │
+│ --max-steps-per-episode INT                                                  │
+│       (default: 300)                                                         │
+│ --replan-steps {None}|INT                                                    │
+│       None executes the entire returned chunk. (default: None)               │
+│ --prefetch-steps INT                                                         │
+│       Query this many steps before a chunk boundary. Zero disables prefetch. │
+│       (default: 0)                                                           │
+│ --image-size {None}|{INT INT}                                                │
+│       Camera frame size as (height, width). Defaults to the env size or the  │
+│       profile default. (default: None)                                       │
+│ --camera-keys [STR STR [STR STR ...]]                                        │
+│       Keys are daemon camera names and values are openpi input keys.         │
+│       (default: )                                                            │
+│ --crop-regions [STR FLOAT FLOAT FLOAT FLOAT [STR FLOAT FLOAT FLOAT FLOAT     │
+│ ...]]                                                                        │
+│       RLinf camera name followed by fractional top, left, bottom, right.     │
+│       (default: )                                                            │
+│ --state-key STR                                                              │
+│       Input key for the flat policy state. (default: observation/state)      │
+│ --prompt-key STR                                                             │
+│       Input key for the task instruction. (default: prompt)                  │
+│ --stiffness-quat FLOAT FLOAT FLOAT FLOAT                                     │
+│       RLinf Franka only: the rotation of the stiffness frame in the TCP      │
+│       frame (xyzw). (default: 0.0 0.0 0.0 1.0)                               │
+│ --dry-run, --no-dry-run                                                      │
+│       Perform a single synthetic inference without connecting to a robot.    │
+│       (default: False)                                                       │
+│ --reconnect-timeout-s {None}|FLOAT                                           │
+│       Timeout counted from entry into WAITING. None waits indefinitely.      │
+│       (default: None)                                                        │
+│ --auto-resume, --no-auto-resume                                              │
+│       Reset for the next episode without terminal confirmation after         │
+│       reconnecting. (default: False)                                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ real-robot options ─────────────────────────────────────────────────────────╮
+│ --real-robot.robot {None}|{[STR STR [STR STR ...]]}                          │
+│       Exactly one of: a local device-layer RobotConfig dict (must carry      │
+│       "type"), or the address of a robot daemon. Checked by                  │
+│       ``require_robot_source`` when the env is built, so the                 │
+│       default-constructed config (CLI group) stays valid. (default: None)    │
+│ --real-robot.remote {None}|STR                                               │
+│       Exactly one of: a local device-layer RobotConfig dict (must carry      │
+│       "type"), or the address of a robot daemon. Checked by                  │
+│       ``require_robot_source`` when the env is built, so the                 │
+│       default-constructed config (CLI group) stays valid. (default: None)    │
+│ --real-robot.token {None}|STR                                                │
+│       Exactly one of: a local device-layer RobotConfig dict (must carry      │
+│       "type"), or the address of a robot daemon. Checked by                  │
+│       ``require_robot_source`` when the env is built, so the                 │
+│       default-constructed config (CLI group) stays valid. (default: None)    │
+│ --real-robot.task-frame {None}|{[STR STR [STR STR ...]]}                     │
+│       Expected daemon geometry; local robots inherit these from their robot  │
+│       dict. (default: None)                                                  │
+│ --real-robot.workspace {None}|{[STR STR [STR STR ...]]}                      │
+│       Expected daemon geometry; local robots inherit these from their robot  │
+│       dict. (default: None)                                                  │
+│ --real-robot.num-joints INT                                                  │
+│       Expected daemon geometry; local robots inherit these from their robot  │
+│       dict. (default: 7)                                                     │
+│ --real-robot.state-fields [STR [STR ...]]                                    │
+│       Concatenated in this order into the flat backend ``state`` vector.     │
+│       (default: tcp_pose tcp_vel joint_pos joint_vel gripper_pos tcp_force   │
+│       tcp_torque)                                                            │
+│ --real-robot.cameras [STR [STR ...]]                                         │
+│       Concatenated in this order into the flat backend ``state`` vector.     │
+│       (default: )                                                            │
+│ --real-robot.image-size {None}|{INT INT}                                     │
+│       (H, W) every camera frame is resized to; None keeps the camera's       │
+│       native size. (default: None)                                           │
+│ --real-robot.depth-cameras [STR [STR ...]]                                   │
+│       (H, W) every camera frame is resized to; None keeps the camera's       │
+│       native size. (default: )                                               │
+│ --real-robot.preprocess [STR STR [STR STR ...]]                              │
+│       (H, W) every camera frame is resized to; None keeps the camera's       │
+│       native size. (default: )                                               │
+│ --real-robot.control {None}|{[STR STR [STR STR ...]]}                        │
+│       (H, W) every camera frame is resized to; None keeps the camera's       │
+│       native size. (default: None)                                           │
+│ --real-robot.action-mode {cartesian_delta,joint_delta,joint_abs}             │
+│       (H, W) every camera frame is resized to; None keeps the camera's       │
+│       native size. (default: cartesian_delta)                                │
+│ --real-robot.control-hz FLOAT                                                │
+│       (H, W) every camera frame is resized to; None keeps the camera's       │
+│       native size. (default: 10.0)                                           │
+│ --real-robot.xyz-scale-m FLOAT                                               │
+│       (H, W) every camera frame is resized to; None keeps the camera's       │
+│       native size. (default: 0.02)                                           │
+│ --real-robot.rot-scale-rad FLOAT                                             │
+│       (H, W) every camera frame is resized to; None keeps the camera's       │
+│       native size. (default: 0.1)                                            │
+│ --real-robot.joint-scale-rad FLOAT                                           │
+│       (H, W) every camera frame is resized to; None keeps the camera's       │
+│       native size. (default: 0.05)                                           │
+│ --real-robot.safety-box {None}|{[FLOAT [FLOAT ...]]}                         │
+│       The source of truth for limits is the robot yaml on the robot PC       │
+│       (enforced by the device layer). The three fields below are optional    │
+│       and may only be tighter than it: unset ones are inherited after        │
+│       connect, looser ones fail the first reset.                             │
+│       [xmin, ymin, zmin, xmax, ymax, zmax]; clips the cartesian target       │
+│       position. (default: None)                                              │
+│ --real-robot.joint-limits {None}|{[[FLOAT [FLOAT ...]] [[FLOAT [FLOAT ...]]  │
+│ ...]]}                                                                       │
+│       One [low, high] pair per joint; clips joint targets. joint_abs still   │
+│       needs it set here because the action mapping is built at construction, │
+│       before any connection. (default: None)                                 │
+│ --real-robot.home-joints {None}|{[FLOAT [FLOAT ...]]}                        │
+│       Reset pose; falls back to the robot's own home_joints when unset.      │
+│       (default: None)                                                        │
+│ --real-robot.gripper-in-action, --real-robot.no-gripper-in-action            │
+│       Reset pose; falls back to the robot's own home_joints when unset.      │
+│       (default: True)                                                        │
+│ --real-robot.max-episode-steps {None}|INT                                    │
+│       Reset pose; falls back to the robot's own home_joints when unset.      │
+│       (default: None)                                                        │
+│ --real-robot.reset-settle-s FLOAT                                            │
+│       Reset pose; falls back to the robot's own home_joints when unset.      │
+│       (default: 0.5)                                                         │
+│ --real-robot.watchdog-s {None}|FLOAT                                         │
+│       In-process step watchdog (real_world_rl.supervise.StepWatchdog): after │
+│       a reset, a gap of more than this many seconds between env steps calls  │
+│       arm.stop() once and the next step raises. None = off. Must exceed one  │
+│       control period. Not part of the experiment contract. (default: None)   │
+│ --real-robot.cartesian-semantics {current,serl,rlinf}                        │
+│       In-process step watchdog (real_world_rl.supervise.StepWatchdog): after │
+│       a reset, a gap of more than this many seconds between env steps calls  │
+│       arm.stop() once and the next step raises. None = off. Must exceed one  │
+│       control period. Not part of the experiment contract. (default:         │
+│       current)                                                               │
+│ --real-robot.safety-box-rpy-low {None}|{[FLOAT [FLOAT ...]]}                 │
+│       In-process step watchdog (real_world_rl.supervise.StepWatchdog): after │
+│       a reset, a gap of more than this many seconds between env steps calls  │
+│       arm.stop() once and the next step raises. None = off. Must exceed one  │
+│       control period. Not part of the experiment contract. (default: None)   │
+│ --real-robot.safety-box-rpy-high {None}|{[FLOAT [FLOAT ...]]}                │
+│       In-process step watchdog (real_world_rl.supervise.StepWatchdog): after │
+│       a reset, a gap of more than this many seconds between env steps calls  │
+│       arm.stop() once and the next step raises. None = off. Must exceed one  │
+│       control period. Not part of the experiment contract. (default: None)   │
+│ --real-robot.gripper-action-scale FLOAT                                      │
+│       In-process step watchdog (real_world_rl.supervise.StepWatchdog): after │
+│       a reset, a gap of more than this many seconds between env steps calls  │
+│       arm.stop() once and the next step raises. None = off. Must exceed one  │
+│       control period. Not part of the experiment contract. (default: 1.0)    │
+│ --real-robot.gripper-sleep-s FLOAT                                           │
+│       In-process step watchdog (real_world_rl.supervise.StepWatchdog): after │
+│       a reset, a gap of more than this many seconds between env steps calls  │
+│       arm.stop() once and the next step raises. None = off. Must exceed one  │
+│       control period. Not part of the experiment contract. (default: 0.6)    │
+│ --real-robot.rlinf-gripper-threshold FLOAT                                   │
+│       RLinf threshold in scaled action units. Gripper feedback is in         │
+│       normalized width. (default: 0.5)                                       │
+│ --real-robot.remote-preprocess, --real-robot.no-remote-preprocess            │
+│       RLinf threshold in scaled action units. Gripper feedback is in         │
+│       normalized width. (default: True)                                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ real-robot.task options ────────────────────────────────────────────────────╮
+│ (H, W) every camera frame is resized to; None keeps the camera's native      │
+│ size.                                                                        │
+│ ──────────────────────────────────────────────────────────────────────────── │
+│ --real-robot.task.name STR                                                   │
+│       (default: none)                                                        │
+│ --real-robot.task.version INT                                                │
+│       (default: 1)                                                           │
+│ --real-robot.task.arm-resets [STR STR [STR STR ...]]                         │
+│       (default: )                                                            │
+│ --real-robot.task.targets [STR STR [STR STR ...]]                            │
+│       (default: )                                                            │
+│ --real-robot.task.success-source STR                                         │
+│       (default: manual)                                                      │
+│ --real-robot.task.classifier-checkpoints [STR STR [STR STR ...]]             │
+│       (default: )                                                            │
+│ --real-robot.task.classifier-image-keys [STR STR [STR STR ...]]              │
+│       (default: )                                                            │
+│ --real-robot.task.position-tolerance-m FLOAT                                 │
+│       (default: 0.03)                                                        │
+│ --real-robot.task.success-hold-steps INT                                     │
+│       (default: 1)                                                           │
+│ --real-robot.task.max-episode-steps {None}|INT                               │
+│       (default: None)                                                        │
+│ --real-robot.task.terminate-on-success,                                      │
+│ --real-robot.task.no-terminate-on-success                                    │
+│       (default: True)                                                        │
+│ --real-robot.task.terminate-on-failure,                                      │
+│ --real-robot.task.no-terminate-on-failure                                    │
+│       (default: True)                                                        │
+│ --real-robot.task.eval-episodes {None}|INT                                   │
+│       (default: None)                                                        │
+│ --real-robot.task.eval-seed {None}|INT                                       │
+│       (default: None)                                                        │
+│ --real-robot.task.success-reward FLOAT                                       │
+│       (default: 1.0)                                                         │
+│ --real-robot.task.failure-reward FLOAT                                       │
+│       (default: 0.0)                                                         │
+│ --real-robot.task.dense-distance-weight FLOAT                                │
+│       (default: 0.0)                                                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ real-robot.task.reset options ──────────────────────────────────────────────╮
+│ --real-robot.task.reset.home-joints {None}|{[FLOAT [FLOAT ...]]}             │
+│       (default: None)                                                        │
+│ --real-robot.task.reset.lift-m FLOAT                                         │
+│       (default: 0.0)                                                         │
+│ --real-robot.task.reset.waypoints [[FLOAT [FLOAT ...]] [[FLOAT [FLOAT ...]]  │
+│ ...]]                                                                        │
+│       (default: )                                                            │
+│ --real-robot.task.reset.gripper STR                                          │
+│       (default: open)                                                        │
+│ --real-robot.task.reset.xyz-jitter-m [FLOAT [FLOAT ...]]                     │
+│       (default: 0.0 0.0 0.0)                                                 │
+│ --real-robot.task.reset.settle-s {None}|FLOAT                                │
+│       (default: None)                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+# end output

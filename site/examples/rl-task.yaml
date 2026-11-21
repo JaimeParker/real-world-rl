@@ -1,0 +1,50 @@
+# start config
+# Preparation copies the recorded observation/action/teleop settings over this template.
+env_backend: real_robot
+env_id: pick_and_place
+obs:
+  state: true
+  rgb: [wrist]
+  depth: []
+  image_size: [128, 128]
+real_robot:
+  remote: 127.0.0.1:50051
+  num_joints: 7
+  action_mode: cartesian_delta
+  cartesian_semantics: current
+  xyz_scale_m: 0.05
+  rot_scale_rad: 0.3
+  gripper_in_action: true
+  state_fields: [tcp_pose, tcp_vel, joint_pos, joint_vel]
+  control_hz: 10
+  max_episode_steps: 200
+  reset_settle_s: 0.5
+  task:
+    name: none
+teleop_device: spacemouse
+spacemouse_mode: tracker
+teleop_event_device: stdin
+episode_end_behavior: hold
+reward_from_teleop_events: true
+teleop_success_reward: 1.0
+classifier_checkpoint: null
+use_grasp_penalty: false
+buffer_device: cpu
+log_type: tensorboard
+log_dir: local/rl-runs
+exp_name: first-hil
+run_id: first-hil
+actor_id: actor
+buffer_size: 1000
+demo_buffer_size: 1000
+batch_size: 32
+learning_starts: 100
+demo_data_ratio: 0.5
+train_freq: 1
+utd: 1.0
+publish_freq: 10
+log_freq: 10
+checkpoint_freq: 100
+buffer_period: 100
+save_final_checkpoint: true
+# end config

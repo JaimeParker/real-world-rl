@@ -61,4 +61,4 @@
 
 - [硬件会话检查表](testing/README.md)：英文主检查表、记录 CSV 约定及证据要求。硬件结果在现场填写。
 
-GitHub Wiki 由 GitHub Action 从这些仓库文件生成，请直接修改仓库文件。
+分步教程由 Read the Docs 从 [site/](../../site/index.rst) 构建，见[构建与发布说明](../../site/README.md)。这些 `docs/` 文件继续作为 GitHub 参考页。

@@ -1,0 +1,5 @@
+# start output
+t=0.001 twist=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0] gripper=1.000 intervening=False events=[]
+t=0.101 twist=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0] gripper=1.000 intervening=False events=[]
+samples=2 duration_s=0.200 events_seen={} action_space=cartesian_delta backend=spacemouse path=direct fake
+# end output

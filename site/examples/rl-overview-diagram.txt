@@ -1,0 +1,11 @@
+# start topology
+机器人 / 相机 / 夹爪
+        ⇅ SDK
+机器人 PC：设备服务 rwrl daemon（拥有硬件连接）
+        ⇅ gRPC，127.0.0.1:50051
+机器人 PC：actor（观测、推理、遥操作、env.step） ← SpaceMouse 或 GELLO + 终端事件
+        │ obs, executed action, reward, next_obs, masks, record_id
+        ↓ 本地 outbox → HTTP :6000 → learner journal
+训练机：learner（online replay + demo replay → 梯度更新）
+        └──── policy session/version/global_update → actor 的下一次参数刷新
+# end topology

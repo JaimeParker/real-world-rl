@@ -1,0 +1,6 @@
+# start output
+human steps: 16 .. 40
+mask: 1111110
+action: [[0.0,0.0,0.0,0.0,0.0,0.0,0.0]]
+delta_xyz_mm: [12.0, 16.0, 0.0]
+# end output

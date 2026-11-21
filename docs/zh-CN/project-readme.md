@@ -1,10 +1,12 @@
 # real-world-rl
 
-**文档：** [English](../README.md) · [中文文档入口](../README.zh-CN.md) · [中文操作教程](../../site/index.rst)
+**教程：** [中文](../../site/index.rst) · [英文占位页](../../site/en/index.rst) · [Read the Docs 构建与发布](../../site/README.md)
+
+**参考：** [English](../README.md) · [中文](../README.zh-CN.md)
 
 在 GPU 主机上评估 Pi0.5，请参阅 [openpi 策略部署](deploy-openpi.md)。
 
-**从这里开始：** [硬件教程](tutorial/00-overview.md)以一条 Franka 和 GELLO 主臂，从空白 NUC 到部署策略，每步一条 `rwrl` 命令：[安装](tutorial/01-install.md)、[配置工作站](tutorial/02-setup.md)、[启动 Franka](tutorial/03-franka-bringup.md)，然后录制、训练、部署。
+**从这里开始：** [安装与初验](../../site/tutorials/install.rst)，然后[建立工作站](../../site/tutorials/station.rst)。这些分步教程是 `site/` 下的 Read the Docs 源文件；`docs/` 保留 GitHub 参考指南。
 
 从 [rl-garden](https://github.com/JaimeParker/rl-garden) 拆出的真机 RL 编排层：`ActorLoop`/`LearnerLoop`/sync（SERL、HIL-SERL、residual、SiLRI 变体）、`franka_real` 和 `real_robot` 环境后端、`TeleopSource` 注册表与遥操作介入包装器，以及奖励分类器数据采集工具。
 

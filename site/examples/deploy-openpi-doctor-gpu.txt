@@ -1,0 +1,15 @@
+# start output
+WARN           link.proxy: https_proxy, http_proxy set; 127.0.0.1 has no proxy bypass
+    hint: export no_proxy="${no_proxy:+$no_proxy,}127.0.0.1,localhost"
+SKIPPED        link.ssh: SSH target not configured
+BLOCKED        link.tunnel: 127.0.0.1:50061 has no listener; rwrl-tunnel-50061.service state unavailable
+    hint: pass --ssh [USER@]HOST
+SKIPPED        link.forward: temporary forward requires working SSH and gRPC dependencies
+FAIL           link.daemon: 127.0.0.1:50061: robot daemon unreachable at 127.0.0.1:50061
+  hint: check it is running on the robot PC: rwrl daemon --station robot.yaml --bind 0.0.0.0:<port>; check the network/firewall
+    hint: check the daemon log, bind, firewall, and the SSH tunnel if used
+SKIPPED        link.quality: daemon describe unavailable
+PASS           link.deps: grpc, msgpack and websockets importable
+FAIL           link.policy: 127.0.0.1:8000: websocket handshake or metadata read failed
+    hint: check the openpi server address, websocket proxy and server log
+# end output

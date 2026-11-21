@@ -1,0 +1,40 @@
+usage: rwrl [-h] [--station PATH] [--robot NAME] [--preset PATH] [--direct]
+            [--mock] [--json] [--yes]
+            {status,q,tcp,stop,recover,home,gripper,camera,doctor,setup,daemon,supervise,discover,teleop,workspace,archive,train,record,deploy,deploy-act,deploy-openpi,collect-reward}
+            ...
+
+Robot station hardware primitives
+
+positional arguments:
+  {status,q,tcp,stop,recover,home,gripper,camera,doctor,setup,daemon,supervise,discover,teleop,workspace,archive,train,record,deploy,deploy-act,deploy-openpi,collect-reward}
+    home                show, save, or move to home (home phase only)
+    gripper             read or command the gripper
+    camera              inspect cameras or save one frame
+    doctor              Inspect the host, project environment and devices
+    setup               Discover and configure a station
+    daemon              Serve robots over the network
+    supervise           Supervise a robot process
+    discover            Discover visible hardware
+    teleop              read, calibrate and select teleop input devices
+    workspace           inspect and configure task-frame workspace
+    archive             inspect recorder archives offline (no station or
+                        robot)
+    train               Train a real-world policy
+    record              Record teleoperated demonstrations
+    deploy              Deploy a trained policy
+    deploy-act          Deploy a standalone ACT policy
+    deploy-openpi       Evaluate a remote openpi policy
+    collect-reward      Collect reward-classifier data
+
+options:
+  -h, --help            show this help message and exit
+  --station PATH        station yaml; default: station config lookup
+  --robot NAME          robot name in a multi-robot station
+  --preset PATH         env preset yaml for home and reset gripper
+  --direct              connect directly if no daemon owns the arm
+  --mock                use doctor fake backends for direct connections
+  --json                one JSON result on stdout
+  --yes                 skip motion or doctor repair confirmation (preflight
+                        checks still apply)
+
+Place global options before the command.

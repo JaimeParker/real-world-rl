@@ -1,0 +1,7 @@
+# start hold
+START_NEUTRAL: release the puck; q exits control.
+EPISODE_HOLD: motion input ignored; q exits control. n starts the next episode (task reset may move/home the arm).
+# end hold
+# start socket
+PermissionError: [Errno 1] Operation not permitted
+# end socket

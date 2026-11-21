@@ -1,0 +1,25 @@
+# 实验 preset：后续 teleop run 从 --station 合入设备连接信息。
+# start observations
+env_backend: real_robot
+env_id: pick_and_place
+obs:
+  state: true
+  rgb: [wrist]
+  depth: []
+  image_size: [128, 128]
+# end observations
+real_robot:
+  # start action
+  num_joints: 7
+  action_mode: cartesian_delta
+  xyz_scale_m: 0.05
+  rot_scale_rad: 0.3
+  gripper_in_action: true
+  state_fields: [tcp_pose, tcp_vel, joint_pos, joint_vel]
+  control_hz: 10
+  max_episode_steps: 200
+  # end action
+  # start reset
+  # home 沿用 station.home_joints；默认任务为 none，reset 归位并开爪。
+  reset_settle_s: 0.5
+  # end reset

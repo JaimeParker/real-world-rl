@@ -1,0 +1,20 @@
+# start metrics
+losses/loss
+  step=1 value=8636025856.000000
+  step=2 value=75244328.000000
+  step=3 value=15802151.000000
+  step=4 value=3629491.000000
+losses/behavior_mse
+  step=1 value=0.224960
+  step=2 value=0.129819
+  step=3 value=0.111119
+  step=4 value=0.062859
+# end metrics
+# start files
+checkpoints
+config.json
+experiment.json
+checkpoint_2.pt
+checkpoint_4.pt
+final.pt
+# end files

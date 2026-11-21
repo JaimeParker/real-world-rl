@@ -61,5 +61,5 @@ How the methods and the intervention path work.
 - [Hardware session checklists](testing/README.md): English primary checklists,
   record CSV conventions and evidence requirements. Hardware results are filled in on site.
 
-The GitHub Wiki is generated from these repository files by a GitHub Action; edit the files in
-the repository directly.
+Step-by-step tutorials are published with Read the Docs from [site/](../site/index.rst).
+See the [build and publishing guide](../site/README.md). These `docs/` files remain GitHub references.

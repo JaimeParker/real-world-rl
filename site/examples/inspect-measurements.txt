@@ -1,0 +1,9 @@
+# start output
+phase,start_s,end_s,max_drift_mm,residual_mm,settle_s,stop_to_exit_s,stop_to_robot_stop_s,evidence
+hold,1000.000000,1001.500000,3.000,1.000,,,,inspect_teleop_archive
+hold_window,1000.000000,1000.800000,2.000,,,,,inspect_teleop_archive
+intervene,1001.600000,1004.000000,113.137,113.137,,,,inspect_teleop_archive
+hold,1004.100000,1004.500000,0.000,0.000,,,,inspect_teleop_archive
+hold_window,1004.100000,1004.500000,0.000,,,,,inspect_teleop_archive
+settle,1002.400000,1003.200000,,30.000,0.800,,,inspect_teleop_archive
+# end output

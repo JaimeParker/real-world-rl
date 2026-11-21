@@ -4,7 +4,7 @@
     {
       "source": "docs/README.md",
       "translation": "docs/zh-CN/README.md",
-      "source_sha256": "417d53888525952a64b2d7037fcf7f30808ae668aed3fc2fa7bdd6323442c9bc"
+      "source_sha256": "9ed83b588e0c02baf1442f4c7db4f9cd6f1309066abe593b5faedc4e70f865f7"
     },
     {
       "source": "docs/bimanual.md",
@@ -134,7 +134,7 @@
     {
       "source": "README.md",
       "translation": "docs/zh-CN/project-readme.md",
-      "source_sha256": "8be0f0fdd80a07f8cecb0696954a7a913800a1df21151d4c35c86f7dea320f89"
+      "source_sha256": "5d1f4284c7e3b7fd14eb4c226f2a7463c2447cfaeb29d0a1806e8383ea28cda5"
     },
     {
       "source": "docs/devices.md",

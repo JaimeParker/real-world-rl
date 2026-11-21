@@ -1,0 +1,24 @@
+# start output
+usage: rwrl daemon [-h] [--station PATH] [--robot ROBOT] [--bind BIND]
+                   [--token TOKEN] [--no-preflight] [--watchdog-s WATCHDOG_S]
+                   [--jpeg-quality JPEG_QUALITY] [--transport {grpc}]
+
+options:
+  -h, --help            show this help message and exit
+  --station PATH        robot or station yaml; default: $RWRL_STATION,
+                        ./local/station.yaml, then ~/.config/rwrl/station.yaml
+  --robot ROBOT         serve only this robot of a station (default: every
+                        robot, one daemon process each)
+  --bind BIND           host:port to listen on (default: the robot's
+                        daemon.bind, else 0.0.0.0:50051); single robot only
+  --token TOKEN         shared secret clients must send (default: the robot's
+                        daemon.token); single robot only
+  --no-preflight        skip the doctor before serving
+  --watchdog-s WATCHDOG_S
+                        idle a servoing arm after this long without actions
+  --jpeg-quality JPEG_QUALITY
+                        lossy-JPEG the color image of every camera frame at
+                        this quality (1-100); depth stays raw. Train and
+                        deploy with the same value; default sends raw frames
+  --transport {grpc}
+# end output

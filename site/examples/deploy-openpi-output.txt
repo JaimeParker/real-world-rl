@@ -1,0 +1,29 @@
+# start conversion
+pi05_base 源权重 + 源 loader + 配套资产
+    └─ RLinf 转换入口（路径、参数和格式需核实）
+         └─ RLinf 可加载权重 + 目标 loader + 配套统计
+              └─ 服务可加载的导出产物（导出是否必要、方式需核实）
+# end conversion
+# start topology
+GPU 服务器                                  NUC（机器人旁）
+  openpi serve_policy :8000
+           ↕ WebSocket
+  rwrl deploy-openpi                         rwrl daemon
+           │                                127.0.0.1:50051
+  127.0.0.1:50061 ── ssh -L / gRPC ────────────┘
+                                            ├─ Franka + Hand
+                                            └─ 相机
+# end topology
+# start daemon
+serving franka 'franka' on 127.0.0.1:50051
+# end daemon
+# start episode
+[deploy-openpi] episode=0 steps=30 return=0.000 terminated=False truncated=True health_ok=True outcome=timeout disconnects=0 disconnected_s=0.0 rtt_ms_mean=2.0 inferences=6 inference_ms_mean=40.0 inference_ms_max=45.0 server_infer_ms_mean=30.0
+[deploy-openpi] summary completed_episodes=1 interrupted_episodes=0 success_rate=0.000 disconnects=0 disconnected_s=0.0
+# end episode
+# start waiting
+[deploy-openpi] WAITING outcome=interrupted for robot daemon (robot daemon unreachable at 127.0.0.1:50061)
+[deploy-openpi] reconnect attempt=1 disconnected_s=1.0
+[deploy-openpi] reconnected watchdog_trips=1
+press Enter to reset and start the next episode
+# end waiting

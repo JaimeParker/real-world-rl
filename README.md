@@ -1,13 +1,14 @@
 # real-world-rl
 
-**Documentation:** [English](docs/README.md) · [中文文档入口](docs/README.zh-CN.md) · [中文操作教程](site/index.rst)
+**Tutorials:** [中文](site/index.rst) · [English placeholders](site/en/index.rst) · [Read the Docs build and publishing](site/README.md)
+
+**Reference:** [English](docs/README.md) · [中文](docs/README.zh-CN.md)
 
 For GPU-hosted Pi0.5 evaluation, see [Deploy with an openpi policy server](docs/deploy-openpi.md).
 
-**Start here:** the [hardware tutorial](docs/tutorial/00-overview.md) takes one Franka arm
-with a GELLO leader from an empty NUC to a deployed policy, one `rwrl` command at a time:
-[install](docs/tutorial/01-install.md), [set up the station](docs/tutorial/02-setup.md),
-[bring up the Franka](docs/tutorial/03-franka-bringup.md), record, train and deploy.
+**Start here:** [安装与初验](site/tutorials/install.rst), then
+[建立工作站](site/tutorials/station.rst). These step-by-step tutorials are the
+Read the Docs sources under `site/`; `docs/` retains the GitHub reference guides.
 
 Real-world RL orchestration split out of
 [rl-garden](https://github.com/JaimeParker/rl-garden): `ActorLoop`/

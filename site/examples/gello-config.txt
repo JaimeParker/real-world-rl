@@ -4,9 +4,8 @@ teleop:
   name: gello
   backend: gello
   options:
-    intervention: toggle
-    event_device: /dev/input/REPLACE_WITH_EVENT_NODE
-    event_keys: {toggle: KEY_SPACE}
+    intervention: always
+    # teleop run uses terminal t/h; no evdev toggle is needed.
 # end events
 # start joint
 # Top-level fields in the copied resolved-config.yaml:

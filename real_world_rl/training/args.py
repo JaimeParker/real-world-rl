@@ -20,7 +20,7 @@ field explicitly (e.g. ``SerlArgs.franka_real``), the same way
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional, Sequence, get_args
+from typing import Any, Literal, Optional, get_args
 
 from real_world_rl.envs.bimanual.config import BimanualRealRobotEnvConfig
 from real_world_rl.envs.real_robot.config import RealRobotEnvConfig
@@ -122,7 +122,7 @@ class _HilEnvArgsBeforeTeleop:
 
     classifier_checkpoint: Optional[str] = None
     classifier_threshold: float = 0.5
-    classifier_image_keys: Sequence[str] = field(default_factory=tuple)
+    classifier_image_keys: tuple[str, ...] = field(default_factory=tuple)
 
     # Reward from the operator's buttons (TeleopEventRewardWrapper, on the envs that open the
     # teleop device: actor, eval, demo recorder): a ``success`` event pays at least
@@ -239,7 +239,7 @@ class HilEnvArgs(TeleopArgs, _HilEnvArgsBeforeTeleop):
     # glob patterns over pkl files in the same transition-dict format as the
     # buffer snapshots above. Loaded into the demo buffer unconditionally on
     # every start, before crash-recovery snapshot reload.
-    demo_dataset_paths: Sequence[str] = field(default_factory=tuple)
+    demo_dataset_paths: tuple[str, ...] = field(default_factory=tuple)
 
     fwbw: bool = False
     # Only used when fwbw=True. Actor: builds both directions' sync clients

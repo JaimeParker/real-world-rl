@@ -775,3 +775,19 @@ def test_franka_real_request_keeps_frame_stack():
 @pytest.fixture(autouse=True)
 def _isolate_actor_outbox_directory(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
+
+
+@pytest.mark.parametrize("residual", [False, True])
+def test_hybrid_rejects_unsupported_bc_actor_checkpoint(residual):
+    from real_world_rl.training.entrypoints.hil_serl import build_hil_agent
+    from real_world_rl.training.entrypoints.residual_hil_serl import (
+        ResidualHilSerlArgs, build_residual_hil_serl,
+    )
+    if residual:
+        args = ResidualHilSerlArgs(residual_variant="hybrid", load_actor_checkpoint="bc.pt", buffer_device="cpu", hidden_dim=8, discrete_hidden_dim=8)
+        builder = build_residual_hil_serl
+    else:
+        args = _base_args(load_actor_checkpoint="bc.pt")
+        builder = build_hil_agent
+    with pytest.raises(ValueError, match="load-actor-checkpoint.*hybrid"):
+        builder(args, _FakeEnv(), None, None, None)

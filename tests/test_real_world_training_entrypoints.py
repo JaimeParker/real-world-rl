@@ -11,6 +11,7 @@ import torch
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
 
+import real_world_rl.envs.backends.real_robot  # register source-checkout backend
 from real_world_rl.training.entrypoints.serl import SerlArgs
 
 
@@ -215,3 +216,23 @@ def test_serl_actor_builds_real_robot_env_with_real_robot_config(monkeypatch):
 @pytest.fixture(autouse=True)
 def _isolate_actor_outbox_directory(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
+
+
+@pytest.mark.parametrize("method", ["real_world_bc", "hil_serl", "residual_hil_serl", "silri"])
+def test_demo_paths_yaml_lists_and_cli_override(tmp_path, method):
+    from real_world_rl.training.registry import registry
+    preset = tmp_path / "preset.yaml"
+    preset.write_text("demo_dataset_paths: [first.pkl, second.pkl]\n")
+    parsed = registry.parse_command([method, "--config", str(preset)])
+    assert tuple(parsed.args.demo_dataset_paths) == ("first.pkl", "second.pkl")
+    parsed = registry.parse_command([method, "--config", str(preset),
+                                    "--demo-dataset-paths", "override.pkl"])
+    assert tuple(parsed.args.demo_dataset_paths) == ("override.pkl",)
+
+
+def test_classifier_image_keys_yaml_list(tmp_path):
+    from real_world_rl.training.registry import registry
+    preset = tmp_path / "preset.yaml"
+    preset.write_text("classifier_image_keys: [wrist, front]\n")
+    parsed = registry.parse_command(["hil_serl", "--config", str(preset)])
+    assert tuple(parsed.args.classifier_image_keys) == ("wrist", "front")

@@ -23,8 +23,8 @@ actor 也先构造同形状的小缓冲策略，再等待 learner 的初始快�
 首个训练更新后发布 ready 策略，后续按 publish_freq 发布。
 
 **你应该看到**：新实验最早记录的 global_update=0，之后才有正值。
-帮助虽列出 ``--load-actor-checkpoint``，当前 hybrid builder 没有使用它来加载 BC；
-不要据此宣称已有 BC 热启动。恢复 HIL-SERL 训练使用第五章的完整 bundle。
+``--load-actor-checkpoint`` 只支持连续策略；hybrid 的机械臂 actor 与 DQN 夹爪
+不兼容完整连续动作 BC 头，传入该参数会明确报错。恢复 HIL-SERL 训练使用第五章的完整 bundle。
 **如果不对**：启动即有旧版本／旧 replay 时检查是否复用了 first-hil 的 checkpoint 目录；
 把 BC 文件传给 --load-checkpoint 出现算法或权重不兼容时，选回 HIL-SERL bundle。
 

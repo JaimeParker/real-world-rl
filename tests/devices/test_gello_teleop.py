@@ -745,3 +745,13 @@ def test_example_yaml_gello_block_lists_every_option_and_builds(name, config_cls
     robot = Robot.from_dict({"type": name, "arm_backend": "fake", "gripper": None, "teleop": block})
     assert isinstance(robot.teleop, GelloTeleop)
     assert robot.teleop.action_dim == config_cls.NUM_JOINTS and robot.teleop.has_gripper
+
+
+def test_always_mode_does_not_report_a_held_toggle(monkeypatch):
+    teleop = GelloTeleop(TeleopConfig(backend="gello", options=franka_options()))
+    handle = types.SimpleNamespace(bus=types.SimpleNamespace(
+        read_positions_rad=lambda: np.zeros(8)))
+    monkeypatch.setattr(teleop, "_drain_key_downs", lambda handle: ["toggle"])
+    reading = teleop._poll_device(handle)
+    assert reading.active
+    assert not reading.buttons["toggle"]

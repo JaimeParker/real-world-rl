@@ -2,14 +2,20 @@
 from __future__ import annotations
 
 import logging
+import math
 import sys
+import time
 
 import torch
 
 from real_world_rl.contracts.outcomes import EpisodeMetrics, EpisodeOutcomeAccumulator
 
 
-def evaluate_policy(env, policy, *, episodes, seed, predict=None):
+def evaluate_policy(env, policy, *, episodes, seed, predict=None, control_hz=10.,
+                    episode_end_behavior="auto", neutral_threshold=.05, neutral_stable_s=.2):
+    """Evaluate at the actor's control rate, honoring its episode-boundary hold setting."""
+    from real_world_rl.teleop.core import session
+    from real_world_rl.teleop.core.operator_keys import operator_quit_requested
     task = getattr(env, "task_config", None)
     if task is not None:
         episodes = task.eval_episodes if task.eval_episodes is not None else episodes
@@ -17,6 +23,17 @@ def evaluate_policy(env, policy, *, episodes, seed, predict=None):
     metrics = EpisodeMetrics()
     returns = []
     try:
+        if not math.isfinite(control_hz) or control_hz <= 0:
+            raise ValueError("control_hz must be positive")
+        if episode_end_behavior not in ("auto", "hold"):
+            raise ValueError("episode_end_behavior must be auto or hold")
+        source = None
+        session_options = dict(control_hz=control_hz, neutral_threshold=neutral_threshold,
+                               neutral_stable_s=neutral_stable_s)
+        if episode_end_behavior == "hold":
+            session.validate_neutral_options(neutral_threshold, neutral_stable_s)
+            session.session_backend(env)
+            source = session.session_source(env)
         for episode in range(episodes):
             accumulator = EpisodeOutcomeAccumulator()
             episode_return = 0.0
@@ -24,15 +41,26 @@ def evaluate_policy(env, policy, *, episodes, seed, predict=None):
                 if hasattr(policy, "reset_episode"):
                     policy.reset_episode()
                 obs, _ = env.reset(seed=seed if episode == 0 else None)
+                if source is not None:
+                    if session.wait_before_episode(env, source, **session_options) == "quit":
+                        break
+                    obs = session.session_observe(env)
                 while True:
+                    start = time.perf_counter()
                     with torch.no_grad():
                         action = predict(obs) if predict is not None else policy.predict(obs, deterministic=True)
                     sample = next(iter(obs.values())) if isinstance(obs, dict) else obs
                     obs, reward, terminated, truncated, info = env.step(action.to(sample.device))
                     accumulator.observe(info)
                     episode_return += float(torch.as_tensor(reward).sum())
-                    if bool(torch.as_tensor(terminated).any()) or bool(torch.as_tensor(truncated).any()):
-                        outcome = accumulator.finish(terminated=terminated, truncated=truncated)
+                    if not operator_quit_requested(info):
+                        remaining = 1. / control_hz - (time.perf_counter() - start)
+                        if remaining > 0:
+                            time.sleep(remaining)
+                    if (bool(torch.as_tensor(terminated).any()) or bool(torch.as_tensor(truncated).any())
+                            or operator_quit_requested(info)):
+                        outcome = accumulator.finish(terminated=terminated, truncated=truncated,
+                                                     interrupted=operator_quit_requested(info))
                         metrics.add(outcome)
                         returns.append(episode_return)
                         print(f"[eval] episode={episode} task_success={outcome.task_success} "
@@ -41,6 +69,14 @@ def evaluate_policy(env, policy, *, episodes, seed, predict=None):
             except BaseException:
                 metrics.add(accumulator.finish(interrupted=True))
                 raise
+            if operator_quit_requested(info):
+                if source is not None:
+                    session.notify_session_event(env, "STOPPING", "operator_quit")
+                break
+            if source is not None:
+                if session.wait_after_episode(env, source, allow_next=episode + 1 < episodes,
+                                              **session_options) == "quit":
+                    break
     finally:
         summary = metrics.summary()
         mean_return = sum(returns) / len(returns) if returns else 0.0

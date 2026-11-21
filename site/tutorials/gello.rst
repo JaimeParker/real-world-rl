@@ -21,7 +21,7 @@
 例如扫描得到关节 1–7、触发器 8、57600 baud，才使用下节这组命令参数。
 
 **你应该看到**：串口路径、七个按机械关节顺序排列的不同 ID、独立的 gripper ID，
-以及 evdev 列表中现场键盘／踏板的节点和名称。安装章需已补齐 ``gello`` 与 ``gello-events``。
+安装章需已补齐 ``gello``；只有使用 evdev 键盘／踏板时才需要节点清单与 ``gello-events``。
 
 **如果不对**：
 
@@ -82,7 +82,7 @@
    * - ``wrap_centers_rad``
      - 来自从臂 ``joint_limits`` 每行上下限的中点；先按当前机器人型号的规格填 station.joint_limits，再运行标定。
    * - ``intervention``、``event_device``、``event_keys``
-     - 本例设 toggle；节点取上一步 evdev 列表，Space 键绑定 KEY_SPACE，检查确为对应设备。
+     - 保留校准默认 always；本例活动回合使用终端 t/h，不需要 evdev toggle。
 
 其余字段保持生成值：``name``、``backend``；未设置的 ``hold_s``、``poll_interval_s``
 默认 0，设备层 ``gripper_binarize_threshold`` 默认 null。需要设备层二值化时才调整后者；
@@ -108,7 +108,7 @@
 
 **你应该看到**：read 的 ``q`` 是标定后的主臂角度；另一条命令的 ``q (rad)`` 是从臂角度。
 在从臂已安全停止的位置手动对齐主臂，逐项比较。触发器完全打开对应 gripper=1，关闭对应 0。
-Space 键切换设备层 intervening；再次按下使其为 False，再退出读取。
+默认 always 模式的 intervening 始终为 True；若另配 evdev toggle 模式，Space 才切换设备层状态。
 直接连接时分别读主从即可；``teleop read --with-follower`` 只支持 daemon 路径。
 
 **如果不对**：
@@ -135,7 +135,7 @@ Space 键切换设备层 intervening；再次按下使其为 False，再退出�
    :end-before: # end practice
 
 当前 ``teleop run`` 的活动回合由终端 ``t`` 接管、``h`` 交还。
-保持实体 Space 切换关闭；中立门检查读的是设备自身的 toggle。
+默认 always 模式没有实体切换；中立门要求主臂请求位姿与从臂实测位姿的领先量在阈值内。
 看到 START_NEUTRAL 通过后按 t，移动主臂，试一次触发器开闭，再按 h。
 最后按 s 标记成功、q 退出保持阶段。下一章解释标注。
 
@@ -146,8 +146,7 @@ Space 键切换设备层 intervening；再次按下使其为 False，再退出�
 
 **如果不对**：
 
-* 一直停在 START_NEUTRAL：检查实体 toggle 已关闭。校准生成的默认 ``intervention: always``
-  会让中立检查永远不通过；本章特意改成 toggle。这是当前会话实现的限制。
+* 一直停在 START_NEUTRAL：always 模式将主臂与从臂对齐并稳定保持；若另用 toggle 模式，则关闭设备 toggle。
 * Space 能切设备状态却不接管活动回合：当前会话使用终端事件源，按 t/h；不要混用两套接管状态。
 * ``WORKSPACE HOLD``：先交还，检查请求方向和边界，再接管。不要通过扩大工作区掩盖错误映射。
 
@@ -232,7 +231,7 @@ Space 键切换设备层 intervening；再次按下使其为 False，再退出�
 
    串口权限、供电、ID、波特率、正方向、偏移残差、关节包裹中心、触发器两端、
    主从对齐与运动学、实体键状态、中立检查、夹爪接管、关节扩展及双臂独立接管需现场确认。
-   当前 always 与中立门的冲突已按代码说明，没有修改控制实现。
+   always 模式已通过无硬件测试验证中立检查逻辑；现场仍需验证对齐阈值与运动安全。
 
 检查清单：能逐项对上主从读数；标定参数来自实测；中立门通过；能 t 接管、h 交还；
 知道当前输出是笛卡尔还是关节动作。

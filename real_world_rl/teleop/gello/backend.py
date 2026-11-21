@@ -517,7 +517,7 @@ class GelloTeleop(Teleop):
         return RawReading(
             action=joints.astype(np.float32),
             gripper=gripper,
-            buttons={TOGGLE_ACTION: toggle_on},
+            buttons={TOGGLE_ACTION: toggle_on if self._intervention == "toggle" else False},
             events_now={key: key in pressed for key in EVENT_KEYS},
             active=True if self._intervention == "always" else toggle_on,
         )

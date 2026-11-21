@@ -1173,3 +1173,21 @@ def test_station_workspace_and_safety_box_both_hand_back_until_another_toggle(li
     source.poll()
     leader.intervening = True
     assert source.poll().intervened
+
+
+@pytest.mark.parametrize("mapping", ["anchored", "absolute"])
+@pytest.mark.parametrize("offset, neutral", [(0.0, True), (0.2, False)])
+def test_always_intervening_leader_neutral_depends_on_alignment(mapping, offset, neutral):
+    class AlwaysLeader(_Leader):
+        def read(self, timeout_s=None):
+            sample = super().read(timeout_s)
+            sample.buttons = {"toggle": False}
+            return sample
+
+    leader = AlwaysLeader()
+    source = _source(leader, _Follower(_offset_pose(READY_Q, [offset, 0, 0], [0, 0, 0])),
+                     mapping=mapping)
+    axes, buttons = source.session_input()
+    assert (np.max(np.abs(axes)) <= .05 and not any(buttons.values())) == neutral
+    assert source._anchor is None
+    assert not source.cartesian_tracker.initialized

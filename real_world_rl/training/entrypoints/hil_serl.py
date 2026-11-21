@@ -119,6 +119,10 @@ def build_hil_agent(args, env, eval_env, logger=None, checkpoint_dir=None, **kwa
         kwargs.pop("num_grippers", None)
         return build_agent_with_action_contract(build_rlpd, args, env, eval_env, logger, checkpoint_dir,
                           algorithm_cls=ContinuousHilRLPD, **kwargs)
+    if args.load_actor_checkpoint is not None:
+        raise ValueError("--load-actor-checkpoint is unsupported for hybrid policies: "
+                         "BC uses a full continuous action head; hybrid uses an arm actor and DQN gripper. "
+                         "Use --load-checkpoint with a HIL-SERL bundle to resume.")
     from rl_garden.training.online.entrypoints.rlpd_hybrid import build_rlpd_hybrid
     return build_agent_with_action_contract(build_rlpd_hybrid, args, env, eval_env, logger, checkpoint_dir, **kwargs)
 
@@ -260,6 +264,8 @@ def _run_eval(args) -> None:
     from real_world_rl.training.evaluation import evaluate_policy
     evaluate_policy(
         env, agent.policy, episodes=args.eval_n_trajs, seed=args.seed,
+        control_hz=actor_control_hz(args), episode_end_behavior=args.episode_end_behavior,
+        neutral_threshold=args.neutral_threshold, neutral_stable_s=args.neutral_stable_s,
         predict=lambda obs: agent.policy.predict(agent._obs_to_policy_device(obs), deterministic=True),
     )
 
@@ -301,6 +307,9 @@ class HilSerlArgs(HilEnvArgs, RealWorldFrankaArgs, RLPDHybridArgs):
     # HilSerlArgs rather than the shared RealWorldFrankaArgs so this round's
     # scope stays limited to hil_serl; serl.py is unaffected.
     role: Literal["actor", "learner", "eval"] = "actor"
+
+    # BC actor weights: continuous policies only; unsupported for hybrid arm/DQN-gripper policies.
+    load_actor_checkpoint: str | None = None
 
     # Below: HilSerlArgs-local overrides of RLPDHybridArgs/EncoderConfig
     # defaults, matching what HIL-SERL's own real-robot recipes

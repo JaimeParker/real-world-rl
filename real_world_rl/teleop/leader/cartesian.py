@@ -316,7 +316,7 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
         return self._poll(toggle=bool(toggle))
 
     def session_input(self) -> tuple[np.ndarray, Mapping[str, bool]]:
-        """Toggle released = neutral; while requested, axes are the normalized current lead.
+        """A released toggle is neutral; always-on leaders must align with the follower.
 
         Consume one sample without advancing the tracker or changing the leader anchor.
         Before the first anchor, FK itself supplies the requested pose.
@@ -333,7 +333,8 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
             axes[:3] = (target[:3, 3] - measured[:3, 3]) / self._tracker.config.lead_cap_m
             axes[3:] = matrix_to_rotvec(target[:3, :3] @ measured[:3, :3].T) / self._tracker.config.lead_cap_rad
             axes = np.clip(axes, -1.0, 1.0)
-        return axes, {"toggle": requested}
+        # Continuous intervention is not a held button (e.g. GELLO's always mode).
+        return axes, {"toggle": bool(sample.buttons.get("toggle", requested))}
 
     def close(self) -> None:
         if self._leader_robot is not None:

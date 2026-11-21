@@ -74,6 +74,8 @@ this as an unsupported combination; it's actually a data-loss bug. (Now fixed
 
 ### 8. Demo-data preloading (`--demo_path` equivalent) -- LANDED
 
+Current full-bundle recovery restores the saved demo buffer (including retained seed demos), so it does not preload seed files again. `--load-actor-checkpoint` is rejected for hybrid policies: the BC continuous action head does not match the arm actor plus DQN gripper.
+
 HIL-SERL's own `--demo_path` (`train_rlpd.py:458-466`) is not RLPD's generic
 `--offline_dataset` (a structured h5/minari dataset loader) --
 it's a list of raw pickled transition dicts, unconditionally loaded into the
@@ -89,9 +91,8 @@ Now built:
 
 - `HilSerlLearnerLoop.__init__` gained a `demo_dataset_paths: Sequence[str]`
   parameter (glob patterns), loaded via `_load_demo_datasets()` into
-  `agent.offline_replay_buffer` (through `add_demo_transition`) unconditionally
-  on every start, before crash-recovery snapshot reload -- mirrors HIL-SERL's
-  own always-reload-`demo_path` behavior exactly.
+  `agent.offline_replay_buffer` (through `add_demo_transition`) when no full bundle
+  is available, before legacy snapshot reload. Full bundles restore the saved demo buffer.
 - File format matches the existing buffer-snapshot pkl convention (a pickled
   list of `{"obs", "next_obs", "action", "reward", "done", ...}` CPU-tensor
   dicts -- the same shape `HilSerlLearnerLoop._snapshot()` writes), not
@@ -99,7 +100,7 @@ Now built:
   a deliberate format choice, not a fidelity gap: it means a previous run's
   `checkpoint_dir/demo_buffer/*.pkl` snapshot files can be reused directly as
   another run's `--demo_dataset_paths` seed data.
-- New `HilSerlArgs` field: `demo_dataset_paths: Sequence[str] = ()`.
+- New `HilSerlArgs` field (now tuple-typed for YAML presets): `demo_dataset_paths: tuple[str, ...] = ()`.
 - `DemoInterventionMixin.init_demo_buffer()` now raises if
   `offline_replay_buffer` is already populated (e.g. from
   `--offline_dataset`) instead of silently overwriting it -- turns the

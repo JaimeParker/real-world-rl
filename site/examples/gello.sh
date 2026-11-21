@@ -2,6 +2,7 @@
 # start serial
 ls -l /dev/serial/by-id/
 id
+# Optional: only when using an evdev keyboard/pedal (requires gello-events).
 python -c 'import evdev; print([(p, evdev.InputDevice(p).name) for p in evdev.list_devices()])'
 # end serial
 # start dialout

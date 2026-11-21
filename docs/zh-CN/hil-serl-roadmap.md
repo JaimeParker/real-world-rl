@@ -28,13 +28,15 @@
 
 ### 8. 示范预加载 对应 `--demo_path` 已落地
 
+当前完整 bundle 恢复会还原已保存的 demo buffer（含保留的种子示范），不会再次预加载种子文件。hybrid 策略拒绝 `--load-actor-checkpoint`：BC 的完整连续动作头与机械臂 actor 加 DQN 夹爪不匹配。
+
 HIL-SERL 的 `--demo_path`（`train_rlpd.py:458-466`）接收原始 pickle transition 字典列表，与 RLPD 通用的 `--offline_dataset` 结构化 h5/minari 加载器用途不同。每次启动，包括重启，都会把它无条件加载到持续接收介入数据的 `demo_buffer`，随后再通配加载恢复快照。此前 `rl-garden` 的示范缓冲区没有预加载路径，`init_demo_buffer()` 总从空开始，`hil_serl` 只能使用本次运行积累的介入数据，无法像通常的 HIL-SERL 真机运行一样，以已有遥操作示范初始化。
 
 现已实现：
 
-- `HilSerlLearnerLoop.__init__` 新增 `demo_dataset_paths: Sequence[str]` 通配参数；每次启动都在恢复快照前，经 `_load_demo_datasets()` 和 `add_demo_transition` 加载到 `agent.offline_replay_buffer`，与 HIL-SERL 每次重载 `demo_path` 的行为一致。
+- `HilSerlLearnerLoop.__init__` 新增 `demo_dataset_paths: Sequence[str]` 通配参数；无完整 bundle 时，在恢复旧式快照前，经 `_load_demo_datasets()` 和 `add_demo_transition` 加载到 `agent.offline_replay_buffer`；完整 bundle 直接恢复保存的 demo buffer。
 - 文件沿用已有缓冲区快照 pkl 约定：CPU 张量字典 `{"obs", "next_obs", "action", "reward", "done", ...}` 的 pickle 列表，与 `HilSerlLearnerLoop._snapshot()` 一致。该格式选择使此前运行的 `checkpoint_dir/demo_buffer/*.pkl` 可直接用于另一运行的 `--demo_dataset_paths` 初始化；HIL-SERL 原始格式则是 numpy 的 `{"observations", "actions", ...}` 字典。
-- `HilSerlArgs` 新增 `demo_dataset_paths: Sequence[str] = ()`。
+- `HilSerlArgs` 新增的字段现为 `demo_dataset_paths: tuple[str, ...] = ()`，以支持 YAML 列表。
 - `DemoInterventionMixin.init_demo_buffer()` 在 `offline_replay_buffer` 已有数据，例如来自 `--offline_dataset` 时抛异常，修复静默覆盖。RLPD 静态离线数据与 HIL-SERL 示范仍共用一个槽，同一 `RLPDHybrid` 暂不能同时使用两者，但现在会明确报错。
 
 **第 8 项更正，已修复，以下保留原发现。** `_load_demo_datasets()` 在 `HilSerlLearnerLoop.__init__` 中先于 `_reload_snapshots()` 调用，曾为每条预加载示范递增 `self._received`，即使数据仅进入 `agent.add_demo_transition`，从未进入在线 `agent.replay_buffer`。`received_transitions` 控制 `LearnerLoop.run()` 的 `learning_starts` 等待，见 `rl_garden/real_world/learner_loop.py`；HIL-SERL 则用 `while len(replay_buffer) < config.training_starts`（`train_rlpd.py:278`），只计算在线数据，`--demo_path` 填充的 `demo_buffer` 不计入。于是 `--demo_dataset_paths` 提供至少 `learning_starts` 条示范时，`hil_serl` 在零在线 transition 时就能开始训练，而 HIL-SERL 始终等待真实在线数据。`tests/test_real_world_hil_serl_loops.py` 的 `test_hil_serl_learner_loop_preloads_demo_dataset_paths` 甚至断言预加载后 `received_transitions == 3`，固定了错误行为。**修复后**，`real_world_rl/loops/hil_serl.py` 的 `_load_demo_datasets()` 不再把预加载示范计入 `received_transitions`，`learning_starts` 等待在线数据；测试改为断言 `received_transitions == 0`。

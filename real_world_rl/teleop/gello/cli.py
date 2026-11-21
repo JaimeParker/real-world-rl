@@ -12,7 +12,7 @@ from real_world_rl.cli.station_edit import station_document, confirm_write, atom
 
 GROUP_DESCRIPTIONS = {
     "calibrate": "leader-arm flags; only with --backend gello; unset values come from the station teleop",
-    "run": "leader_cartesian session flags; only with --backend gello; toggle takes over",
+    "run": "leader_cartesian session flags; only with --backend gello; terminal t takes over; h hands back",
 }
 SHARED_FLAG_HELP = {"calibrate": {"--use": "write the calibrated options into the station teleop.options"}}
 # Value flags default to None: a flag given for another backend is refused, and an unset one
@@ -122,7 +122,7 @@ def run_session(args, ctx):
     plan = SessionPlan(
         settings={"teleop_device": "leader_cartesian", "teleop_options_yaml": None,
                   "episode_end_behavior": "hold", "neutral_threshold": .5, "neutral_stable_s": stable_s},
-        confirm_detail=(f"GELLO leader_cartesian session on {selected.config.name}; toggle takes over; "
+        confirm_detail=(f"GELLO leader_cartesian session on {selected.config.name}; terminal t takes over; h hands back; "
                         "s/f ends episode and holds; n next; q exits"),
         prepare_report=prepare_report)
     return run_supervised_session(args, ctx, plan)

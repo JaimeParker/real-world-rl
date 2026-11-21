@@ -38,7 +38,7 @@
 
 * ``--record must be a new .pkl path``：选择新的文件名；不要覆盖之前的数据。
 * ``teleop run requires --preset with home and task limits``：检查命令带上 local/task.yaml。
-* 停在 START_NEUTRAL：SpaceMouse 松帽和按钮；GELLO 按上一章确认实体 toggle 为关闭。
+* 停在 START_NEUTRAL：SpaceMouse 松帽和按钮；GELLO always 模式按上一章对齐主从臂；toggle 模式关闭实体 toggle。
 * 配额一直不增加：看 discarded 原因；成功但没有人工步骤也不会保留为示范。
 
 2. 完成回合并标注
@@ -99,7 +99,7 @@
 **你应该看到**：普通结束进入 EPISODE_HOLD，运动输入被忽略，不再调用环境 step，
 也不把等待时间加入轨迹。仍有预算时，准备好下一轮，松开输入并按 n；
 连续中立默认 0.2 秒后才 reset，reset 后再次等待中立再开始采样。
-GELLO 的中立门取设备自身 toggle，保持它关闭；t/h 只管活动回合。
+GELLO always 模式的中立门检查主从臂对齐；toggle 模式需关闭设备 toggle。t/h 只管活动回合。
 
 预算耗尽会显示 ``Episode budget reached; next is disabled.``，仍等待 q，
 不会自动退出控制。q 后导出 .pkl 并关闭设备。正常退出证据保存在 session 目录。
@@ -111,7 +111,7 @@ GELLO 的中立门取设备自身 toggle，保持它关闭；t/h 只管活动回
 
 **如果不对**：
 
-* 按 n 后不动：检查预算是否已耗尽、帽／按钮／实体 toggle 是否仍处于接管状态。
+* 按 n 后不动：检查预算是否已耗尽、帽／按钮／实体 toggle 是否仍处于接管状态，或 GELLO always 模式主从臂是否未对齐。
 * 一结束就归位：检查是否绕过 teleop run 用了 ``rwrl record`` 的默认 auto 行为。
 * 结束后找不到 pkl：先正常按 q 退出；没有保留成功示范时只留下完整归档。
 

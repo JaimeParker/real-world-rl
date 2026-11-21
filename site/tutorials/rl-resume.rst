@@ -62,7 +62,7 @@ outbox 达容量或持久化失败才停止；这和启动时等待第一份快�
    :end-before: # end resume
 
 **你应该看到**：先恢复 online／demo buffer 及更新计数，只重放保存游标之后的 journal 尾部，
-再发布初始策略并接受 actor。种子示范不会在完整 bundle 上再叠加一次。
+再发布初始策略并接受 actor。完整 bundle 的 demo buffer 已含保留的种子示范，因此不会再加载一遍。
 第三章 CPU 实测恢复值为 received=6、update=6、demo=2，重放尾部为 0。
 旧 hil-serl-roadmap 的“每次启动都重载 seed demo”是迁移时期的描述；当前完整 bundle 恢复不会再次叠加。
 
@@ -96,9 +96,9 @@ outbox 达容量或持久化失败才停止；这和启动时等待第一份快�
 
 .. warning::
 
-   eval 会 reset 并执行新策略，也会在每个完成回合后自动 reset。
-   当前 evaluate_policy 不使用 actor 的 episode_end_behavior=hold 会话门，且没有 actor 的固定频率 sleep；
-   需现场确认实际调用节奏，不把训练时 hold 行为套到评估。保留人工接管与物理停止手段。
+   eval 会 reset 并执行新策略；使用与 actor 相同的 control_hz，推理和 step 耗时不足一个周期时补足等待。
+   本例保留 episode_end_behavior=hold：reset 后先确认中立，每回合结束保持，按 n 才开始下一回合；
+   预算耗尽后只能按 q 退出。auto 模式则自动 reset。保留人工接管与物理停止手段。
 
 .. literalinclude:: ../examples/rl-resume.sh
    :language: bash
@@ -144,7 +144,7 @@ outbox 达容量或持久化失败才停止；这和启动时等待第一份快�
 
 **如果不对**：task_success_rate 高而 autonomous_success_rate 低，说明依赖人工完成；
 unknown_episodes 多就检查标注来源；eval 需要 checkpoint 的错误说明未传 --load-checkpoint；
-意外自动 reset 时停止评估并审阅本节行为，hold 参数不会在该循环启用。
+意外自动 reset 时停止评估并检查配置中的 episode_end_behavior 是否为 hold。
 
 .. note::
 

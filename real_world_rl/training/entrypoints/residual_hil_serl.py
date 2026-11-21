@@ -46,6 +46,10 @@ def build_residual_hil_serl(args, env, eval_env, logger, checkpoint_dir):
         backup_entropy=args.backup_entropy,
     )
     if args.residual_variant == "hybrid":
+        if args.load_actor_checkpoint is not None:
+            raise ValueError("--load-actor-checkpoint is unsupported for hybrid residual policies: "
+                             "BC uses a full continuous action head; hybrid uses an arm actor and DQN gripper. "
+                             "Use --base-provider for a frozen BC base policy.")
         if env_num_grippers(env) == 0:
             raise ValueError("hybrid residual requires a gripper; use --residual-variant continuous")
         from rl_garden.training.online.entrypoints.rlpd_hybrid import build_rlpd_hybrid
@@ -241,7 +245,9 @@ def _run_eval(args) -> None:
         raise
 
     from real_world_rl.training.evaluation import evaluate_policy
-    evaluate_policy(env, policy, episodes=args.eval_n_trajs, seed=args.seed)
+    evaluate_policy(env, policy, episodes=args.eval_n_trajs, seed=args.seed,
+        control_hz=actor_control_hz(args), episode_end_behavior=args.episode_end_behavior,
+        neutral_threshold=args.neutral_threshold, neutral_stable_s=args.neutral_stable_s)
 
 
 def run_residual_hil_serl(args: "ResidualHilSerlArgs") -> None:

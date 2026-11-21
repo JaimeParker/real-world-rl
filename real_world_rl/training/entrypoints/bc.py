@@ -149,7 +149,6 @@ def run_real_world_bc(args: "RealWorldBCArgs") -> None:
 # ---------------------------------------------------------------------------
 
 from dataclasses import dataclass, field  # noqa: E402
-from typing import Sequence  # noqa: E402
 
 from rl_garden.training.offline.entrypoints.bc import BCArgs  # noqa: E402
 from real_world_rl.training.args import (  # noqa: E402
@@ -170,7 +169,7 @@ class RealWorldBCArgs(TeleopArgs, RealWorldFrankaArgs, BCArgs):
     constructs a teleop source."""
 
     franka_real: FrankaRealConfig = field(default_factory=FrankaRealConfig)
-    demo_dataset_paths: Sequence[str] = field(default_factory=tuple)
+    demo_dataset_paths: tuple[str, ...] = field(default_factory=tuple)
     num_offline_steps: int = 100_000
 
 

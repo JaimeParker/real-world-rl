@@ -404,3 +404,11 @@ def test_deploy_inherits_workspace_and_rejects_different_cli_geometry(embedded):
     args.real_robot.workspace = {**workspace, 'high': [.2]*3}
     with pytest.raises(ValueError, match='workspace'):
         resolve_deploy_robot_config(args, SimpleNamespace(real_robot=trained))
+
+
+def test_example_launcher_documents_device_exit_code():
+    import ast
+    from pathlib import Path
+    from real_world_rl.cli.errors import DEVICE_EXIT_CODE
+    launcher = Path(__file__).resolve().parents[1] / "examples/deploy_real_robot.py"
+    assert f"Exits {DEVICE_EXIT_CODE} on a robot" in ast.get_docstring(ast.parse(launcher.read_text()))

@@ -34,7 +34,7 @@
     {
       "source": "docs/hil-serl-roadmap.md",
       "translation": "docs/zh-CN/hil-serl-roadmap.md",
-      "source_sha256": "a100e857bb789c3d11a2b40310570ebaf2d580a6e3a76fa14b85ff8578a2f1d9"
+      "source_sha256": "9d314e773281cf6c429624211c19f1322c990a992491ce94547945dc23e4a894"
     },
     {
       "source": "docs/known-issues.md",
@@ -44,7 +44,7 @@
     {
       "source": "docs/real-world-experiments.md",
       "translation": "docs/zh-CN/real-world-experiments.md",
-      "source_sha256": "743f492d8ab16d99b8d6dac5eccde6c3f28731225a2bc844a84209e6fa2100f7"
+      "source_sha256": "c989698dbcd85814654b9166ed09df49ec5c3115e06e7b6b5325e13bf03809ee"
     },
     {
       "source": "docs/recording-demos.md",
@@ -69,7 +69,7 @@
     {
       "source": "docs/teleop.md",
       "translation": "docs/zh-CN/teleop.md",
-      "source_sha256": "806d7b4e577a08d798f57dd9dac3a8e82242e2c807fc1acb0d01690907ee7b17"
+      "source_sha256": "1155c7fe4b83ec564bff8345820b5d96647145aee5562265c5286f7888daea17"
     },
     {
       "source": "docs/tutorial/00-overview.md",
@@ -134,7 +134,7 @@
     {
       "source": "README.md",
       "translation": "docs/zh-CN/project-readme.md",
-      "source_sha256": "5d1f4284c7e3b7fd14eb4c226f2a7463c2447cfaeb29d0a1806e8383ea28cda5"
+      "source_sha256": "b5892284c94cedd2524e0984b2371b38c9bce044ef7774965a38e806c5602093"
     },
     {
       "source": "docs/devices.md",

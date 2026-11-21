@@ -364,3 +364,5 @@ task `classifier_checkpoints` paths. A task path override can leave the other ta
 at their defaults; the saved task still supplies the task settings. Classifier paths and
 contents are provenance: a retrained classifier deploys, and its content hash is recorded
 next to the one the policy was trained with.
+
+Evaluation roles use the actor's resolved `control_hz`, sleeping for the remainder of each control period. `episode_end_behavior=hold` also applies to evaluation: confirm neutral after reset, wait for `n` before the next episode, and wait for `q` when the episode budget is exhausted. `auto` keeps automatic resets.

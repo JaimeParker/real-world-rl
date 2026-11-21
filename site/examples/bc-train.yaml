@@ -18,6 +18,7 @@ real_robot:
   state_fields: [tcp_pose, tcp_vel, joint_pos, joint_vel]
   control_hz: 10
   max_episode_steps: 200
+demo_dataset_paths: [local/first-demo.pkl]
 log_dir: local/bc-runs
 exp_name: first-bc
 log_type: tensorboard

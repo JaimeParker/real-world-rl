@@ -302,7 +302,7 @@ contract:
 - Runs without a `real_robot` config (older runs, `franka_real`) fall back to the CLI with a
   warning, and the contract is then not verified.
 - A `DeviceError` (daemon unreachable, watchdog, safety) prints its message and hint and exits
-  with code 2.
+  with code 1.
 - The daemon's `--jpeg-quality` is not part of the run's config: start the deploy daemon with
   the same value (or none) the training daemon used.
 - Deployment accepts `bundle_manifest.json` or a standalone `.pt`. `enable_teleop` defaults to

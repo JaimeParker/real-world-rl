@@ -9,7 +9,7 @@ python site/examples/bc-train-prepare.py local/bc-synthetic/resolved-config.yaml
 export CUDA_VISIBLE_DEVICES=""
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
-rwrl train real_world_bc --config local/bc-train.yaml --demo-dataset-paths local/first-demo.pkl
+rwrl train real_world_bc --config local/bc-train.yaml
 # end train
 # start help
 rwrl train real_world_bc --help
@@ -25,5 +25,5 @@ export PYTHONPATH=.:rl-garden
 export CUDA_VISIBLE_DEVICES=""
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
-python -c 'import real_world_rl.envs.backends.real_robot; from real_world_rl.training.__main__ import main; main()' real_world_bc --config local/bc-train.yaml --demo-dataset-paths local/bc-synthetic/demos.pkl
+python -c 'import real_world_rl.envs.backends.real_robot; from real_world_rl.training.__main__ import main; main()' real_world_bc --config local/bc-train.yaml
 # end synthetic-train

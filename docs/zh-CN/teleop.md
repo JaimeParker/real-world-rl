@@ -364,7 +364,7 @@ kinematics: panda
 
 `kinematics` 在 YAML 接受注册名，在 Python 接受运动学实例。`real_world_rl.kinematics` 导出 `Kinematics`（`NUM_JOINTS`、返回 4×4 变换的 `ee_transform(q)`）、`register(name)`、`kinematics_for(name)`、`kinematics_names()`。内置仅 `panda`；其他臂注册无参实现并匹配关节数。显式名称保存为 `teleop_input.kinematics` 来源信息，并保留在 `source_options`，不进入比较的 `teleop_control`。省略时保留现有默认快照。
 
-回合边界门控以**释放切换 = 中立**。`session_input()` 消费一个主臂读取，不推进 tracker 或改变锚点。六轴在请求接管时为归一化请求位姿领先量（位置除以 `lead_cap_m`，旋转向量除以 `lead_cap_rad`，裁剪至 `[-1, 1]`），否则为零；`buttons["toggle"]` 携带请求电平。首次锚定前请求使用主臂 FK 位姿。即使领先为零，保持接管请求仍是非中立。
+回合边界门控以**释放切换 = 中立**。`session_input()` 消费一个主臂读取，不推进 tracker 或改变锚点。六轴在请求接管时为归一化请求位姿领先量（位置除以 `lead_cap_m`，旋转向量除以 `lead_cap_rad`，裁剪至 `[-1, 1]`），否则为零；`buttons["toggle"]` 携带设备切换电平；未提供显式切换读数的主臂回退到请求电平。首次锚定前请求使用主臂 FK 位姿。即使领先为零，保持实体切换仍是非中立。GELLO `intervention: always` 不报告按住切换：归一化领先量在会话阈值内即为中立。受监督 GELLO 会话在活动回合中使用终端 `t`/`h` 接管／交还。
 
 <a id="mapping"></a>
 

@@ -52,3 +52,95 @@ def test_provider_cleanup_failure_preserves_rollout_error_and_releases_env(env_c
     with pytest.raises(ValueError, match="original rollout failure"):
         evaluate_policy(env, policy, episodes=1, seed=1)
     assert env.closed and provider.closed
+
+
+@pytest.mark.parametrize("episode_steps", [1, 2])
+@pytest.mark.parametrize("elapsed, expected", [(.02, .08), (.15, 0.)])
+def test_eval_paces_policy_steps(monkeypatch, elapsed, expected, episode_steps):
+    import real_world_rl.training.evaluation as evaluation
+    calls = []
+    clock = iter([0., elapsed, 1., 1. + elapsed])
+    monkeypatch.setattr(evaluation, "time", SimpleNamespace(
+        perf_counter=lambda: next(clock), sleep=calls.append), raising=False)
+
+    class Env:
+        steps = 0
+        def reset(self, **kwargs):
+            self.steps = 0
+            return torch.zeros(1, 3), {}
+        def step(self, action):
+            self.steps += 1
+            return torch.zeros(1, 3), 0., self.steps == episode_steps, False, {}
+        def close(self): pass
+
+    policy = SimpleNamespace(predict=lambda obs, deterministic: torch.zeros(1, 3))
+    evaluate_policy(Env(), policy, episodes=2 // episode_steps, seed=1, control_hz=10)
+    assert calls == pytest.approx([expected, expected] if expected else [])
+
+
+@pytest.mark.parametrize("quit_at", ["start", "end", "budget"])
+def test_eval_hold_gates_reset_and_refreshes_observation(monkeypatch, quit_at):
+    from real_world_rl.teleop.core import session
+    calls = []
+    source = object()
+    monkeypatch.setattr(session, "session_backend", lambda env: calls.append("validate"))
+    monkeypatch.setattr(session, "session_source", lambda env: source)
+    def before(env, src, **kwargs):
+        assert src is source and kwargs["control_hz"] == 20
+        calls.append("before")
+        return "quit" if quit_at == "start" else "next"
+    def after(env, src, *, allow_next, **kwargs):
+        calls.append(("after", allow_next))
+        return "quit" if quit_at == "end" or not allow_next else "next"
+    monkeypatch.setattr(session, "wait_before_episode", before)
+    monkeypatch.setattr(session, "wait_after_episode", after)
+    monkeypatch.setattr(session, "session_observe", lambda env: torch.ones(1, 3))
+    class Env:
+        def reset(self, **kwargs):
+            calls.append("reset")
+            return torch.zeros(1, 3), {}
+        def step(self, action):
+            calls.append("step")
+            return torch.zeros(1, 3), 0., True, False, {}
+        def close(self): calls.append("close")
+    def predict(obs, deterministic):
+        assert torch.all(obs == 1)
+        return torch.zeros(1, 3)
+    evaluate_policy(Env(), SimpleNamespace(predict=predict), episodes=2, seed=1,
+                    control_hz=20, episode_end_behavior="hold")
+    expected = ["validate", "reset", "before"]
+    if quit_at != "start": expected += ["step", ("after", True)]
+    if quit_at == "budget": expected += ["reset", "before", "step", ("after", False)]
+    assert calls == expected + ["close"]
+
+
+def test_full_bundle_restores_seed_demo_buffer(tmp_path):
+    from _silri_fakes import fill
+    from real_world_rl.loops.checkpoint import restore_bundle
+    source = silri_agent()
+    source.init_demo_buffer(16, .5)
+    fill(source, 3, demo=True)
+    manifest = save_bundle(source, tmp_path, {})
+    target = silri_agent()
+    target.init_demo_buffer(16, .5)
+    restore_bundle(target, manifest)
+    assert len(target.offline_replay_buffer) == 3
+    torch.testing.assert_close(target.offline_replay_buffer.actions[:3],
+                               source.offline_replay_buffer.actions[:3])
+
+
+def test_eval_quit_during_episode_does_not_reset_again():
+    class Env:
+        resets = 0
+        closed = False
+        def reset(self, **kwargs):
+            self.resets += 1
+            return torch.zeros(1, 3), {}
+        def step(self, action):
+            return torch.zeros(1, 3), 0., False, False, {"teleop_events": {"operator_quit": True}}
+        def close(self): self.closed = True
+    env = Env()
+    summary = evaluate_policy(env, SimpleNamespace(predict=lambda obs, deterministic: torch.zeros(1, 3)),
+                              episodes=3, seed=1)
+    assert env.resets == 1 and env.closed
+    assert summary["interrupted_episodes"] == 1

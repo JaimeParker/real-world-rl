@@ -72,7 +72,7 @@ teleop 来源约定由训练器从 demo contract 恢复，不会打开设备。
 2. 启动训练
 --------------------------------------------------------------------------------
 
-用本仓训练入口加载这份配置，并通过命令行传入示范路径：
+用本仓训练入口加载这份配置，从 YAML 的 ``demo_dataset_paths`` 列表读取示范路径：
 
 .. literalinclude:: ../examples/bc-train.sh
    :language: bash
@@ -81,9 +81,8 @@ teleop 来源约定由训练器从 demo contract 恢复，不会打开设备。
 
 ``rwrl train`` 转发到本仓 training 注册表；``examples/train_real_world.py``
 也调用同一个入口，不是另一个 BC 实现。输入为 ``local/first-demo.pkl``，
-其同名 contract 会自动读取。当前严格 YAML 解析器把 demo_dataset_paths 的列表
-报为 ``Preset field 'demo_dataset_paths' must have type 'Sequence', got list``，
-所以配置里不放这一项，使用上面的 CLI 参数。
+其同名 contract 会自动读取。准备脚本把示范路径写入 YAML 的 ``demo_dataset_paths`` 列表；
+需要临时覆盖时仍可使用 ``--demo-dataset-paths`` CLI 参数。
 
 本次验证所用 rlg 环境未安装 rwrl console script 与后端 entry point，
 只设置 PYTHONPATH 后直接启动还会在预检时报 ``Unknown env backend 'real_robot'``。

@@ -192,3 +192,5 @@ PYTHONPATH=.:rl-garden:robot_infra python examples/task_smoke.py --config exampl
 控制频率、动作缩放、reset 时长，以及工作站和环境几何参数都需有限值。非法动作在任何机械臂命令发出前拒绝；双臂在任一臂步进前核对完整动作。环境安全限制只能收紧工作站限制。
 
 分类器文件移动后，部署接受替换的 `classifier_checkpoint` 或任务 `classifier_checkpoints`。只覆盖任务路径时，其他任务字段可保持默认，由已保存任务补齐。分类器路径和内容属于来源信息，因此可部署重训分类器，并将新内容哈希与训练时哈希共同记录。
+
+评估角色使用 actor 解析后的 `control_hz`，每步补足控制周期剩余时间。`episode_end_behavior=hold` 同样适用于评估：reset 后确认中立，按 `n` 开始下一回合，回合预算耗尽后等待 `q` 退出；`auto` 保持自动 reset。

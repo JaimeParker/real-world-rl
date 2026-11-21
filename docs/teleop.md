@@ -597,8 +597,12 @@ For the episode-boundary session gate, **toggle released = neutral**. `session_i
 consumes one leader reading without advancing the tracker or changing its anchor. Its six
 axes are the normalized requested-pose lead while take-over is requested (position divided
 by `lead_cap_m`, rotation vector by `lead_cap_rad`, clipped to `[-1, 1]`), otherwise zeros;
-`buttons["toggle"]` carries the request level. Before the first anchor, the request uses
-the leader's FK pose. A held toggle remains non-neutral even when the lead is zero.
+`buttons["toggle"]` carries the device toggle level, falling back to the request level for
+leaders without an explicit toggle reading. Before the first anchor, the request uses the
+leader's FK pose. A held toggle remains non-neutral even when the lead is zero. GELLO
+`intervention: always` reports no held toggle: neutral means the normalized lead is within
+the session threshold. Supervised GELLO sessions use terminal `t`/`h` for take-over/hand-back
+during an episode.
 
 #### Mapping
 

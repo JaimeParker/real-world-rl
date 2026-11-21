@@ -208,7 +208,7 @@ rwrl deploy --checkpoint runs/.../checkpoints/checkpoint_<step>.pt \
 - 部署环境从运行读取 `action_mode`、`gripper_in_action`、`num_joints`、`joint_limits`、`xyz_scale_m`、`rot_scale_rad`、`joint_scale_rad`、`state_fields`、`image_size`、`control_hz` 及任务/控制/预处理设置。工作站拥有的 reset 信息与回合上限可为部署调整。自动重建观测包装器：`obs.frame_stack`（堆叠 `classifier_image_keys`）、`convert_obs_rotation`。`--real_robot.*` 仅提供连接字段（`robot`、`remote`、`token`、`home_joints`、`safety_box`、`reset_settle_s` 等）。
 - CLI 约定字段不同于训练值会报 `ValueError: --real_robot.* contradicts the training run's real_robot config ...`。**限制：** 等于 dataclass 默认值的 CLI 值无法区分是否显式设置，因此对 `joint_abs` 运行传 `--real_robot.action_mode cartesian_delta` 会静默采用运行的 `joint_abs`。
 - 无 `real_robot` 配置的旧运行或 `franka_real` 会警告并回退 CLI，不验证约定。
-- `DeviceError`（daemon 不可达、watchdog、安全）输出消息/提示，以 2 退出。
+- `DeviceError`（daemon 不可达、watchdog、安全）输出消息/提示，以 1 退出。
 - `--jpeg-quality` 不在运行配置内，部署 daemon 应使用与训练相同值（或都不设置）。
 - 部署接受 `bundle_manifest.json` 或独立 `.pt`。`enable_teleop` 默认 true；活动任务或显式 `--teleop-device` 组合操作员设置。无人接管用 `--no-enable-teleop`。分类器/任务可提供显式结果；主 `success_rate` 是已完成回合中的自主成功率。两种部署模式见[教程 11](tutorial/11-deploy.md)。
 

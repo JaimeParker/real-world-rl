@@ -18,6 +18,7 @@ def main() -> None:
     config = yaml.safe_load(Path("site/examples/bc-train.yaml").read_text())
     for key in ("env_backend", "env_id", "obs", "real_robot"):
         config[key] = recorded[key]
+    config["demo_dataset_paths"] = [str(args.demo)]
     with args.demo.open("rb") as stream:
         count = len(pickle.load(stream))
     if count == 0:

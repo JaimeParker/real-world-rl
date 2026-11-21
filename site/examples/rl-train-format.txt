@@ -1,5 +1,5 @@
 # start hold
-START_NEUTRAL: release the puck; q exits control.
+START_NEUTRAL: release motion controls or align an always-on leader with the follower; q exits control.
 EPISODE_HOLD: motion input ignored; q exits control. n starts the next episode (task reset may move/home the arm).
 # end hold
 # start socket

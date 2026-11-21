@@ -279,3 +279,14 @@ def test_run_help_groups_and_common_flags(capsys):
     for flag in ("--record", "--events-file", "--num-successes", "--max-episodes"):
         assert sum(line.lstrip().startswith(flag + " ") for line in text.splitlines()) == 1
         assert flag not in spacemouse and flag not in gello
+
+
+def test_gello_prompt_names_terminal_ownership_events(session, tmp_path, monkeypatch):
+    from real_world_rl.cli.command import Context
+    details = []
+    monkeypatch.setattr(Context, "confirm", lambda self, prompt, *, detail: details.append(detail))
+    gello_station(session)
+    assert main([*session.prefix, "teleop", "run", "--backend", "gello",
+                 "--record", str(tmp_path / "gello.pkl")]) == 0
+    assert "terminal t takes over; h hands back" in details[0]
+    assert "toggle takes over" not in details[0]

@@ -316,6 +316,8 @@ def _run_eval(args) -> None:
     from real_world_rl.training.evaluation import evaluate_policy
     evaluate_policy(
         env, agent.policy, episodes=args.eval_n_trajs, seed=args.seed,
+        control_hz=actor_control_hz(args), episode_end_behavior=args.episode_end_behavior,
+        neutral_threshold=args.neutral_threshold, neutral_stable_s=args.neutral_stable_s,
         predict=lambda obs: agent.policy.predict(agent._obs_to_policy_device(obs), deterministic=True),
     )
 

@@ -21,6 +21,9 @@ from real_world_rl.common.station_paths import (
     STATION_CONFIG_ENV,
     STATION_FILENAME,
     STATION_SCOPES,  # noqa: F401  re-exported for setup and the device table lookup
+    announce_selection,
+    require_selected_file,
+    selected_path,
     station_lookup_dirs,
     station_path_from_env,
     station_scope_dir,
@@ -98,15 +101,23 @@ def resolve_station_config_path(
     *,
     env: Mapping[str, str] | None = None,
     cwd: str | Path | None = None,
+    announce: bool = True,
 ) -> Path:
     """``explicit`` if given; else ``$RWRL_STATION`` (or the legacy ``$ROBOT_INFRA_CONFIG``) if
-    set; else the first existing of ``station_config_search_path``."""
+    set; else the ``rwrl use station`` selection (announced on stderr unless ``announce`` is
+    false); else the first existing of ``station_config_search_path``."""
     env = os.environ if env is None else env
     if explicit:
         return Path(explicit)
     from_env = station_path_from_env(env)
     if from_env is not None:
         return from_env
+    selected = selected_path("station", cwd=cwd)
+    if selected is not None:
+        require_selected_file("station", selected)
+        if announce:
+            announce_selection("station", selected)
+        return selected
     candidates = station_config_search_path(cwd=cwd, env=env)
     for candidate in candidates:
         if candidate.is_file():
@@ -114,7 +125,7 @@ def resolve_station_config_path(
     locations = [f"${STATION_CONFIG_ENV}", f"${LEGACY_STATION_CONFIG_ENV}", *(str(candidate) for candidate in candidates)]
     raise FileNotFoundError(
         "no robot config given and no station config found; looked at " + ", ".join(locations)
-        + f". Pass --station <yaml>, or run `{SETUP_COMMAND}` to write one"
+        + f". Pass --station <yaml>, choose one with `rwrl use station <yaml>`, or run `{SETUP_COMMAND}` to write one"
     )
 
 

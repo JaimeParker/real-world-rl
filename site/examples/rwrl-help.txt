@@ -1,12 +1,12 @@
 usage: rwrl [-h] [--station PATH] [--robot NAME] [--preset PATH] [--direct]
             [--mock] [--json] [--yes]
-            {status,q,tcp,stop,recover,home,gripper,camera,doctor,setup,daemon,supervise,discover,teleop,workspace,archive,train,record,deploy,deploy-act,deploy-openpi,collect-reward}
+            {status,q,tcp,stop,recover,home,gripper,camera,doctor,setup,daemon,supervise,discover,teleop,workspace,use,archive,train,record,deploy,deploy-act,deploy-openpi,collect-reward}
             ...
 
 Robot station hardware primitives
 
 positional arguments:
-  {status,q,tcp,stop,recover,home,gripper,camera,doctor,setup,daemon,supervise,discover,teleop,workspace,archive,train,record,deploy,deploy-act,deploy-openpi,collect-reward}
+  {status,q,tcp,stop,recover,home,gripper,camera,doctor,setup,daemon,supervise,discover,teleop,workspace,use,archive,train,record,deploy,deploy-act,deploy-openpi,collect-reward}
     home                show, save, or move to home (home phase only)
     gripper             read or command the gripper
     camera              inspect cameras or save one frame
@@ -17,6 +17,8 @@ positional arguments:
     discover            Discover visible hardware
     teleop              read, calibrate and select teleop input devices
     workspace           inspect and configure task-frame workspace
+    use                 remember a station or preset for later commands in
+                        this directory
     archive             inspect recorder archives offline (no station or
                         robot)
     train               Train a real-world policy
@@ -28,9 +30,11 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
-  --station PATH        station yaml; default: station config lookup
+  --station PATH        station yaml; default: $RWRL_STATION, `rwrl use
+                        station`, ./local/station.yaml
   --robot NAME          robot name in a multi-robot station
-  --preset PATH         env preset yaml for home and reset gripper
+  --preset PATH         env preset yaml for home and reset gripper; default:
+                        `rwrl use preset`
   --direct              connect directly if no daemon owns the arm
   --mock                use doctor fake backends for direct connections
   --json                one JSON result on stdout

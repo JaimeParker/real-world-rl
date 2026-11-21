@@ -1,11 +1,11 @@
 # start record
 # Selects the backend from station.teleop.backend (spacemouse or gello).
-rwrl --station local/station.yaml --preset local/task.yaml teleop run --record local/first-demo.pkl --num-successes 2 --max-episodes 5
+rwrl teleop run --record local/first-demo.pkl --num-successes 2 --max-episodes 5
 # end record
 # start events
 # Before starting, create a new empty event file in a second terminal.
 touch local/record-events.jsonl
-rwrl --station local/station.yaml --preset local/task.yaml teleop run --events-file local/record-events.jsonl --record local/events-demo.pkl --num-successes 1 --max-episodes 2
+rwrl teleop run --events-file local/record-events.jsonl --record local/events-demo.pkl --num-successes 1 --max-episodes 2
 # end events
 # start success
 # In the second terminal, after completing the task:

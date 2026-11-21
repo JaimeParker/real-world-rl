@@ -20,7 +20,7 @@
 |---|---|
 | `--station PATH` | 未设置：按[站点查找](#station-lookup)。 |
 | `--robot NAME` | 未设置：单个机器人；多机器人站点的原语需指定名称。 |
-| `--preset PATH` | 未设置：用站点 home。对 `home` 为环境预设（裸映射或 `real_robot` 下设置）；`home set` 必需。`doctor` 用于确定预期设备及比较机器人与站点。学习命令中转为 `--config PATH`。 |
+| `--preset PATH` | 未设置：用 [`rwrl use preset`](#remembered-station-and-preset) 记住的文件，否则用站点 home。对 `home` 为环境预设（裸映射或 `real_robot` 下设置）；`home set` 必需。`doctor` 用于确定预期设备及比较机器人与站点。学习命令中转为 `--config PATH`。 |
 | `--direct` | 关闭：遵循站点守护进程声明。仅守护进程端口不可达时允许强制直连。 |
 | `--mock` | 关闭：**直连**使用模拟后端。仍需站点文件，不绕过守护进程选择。 |
 | `--json` | 关闭：内置原语在 stdout 打印一个 JSON；诊断、运动目标、询问去 stderr。 |
@@ -36,10 +36,19 @@
 
 1. `--station PATH`（也含 `rwrl setup --station`、`rwrl daemon --station`、`rwrl discover --station`）；
 2. `$RWRL_STATION`；
-3. `./local/station.yaml`；
-4. `$XDG_CONFIG_HOME/rwrl/station.yaml`（默认 `~/.config/rwrl/station.yaml`）。
+3. [`rwrl use station`](#remembered-station-and-preset) 记住的文件；
+4. `./local/station.yaml`；
+5. `$XDG_CONFIG_HOME/rwrl/station.yaml`（默认 `~/.config/rwrl/station.yaml`）。
 
 显式及环境路径原样使用。一个发布周期内仍在新名称后读取旧于 0.1.0 的名称：`$ROBOT_INFRA_CONFIG` 在 `$RWRL_STATION` 后，`~/.config/robot_infra/station.yaml` 最后；`rwrl doctor` 均以 `WARN` 附迁移命令报告。`setup` 的 `--station` 提供现有默认值，**不是**输出路径（输出用 `--scope local|user` 或 `--output PATH`）。
+
+<a id="remembered-station-and-preset"></a>
+
+## 记住的站点与预设
+
+`rwrl use station PATH` 和 `rwrl use preset PATH` 把文件记进 `./local/.rwrl-use.json`，之后在同一目录运行的命令可省略 `--station` 或 `--preset`。记住前会先加载文件，加载失败则拒绝。相对路径保持相对当前目录。`rwrl use` 不带参数时显示命令将使用的站点和预设及各自来源；`rwrl use --clear [station|preset]` 忘掉其中一项或两项。
+
+命令回退到记住的文件时，会在 stderr 打印一次 `using preset PATH (from rwrl use)`（或 `station`），`--json` 结果多出 `from_rwrl_use: {kind: path}`。显式参数总是优先，`$RWRL_STATION` 优先于记住的站点。记住的文件已不存在时是用法错误（退出码 2），不会静默落到下一步查找。学习命令和 `archive inspect` 从不接收记住的预设：它们的 `--config` 需显式传入。
 
 <a id="learning-commands"></a>
 
@@ -109,7 +118,7 @@ Franka FCI 仅允许一个控制连接。直连时先结束录制器或 actor，
 | `teleop probe-hid` | 为现场设备表记录类似 SpaceMouse 的 HID（[详情](#teleop-probe-hid)） | 0 / 1（无设备、占用）/ 2 |
 | `teleop inspect-stop --trace FILE` | 离线评估保存的停止轨迹（[指南](spacemouse-commissioning.md#live-input-calibration-and-diagnosis)） | 0 PASS / 3 FAIL / 4 BLOCKED |
 
-**工作区与归档**（除 `workspace capture` 外仅读站点文件）
+**工作区、选择与归档**（除 `workspace capture` 外仅读站点文件）
 
 | 命令 | 效果 | 退出码 |
 |---|---|---|
@@ -117,6 +126,7 @@ Franka FCI 仅允许一个控制连接。直连时先结束录制器或 actor，
 | `workspace capture --name N --output PTS --save` | 将当前 TCP 记录为命名点；无运动 | 0 / 1 / 2 |
 | `workspace set` / `validate` | 提出或保存工作区；检查姿态（[指南](spacemouse-commissioning.md#spacemouse-profiles-and-task-frame-workspace)） | 0 / 1 / 2；文本验证失败 5 |
 | `workspace frame show` / `frame set` | 站点 `task_frame`（[详情](#workspace-frame-set)） | 0 / 1 / 2 |
+| `use [station\|preset] [PATH]` / `use --clear [KIND]` | 记住、显示或忘掉本目录的默认站点和预设（[详情](#remembered-station-and-preset)） | 0 / 2 |
 | `archive inspect ARCHIVE` | 离线读录制器 SQLite 归档（[详情](#archive-inspect)） | 0；带 `--stop-time-s`：0 PASS / 3 FAIL / 4 BLOCKED；2 |
 
 **学习：** `train`、`record`、`deploy`、`deploy-openpi`、`collect-reward`（[上文](#learning-commands)）。

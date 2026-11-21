@@ -5,6 +5,11 @@
 在插着 SpaceMouse 的录制机器、仓库根目录运行命令。先读输入，再让机械臂运动。
 本路线使用基座系；上一章的工作区也是 ``base``。
 
+.. tip::
+
+   本章命令省略了 ``--station`` 和 ``--preset``，用的是 :doc:`station` 第 10 步 ``rwrl use`` 记住的两份文件。
+   还没做这一步时，先运行 ``rwrl use preset local/task.yaml``。要临时换文件，在命令里显式写出参数即可。
+
 1. 找到设备，补上 teleop 块
 --------------------------------------------------------------------------------
 
@@ -214,6 +219,9 @@ SERL 源会拒绝 tracker 专用选项。再复制 preset；SERL 要求环境层
    :language: bash
    :start-after: # start serl
    :end-before: # end serl
+
+这条命令显式写了 ``--preset local/task-serl.yaml``，所以本次用它，不用记住的 ``local/task.yaml``；
+stderr 也不会再打印 ``using preset``。
 
 **你应该看到**：运动输入超过 0.001 或任一夹爪按钮按住时接管；
 松开帽和按钮交还。button_0 按住关闭，button_1 按住打开，同时按时关闭优先。

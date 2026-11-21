@@ -27,3 +27,11 @@ rwrl --station local/station.yaml gripper show
 # start camera-state
 rwrl --station local/station.yaml camera show --name wrist
 # end camera-state
+# start use
+rwrl use station local/station.yaml
+rwrl use preset local/task.yaml
+# end use
+# start use-show
+rwrl use
+rwrl workspace show
+# end use-show

@@ -23,7 +23,7 @@ Place global options **before the command**, including `--preset` before `home` 
 |---|---|
 | `--station PATH` | Unset: the [station lookup](#station-lookup). |
 | `--robot NAME` | Unset: the single robot; a multi-robot station requires a name for primitives. |
-| `--preset PATH` | Unset: use the station home. For `home`, an env preset (a bare mapping or settings under `real_robot`); required by `home set`. `doctor` uses it to find expected devices and to compare its robot with the station. For learning commands it becomes `--config PATH`. |
+| `--preset PATH` | Unset: the [`rwrl use preset`](#remembered-station-and-preset) selection, else the station home. For `home`, an env preset (a bare mapping or settings under `real_robot`); required by `home set`. `doctor` uses it to find expected devices and to compare its robot with the station. For learning commands it becomes `--config PATH`. |
 | `--direct` | Off: follow the station's daemon declaration. Force direct access only when its daemon port is unreachable. |
 | `--mock` | Off: fake backends for a **direct** connection. Still requires a station file; does not bypass daemon selection. |
 | `--json` | Off: built-in primitives print one JSON result on stdout; diagnostics, motion targets and prompts go to stderr. |
@@ -39,14 +39,30 @@ Every command that reads a station takes the first of:
 
 1. `--station PATH` (also `rwrl setup --station`, `rwrl daemon --station`, `rwrl discover --station`);
 2. `$RWRL_STATION`;
-3. `./local/station.yaml`;
-4. `$XDG_CONFIG_HOME/rwrl/station.yaml` (default `~/.config/rwrl/station.yaml`).
+3. the [`rwrl use station`](#remembered-station-and-preset) selection;
+4. `./local/station.yaml`;
+5. `$XDG_CONFIG_HOME/rwrl/station.yaml` (default `~/.config/rwrl/station.yaml`).
 
 Explicit and environment paths are used as given. For one release the pre-0.1.0 names are still
 read after their replacements, `$ROBOT_INFRA_CONFIG` after `$RWRL_STATION` and
 `~/.config/robot_infra/station.yaml` last; `rwrl doctor` reports either as a `WARN` with the
 command that moves it. For `setup`, `--station` supplies the existing defaults, **not** the
 output path (`--scope local|user` or `--output PATH`).
+
+## Remembered station and preset
+
+`rwrl use station PATH` and `rwrl use preset PATH` remember a file in `./local/.rwrl-use.json`, so
+commands run later from the same directory can omit `--station` or `--preset`. The file is loaded
+first and refused if it does not load. Relative paths are kept relative to the current directory.
+`rwrl use` alone shows the station and preset a command would use and where each comes from;
+`rwrl use --clear [station|preset]` forgets one or both.
+
+A command that falls back to a remembered file prints `using preset PATH (from rwrl use)` (or
+`station`) once on stderr, and its `--json` result gains `from_rwrl_use: {kind: path}`. An explicit
+flag always wins, and `$RWRL_STATION` wins over the remembered station. A remembered file that no
+longer exists is a usage error (exit 2), not a silent fallback to the next lookup step. Learning
+commands and `archive inspect` never receive the remembered preset: pass their `--config`
+explicitly.
 
 ## Learning commands
 
@@ -130,7 +146,7 @@ the child.
 | `teleop probe-hid` | record a SpaceMouse-like HID device for the site device table ([details](#teleop-probe-hid)) | 0 / 1 (no such device, busy) / 2 |
 | `teleop inspect-stop --trace FILE` | evaluate a saved stop trace offline ([guide](spacemouse-commissioning.md#live-input-calibration-and-diagnosis)) | 0 PASS / 3 FAIL / 4 BLOCKED |
 
-**Workspace and archives** (these read the station file only, except `workspace capture`)
+**Workspace, selections and archives** (these read the station file only, except `workspace capture`)
 
 | Command | Effect | Exit codes |
 |---|---|---|
@@ -138,6 +154,7 @@ the child.
 | `workspace capture --name N --output PTS --save` | record the current TCP as a named point; no motion | 0 / 1 / 2 |
 | `workspace set` / `validate` | propose or save a workspace; check a pose ([guide](spacemouse-commissioning.md#spacemouse-profiles-and-task-frame-workspace)) | 0 / 1 / 2; text validation failure 5 |
 | `workspace frame show` / `frame set` | the station `task_frame` ([details](#workspace-frame-set)) | 0 / 1 / 2 |
+| `use [station\|preset] [PATH]` / `use --clear [KIND]` | remember, show or forget the default station and preset for this directory ([details](#remembered-station-and-preset)) | 0 / 2 |
 | `archive inspect ARCHIVE` | read a recorder SQLite archive offline ([details](#archive-inspect)) | 0; with `--stop-time-s`: 0 PASS / 3 FAIL / 4 BLOCKED; 2 |
 
 **Learning:** `train`, `record`, `deploy`, `deploy-openpi`, `collect-reward` ([above](#learning-commands)).

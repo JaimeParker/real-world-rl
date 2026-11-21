@@ -110,7 +110,7 @@ def output_path(args: argparse.Namespace, prompt: Prompter) -> Path:
 
 def _found_without_config(path: Path) -> bool:
     try:
-        return resolve_station_config_path().resolve() == path.resolve()
+        return resolve_station_config_path(announce=False).resolve() == path.resolve()
     except FileNotFoundError:
         return False
 

@@ -9,9 +9,11 @@ Robot-host diagnostics: inspect, preview, confirm, repair, then inspect again.
 
 options:
   -h, --help            show this help message and exit
-  --station PATH        station yaml; default: station config lookup
+  --station PATH        station yaml; default: $RWRL_STATION, `rwrl use
+                        station`, ./local/station.yaml
   --robot NAME          robot name in a multi-robot station
-  --preset PATH         env preset yaml for home and reset gripper
+  --preset PATH         env preset yaml for home and reset gripper; default:
+                        `rwrl use preset`
   --mock                use doctor fake backends for direct connections
   --json                one JSON result on stdout
   --yes                 skip motion or doctor repair confirmation (preflight

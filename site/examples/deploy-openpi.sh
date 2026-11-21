@@ -19,7 +19,7 @@ uv run scripts/serve_policy.py --port 8000 policy:checkpoint \
 # end serve
 # start daemon
 # NUC：2 秒仅为 docs/deploy-openpi.md 的示例，须按现场测量修订。
-rwrl daemon --station local/station.yaml --watchdog-s 2
+rwrl daemon --watchdog-s 2
 # end daemon
 # start tunnel
 # GPU：operator@nuc 换成已验证的 NUC SSH 用户和主机。
@@ -28,7 +28,7 @@ ssh -N -o ExitOnForwardFailure=yes \
 # end tunnel
 # start doctor-nuc
 # NUC：保留 station 才会检查 daemon.bind/listen、sshd、firewall。
-rwrl doctor --station local/station.yaml --link 127.0.0.1:50051
+rwrl doctor --link 127.0.0.1:50051
 # end doctor-nuc
 # start doctor-gpu
 # GPU：--ssh 会实际检查 SSH 并建立临时转发。
@@ -47,8 +47,8 @@ rwrl deploy-openpi --dry-run --profile rlinf_franka \
 # end dry-run
 # start mapping
 # NUC：读出实际设备名、边界和 home。
-rwrl --station local/station.yaml status
-rwrl --station local/station.yaml workspace show
+rwrl status
+rwrl workspace show
 # end mapping
 # start episode
 # GPU：先按训练配置审阅这组示例值；输出同时保存在本地。

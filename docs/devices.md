@@ -204,8 +204,9 @@ The daemon, the doctor and discovery find the station yaml without `--station`. 
 first of:
 
 1. `$RWRL_STATION`
-2. `./local/station.yaml` (relative to the current directory; the wizard's default, `--scope local`; `local/` is git-ignored)
-3. `$XDG_CONFIG_HOME/rwrl/station.yaml`, default `~/.config/rwrl/station.yaml` (`--scope user`)
+2. the file chosen with `rwrl use station PATH` from this directory (stored in `./local/.rwrl-use.json`; see [cli.md](cli.md#remembered-station-and-preset))
+3. `./local/station.yaml` (relative to the current directory; the wizard's default, `--scope local`; `local/` is git-ignored)
+4. `$XDG_CONFIG_HOME/rwrl/station.yaml`, default `~/.config/rwrl/station.yaml` (`--scope user`)
 
 For one release the pre-0.1.0 names are still read after their replacements: `$ROBOT_INFRA_CONFIG`
 after `$RWRL_STATION`, and `~/.config/robot_infra/station.yaml` after the user location; `rwrl doctor`

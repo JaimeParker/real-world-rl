@@ -85,7 +85,7 @@ def test_nothing_found_names_every_location_and_the_wizard(tmp_path):
     assert f"${LEGACY_STATION_CONFIG_ENV}" in message
     assert str(tmp_path / "xdg" / "rwrl" / "station.yaml") in message
     assert str(tmp_path / "xdg" / "robot_infra" / "station.yaml") in message
-    assert "Pass --station <yaml>, or run `rwrl setup` to write one" in message
+    assert "Pass --station <yaml>, choose one with `rwrl use station <yaml>`, or run `rwrl setup` to write one" in message
 
 
 def test_legacy_env_var_is_read_after_the_new_one(tmp_path):

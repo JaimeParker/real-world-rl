@@ -158,12 +158,13 @@ franka (franka)
 daemon、doctor 和 discovery 无需 `--station` 也可查找工作站 YAML，按以下顺序取第一个：
 
 1. `$RWRL_STATION`
-2. `./local/station.yaml`（相对当前目录；向导默认位置，`--scope local`；`local/` 已被 git 忽略）
-3. `$XDG_CONFIG_HOME/rwrl/station.yaml`，默认 `~/.config/rwrl/station.yaml`（`--scope user`）
+2. 在本目录用 `rwrl use station PATH` 记住的文件（存于 `./local/.rwrl-use.json`；见 [cli.md](cli.md#remembered-station-and-preset)）
+3. `./local/station.yaml`（相对当前目录；向导默认位置，`--scope local`；`local/` 已被 git 忽略）
+4. `$XDG_CONFIG_HOME/rwrl/station.yaml`，默认 `~/.config/rwrl/station.yaml`（`--scope user`）
 
 在一个发布周期内，仍会在新名称之后读取 0.1.0 之前的旧名称：在 `$RWRL_STATION` 后读取 `$ROBOT_INFRA_CONFIG`，在用户位置后读取 `~/.config/robot_infra/station.yaml`；`rwrl doctor` 会将它们报告为 `WARN` 并给出迁移命令。
 
-`--station <yaml>` 仍优先于以上三项。
+`--station <yaml>` 仍优先于以上各项。
 
 每个问题都有对应参数（`rwrl setup --help`）；逐臂参数可为每臂提供一个值，也可只给一个共用值。`--non-interactive` 遇到首个既无参数也无 `--station` 值的问题就失败；`--non-interactive --station X` 会原样重写 `X`。已有文件先备份为 `station.yaml.bak.<UTC %Y%m%dT%H%M%SZ>`，再原子替换。除非使用 `--allow-unprobed`，否则必须提供探测到的值。
 

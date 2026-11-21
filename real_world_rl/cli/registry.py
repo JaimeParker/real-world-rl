@@ -22,9 +22,9 @@ class _Parser(argparse.ArgumentParser):
 
 
 GLOBAL_OPTIONS = (
-    ("station", dict(metavar="PATH", help="station yaml; default: station config lookup")),
+    ("station", dict(metavar="PATH", help="station yaml; default: $RWRL_STATION, `rwrl use station`, ./local/station.yaml")),
     ("robot", dict(metavar="NAME", help="robot name in a multi-robot station")),
-    ("preset", dict(metavar="PATH", help="env preset yaml for home and reset gripper")),
+    ("preset", dict(metavar="PATH", help="env preset yaml for home and reset gripper; default: `rwrl use preset`")),
     ("direct", dict(action="store_true", help="connect directly if no daemon owns the arm")),
     ("mock", dict(action="store_true", help="use doctor fake backends for direct connections")),
     ("json", dict(action="store_true", help="one JSON result on stdout")),
@@ -83,6 +83,31 @@ def _report_error(error: Exception, as_json: bool) -> int:
     return error.code if isinstance(error, CliError) else FAILURE_EXIT_CODE
 
 
+def fill_selected_preset(args, command) -> None:
+    """A command that takes ``--preset`` falls back to the ``rwrl use preset`` selection.
+    Commands that hand ``--preset`` to another parser (or reject it) set ``uses_selection = False``."""
+    if not getattr(command, "uses_selection", True) or getattr(args, "preset", "") is not None:
+        return
+    from real_world_rl.common.station_paths import announce_selection, require_selected_file, selected_path
+    try:
+        selected = selected_path("preset")
+        if selected is not None:
+            require_selected_file("preset", selected)
+    except (OSError, ValueError) as error:
+        raise CliError(str(error), code=USAGE_EXIT_CODE) from error
+    if selected is not None:
+        args.preset = str(selected)
+        announce_selection("preset", selected)
+
+
+def note_selections(result) -> None:
+    """Name the remembered selections a command used in its JSON result."""
+    from real_world_rl.common.station_paths import announced_selections
+    used = announced_selections()
+    if used and isinstance(result.payload, dict) and not result.rendered:
+        result.payload.setdefault("from_rwrl_use", used)
+
+
 def main(argv: list[str] | None = None, *, commands, prog, description,
          station_loader=None, connection_factory=None, global_options=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -96,10 +121,13 @@ def main(argv: list[str] | None = None, *, commands, prog, description,
             args._parser.error("unrecognized arguments: " + " ".join(remaining))
         if as_json and not getattr(command, "supports_json", True):
             raise CliError(f"{command.name} has no JSON output", code=USAGE_EXIT_CODE)
+        fill_selected_preset(args, command)
         ctx = Context(args, remaining, station_loader=station_loader, connection_factory=connection_factory)
         # Keep SDK chatter and confirmation text out of the JSON result stream.
         with redirect_stdout(sys.stderr) if as_json else nullcontext():
             result = command.run(args, ctx)
+        if as_json:
+            note_selections(result)
         render(result, ctx)
         return result.exit_code
     except CliError as error:

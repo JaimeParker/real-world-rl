@@ -205,4 +205,4 @@ def test_no_config_and_no_station_exits_2(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.chdir(tmp_path)
     assert daemon.main(["--no-preflight"]) == 2
-    assert "Pass --station <yaml>, or run `rwrl setup` to write one" in capsys.readouterr().err
+    assert "Pass --station <yaml>, choose one with `rwrl use station <yaml>`, or run `rwrl setup` to write one" in capsys.readouterr().err

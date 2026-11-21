@@ -415,6 +415,52 @@ RGB 张量是 ``(1, H, W, 3)`` 的 uint8。
 * 回合总是提前结束：检查 ``max_episode_steps``；它不是 reset 的超时时间。
 * 复位位置不对：回查 station 的实测 home，不要用模板数字继续试运动。
 
+10. 记住 station 和 preset
+--------------------------------------------------------------------------------
+
+后面每条命令都要用这两份文件。用 ``rwrl use`` 记住它们，之后就不用每次写
+``--station`` 和 ``--preset``。
+``rwrl use`` 把选择记在 ``local/.rwrl-use.json``，只对从当前目录（仓库根目录）运行的命令生效。
+
+.. literalinclude:: ../examples/station.sh
+   :language: bash
+   :start-after: # start use
+   :end-before: # end use
+
+**你应该看到**：两条命令都先检查文件能否加载，再记住它，并打印当前的选择：
+
+.. literalinclude:: ../examples/station-use-output.txt
+   :language: text
+   :start-after: # start remember
+   :end-before: # end remember
+
+之后不带参数运行 ``rwrl use`` 可以查看当前选择。省略参数的命令会在 stderr
+说明自己用了哪份文件：
+
+.. literalinclude:: ../examples/station.sh
+   :language: bash
+   :start-after: # start use-show
+   :end-before: # end use-show
+
+.. literalinclude:: ../examples/station-use-output.txt
+   :language: text
+   :start-after: # start fallback
+   :end-before: # end fallback
+
+.. tip::
+
+   后续章节的设备命令都省略 ``--station local/station.yaml`` 和 ``--preset local/task.yaml``。
+   命令里显式写出的 ``--station`` 或 ``--preset`` 总是优先；设置了 ``$RWRL_STATION`` 时它也优先于记住的 station。
+   ``train``、``record``、``deploy`` 不读记住的 preset，仍要显式传 ``--config``。
+
+**如果不对**：
+
+* ``station local/station.yaml does not exist``：命令不在仓库根目录运行，或第 1 步没有复制模板。
+* ``... does not load: ...``：文件有 YAML 语法错误或字段不合法；先按报错修好再记住。
+* 输出 ``station: ... ($RWRL_STATION)``：环境变量优先于记住的选择；不需要时 ``unset RWRL_STATION``。
+* 记住的文件被移走或改名：命令会报 ``chosen with `rwrl use station` does not exist``；
+  重新运行 ``rwrl use station <yaml>``，或用 ``rwrl use --clear station`` 清除选择。
+
 现在两份配置已准备好。下一章 :doc:`spacemouse` 会选择输入设备，
 用 ``teleop run`` 把 station 和 preset 合成一份会话配置，再开始接管练习。
 本章 preset 没有独立的连接信息，因此先沿用这条合并流程。

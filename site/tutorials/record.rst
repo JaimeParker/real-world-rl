@@ -6,6 +6,11 @@
 不套用 GELLO 章末尾自动复位的关节／双臂扩展。
 一个回合是从 reset 后开始，到成功、失败、重录、超时或退出为止的一次尝试。
 
+.. tip::
+
+   本章命令省略了 ``--station`` 和 ``--preset``，用的是 :doc:`station` 第 10 步 ``rwrl use`` 记住的两份文件。
+   还没做这一步时，先运行 ``rwrl use preset local/task.yaml``。要临时换文件，在命令里显式写出参数即可。
+
 1. 启动有配额的录制
 --------------------------------------------------------------------------------
 
@@ -37,7 +42,7 @@
 **如果不对**：
 
 * ``--record must be a new .pkl path``：选择新的文件名；不要覆盖之前的数据。
-* ``teleop run requires --preset with home and task limits``：检查命令带上 local/task.yaml。
+* ``teleop run requires --preset with home and task limits``：还没记住 preset；运行 ``rwrl use preset local/task.yaml``，或在命令里写 ``--preset local/task.yaml``。
 * 停在 START_NEUTRAL：SpaceMouse 松帽和按钮；GELLO always 模式按上一章对齐主从臂；toggle 模式关闭实体 toggle。
 * 配额一直不增加：看 discarded 原因；成功但没有人工步骤也不会保留为示范。
 

@@ -6,7 +6,7 @@ rwrl daemon --help
 # end help
 # start daemon
 # Robot PC: use the reviewed station and the watchdog budget from deployment.
-rwrl --station local/station.yaml daemon --watchdog-s 5
+rwrl daemon --watchdog-s 5
 # end daemon
 # start learner
 # Learner machine: same repository root, matching config and demo/sidecar.

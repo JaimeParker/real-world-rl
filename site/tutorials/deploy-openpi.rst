@@ -7,6 +7,11 @@
 ``local/task.yaml`` 留作核对已有观测与动作约定，本章入口不会自动读取它。
 本仓训练的 BC checkpoint 走 :doc:`deploy`。
 
+.. tip::
+
+   本章设备命令省略了 ``--station``：从仓库根目录运行时，会用 :doc:`station` 第 10 步 ``rwrl use`` 记住的
+   station；没记住时也会直接找到 ``local/station.yaml``。要换文件，在命令里显式写 ``--station``。
+
 1. 先认清拿到的 checkpoint
 --------------------------------------------------------------------------------
 

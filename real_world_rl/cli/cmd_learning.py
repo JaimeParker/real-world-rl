@@ -31,6 +31,8 @@ class LearningCommand:
     help: str
     target: str
     accepts_remaining = True
+    # --preset becomes the entrypoint's --config; a remembered preset is never passed implicitly.
+    uses_selection = False
     parser_options = {"add_help": False, "allow_abbrev": False}
 
     def register(self, parser):

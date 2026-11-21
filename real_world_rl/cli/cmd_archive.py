@@ -56,6 +56,7 @@ def inspect(args, ctx):
 
 
 class ArchiveCommand:
+    uses_selection = False  # --preset is not applicable
     name = "archive"
     help = "inspect recorder archives offline (no station or robot)"
 

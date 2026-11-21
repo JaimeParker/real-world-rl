@@ -43,7 +43,8 @@ def add_common_run_arguments(parser):
 def load_session_station(args, diagnose=None):
     """Common preflight, also used before a backend resolves its station-owned settings."""
     if args.preset is None:
-        raise CliError("teleop run requires --preset with home and task limits", code=USAGE_EXIT_CODE, required_fields=["--preset"])
+        raise CliError("teleop run requires --preset with home and task limits", code=USAGE_EXIT_CODE,
+                       hint="pass --preset <yaml>, or remember one with `rwrl use preset <yaml>`", required_fields=["--preset"])
     if os.environ.get("RWRL_HEARTBEAT_FD"):
         raise CliError("teleop run starts its own supervisor; invoke it directly", code=USAGE_EXIT_CODE)
     station = station_document(args)

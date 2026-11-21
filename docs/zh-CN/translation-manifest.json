@@ -14,7 +14,7 @@
     {
       "source": "docs/cli.md",
       "translation": "docs/zh-CN/cli.md",
-      "source_sha256": "4a7eeaea07f35db3714c61b398c53b9008f3d7c64661e124ec6a6916fc94026c"
+      "source_sha256": "5c2904de7a230a629607c341712f50e40bbab09399f09072389b21c09d747376"
     },
     {
       "source": "docs/deploy-openpi.md",
@@ -139,7 +139,7 @@
     {
       "source": "docs/devices.md",
       "translation": "docs/zh-CN/devices.md",
-      "source_sha256": "e96210116df612c6a8bc6c7217cf69cb2dd4e4635dbddc9a552782e324dbe4f4"
+      "source_sha256": "58532d22a23de4b97716513c46e1f36a5437eea3bc7521a15d1fbd790b85afae"
     },
     {
       "source": "rl-garden/rl_garden/models/act/README.md",

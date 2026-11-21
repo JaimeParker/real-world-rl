@@ -63,7 +63,7 @@ class Preset:
         self, current: list[float], limits: list[tuple[str, Any]], *, num_joints: int
     ) -> dict:
         if self.path is None:
-            raise CliError("home set requires --preset", code=USAGE_EXIT_CODE)
+            raise CliError("home set requires --preset", code=USAGE_EXIT_CODE, hint="pass --preset <yaml>, or remember one with `rwrl use preset <yaml>`")
         current = joints(current, num_joints, "current joint_pos")
         updated = [round(value, 4) for value in current]
         limits = [*limits, ("preset joint_limits", self.env.get("joint_limits"))]

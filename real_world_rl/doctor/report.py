@@ -30,6 +30,7 @@ from real_world_rl.common.station_paths import (
     STATION_FILENAME,
     legacy_station_locations,
     station_lookup_dirs,
+    selected_path,
     station_path_from_env,
 )
 
@@ -156,11 +157,12 @@ def device_check_text(findings, *, color: bool) -> str:
 
 
 def station_configured(args) -> bool:
-    """A station is given (``--station``, ``$RWRL_STATION`` or the legacy ``$ROBOT_INFRA_CONFIG``)
-    or found in a station lookup directory."""
+    """A station is given (``--station``, ``$RWRL_STATION`` or the legacy ``$ROBOT_INFRA_CONFIG``),
+    chosen with ``rwrl use station``, or found in a station lookup directory."""
     return bool(
         args.config
         or station_path_from_env() is not None
+        or selected_path("station") is not None
         or any((directory / STATION_FILENAME).is_file() for directory in station_lookup_dirs())
     )
 
@@ -215,7 +217,7 @@ def load_targets(args):
     try:
         path = resolve_station_config_path(args.config)
     except FileNotFoundError:
-        if args.config or station_path_from_env() is not None:
+        if args.config or station_path_from_env() is not None or selected_path("station") is not None:
             raise
     if path is not None:
         station = load_station(path)

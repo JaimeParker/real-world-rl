@@ -12,7 +12,7 @@ _TRANSPORT_NAMES = ("grpc",)
 def build_parser(parser=None):
     parser = parser if parser is not None else argparse.ArgumentParser(prog="rwrl daemon", description="Serve one robot over the network")
     add_station_argument(parser, dest="config", help="robot or station yaml; default: $RWRL_STATION, "
-        "./local/station.yaml, then ~/.config/rwrl/station.yaml")
+        "`rwrl use station`, ./local/station.yaml, then ~/.config/rwrl/station.yaml")
     parser.add_argument("--robot", default=None, help="serve only this robot of a station (default: every robot, "
         "one daemon process each)")
     parser.add_argument("--bind", default=None, help="host:port to listen on (default: the robot's daemon.bind, "

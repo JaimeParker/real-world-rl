@@ -1,12 +1,14 @@
 """Where station files are looked up. Standard library only, so the host doctor can ask before
 any device-layer import.
 
-Lookup order: ``$RWRL_STATION``, ``<cwd>/local/``, ``$XDG_CONFIG_HOME/rwrl/`` (default
+Lookup order: ``$RWRL_STATION``, the ``rwrl use station`` selection, ``<cwd>/local/``, ``$XDG_CONFIG_HOME/rwrl/`` (default
 ``~/.config/rwrl/``). The pre-0.1.0 names, ``$ROBOT_INFRA_CONFIG`` and ``~/.config/robot_infra/``,
 are still read for one release after their replacements; ``rwrl doctor`` reports their use."""
 from __future__ import annotations
 
+import json
 import os
+import sys
 from pathlib import Path
 from typing import Mapping
 
@@ -17,6 +19,12 @@ STATION_SCOPES = ("local", "user")
 LOCAL_CONFIG_DIRNAME = "local"
 USER_CONFIG_DIRNAME = "rwrl"
 LEGACY_USER_CONFIG_DIRNAME = "robot_infra"
+# ``rwrl use`` remembers a station and a preset per working directory, next to ./local/station.yaml.
+SELECTION_FILENAME = ".rwrl-use.json"
+SELECTION_KINDS = ("station", "preset")
+SELECTION_COMMAND = "rwrl use"
+# Selections a command fell back to in this process: kind -> path, each announced once on stderr.
+_announced: dict[str, str] = {}
 
 
 def _environ(env: Mapping[str, str] | None) -> Mapping[str, str]:
@@ -88,3 +96,79 @@ def legacy_station_locations(*, env: Mapping[str, str] | None = None) -> list[tu
             f"mkdir -p {target} && mv {legacy}/* {target}/",
         ))
     return found
+
+
+def selection_file(cwd: str | Path | None = None) -> Path:
+    """``<cwd>/local/.rwrl-use.json``: where ``rwrl use`` keeps its selections."""
+    return (Path.cwd() if cwd is None else Path(cwd)) / LOCAL_CONFIG_DIRNAME / SELECTION_FILENAME
+
+
+def read_selection(cwd: str | Path | None = None) -> dict[str, str]:
+    """The remembered ``{kind: path}``; empty when nothing was selected. Paths are as written by
+    ``rwrl use``: absolute, or relative to the directory holding ``local/``."""
+    path = selection_file(cwd)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}
+    try:
+        data = json.loads(text)
+    except ValueError as error:
+        raise ValueError(f"{path} is not valid JSON ({error}); run `{SELECTION_COMMAND} --clear` to reset it") from error
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} must hold a JSON object; run `{SELECTION_COMMAND} --clear` to reset it")
+    return {kind: str(data[kind]) for kind in SELECTION_KINDS if data.get(kind)}
+
+
+def write_selection(updates: Mapping[str, str | None], cwd: str | Path | None = None) -> Path:
+    """Set (a path) or forget (None) each kind; the file is removed once nothing is selected."""
+    path = selection_file(cwd)
+    try:
+        data = read_selection(cwd)
+    except ValueError:
+        data = {}  # a damaged file is replaced rather than blocking --clear
+    for kind, value in updates.items():
+        if kind not in SELECTION_KINDS:
+            raise ValueError(f"unknown selection '{kind}'; choose from {list(SELECTION_KINDS)}")
+        if value is None:
+            data.pop(kind, None)
+        else:
+            data[kind] = str(value)
+    if data:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    else:
+        path.unlink(missing_ok=True)
+    return path
+
+
+def selected_path(kind: str, cwd: str | Path | None = None) -> Path | None:
+    """The path ``rwrl use <kind>`` remembered for this directory, else None."""
+    value = read_selection(cwd).get(kind)
+    if value is None:
+        return None
+    path = Path(value)
+    return path if path.is_absolute() or cwd is None else Path(cwd) / path
+
+
+def require_selected_file(kind: str, path: Path) -> Path:
+    """``path`` if it exists; else an error naming how to fix the stale selection."""
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"{kind} {path} chosen with `{SELECTION_COMMAND} {kind}` does not exist; "
+            f"run `{SELECTION_COMMAND} {kind} <yaml>` or `{SELECTION_COMMAND} --clear {kind}`"
+        )
+    return path
+
+
+def announce_selection(kind: str, path: str | Path) -> None:
+    """Say once per process, on stderr, that a command fell back to a remembered selection."""
+    if _announced.get(kind) == str(path):
+        return
+    _announced[kind] = str(path)
+    print(f"using {kind} {path} (from {SELECTION_COMMAND})", file=sys.stderr)
+
+
+def announced_selections() -> dict[str, str]:
+    """The selections this process fell back to, for a ``--json`` result."""
+    return dict(_announced)

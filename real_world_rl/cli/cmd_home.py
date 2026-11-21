@@ -82,7 +82,7 @@ class HomeCommand:
     def run(self, args, ctx):
         from .preset_edit import Preset
         if args.action == "set" and args.preset is None:
-            raise CliError("home set requires --preset", code=USAGE_EXIT_CODE)
+            raise CliError("home set requires --preset", code=USAGE_EXIT_CODE, hint="pass --preset <yaml>, or remember one with `rwrl use preset <yaml>`")
         preset = Preset.load(args.preset)
         with ctx.open_robot() as connection:
             data, text = home_command(args, connection, preset, ctx)

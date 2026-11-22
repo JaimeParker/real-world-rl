@@ -1,4 +1,4 @@
-Spacemouse
+Teleoperate with a SpaceMouse
 ================================================================================
 
 The English version will follow once the Chinese chapter is final.

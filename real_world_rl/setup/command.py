@@ -4,7 +4,7 @@ write the station yaml, check it with the doctor and print the next commands.
     rwrl setup                       # interactive, probes the hardware
     rwrl setup --mock                # canned hardware, simulated calibration
     rwrl setup --station local/station.yaml [--only cameras|teleop|daemon]
-    rwrl setup --non-interactive --arms 1 --robot-ip 172.16.0.2 ...
+    rwrl setup --non-interactive --arms 1 --robot-ip 172.16.0.2 --robot-model fr3 ...
 
 Every question has a flag; per-arm flags take one value per arm (or one for all arms).
 ``--non-interactive`` fails on a question that has neither a flag nor a ``--station`` value."""
@@ -62,6 +62,9 @@ def answers_from_args(args: argparse.Namespace, previous: StationDraft | None) -
         robot_ips=args.robot_ip,
         arm_backends=args.arm_backend,
         grippers=args.gripper,
+        cartesian_controllers=args.cartesian_controller,
+        robot_models=args.robot_model,
+        realtimes=args.realtime,
         home_joints=args.home_joints,
         joint_limits=args.joint_limits,
         safety_boxes=args.safety_box,

@@ -1,4 +1,4 @@
-Bc Train
+Train a First BC Policy
 ================================================================================
 
 The English version will follow once the Chinese chapter is final.

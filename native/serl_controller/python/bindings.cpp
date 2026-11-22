@@ -156,6 +156,9 @@ PYBIND11_MODULE(_serl_controller, m) {
     info["libfranky_sha256"] = SERL_CONTROLLER_LIBFRANKY_SHA256;
     info["libfranka_file"] = SERL_CONTROLLER_LIBFRANKA_FILE;
     info["libfranka_version"] = SERL_CONTROLLER_LIBFRANKA_VERSION;
+    info["franky_layout"] = SERL_CONTROLLER_FRANKY_LAYOUT;
+    info["libfranka_path"] = SERL_CONTROLLER_LIBFRANKA_PATH;
+    info["libfranka_sha256"] = SERL_CONTROLLER_LIBFRANKA_SHA256;
     info["build_id"] = SERL_CONTROLLER_BUILD_ID;
     m.attr("BUILD_INFO") = info;  // compiled-in copy of build_info.json
   }

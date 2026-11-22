@@ -6,6 +6,8 @@ from the repository root never fails on it.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -129,7 +131,12 @@ def test_build_info_file_matches_the_compiled_copy():
     if sc.WITH_FRANKY:
         info = sc.build_info()
         assert len(info["libfranky_sha256"]) == 64
-        assert info["libfranka_file"].startswith("libfranka")
+        assert info["franky_layout"] in ("wheel", "source")
+        if info["franky_layout"] == "wheel":  # libfranka bundled in the franky wheel
+            assert info["libfranka_file"].startswith("libfranka")
+        else:  # franky built from source against a system libfranka
+            assert info["libfranka_file"] == "" and Path(info["libfranka_path"]).is_file()
+            assert len(info["libfranka_sha256"]) == 64
 
 
 def test_joint_law_blends_for_ten_seconds_then_holds():

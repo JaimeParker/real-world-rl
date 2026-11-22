@@ -213,7 +213,9 @@ It never writes the device table and never records the serial number.
 `workspace capture --save`; right-handed, y orthogonalised to x, degenerate points refused).
 `--source TEXT` records provenance; `--save` writes only `task_frame` after a reviewed diff. It
 is refused when the station workspace is in another frame; the same frame name rebases that
-workspace and says so.
+workspace and says so. The candidate (and `workspace frame show`) also reports `rpy_deg`, the frame's roll,
+pitch and yaw about the base x, y, z axes (`base_R_frame = Rz(yaw) Ry(pitch) Rx(roll)`), next to
+`axis_lengths_m` and `y_axis_angle_deg`.
 
 #### archive inspect
 

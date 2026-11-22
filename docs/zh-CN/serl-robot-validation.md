@@ -1,18 +1,18 @@
 <!-- English source: docs/serl-robot-validation.md -->
 
-<a id="serl-controller-robot-validation-zizhu"></a>
+<a id="serl-controller-robot-validation"></a>
 
-# SERL 控制器：真机验证（Zizhu）
+# SERL 控制器：真机验证
 
-这是 `cartesian_controller: serl` 与两种 SpaceMouse 模式的硬件检查清单。请在实验室的机器人主机上按顺序执行（Zizhu：一台 FR3，后接 NUC，SpaceMouse 接在 NUC 上），在仓库根目录、激活项目环境后操作。每一步都写了要看什么、什么算通过。遇到第一个失败的步骤就停下，并保留它的日志。背景知识见 [SERL 控制器](serl-controller.md)。
+这是 `cartesian_controller: serl` 与两种 SpaceMouse 模式的硬件检查清单。请在机器人主机上按顺序执行（例如一台 FR3，后接 NUC，SpaceMouse 接在 NUC 上），在仓库根目录、激活项目环境后操作。每一步都写了要看什么、什么算通过。遇到第一个失败的步骤就停下，并保留它的日志。背景知识见 [SERL 控制器](serl-controller.md)。
 
 每个涉及运动的步骤都要注意安全：一人手握外部急停装置，单元里没有其他人；工作空间要空旷，并远在 `safety_box` 以内；机械臂从 home 位置开始。
 
-<a id="0-bring-the-lab-machines-working-tree-to-this-code"></a>
+<a id="0-bring-the-robot-pcs-working-tree-to-this-code"></a>
 
-## 0. 把实验室机器的工作区切换到这份代码
+## 0. 把机器人主机的工作区切换到这份代码
 
-实验室的检出目录上还带着一个旧补丁（在 `b227e74` 之上的 Codex 工作区补丁）。等包含这次工作的提交推送之后，先保存这个补丁，再切换过去：
+检出目录里有本地改动时，先保存它们，再切换到包含这次工作的提交：
 
 ```bash
 git status --short
@@ -45,28 +45,25 @@ rwrl doctor --fix                 # writes rtprio 99 / memlock unlimited for thi
 
 通过标准：`rwrl doctor` 中 `realtime.kernel` 和 `realtime.limits` 为 PASS。
 
-<a id="2-install-the-wheel-pair"></a>
+<a id="2-build-and-install-franky--serl_controller"></a>
 
-## 2. 安装配对的 wheel
+## 2. 构建并安装 franky + serl_controller
 
-构建目录在开发机上不受 git 管理的 `local/wheels/` 里，先把它复制过来：
+从 `rwrl doctor` 读出机器人服务器版本（`libfranka mismatch: robot server N, ...`；握手通过时看已装 franky 的 `+libfranka.X` 标签），按 [SERL 控制器](serl-controller.md#installing-franky-and-serl_controller) 中的表选 `LIBFRANKA_VERSION`。这台工作站不要运行 `rwrl doctor --install-sdk`。然后在机器人主机上（不需要 Docker）：
 
 ```bash
-rsync -a <dev>:<repo>/local/wheels/rwrl-franky-build-20261122-cxxpass/ local/wheels/rwrl-franky-build-20261122-cxxpass/
-W=local/wheels/rwrl-franky-build-20261122-cxxpass
-(cd $W && sha256sum -c SHA256SUMS)
-pip uninstall -y franky-control serl-controller
-pip install $W/franky_control-*.whl $W/serl_controller-*.whl
+LIBFRANKA_VERSION=0.17.0 bash native/serl_controller/scripts/install-on-ubuntu.sh
 python -c "import franky, serl_controller as sc; print(sc.BUILD_INFO)"
+cat ~/.cache/rwrl-native-build/BUILD_INFO.txt
 ```
 
-通过标准：两个包都能导入，且 `BUILD_INFO` 里的构建 id 与 `$W/BUILD_INFO.txt` 一致。
+通过标准：脚本最后打印 `PASS  sdk:serl_controller`，CTest 通过（含 `golden_equivalence` 和 `joint_reset_golden`），`BUILD_INFO` 的构建 id 与 `BUILD_INFO.txt` 一致且 `franky_layout: source`。（在别处用 Docker 配方构建的 wheel 对也可以用；同一个构建目录的两个 wheel 一起装。）
 
 <a id="3-robot_model-confirm-in-desk"></a>
 
 ## 3. robot_model：在 Desk 中确认
 
-在 Desk → Settings → System 中查看系统版本（4.x = Franka Emika Robot / `panda`，5.x = Franka Research 3 / `fr3`）和机器人型号。Zizhu 的 libfranka 握手报告服务器版本 9（系统 5.x），所以预期是 `fr3`。在工作站中设置：
+在 Desk → Settings → System 中查看系统版本（4.x = Franka Emika Robot / `panda`，5.x = Franka Research 3 / `fr3`）和机器人型号。服务器版本 ≥ 6（系统 5.x）时预期是 `fr3`。在工作站中设置：
 
 ```yaml
 robot_model: fr3
@@ -76,7 +73,7 @@ robot_model: fr3
 
 ## 4. 诊断：先用当前控制器，再用 serl
 
-先在未改动的工作站（`impedance`）上运行 `rwrl doctor`，确认新的 franky wheel 没有破坏任何东西：`sdk:arm`、`handshake`、`feedback:*`、`mode:robot_mode` 为 PASS，`mode:robot_model` 显示 `robot_model: fr3 (robot URDF: fr3)`（或服务器版本）。
+先在未改动的工作站（`impedance`）上运行 `rwrl doctor`，确认源码构建的 franky 没有破坏任何东西：`sdk:arm`、`handshake`、`feedback:*`、`mode:robot_mode` 为 PASS，`mode:robot_model` 显示 `robot_model: fr3 (robot URDF: fr3)`（或服务器版本）。
 
 然后修改工作站：
 
@@ -162,7 +159,7 @@ rwrl --station local/station.yaml --preset local/task.yaml teleop run \
 python scripts/analyze_teleop_direction.py local/cmp-*.session-*/
 ```
 
-每次改工作站后都要重启守护进程，并让 `spacemouse_mode` / `--mode` 与表格一致。`--mode serl` 需要 preset 中的 xyz 与 RPY 安全框。通过标准（每次运行）：所有段 angle < 10°，且 coast（领先量）< 3 mm。记录每次运行的角度中位数、速度和 lead at release。serl 的运行应至少和运行 A 一样好。
+每次改工作站后都要重启守护进程，并让 `spacemouse_mode` / `--mode` 与表格一致。运行 C 先按 HIL-SERL 摆放 SpaceMouse（前 = 任务系 +x，左 = +y，上 = 竖直 +z）并做六个单轴检查；基座侧装时需要测好的 `task_frame`（见工作站教程）。`--mode serl` 需要 preset 中的 xyz 与 RPY 安全框。通过标准（每次运行）：所有段 angle < 10°，且 coast（领先量）< 3 mm。记录每次运行的角度中位数、速度和 lead at release。serl 的运行应至少和运行 A 一样好。
 
 <a id="7-gripper"></a>
 
@@ -217,6 +214,6 @@ robot.disconnect()
 cp local/station.yaml.before-serl-validation.bak local/station.yaml
 ```
 
-更早的副本是 `local/station.yaml.bak.<UTC>`（setup 向导）和 `local/station.yaml.<id>.bak`（CLI 编辑）。要换回官方 franky wheel，执行 `pip uninstall -y franky-control serl-controller`，再执行 `rwrl doctor --install-sdk`；使用官方 wheel 时，工作站保持 `cartesian_controller: impedance` 或 `internal`。要回到旧代码，检出之前的提交，或在 `b227e74` 上应用第 0 步保存的补丁。
+更早的副本是 `local/station.yaml.bak.<UTC>`（setup 向导）和 `local/station.yaml.<id>.bak`（CLI 编辑）。要换回官方 franky wheel，先把工作站改成 `cartesian_controller: impedance` 或 `internal`，再执行 `rwrl doctor --install-sdk`。要回到旧代码，检出之前的提交，或应用第 0 步保存的补丁。
 
 请交回会话目录（`local/*.session-*/`）、守护进程日志、分析输出和 doctor 报告（`rwrl --json doctor > local/doctor-serl.json`）。

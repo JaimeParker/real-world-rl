@@ -7,5 +7,8 @@
   "libfranky_sha256": "@SERL_CONTROLLER_LIBFRANKY_SHA256@",
   "libfranka_file": "@SERL_CONTROLLER_LIBFRANKA_FILE@",
   "libfranka_version": "@SERL_CONTROLLER_LIBFRANKA_VERSION@",
+  "franky_layout": "@SERL_CONTROLLER_FRANKY_LAYOUT@",
+  "libfranka_path": "@SERL_CONTROLLER_LIBFRANKA_PATH@",
+  "libfranka_sha256": "@SERL_CONTROLLER_LIBFRANKA_SHA256@",
   "build_id": "@SERL_CONTROLLER_BUILD_ID@"
 }

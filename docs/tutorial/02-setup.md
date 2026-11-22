@@ -129,7 +129,7 @@ a flag (`rwrl setup --help`); any flag you give is not asked. For example, one a
 everything else asked:
 
 ```bash
-rwrl setup --arms 1 --arm-names arm --robot-ip 172.16.0.2 --teleop gello --scope local
+rwrl setup --arms 1 --arm-names arm --robot-ip 172.16.0.2 --robot-model fr3 --teleop gello --scope local
 ```
 
 | Flag | Meaning and default when omitted |
@@ -137,6 +137,9 @@ rwrl setup --arms 1 --arm-names arm --robot-ip 172.16.0.2 --teleop gello --scope
 | `--arms 1` or `--arms 2` | number of arms; a new station suggests 1 |
 | `--arm-names arm` or `--arm-names left right` | names in the file and in doctor ids (`arm.handshake`) |
 | `--robot-ip 172.16.0.2` | FCI address per arm, also probed |
+| `--robot-model fr3` | per arm: `panda` (Desk system 4.x) or `fr3` (5.x); picks the datasheet `joint_limits`; required for a new arm with `--non-interactive` |
+| `--cartesian-controller serl` | per arm: `impedance` (default), `internal` or `serl` (needs franky + serl_controller built together, see [SERL controller](../serl-controller.md)) |
+| `--realtime enforce` | per arm: `ignore` or `enforce`; default enforce for internal / serl or on a PREEMPT_RT kernel |
 | `--gripper franky` | `franky` (Franka Hand), `none` (no Hand), `fake` or `serl_http` |
 | `--cameras none` or `--cameras SERIAL=wrist` | per arm: serials from `rwrl discover` and their observation names, comma separated |
 | `--camera-resolution 1280x720`, `--camera-fps 15`, `--camera-depth yes` | per arm, for that arm's cameras; unset, new cameras get 640x480, 30 fps, no depth and kept cameras keep their values |
@@ -163,7 +166,7 @@ environment active, with your own GELLO path:
 ```bash
 GELLO_PORT=/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
 rwrl setup --non-interactive --arms 1 --arm-names arm --robot-ip 172.16.0.2 \
-    --arm-backend franky --gripper franky --home-joints 0,-0.785,0,-2.356,0,1.571,0.785 \
+    --arm-backend franky --gripper franky --robot-model fr3 --home-joints 0,-0.785,0,-2.356,0,1.571,0.785 \
     --cameras none --teleop gello --gello-port $GELLO_PORT --gello-baudrate 57600 \
     --gello-joint-ids 1,2,3,4,5,6,7 --gello-gripper-id 8 --intervention always \
     --event-device none --daemon-port 50051 --scope local

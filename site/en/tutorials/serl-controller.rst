@@ -1,5 +1,6 @@
-Serl Controller
+:orphan:
+
+This chapter has moved
 ================================================================================
 
-The English version will follow once the Chinese chapter is final.
-Read :doc:`the Chinese chapter </tutorials/serl-controller>`.
+Choosing, installing and configuring the Franka controller is now :doc:`controller`.

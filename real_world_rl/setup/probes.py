@@ -26,6 +26,7 @@ GELLO_BAUDRATES = (57600, 1_000_000, 2_000_000, 3_000_000, 4_000_000)
 MAX_SUBNET_HOSTS = 256
 SUBNET_PROBE_TIMEOUT_S = 0.2
 MOCK_FRANKA_IPS = DEFAULT_FRANKA_IPS
+REALTIME_KERNEL_FLAG_PATH = "/sys/kernel/realtime"  # as the franky backend's doctor check reads it
 MOCK_CAMERA_SERIALS = ("123422070001", "123422070002", "123422070003")
 MOCK_GELLO_PORTS = (
     "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_MOCK0-if00-port0",
@@ -78,6 +79,8 @@ class StationProbe:
     cameras: list[CameraProbe] = field(default_factory=list)
     gello_buses: list[SerialBusProbe] = field(default_factory=list)
     spacemice: list[str] = field(default_factory=list)
+    # PREEMPT_RT kernel (/sys/kernel/realtime is 1); None = not checked (--mock).
+    realtime_kernel: bool | None = None
     mock: bool = False
 
     @property
@@ -112,6 +115,9 @@ class StationProbe:
             lines.append("  none")
         lines.append("spacemouse devices:")
         lines.extend(f"  {device}" for device in self.spacemice or ["none"])
+        kernel = {True: "PREEMPT_RT", False: "not PREEMPT_RT (realtime: enforce would fail)",
+                  None: "not checked"}[self.realtime_kernel]
+        lines.append(f"realtime kernel: {kernel}")
         return "\n".join(lines)
 
 
@@ -225,7 +231,17 @@ def discover_station(options: ProbeOptions | None = None) -> StationProbe:
         cameras=probe_cameras(),
         gello_buses=probe_gello_ports(options.serial_ports),
         spacemice=probe_spacemouse(),
+        realtime_kernel=probe_realtime_kernel(),
     )
+
+
+def probe_realtime_kernel(path: str = REALTIME_KERNEL_FLAG_PATH) -> bool:
+    """Whether the running kernel is PREEMPT_RT (the flag file is missing on other kernels)."""
+    try:
+        with open(path, encoding="ascii") as handle:
+            return handle.read().strip() == "1"
+    except OSError:
+        return False
 
 
 def mock_station_probe() -> StationProbe:

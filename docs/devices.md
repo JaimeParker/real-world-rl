@@ -216,7 +216,8 @@ always a Ruckig motion; `move_to_joints` is Ruckig except with `serl` (SERL's jo
 - `serl`: SERL's own controllers, ported bit-for-bit from `serl_franka_controllers` and run
   inside franky's 1 kHz loop by the `serl_controller` wheel. Cartesian servo is SERL's Cartesian
   impedance controller (parameters from `serl:`), `move_to_joints` is SERL's joint reset. Needs
-  the matching franky + `serl_controller` wheels; see [SERL controller](serl-controller.md).
+  franky + `serl_controller` built together (on the robot PC:
+  `native/serl_controller/scripts/install-on-ubuntu.sh`); see [SERL controller](serl-controller.md).
 
 **Payload (`load:`, Franka, `franky`, every mode).** `load: {mass_kg, center_of_mass_m: [x, y, z],
 inertia}` (centre of mass in the flange frame, inertia about it in kg·m², 3×3 rows or 9 values,
@@ -227,9 +228,9 @@ motion, the way HIL-SERL's `franka_server` `/set_load` calls franka_control's `S
 
 ### SERL controller (`cartesian_controller: serl`)
 
-SERL's own Cartesian impedance controller and joint reset, run by the `serl_controller` wheel:
+SERL's own Cartesian impedance controller and joint reset, run by `serl_controller`:
 what runs, the `serl:` parameters and profiles, `robot_model`, `serl_auto_recover`, the matching
-wheel pair, the doctor rows, choosing and switching controllers, and the known differences from
+franky + serl_controller installation, the doctor rows, choosing and switching controllers, and the known differences from
 HIL-SERL are in [SERL controller](serl-controller.md).
 
 Build a robot without touching hardware to check the file:
@@ -256,15 +257,24 @@ With a `teleop:` section a last line is added, for example `  teleop: SpaceMouse
 It probes the hardware (TCP 22/443/1337 of `172.16.0.2`, `172.16.1.2`, `$ROBOT_IP` and
 `--robot-ip`, plus every host of `--scan-subnet CIDR`; the serials of every camera backend with an SDK (RealSense, ZED); a Dynamixel broadcast
 ping on every `/dev/serial/by-id/usb-FTDI_*` and `usb-ROBOTIS_*` port at 57600 to 4000000 baud;
-SpaceMouse devices), then asks per arm for the robot IP, arm and gripper backend, home joints,
+SpaceMouse devices), then asks per arm for the robot IP, arm and gripper backend, robot model (`--robot-model panda|fr3`,
+required for a new arm with `--non-interactive`), Cartesian controller (`--cartesian-controller
+impedance|internal|serl`, default impedance), realtime mode (`--realtime ignore|enforce`; enforce is
+suggested for internal / serl or on a PREEMPT_RT kernel, and the wizard warns when serl / internal
+meet a non-realtime kernel), home joints,
 cameras (`1=wrist,2=front`), teleop device (GELLO port and servo ids, the last id offered as the
 gripper trigger), intervention mode and daemon port, calibrates each GELLO inline (the same
 steps as the calibration CLI in [device contract](#add-a-teleop-device); skipped, it writes zero offsets
 with a `# TODO calibrate` comment), writes the annotated station yaml, runs the doctor on it and
 prints the next commands.
 
+A new franky arm with the impedance controller gets the SERL-like `control:` gains
+(`FRANKY_SETUP_CONTROL`); with `serl` the wizard writes `serl: null` (SERL's `.cfg` defaults) and no
+impedance Cartesian gains (switching a station to serl drops them from `control:` and keeps the
+joint keys).
+
 Every arm gets device-side safety limits: the datasheet `joint_limits` of its `robot_model`
-(Panda unless `robot_model: fr3`; `--joint-limits`),
+(asked before them, so an FR3 gets the FR3 table; `--joint-limits`),
 a servo step cap `max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}` (`--max-delta-xyz-m`,
 `--max-delta-joint-rad`) and a `safety_box` it asks for (base frame, metres, suggested
 `[0.3, -0.3, 0.05, 0.7, 0.3, 0.6]`, `--safety-box`), which must contain the home pose.

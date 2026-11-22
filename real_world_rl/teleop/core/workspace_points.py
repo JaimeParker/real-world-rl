@@ -95,13 +95,26 @@ def frame_point_quality(origin, x_point, y_point) -> dict:
             'y_axis_angle_deg': float(np.degrees(np.arccos(np.clip(cosine, -1.0, 1.0))))}
 
 
+RPY_NOTE = 'base_R_frame = Rz(yaw) Ry(pitch) Rx(roll), about the base x, y, z axes, degrees'
+
+
+def frame_rpy_deg(rotation) -> dict:
+    """Roll, pitch and yaw (degrees) of a base_R_frame rotation, extrinsic about base x, y, z
+    (``Rz(yaw) @ Ry(pitch) @ Rx(roll)``), e.g. a table tilted 45 degrees about base x is roll 45."""
+    from scipy.spatial.transform import Rotation
+    roll, pitch, yaw = Rotation.from_matrix(np.asarray(rotation, dtype=float)[:3, :3]).as_euler('xyz', degrees=True)
+    return {'roll': float(roll), 'pitch': float(pitch), 'yaw': float(yaw)}
+
+
 def frame_axes(task_frame) -> dict:
-    """Origin and unit axes of a task frame expressed in the base frame; None without a frame."""
+    """Origin, unit axes and roll/pitch/yaw of a task frame expressed in the base frame; None
+    without a frame."""
     if task_frame is None:
-        return {'origin_base_m': None, 'axes_base': None}
+        return {'origin_base_m': None, 'axes_base': None, 'rpy_deg': None}
     transform = task_transform(task_frame)
     return {'origin_base_m': transform[:3, 3].tolist(),
-            'axes_base': {axis: transform[:3, column].tolist() for column, axis in enumerate('xyz')}}
+            'axes_base': {axis: transform[:3, column].tolist() for column, axis in enumerate('xyz')},
+            'rpy_deg': frame_rpy_deg(transform), 'rpy_note': RPY_NOTE}
 
 
 def candidate_bounds(document, task_frame):

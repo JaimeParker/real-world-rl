@@ -1,4 +1,4 @@
-路线二 3. 离线检查 checkpoint
+离线检查 BC checkpoint
 ================================================================================
 
 本章加载 :doc:`bc-train` 的 ``local/bc-runs/first-bc/checkpoints/final.pt``，
@@ -48,7 +48,7 @@
 
 **如果不对**：
 
-* 缺少 config.json／experiment.json：找回训练目录；单独复制一个 final.pt 不足以完成本路线的约定检查。
+* 缺少 config.json／experiment.json：找回训练目录；单独复制一个 final.pt 不足以完成本章的约定检查。
 * ``recorded action contract does not match`` 或 ``saved experiment contract/hash differs``：
   检查 checkpoint、数据与训练配置是否来自同一次实验，不删除元数据绕过检查。
 * 参数大小不匹配或观测键报错：确认算法是 real_world_bc，没误用 ACT 权重，保留原来的相机和状态布局。
@@ -76,7 +76,7 @@
      - x 分量约 0.1761，对应约 0.0088 m；y 分量约 0.3752，对应约 0.0188 m。
        模型仍输出了示范中没有的 y、z 和旋转请求。
    * - 预测夹爪
-     - 约 0.1481，对应归一化开口请求约 0.5741；若使用路线一的二值 Hand，仍会超过 0.5 的开爪阈值。
+     - 约 0.1481，对应归一化开口请求约 0.5741；若使用前面录制时的二值 Hand，仍会超过 0.5 的开爪阈值。
        训练损失比较的是连续动作数值，不是二值设备最终是否开爪。
    * - mask 与误差
      - 第 0 行全七维人工，masked MSE 约 0.131285。它是归一化动作空间里的误差，不是 m 或 rad。
@@ -147,4 +147,4 @@ cartesian_semantics 为 current、xyz_scale_m 为 0.05、rot_scale_rad 为 0.3�
 检查清单：能加载 final.pt；能指出一个输入张量的来源和形状；
 能把一个输出分量按正确约定解码；已保存部署需要的配置、contract 与离线检查记录。
 
-路线二完成。接下来 :doc:`deploy`，对照这份记录准备受监护的部署与推理。
+BC 训练这一部分完成。接下来 :doc:`deploy`，对照这份记录准备受监护的部署与推理。

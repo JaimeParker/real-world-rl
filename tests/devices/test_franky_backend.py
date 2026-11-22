@@ -1493,6 +1493,53 @@ def test_pairing_fails_for_another_franky_wheel(fake_site, kwargs, needle):
     assert "pip uninstall -y franky-control serl-controller" in hint and "same build" in hint.lower()
 
 
+def _source_layout(site, tmp_path, *, libfranka_bytes=b"system-libfranka", recorded=None):
+    """Turn the fake site into franky built from source (install-on-ubuntu.sh): no
+    franky_control.libs, serl_controller records the system libfranka's path and digest."""
+    import hashlib
+    import json
+    import shutil
+    shutil.rmtree(site / "franky_control.libs")
+    system = tmp_path / "usr-local-lib" / "libfranka.so.0.17.0"
+    system.parent.mkdir()
+    system.write_bytes(libfranka_bytes)
+    info_path = site / "serl_controller" / "build_info.json"
+    info = json.loads(info_path.read_text())
+    info.update(libfranka_file="", franky_layout="source", libfranka_path=str(system),
+                libfranka_sha256=recorded or hashlib.sha256(b"system-libfranka").hexdigest())
+    info_path.write_text(json.dumps(info))
+    return system
+
+
+def test_pairing_ok_for_a_source_built_franky(fake_site, tmp_path):
+    site = fake_site()
+    system = _source_layout(site, tmp_path)
+    ok, message, hint, details = franky_arm_module.serl_build_pairing()
+    assert ok and "same build" in message and f"source build, {system}" in message, message
+
+
+@pytest.mark.parametrize("change, needle", [
+    ("remove", "is gone"),
+    ("rebuild", "changed since serl_controller was built"),
+])
+def test_pairing_fails_when_the_system_libfranka_changed(fake_site, tmp_path, change, needle):
+    site = fake_site()
+    system = _source_layout(site, tmp_path)
+    if change == "remove":
+        system.unlink()
+    else:
+        system.write_bytes(b"another libfranka")
+    ok, message, hint, _ = franky_arm_module.serl_build_pairing()
+    assert not ok and needle in message and "install-on-ubuntu.sh" in hint
+
+
+def test_pairing_fails_for_an_official_wheel_over_a_source_build(fake_site, tmp_path):
+    site = fake_site(libfranky=b"official-wheel")
+    _source_layout(site, tmp_path)
+    ok, message, _, _ = franky_arm_module.serl_build_pairing()
+    assert not ok and "not the wheel serl_controller was built against" in message
+
+
 def test_pairing_fails_without_serl_controller(monkeypatch):
     monkeypatch.setattr(franky_arm_module, "_package_dir", lambda name: None)
     ok, message, _, _ = franky_arm_module.serl_build_pairing()

@@ -169,7 +169,7 @@ SpaceMouse 拟合并验证方向配置（必需 `--profile`）。GELLO 运行引
 
 #### workspace frame set
 
-`--name NAME` 配合 `--base-T-frame`（16 个行主序数字，米）或 `--from-points PTS --origin A --x-axis B --y-axis C`（`workspace capture --save` 保存的点名；右手系，y 相对 x 正交化，拒绝退化点）。`--source TEXT` 记录来源；`--save` 审查差异后仅写 `task_frame`。站点工作区在另一坐标系时拒绝；同名坐标系会重定位工作区并说明。
+`--name NAME` 配合 `--base-T-frame`（16 个行主序数字，米）或 `--from-points PTS --origin A --x-axis B --y-axis C`（`workspace capture --save` 保存的点名；右手系，y 相对 x 正交化，拒绝退化点）。`--source TEXT` 记录来源；`--save` 审查差异后仅写 `task_frame`。站点工作区在另一坐标系时拒绝；同名坐标系会重定位工作区并说明。候选结果（以及 `workspace frame show`）还给出 `rpy_deg`：坐标系绕基座 x、y、z 轴的 roll、pitch、yaw（`base_R_frame = Rz(yaw) Ry(pitch) Rx(roll)`），与 `axis_lengths_m`、`y_axis_angle_deg` 并列。
 
 <a id="archive-inspect"></a>
 

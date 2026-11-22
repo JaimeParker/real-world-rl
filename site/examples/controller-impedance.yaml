@@ -1,0 +1,22 @@
+# 教程片段：cartesian_controller: impedance 的 station 字段（其余字段见 station.yaml）。
+type: franka
+name: franka
+arm_backend: franky
+robot_ip: REPLACE_WITH_FCI_IP
+gripper:
+  backend: franky
+  max_width_m: 0.08
+  mode: binary
+# start controller
+cartesian_controller: impedance   # 默认；franky 的扭矩级阻抗 tracker
+robot_model: fr3                  # Desk 系统 4.x 填 panda，5.x 填 fr3
+realtime: ignore                  # 普通内核可用；有 PREEMPT_RT 时可填 enforce
+# end controller
+# start control
+control:                          # 只给 impedance 用；rwrl setup 给新机械臂写的就是这组值
+  translational_stiffness: 2000.0               # N/m
+  rotational_stiffness: 75.0                    # Nm/rad
+  cartesian_damping: [89.0, 89.0, 89.0, 7.0, 7.0, 7.0]
+  translational_error_clip: [0.01, 0.01, 0.01]  # m；刚度 × 上限 = 最大推力 20 N
+  rotational_error_clip: [0.10, 0.10, 0.10]     # rad
+# end control

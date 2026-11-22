@@ -81,7 +81,7 @@ def test_frame_axes_are_rotation_columns():
     axes = frame_axes({"name": "table", "base_T_frame": ROTATED})
     assert axes["origin_base_m"] == [.1, .2, .3]
     assert axes["axes_base"] == {"x": [0, 1, 0], "y": [-1, 0, 0], "z": [0, 0, 1]}
-    assert frame_axes(None) == {"origin_base_m": None, "axes_base": None}
+    assert frame_axes(None) == {"origin_base_m": None, "axes_base": None, "rpy_deg": None}
 
 
 def test_set_from_matrix_is_a_candidate_without_source(tmp_path, capsys):
@@ -226,3 +226,15 @@ def test_frame_set_help_lists_both_definitions(capsys):
     assert main(["workspace", "frame", "set", "--help"]) == 0
     output = capsys.readouterr().out
     assert "--base-T-frame" in output and "--from-points" in output and "--y-axis" in output
+
+
+def test_frame_rpy_reads_a_tilted_table_mount():
+    """A table tilted 45 degrees about base x (a common lab mount) is roll 45, pitch 0, yaw 0."""
+    from scipy.spatial.transform import Rotation
+    from real_world_rl.teleop.core.workspace_points import frame_rpy_deg
+    rotation = Rotation.from_euler("xyz", [41.8, 2.3, -6.7], degrees=True).as_matrix()
+    rpy = frame_rpy_deg(rotation)
+    assert (rpy["roll"], rpy["pitch"], rpy["yaw"]) == pytest.approx((41.8, 2.3, -6.7))
+    c = 0.5 ** 0.5
+    nominal = {"name": "table", "base_T_frame": [[1, 0, 0, 0], [0, c, -c, 0], [0, c, c, 0], [0, 0, 0, 1]]}
+    assert frame_axes(nominal)["rpy_deg"] == pytest.approx({"roll": 45.0, "pitch": 0.0, "yaw": 0.0})

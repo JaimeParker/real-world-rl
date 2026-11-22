@@ -1,4 +1,4 @@
-路线三 5. 评估与恢复
+评估策略与恢复训练
 ================================================================================
 
 本章保存一次可恢复的训练状态，再用固定策略独立评估。
@@ -136,7 +136,7 @@ outbox 达容量或持久化失败才停止；这和启动时等待第一份快�
    * - ``interrupted_episodes``、``discarded_episodes``
      - 单列的中断／丢弃回合，不进入完成回合分母。
    * - ``tcp_proxy_success_rate``
-     - TCP 位置代理结果；本路线没有配置该代理，不能拿它替代物体任务成功。
+     - TCP 位置代理结果；本教程没有配置该代理，不能拿它替代物体任务成功。
 
 在线训练中同样的汇总可见 ``episodes/task_success_rate``、``episodes/autonomous_success_rate``，
 以及本例 ``actor/actor/task_success_rate`` 等回合统计。在线统计反映带探索和人工纠正的训练，
@@ -156,4 +156,4 @@ unknown_episodes 多就检查标注来源；eval 需要 checkpoint 的错误说�
 检查清单：保留匹配的 journal、manifest 和 generation；恢复后没有重复叠加种子示范；
 能分别报告任务成功与自主成功；能把一条纠正的 ID、learner 接收记录和后续 actor 新版本连起来。
 
-路线三完成。继续用 :doc:`deploy` 检查选定策略的独立部署。
+真机强化学习这一部分完成。继续用 :doc:`deploy` 检查选定策略的独立部署。

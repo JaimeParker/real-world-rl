@@ -1,0 +1,56 @@
+# start frame-set
+示例：rwrl workspace frame set 的真实输出（离线运行；三个点是按 roll 41.8°、pitch 2.3°、yaw -6.7° 的安装合成的演示数据）。
+{
+  "schema_version": 1,
+  "station": "/home/robot/real-world-rl/local/station.yaml",
+  "robot": "franka",
+  "candidate": {
+    "name": "table",
+    "base_T_frame": [
+      [
+        0.9920291326648621,
+        0.11543387095178799,
+        -0.050529411052250825,
+        0.42
+      ],
+      [
+        -0.11964170444199342,
+        0.7370024965130924,
+        -0.6652166434265487,
+        -0.21
+      ],
+      [
+        -0.03954823007943669,
+        0.6659597146754114,
+        0.7449386524587301,
+        0.12
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "source": "points:frame-points.yaml origin=frame-origin x=frame-x y=frame-y"
+  },
+  "rpy_deg": {
+    "roll": 41.796054037309815,
+    "pitch": 2.2665377672590172,
+    "yaw": -6.876830737436792
+  },
+  "rpy_note": "base_R_frame = Rz(yaw) Ry(pitch) Rx(roll), about the base x, y, z axes, degrees",
+  "axis_lengths_m": {
+    "x": 0.30089842139831846,
+    "y": 0.2499932199080607
+  },
+  "y_axis_angle_deg": 2.1404092482938264,
+  "saved": null,
+  "note": "Candidate only; base_T_frame maps task-frame coordinates into the robot base frame. Points files captured in another frame must be recaptured after saving"
+}
+# end frame-set
+# start frame-sign
+示例：把 TCP 竖直抬高约 10 cm 前后的两次 rwrl tcp（只看 xyz；数字是演示，对应 base_R_table = Rx(+45°)）。
+tcp xyz (m): [0.5000, 0.0000, 0.3000]; quat (xyzw): [1.0000, 0.0000, 0.0000, 0.0000]
+tcp xyz (m): [0.5000, -0.0707, 0.3707]; quat (xyzw): [1.0000, 0.0000, 0.0000, 0.0000]
+# end frame-sign

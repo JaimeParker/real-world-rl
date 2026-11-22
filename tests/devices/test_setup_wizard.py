@@ -45,7 +45,7 @@ DEFAULT_MAX_DELTA = {"xyz_m": 0.05, "joint_rad": 0.04}
 NARROW_JOINT_LIMITS = "-2,2,-1.5,1.5,-2,2,-3,-0.1,-2,2,0,3.5,-2,2"
 FLAGGED_ONE_ARM = [
     "--mock", "--non-interactive", "--arms", "1", "--arm-names", "arm", "--robot-ip", "172.16.0.2",
-    "--arm-backend", "franky", "--gripper", "none", "--home-joints", "0,-0.785,0,-2.356,0,1.571,0.785",
+    "--arm-backend", "franky", "--gripper", "none", "--robot-model", "panda", "--home-joints", "0,-0.785,0,-2.356,0,1.571,0.785",
     "--cameras", "1=wrist", "--teleop", "gello", "--gello-port", "1", "--gello-baudrate", "57600",
     "--gello-joint-ids", "1,2,3,4,5,6,7", "--gello-gripper-id", "8", "--intervention", "always",
     "--event-device", "none", "--daemon-port", "50060",
@@ -68,6 +68,8 @@ class Operator:
             if key in prompt:
                 del self.answers[index]
                 return answer
+        if "robot model of" in prompt and "[" not in prompt:
+            return "panda"  # a new arm's robot model has no default
         return ""
 
 
@@ -638,3 +640,134 @@ def test_robot_model_and_serl_auto_recover_round_trip_and_fr3_limit_defaults(tmp
     assert config.robot_model == "fr3"
     assert config.serl_auto_recover == {"enabled": False, "max_per_episode": 3}
     assert config.joint_limits == [list(pair) for pair in DATASHEET_JOINT_LIMITS["fr3"]]  # FR3 datasheet default
+
+
+# -- robot model, Cartesian controller, realtime ----------------------------------------------------
+
+
+def _flagged(*extra):
+    """FLAGGED_ONE_ARM without --robot-model, plus ``extra``."""
+    argv = list(FLAGGED_ONE_ARM)
+    at = argv.index("--robot-model")
+    del argv[at:at + 2]
+    return [*argv, *extra]
+
+
+def test_non_interactive_needs_the_robot_model_of_a_new_arm(tmp_path, capsys):
+    out = tmp_path / "station.yaml"
+    code, _ = run([*_flagged(), "--output", out], never_asked)
+    assert code == 2 and "--non-interactive needs --robot-model" in capsys.readouterr().err and not out.exists()
+
+
+def test_fr3_gets_the_fr3_datasheet_joint_limits(tmp_path):
+    from real_world_rl.devices.robots.franka import DATASHEET_JOINT_LIMITS
+    out = tmp_path / "station.yaml"
+    code, output = run([*_flagged("--robot-model", "fr3"), "--home-joints", "0,-0.785,0,-2.356,0,1.571,0.785",
+                        "--output", out], never_asked)
+    assert code == 0, output
+    config = load_station(out).select().config
+    assert config.robot_model == "fr3"
+    assert config.joint_limits == [list(pair) for pair in DATASHEET_JOINT_LIMITS["fr3"]]
+    assert config.cartesian_controller == "impedance" and config.realtime == "ignore"  # mock: kernel not checked
+
+
+def test_interactive_asks_the_model_before_the_limits_and_serl_suggests_enforce(tmp_path):
+    from real_world_rl.devices.robots.franka import DATASHEET_JOINT_LIMITS
+    out = tmp_path / "station.yaml"
+    operator = Operator([("robot model of", "fr3"), ("Cartesian controller of", "serl")])
+    code, output = run(["--mock", "--output", out], operator)
+    assert code in (0, 1), output  # the doctor may fail sdk:serl_controller (no serl_controller installed)
+    asked = [prompt.split(" of ")[0] for prompt in operator.prompts]
+    assert asked.index("robot model") < asked.index("Cartesian controller") < asked.index("realtime")
+    realtime_prompt = next(prompt for prompt in operator.prompts if prompt.startswith("realtime of"))
+    assert realtime_prompt.endswith("[enforce]: ")
+    config = load_station(out).select().config
+    assert (config.robot_model, config.cartesian_controller, config.realtime) == ("fr3", "serl", "enforce")
+    assert config.joint_limits == [list(pair) for pair in DATASHEET_JOINT_LIMITS["fr3"]]
+    # serl writes no impedance gains (doctor would warn config:serl_control) and SERL's defaults as null.
+    assert config.control is None and config.serl is None
+    assert "realtime kernel: not checked" in output
+
+
+def test_serl_flags_write_a_serl_station_that_round_trips(tmp_path):
+    out = tmp_path / "station.yaml"
+    code, output = run([*_flagged("--robot-model", "fr3", "--cartesian-controller", "serl"),
+                        "--home-joints", "0,-0.785,0,-2.356,0,1.571,0.785", "--output", out], never_asked)
+    assert code in (0, 1), output
+    text = out.read_text()
+    assert "cartesian_controller: serl" in text and "realtime: enforce" in text and "serl: null" in text
+    assert "control: null" in text
+    again = tmp_path / "again.yaml"
+    assert run(["--mock", "--non-interactive", "--station", out, "--output", again], never_asked)[0] in (0, 1)
+    assert again.read_text() == text
+    findings = station_device_findings(again, mock=True)
+    assert not any(f.id.endswith("config:serl_control") and f.status == "WARN" for f in findings)
+
+
+def test_switching_a_station_to_serl_drops_the_impedance_gains_and_back_restores_them(tmp_path):
+    from real_world_rl.devices.control import FRANKY_SETUP_CONTROL
+    out = tmp_path / "station.yaml"
+    assert run(["--mock", "--output", out], Operator())[0] == 0
+    assert load_station(out).select().config.control == FRANKY_SETUP_CONTROL
+    serl = tmp_path / "serl.yaml"
+    code, output = run(["--mock", "--non-interactive", "--station", out, "--cartesian-controller", "serl",
+                        "--output", serl], never_asked)
+    assert code in (0, 1), output
+    config = load_station(serl).select().config
+    assert config.cartesian_controller == "serl" and config.control is None
+    assert config.realtime == "enforce" and "dropped the impedance gains" in output
+    back = tmp_path / "back.yaml"
+    code, output = run(["--mock", "--non-interactive", "--station", serl, "--cartesian-controller", "impedance",
+                        "--output", back], never_asked)
+    assert code == 0, output
+    config = load_station(back).select().config
+    assert config.cartesian_controller == "impedance" and config.control == FRANKY_SETUP_CONTROL
+    assert config.realtime == "enforce"  # kept from the station
+
+
+def test_serl_keeps_the_joint_servo_control_keys():
+    prior = StationDraft([ArmDraft("arm", FrankaConfig(name="arm", cameras=[], teleop=None, control={
+        "translational_stiffness": 2000.0, "joint_stiffness": [600.0] * 7}))])
+    answers = Answers(non_interactive=True, mock=True, previous=prior, cartesian_controllers=["serl"],
+                      teleops=["none"], cameras=["none"])
+    draft = run_wizard(probes.mock_station_probe(), answers, never_asked, lambda line: None)
+    assert draft.arms[0].config.control == {"joint_stiffness": [600.0] * 7}
+
+
+def test_serl_on_a_kernel_without_preempt_rt_warns():
+    probe = probes.mock_station_probe()
+    probe.realtime_kernel = False
+    echoed: list[str] = []
+    answers = Answers(arms=1, arm_names=["arm"], robot_ips=["172.16.0.2"], arm_backends=["franky"],
+                      grippers=["none"], robot_models=["panda"], cartesian_controllers=["serl"],
+                      home_joints=["0,-0.785,0,-2.356,0,1.571,0.785"], cameras=["none"], teleops=["none"],
+                      daemon_ports=["50051"], non_interactive=True, mock=True)
+    draft = run_wizard(probe, answers, never_asked, echoed.append)
+    assert draft.arms[0].config.realtime == "enforce"
+    assert any("not PREEMPT_RT" in line for line in echoed)
+
+
+def test_impedance_on_a_realtime_kernel_suggests_enforce():
+    probe = probes.mock_station_probe()
+    probe.realtime_kernel = True
+    answers = Answers(arms=1, arm_names=["arm"], robot_ips=["172.16.0.2"], arm_backends=["franky"],
+                      grippers=["none"], robot_models=["panda"], home_joints=["0,-0.785,0,-2.356,0,1.571,0.785"],
+                      cameras=["none"], teleops=["none"], daemon_ports=["50051"], non_interactive=True, mock=True)
+    config = run_wizard(probe, answers, never_asked, lambda line: None).arms[0].config
+    assert (config.cartesian_controller, config.realtime) == ("impedance", "enforce")
+
+
+def test_serl_needs_the_franky_backend(tmp_path, capsys):
+    argv = _flagged("--robot-model", "panda", "--cartesian-controller", "serl")
+    argv[argv.index("--arm-backend") + 1] = "serl_http"
+    code, _ = run([*argv, "--output", tmp_path / "s.yaml"], never_asked)
+    assert code == 2 and "need arm backend franky" in capsys.readouterr().err
+
+
+def test_probe_realtime_kernel_reads_the_flag_file(tmp_path):
+    flag = tmp_path / "realtime"
+    assert probes.probe_realtime_kernel(str(flag)) is False
+    flag.write_text("1\n")
+    assert probes.probe_realtime_kernel(str(flag)) is True
+    flag.write_text("0\n")
+    assert probes.probe_realtime_kernel(str(flag)) is False

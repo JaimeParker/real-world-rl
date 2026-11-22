@@ -91,7 +91,9 @@ def frame_command(args, config, path, raw, document, node, ctx):
         dataclasses.replace(config, task_frame=candidate)
     except ValueError as error:
         raise CliError(f"the station rejects this task frame: {error}", code=USAGE_EXIT_CODE) from error
-    result = {"candidate": candidate, **quality, "saved": None,
+    from real_world_rl.teleop.core.workspace_points import RPY_NOTE, frame_rpy_deg
+    result = {"candidate": candidate, "rpy_deg": frame_rpy_deg(candidate["base_T_frame"]), "rpy_note": RPY_NOTE,
+              **quality, "saved": None,
               "note": "Candidate only; base_T_frame maps task-frame coordinates into the robot base frame. "
                       "Points files captured in another frame must be recaptured after saving"}
     if workspace_frame == candidate["name"]:

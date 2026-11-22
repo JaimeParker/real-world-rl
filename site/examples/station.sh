@@ -35,3 +35,19 @@ rwrl use preset local/task.yaml
 rwrl use
 rwrl workspace show
 # end use-show
+# start frame-sign
+# Before: TCP somewhere in the middle of the workspace. Then guide it straight up ~10 cm (vertical in the room).
+rwrl tcp
+rwrl tcp
+# end frame-sign
+# start frame-capture
+# Guide the TCP to each point (same height above the table), stop guiding, then capture:
+rwrl workspace capture --name frame-origin --output frame-points.yaml --save
+rwrl workspace capture --name frame-x --output frame-points.yaml --save
+rwrl workspace capture --name frame-y --output frame-points.yaml --save
+# end frame-capture
+# start frame-set
+rwrl workspace frame set --name table --from-points frame-points.yaml --origin frame-origin --x-axis frame-x --y-axis frame-y
+rwrl workspace frame set --name table --from-points frame-points.yaml --origin frame-origin --x-axis frame-x --y-axis frame-y --save
+rwrl workspace frame show
+# end frame-set

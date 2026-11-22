@@ -1,4 +1,4 @@
-Rl Train
+Start HIL-SERL Training
 ================================================================================
 
 The English version will follow once the Chinese chapter is final.

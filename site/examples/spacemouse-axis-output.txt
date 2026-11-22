@@ -1,0 +1,15 @@
+# start capture
+示例：rwrl workspace capture 的输出（不保存；数字是演示）。task_position 是 TCP 在桌面系 table 里的坐标，单位 m。
+{
+  "base_pose": [0.512, -0.034, 0.296, 0.924, 0.0, 0.0, 0.383],
+  "task_position": [0.091, 0.177, 0.183],
+  "units": "m; quaternion xyzw",
+  "frame": "table",
+  "note": "Measurement only; not an accepted workspace boundary"
+}
+# end capture
+# start check
+示例：只向上推帽（+z）一次前后的 task_position（演示）：z 增加约 3 cm，x、y 只变化几毫米。
+before: "task_position": [0.091, 0.177, 0.183]
+after:  "task_position": [0.093, 0.175, 0.214]
+# end check

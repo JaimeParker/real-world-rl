@@ -1,0 +1,15 @@
+# 教程片段：cartesian_controller: internal 的 station 字段。
+type: franka
+name: franka
+arm_backend: franky
+robot_ip: REPLACE_WITH_FCI_IP
+gripper:
+  backend: franky
+  max_width_m: 0.08
+  mode: binary
+# start controller
+cartesian_controller: internal    # 机器人自带控制器执行速度运动
+robot_model: fr3
+realtime: enforce                 # 速度接口对 1 kHz 抖动敏感，要 PREEMPT_RT
+relative_dynamics_factor: 0.2     # move_to_* 的速度比例；internal 模式没有增益可调
+# end controller

@@ -1,18 +1,18 @@
-路线二 1. 准备训练数据
+准备 BC 训练数据
 ================================================================================
 
-本路线从 :doc:`inspect` 的产物开始：``local/first-demo.pkl``、同名
+本章从 :doc:`inspect` 的产物开始：``local/first-demo.pkl``、同名
 ``.contract.json``、session 目录的 ``resolved-config.yaml``，以及
 ``local/station.yaml``、``local/task.yaml``。本章全部离线，在仓库根目录、
 装有 learning 依赖的环境中操作。只加载自己录制或可信的 pickle。
 
-本路线选 ``real_world_bc``，因为它是本仓训练注册表中直接读取示范 pkl、
+这几章选 ``real_world_bc``，因为它是本仓训练注册表中直接读取示范 pkl、
 保留逐维人工监督的 BC 入口。CLI 要求显式写算法名，没有自动选择算法的默认值。
 它构建 ``MaskedBC``，默认是 Gaussian actor、MLP 主干，图像用 plain_conv 编码。
 另一条可读轨迹 pkl 的路径是 rl-garden 的 ACT 轨迹训练器，配套本仓的 deploy-act；
 它预测动作块，checkpoint 格式不同。
 rl-garden 另有 bc、diffusion_bc、flow_bc、mean_flow_bc、a2a_bc、consistency_distill_bc，
-这些不属于本仓 real_world_bc 的单步示范加载入口。本路线不切换算法。
+这些不属于本仓 real_world_bc 的单步示范加载入口。这几章不切换算法。
 
 1. 选定同一会话的数据和配置
 --------------------------------------------------------------------------------
@@ -29,7 +29,7 @@ rl-garden 另有 bc、diffusion_bc、flow_bc、mean_flow_bc、a2a_bc、consisten
 动作范围与 mask，并比较 contract 中记录的观测键、形状和 dtype。
 
 **你应该看到**：归档中的成功回合及人工区间，和 pkl 中筛选后的 transitions 数。
-本路线的观测应有 ``state`` 与 ``rgb_wrist``，action 七维；
+按前面的配置，观测应有 ``state`` 与 ``rgb_wrist``，action 七维；
 ``human masks`` 显示每种人工维度组合的行数。
 pkl 不包含失败尝试，也默认剔除对齐步骤；筛选依据见 :doc:`inspect`。
 先选一份已经核对的 pkl。以后合并多份时，逐份完成同样检查并比较完整 contract，
@@ -62,7 +62,7 @@ resolved-config 是 station 与任务设置合并后的结果；训练以它和 
 --------------------------------------------------------------------------------
 
 先核对 state 的拼接顺序和动作的物理含义，再决定哪些示范可以一起使用。
-上一条路线的 task 选择 ``[tcp_pose, tcp_vel, joint_pos, joint_vel]``，因此 state 有 27 项：
+录制时的 task 选择 ``[tcp_pose, tcp_vel, joint_pos, joint_vel]``，因此 state 有 27 项：
 前 7 项是 XYZ 与 xyzw 四元数，接着 6 项 TCP 速度、7 项关节位置、7 项关节速度。
 ``rgb_wrist`` 是名为 wrist 的相机，经任务设置处理后的图像。
 contract 的 ``experiment.observation`` 给出最终形状、dtype、帧堆叠与旋转转换；
@@ -72,7 +72,7 @@ SpaceMouse tracker 例子使用 ``cartesian_delta``、``current`` 语义。
 动作顺序是三维位置增量、三维旋转向量、夹爪。
 前三维乘 ``xyz_scale_m=0.05``，旋转三维乘 ``rot_scale_rad=0.3``；
 旋转增量左乘当前姿态。位置与旋转的坐标约定还要看 task_frame。
-夹爪在 current 语义下由 [-1, 1] 映射到 [0, 1]；本路线二值 Hand 的 +1 是打开，-1 是关闭。
+夹爪在 current 语义下由 [-1, 1] 映射到 [0, 1]；前面配置的二值 Hand 的 +1 是打开，-1 是关闭。
 这些是送入环境的请求，实际目标还会经过限位与控制器处理。
 
 GELLO 默认练习同样使用笛卡尔映射，也能得到七维动作。
@@ -107,7 +107,7 @@ GELLO joint_abs 会记录七个归一化关节目标；同一句操作意图不�
 先验证后续训练和加载流程。这里使用真实环境类的空间定义，绝不调用 reset 或 step。
 图像是随机 uint8，状态是合成数值，动作固定；它不是机器人仿真。
 
-源码运行时先设置导入路径；本路线 CPU 验证关闭 CUDA：
+源码运行时先设置导入路径；本章的 CPU 验证关闭 CUDA：
 
 .. literalinclude:: ../examples/bc-data.sh
    :language: bash
@@ -143,7 +143,7 @@ GELLO joint_abs 会记录七个归一化关节目标；同一句操作意图不�
 本章产物
 --------------------------------------------------------------------------------
 
-* 真机路线：已核对的 ``local/first-demo.pkl``、``local/first-demo.contract.json``，
+* 真机数据：已核对的 ``local/first-demo.pkl``、``local/first-demo.contract.json``，
   以及对应的 session resolved-config 和 station/task。
 * 无硬件练习：``local/bc-synthetic/demos.pkl``、同名 contract 和 resolved-config；
   后两章使用这套替代输入，不把它冒充真机示范。

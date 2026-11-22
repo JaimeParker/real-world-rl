@@ -2,7 +2,10 @@
 ``StationDraft``. Every prompt goes through ``ask``/``echo`` and has a flag; the values of an
 existing station (``--station``) are the defaults, and ``--non-interactive`` takes them (or the flag
 values) without asking. The joint limits and the servo step cap are written without a question:
-their flag, else the ``--station`` value, else the wizard's default."""
+their flag, else the ``--station`` value, else the wizard's default (the joint limits: the datasheet
+table of the robot model, asked first). The Cartesian controller and the realtime mode have
+defaults even under ``--non-interactive`` (impedance; enforce on a PREEMPT_RT kernel or for
+internal/serl, else ignore); the robot model of a new arm must be answered (``--robot-model``)."""
 from __future__ import annotations
 
 import copy
@@ -30,7 +33,13 @@ from real_world_rl.teleop.gello.calibrate import (
     calibrate_gello,
     wrap_centers_from_joint_limits,
 )
-from real_world_rl.devices.robots.franka import DATASHEET_JOINT_LIMITS, FRANKA_HOME_JOINTS, FrankaConfig
+from real_world_rl.devices.robots.franka import (
+    CARTESIAN_TRACKER_CONTROL_KEYS,
+    DATASHEET_JOINT_LIMITS,
+    FRANKA_HOME_JOINTS,
+    ROBOT_MODELS,
+    FrankaConfig,
+)
 from real_world_rl.discovery.autoconfig import DEFAULT_DAEMON_BIND, Station
 from real_world_rl.devices.backends.cameras.zed_common import select_mode
 from real_world_rl.setup.probes import SerialBusProbe, SimulatedGelloBus, StationProbe
@@ -43,6 +52,12 @@ NONE = "none"
 ARM_BACKENDS = ("franky", "serl_http", "fake")
 GRIPPER_CHOICES = (*ARM_BACKENDS, NONE)
 TELEOP_CHOICES = ("gello", "spacemouse", "fake", NONE)
+CARTESIAN_CONTROLLERS = ("impedance", "internal", "serl")
+REALTIME_MODES = ("ignore", "enforce")
+# Controllers whose 1 kHz loop wants a PREEMPT_RT kernel (realtime: enforce).
+REALTIME_CONTROLLERS = ("internal", "serl")
+# Arm backends that run the Cartesian controller choice (serl_http has its own, ROS-side one).
+CONTROLLER_BACKENDS = ("franky", "fake")
 SECTIONS = ("cameras", "teleop", "daemon")
 MAX_ARMS = 2
 FRANKA_NUM_JOINTS = 7
@@ -200,6 +215,9 @@ class Answers:
     robot_ips: list[str] | None = None
     arm_backends: list[str] | None = None
     grippers: list[str] | None = None
+    cartesian_controllers: list[str] | None = None
+    robot_models: list[str] | None = None
+    realtimes: list[str] | None = None
     home_joints: list[str] | None = None
     joint_limits: list[str] | None = None
     safety_boxes: list[str] | None = None
@@ -517,8 +535,12 @@ def _arm_draft(
     if answers.only is None:
         config = _ask_robot(prompt, answers, probe, context, config, taken)
     control_text = answers.for_arm("controls", "--control", context.index, context.count)
-    if (control_text is None and prior is None and config.control is None
-            and getattr(config, "arm_backend", None) == "franky"):
+    # A new franky arm with the impedance controller gets SERL-like tracker gains; a station that
+    # switches to impedance from internal / serl gets them too unless it already has control:.
+    switched = (prior is not None and getattr(prior.config, "cartesian_controller", "impedance") != "impedance")
+    if (control_text is None and (prior is None or switched) and config.control is None
+            and getattr(config, "arm_backend", None) == "franky"
+            and getattr(config, "cartesian_controller", "impedance") == "impedance"):
         from real_world_rl.devices.control import FRANKY_SETUP_CONTROL
         config = dataclasses.replace(config, control=copy.deepcopy(FRANKY_SETUP_CONTROL))
     if control_text is not None:
@@ -618,6 +640,8 @@ def _ask_robot(
             grasp_force_n=SERL_GRASP_FORCE_N if gripper.grasp_force_n is None else gripper.grasp_force_n,
             close_width_m=SERL_CLOSE_WIDTH_M if gripper.close_width_m is None else gripper.close_width_m)
     config = dataclasses.replace(config, robot_ip=robot_ip, arm_backend=arm_backend, gripper=gripper)
+    # Before the joint limits: their default is the robot model's datasheet table.
+    config = _ask_controller(prompt, answers, probe, context, config)
 
     # A previous station (--station) without limits (null) gets the wizard's defaults.
     joint_limits = prompt.unasked(
@@ -647,6 +671,75 @@ def _ask_robot(
     )
     config = dataclasses.replace(config, home_joints=home_joints, joint_limits=joint_limits)
     return _ask_safety(prompt, answers, context, config)
+
+
+def _ask_controller(
+    prompt: Prompter, answers: Answers, probe: StationProbe, context: _ArmContext, config: RobotConfig
+) -> RobotConfig:
+    """robot_model, cartesian_controller and realtime, in that order."""
+    index, count, prior = context.index, context.count, context.prior
+    prompt.echo(
+        "robot model: Desk → Settings → System shows the system version; 4.x is a Franka Emika Robot "
+        "(panda), 5.x a Franka Research 3 (fr3). It picks the joint-limit defaults and SERL's joint reset limits"
+    )
+    robot_model = prompt.answer(
+        "--robot-model", answers.for_arm("robot_models", "--robot-model", index, count),
+        f"robot model of '{context.name}' ({' | '.join(ROBOT_MODELS)})", _parse_choice(ROBOT_MODELS),
+        prior=None if prior is None else config.robot_model,
+    )
+    controller = "impedance"
+    if config.arm_backend in CONTROLLER_BACKENDS:
+        prompt.echo(
+            "Cartesian controller: impedance = franky's torque tracker (control: gains, any kernel); "
+            "internal = the robot's own controller; serl = SERL's controller (serl: gains, needs franky and "
+            "serl_controller built together, see docs/serl-controller.md)"
+        )
+        prior_controller = None if prior is None else config.cartesian_controller
+        given = answers.for_arm("cartesian_controllers", "--cartesian-controller", index, count)
+        if prior_controller is None and prompt.non_interactive and given is None:
+            prior_controller = "impedance"  # --non-interactive: the default controller
+        controller = prompt.answer(
+            "--cartesian-controller", given,
+            f"Cartesian controller of '{context.name}' ({' | '.join(CARTESIAN_CONTROLLERS)})",
+            _parse_choice(CARTESIAN_CONTROLLERS), prior=prior_controller, suggested="impedance",
+        )
+    elif answers.for_arm("cartesian_controllers", "--cartesian-controller", index, count) not in (None, "impedance"):
+        raise WizardError(f"--cartesian-controller internal / serl need arm backend franky, '{context.name}' "
+                          f"uses {config.arm_backend}")
+    realtime = config.realtime
+    if config.arm_backend == "franky":
+        kernel = probe.realtime_kernel
+        suggested = "enforce" if controller in REALTIME_CONTROLLERS or kernel else "ignore"
+        if controller in REALTIME_CONTROLLERS and kernel is False:
+            prompt.echo(
+                f"warning: cartesian_controller: {controller} wants realtime: enforce, but this kernel is not "
+                "PREEMPT_RT (/sys/kernel/realtime); install the realtime kernel before running the robot "
+                "(enforce fails to connect without it), or answer ignore for now and expect jitter"
+            )
+        prior_realtime = None if prior is None else config.realtime
+        if prior is not None and controller in REALTIME_CONTROLLERS and controller != config.cartesian_controller:
+            prior_realtime = None  # switching to internal / serl: suggest enforce over the old value
+        given = answers.for_arm("realtimes", "--realtime", index, count)
+        if prior_realtime is None and prompt.non_interactive and given is None:
+            prior_realtime = suggested
+        realtime = prompt.answer(
+            "--realtime", given, f"realtime of '{context.name}' ({' | '.join(REALTIME_MODES)}; "
+            "enforce needs a PREEMPT_RT kernel)", _parse_choice(REALTIME_MODES),
+            prior=prior_realtime, suggested=suggested,
+        )
+        if realtime == "ignore" and controller in REALTIME_CONTROLLERS:
+            prompt.echo(f"note: cartesian_controller: {controller} with realtime: ignore; `rwrl doctor` warns about it")
+    control = config.control
+    if controller == "serl" and control:
+        dropped = [key for key in CARTESIAN_TRACKER_CONTROL_KEYS if key in control]
+        if dropped:
+            # serl runs SERL's controller with the serl: parameters; these impedance gains would be
+            # ignored (doctor config:serl_control WARN). The joint servo keys stay.
+            control = {key: value for key, value in control.items() if key not in dropped} or None
+            prompt.echo(f"cartesian_controller: serl: dropped the impedance gains {dropped} from control: "
+                        "(SERL's gains are serl:, its defaults when null)")
+    return dataclasses.replace(config, robot_model=robot_model, cartesian_controller=controller,
+                               realtime=realtime, control=control)
 
 
 def _float_list_text(values: Sequence[float] | None) -> str:

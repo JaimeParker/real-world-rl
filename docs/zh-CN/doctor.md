@@ -571,7 +571,7 @@ FAIL           piper.handshake: CAN interface 'can0' not found
 
 ### 安装正确的 franky wheel
 
-`franky` 扩展安装默认 `franky-control` wheel，绑定一个 libfranka 版本。机器人服务器版本不同会拒绝握手，doctor 报告 `libfranka mismatch: robot server <N>, installed library <M>`。然后：
+`franky` 扩展安装默认 `franky-control` wheel，绑定一个 libfranka 版本。机器人服务器版本不同会拒绝握手，doctor 报告 `libfranka mismatch: robot server <N>, installed library <M>`。`cartesian_controller: serl` 时不要用 `--install-sdk`：doctor 报告 `sdk.franky.serl` `BLOCKED` 而不规划官方 wheel（它会替换 `serl_controller` 构建时用的 franky），并给出重建命令 `LIBFRANKA_VERSION=<x.y.z> bash native/serl_controller/scripts/install-on-ubuntu.sh`（见 [SERL 控制器](serl-controller.md#installing-franky-and-serl_controller)）；其他工作站若装了 `serl_controller`，计划的 `Advice:` 会说明它将无法加载。否则：
 
 ```bash
 rwrl doctor --station robot.yaml --install-sdk         # asks before installing

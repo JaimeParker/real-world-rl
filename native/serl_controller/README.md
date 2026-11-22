@@ -183,32 +183,63 @@ almost never active; the 100 Hz low-pass is.
 `SerlCartesianImpedanceMotion` derives, in C++ and in Python, from franky's
 `Motion<franka::Torques>` and its pybind11 class `franky.BaseTorqueMotion`.
 That only works when the two extensions share the class layouts and
-pybind11's internals. **Build the franky wheel and the serl_controller wheel
-in the same build (same container, compiler, pybind11, libfranka and franky
-headers) and deploy them together.** Never install a serl_controller wheel
-next to a franky wheel from a different build (including the official PyPI or
-GitHub wheels). The pieces this rule covers:
+pybind11's internals. **Build franky and serl_controller in the same build
+(same machine or container, compiler, pybind11, libfranka and franky headers)
+and deploy them together.** Never install serl_controller next to a franky
+from a different build (including the official PyPI or GitHub wheels). The
+pieces this rule covers:
 
 - the franky headers come from the same franky tag as the wheel, and the
   `FRANKA_0_8 ... FRANKA_0_18` defines are derived from the libfranka version the
   same way franky's `CMakeLists.txt` does (they change `RobotState` and
   `Robot` layouts);
 - pybind11 is pinned to franky's (`3.0.4`, `pyproject.toml`);
-- the extension links the franky wheel's own `libfranky.so` and bundled
-  `libfranka-<hash>.so.<ver>`, finds them at run time through
-  `RPATH=$ORIGIN/../franky:$ORIGIN/../franky_control.libs`, and
-  `auditwheel repair --exclude`s them so nothing from franky is duplicated.
+- the extension links the installed franky's own `libfranky.so` and its libfranka. Two layouts:
+  **wheel** (the Docker recipe): the franky wheel's bundled `libfranka-<hash>.so.<ver>` (passed as
+  `FRANKY_LINK_LIBRARIES`), found at run time through
+  `RPATH=$ORIGIN/../franky:$ORIGIN/../franky_control.libs` and `auditwheel repair --exclude`d so
+  nothing from franky is duplicated; **source** (`scripts/install-on-ubuntu.sh`): franky
+  pip-installed from source against a system libfranka, `FRANKY_LINK_LIBRARIES` empty, so
+  `Franka::Franka` is linked and its directory is appended to the extension's RUNPATH (franky's
+  own `libfranky.so` has `RUNPATH=$ORIGIN` and finds the system libfranka through ld.so).
 
-Each wheel records which franky build it belongs to in
+Each build records which franky it belongs to in
 `serl_controller/build_info.json` (also compiled in as `serl_controller.BUILD_INFO`):
-the franky_control wheel version and franky commit, the sha256 of the
-`libfranky.so` it was linked against, the bundled libfranka file name, the
-libfranka version and a build id. `rwrl doctor` (`sdk:serl_controller`) compares
+the franky_control version and franky commit, the sha256 of the
+`libfranky.so` it was linked against, `franky_layout` (`wheel` | `source`), the
+bundled libfranka file name (wheel) or the system libfranka's real path and
+sha256 (source), the libfranka version and a build id. `rwrl doctor` (`sdk:serl_controller`) compares
 these with the installed franky wheel without importing either extension. A franky
 rebuild is not byte-reproducible, so always deploy the two wheels of one build
 directory together.
 
-### Docker recipe (the supported build)
+### On the robot PC, without Docker (`scripts/install-on-ubuntu.sh`)
+
+A Franka NUC is plain Ubuntu (20.04 / 22.04 / 24.04). With the project
+environment active, from the repository root:
+
+```bash
+LIBFRANKA_VERSION=0.17.0 bash native/serl_controller/scripts/install-on-ubuntu.sh
+```
+
+It installs franky's apt build packages; CMake ≥ 3.24 (< 4), scikit-build-core
+and pybind11 3.0.4 into the environment; clones franky `v2.0.0` (`e7e63c7`),
+checks the commit and that the checkout is unmodified; builds Eigen, pybind11,
+ruckig and libfranka `LIBFRANKA_VERSION` (poco, and pinocchio from 0.14) into
+`/usr/local` with franky's own unmodified `docker/common/install-*` scripts
+(reusing an installed libfranka of that version, refusing to replace another
+version unless `REPLACE_LIBFRANKA=1`); pip-installs franky from a copy of the
+checkout with `FRANKY_LIBFRANKA_VERSION_LABEL` (version `2.0.0+libfranka.X`);
+pip-installs this package against it with `--no-build-isolation`; then runs
+CTest (golden tests + `test_motion`) against the installed franky, the Python
+tests, a smoke import and `rwrl doctor`'s pairing check
+(`serl_build_pairing`). Git runs over HTTP/1.1 and network steps are retried
+(`RETRIES`, default 3). Logs: `~/.cache/rwrl-native-build/logs/` (`WORK=`).
+Pick `LIBFRANKA_VERSION` from the robot server version (table in
+`docs/serl-controller.md`). Verified end to end in a clean Ubuntu 22.04
+(CPython 3.10.12, x86_64, libfranka 0.17.0).
+
+### Docker recipe (optional: wheels for identical robot PCs)
 
 `docker/build-on-host.sh` builds both wheels for CPython 3.10,
 manylinux_2_34_x86_64, libfranka 0.17.0 (all overridable by environment
@@ -239,21 +270,21 @@ Note that the rebuilt franky wheel bundles its own `libfranka-<hash>.so`
 serl_controller wheel cannot load next to the official franky wheel: both
 wheels are always installed together.
 
-### Deploying on the robot PC (e.g. Zizhu)
+### Installing a wheel pair on the robot PC
 
 Do not mix the official franky wheel with this one. In the project environment:
 
 ```bash
 pip uninstall -y franky-control serl-controller
-W=local/wheels/rwrl-franky-build-20261122-cxxpass      # one build directory: both wheels + SHA256SUMS
+W=path/to/wheels                                       # one build directory: both wheels + SHA256SUMS
 (cd $W && sha256sum -c SHA256SUMS)
 pip install $W/franky_control-*.whl $W/serl_controller-*.whl
 rwrl doctor                                            # sdk:serl_controller must PASS
 ```
 
 Then set `cartesian_controller: serl` (and `realtime: enforce`) in the station.
-To go back, reinstall the official franky wheel (`rwrl doctor --install-sdk`) and
-switch the station to `impedance` or `internal`.
+To go back, switch the station to `impedance` or `internal` and reinstall the
+official franky wheel (`rwrl doctor --install-sdk`).
 
 ### Development builds
 

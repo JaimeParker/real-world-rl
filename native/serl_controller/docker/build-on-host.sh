@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build UNMODIFIED franky (v2.0.0) + serl_controller wheels together, for
-# CPython 3.10 / manylinux_2_34_x86_64 / libfranka 0.17.0 (the Zizhu robot PC).
+# CPython 3.10 / manylinux_2_34_x86_64 / libfranka 0.17.0 (robot server version 9). Optional: robot PCs build natively with ../scripts/install-on-ubuntu.sh.
 #
 # Usage (on the build host, from anywhere):
 #   native/serl_controller/docker/build-on-host.sh            # WORK defaults below

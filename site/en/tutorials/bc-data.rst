@@ -1,4 +1,4 @@
-Bc Data
+Prepare BC Training Data
 ================================================================================
 
 The English version will follow once the Chinese chapter is final.

@@ -30,7 +30,7 @@ Two independent settings decide how a SpaceMouse moves a Franka:
 |---|---|---|
 | `impedance` | Default. The tracker's command, followed by franky's `CartesianImpedanceTracker` with the `control:` gains (`rwrl setup` writes SERL-like ones). Works on a non-realtime kernel. | HIL-SERL's intervention semantics, executed by franky's tracker: the gains approximate SERL's but the controller is not SERL's. |
 | `internal` | The tracker's command, executed by the robot's own controller (velocity motions closing the error in 0.2 s, ≤ 0.25 m/s). Wants `realtime: enforce`. Not validated on hardware yet. | Each per-step jump of the HIL-SERL target becomes a velocity motion. Same realtime caveat. |
-| `serl` | SERL's impedance controller follows the tracker's command. Needs the matching wheel pair and `realtime: enforce`. | Closest to HIL-SERL: HIL-SERL's intervention, SERL's controller and SERL's joint reset. Needs the wheel pair and `realtime: enforce`. |
+| `serl` | SERL's impedance controller follows the tracker's command. Needs franky + `serl_controller` built together and `realtime: enforce`. | Closest to HIL-SERL: HIL-SERL's intervention, SERL's controller and SERL's joint reset. Needs the pair and `realtime: enforce`. |
 
 Switching is configuration only, and no code changes:
 
@@ -79,31 +79,79 @@ joint_limits: [...]                # still refuse move_to_joints targets outside
 - `serl_auto_recover: {enabled, max_per_episode}` (booleans and an integer ≥ 0; unknown keys are
   errors).
 
-### Installing the matching wheels
+### Installing franky and serl_controller
 
-`serl_controller`'s motions derive from franky's C++ classes, and the package links the franky
-wheel's own `libfranky.so` and bundled `libfranka-<hash>.so`. The two wheels must therefore come
-from the **same build**. The official franky wheel does not work with it.
-`native/serl_controller/docker/build-on-host.sh` builds both from an unmodified franky (v2.0.0)
-for CPython 3.10 / libfranka 0.17.0. Built pairs are kept under
-`local/wheels/rwrl-franky-build-<date>/` with `BUILD_INFO.txt` and `SHA256SUMS`. `local/` is
-git-ignored, so copy the directory to the robot PC (for example with `rsync -a`). Then, in the
-project environment:
+`serl_controller`'s motions derive from franky's C++ classes, and the extension links franky's own
+`libfranky.so` and the libfranka franky was built against. The two must therefore come from the
+**same build**; the official franky wheel does not work with it. franky itself stays unmodified
+(v2.0.0).
+
+**On the robot PC, natively (the supported path).** A Franka NUC is plain Ubuntu; no Docker is
+needed. With the project environment active, from the repository root:
+
+```bash
+LIBFRANKA_VERSION=0.17.0 bash native/serl_controller/scripts/install-on-ubuntu.sh
+```
+
+The script installs the apt build packages; CMake ≥ 3.24, scikit-build-core and pybind11 3.0.4
+(franky's) into the environment; clones franky v2.0.0 and checks the commit and that the checkout
+is unmodified; builds Eigen, pybind11, ruckig and libfranka `LIBFRANKA_VERSION` (with poco and,
+from 0.14, pinocchio) into `/usr/local` with franky's own, unmodified `docker/common/install-*`
+scripts (an installed libfranka of that version is reused; another version is only replaced with
+`REPLACE_LIBFRANKA=1`); pip-installs franky from source against it (version
+`2.0.0+libfranka.X`); builds and installs `serl_controller` against that franky with
+scikit-build-core (no build isolation); then runs CTest (including both golden comparisons with
+SERL's original sources), the Python binding tests, a smoke import and the doctor's
+`sdk:serl_controller` check. Logs are in `~/.cache/rwrl-native-build/logs/` (`WORK=` moves
+them). Other knobs: `SKIP_APT=1`, `SKIP_DEPS=1`, `SKIP_TESTS=1`, `RETRIES=N` (network steps),
+`PIP_INDEX_URL`. It was verified end to end in a clean Ubuntu 22.04 (CPython 3.10.12, x86_64,
+libfranka 0.17.0); Ubuntu 20.04 needs a separately installed Python ≥ 3.10 for this project.
+
+`LIBFRANKA_VERSION` follows from the robot server version (read it from `rwrl doctor`'s
+`libfranka mismatch: robot server N, installed library M` line, or cross-check Desk → Settings →
+System with Franka's [compatibility matrix](https://frankarobotics.github.io/docs/compatibility.html)).
+franky v2.0.0's `doc/compatibility.json` gives the minimum libfranka per server version; the
+suggested versions are the ones franky publishes wheels for:
+
+| robot server version | libfranka range | suggested `LIBFRANKA_VERSION` |
+|---|---|---|
+| 10 | ≥ 0.18.0 | 0.21.2 |
+| 9 | 0.15.0 – 0.17.x | 0.17.0 (verified) |
+| 8 | 0.14.1 – 0.14.x | 0.14.2 |
+| 7 | 0.13.3 – 0.14.0 | 0.13.3 |
+| 6 | 0.10.0 – 0.13.2 | 0.12.1 |
+| 5 | 0.9.1 – 0.9.x | 0.9.2 |
+| 4 | 0.8.0 – 0.9.0 | 0.8.0 |
+| ≤ 3 | < 0.8 | not supported (serl_controller needs libfranka ≥ 0.8) |
+
+**Install order.** With `cartesian_controller: serl`, the script is the franky installer: run it
+instead of `rwrl doctor --install-sdk` or `pip install franky-control`, which would put the
+official wheel back and break the pair. The doctor refuses `--install-sdk` for a station with
+`cartesian_controller: serl` (`sdk.franky.serl` BLOCKED, with the rebuild command), and for other
+stations warns in the plan when a `serl_controller` is installed. An official wheel installed
+earlier is fine: the script uninstalls it first. `pip install -e '.[franky]'` later keeps the
+source build (its version satisfies the requirement).
+
+**Wheels built elsewhere (optional).** `native/serl_controller/docker/build-on-host.sh` builds a
+manylinux wheel pair (CPython 3.10, libfranka 0.17.0 by default) on a build machine with Docker,
+for several identical robot PCs; see the native README. Install both wheels of one build
+directory together:
 
 ```bash
 pip uninstall -y franky-control serl-controller
-W=local/wheels/rwrl-franky-build-20261122-cxxpass      # one build directory
+W=path/to/wheels                                      # one build directory
 (cd $W && sha256sum -c SHA256SUMS)
 pip install $W/franky_control-*.whl $W/serl_controller-*.whl
 rwrl doctor                                            # sdk:serl_controller must PASS
 ```
 
-`serl_controller` ships a `build_info.json` with the franky wheel version and commit, the sha256
-of the `libfranky.so` it was linked against, the bundled libfranka file and a build id. A
-mismatched pair fails `sdk:serl_controller` in the doctor. It also fails at import with a
-`VersionMismatch` that names the missing library. To go back to the official franky wheel, run
-`pip uninstall -y franky-control serl-controller`, then `rwrl doctor --install-sdk`, and switch
-the station to `impedance` or `internal`.
+`serl_controller` ships a `build_info.json` with the franky version and commit, the sha256 of the
+`libfranky.so` it was linked against, the layout (`wheel`: the libfranka bundled in the franky
+wheel, `libfranka_file`; `source`: the system libfranka franky was built against, `libfranka_path`
+and its sha256) and a build id. A mismatched pair fails `sdk:serl_controller` in the doctor (also
+when the system libfranka was replaced after the build). It also fails at import with a
+`VersionMismatch` that names the missing library. To go back to the official franky wheel, switch
+the station to `impedance` or `internal`, then run `rwrl doctor --install-sdk`.
 
 ### Realtime kernel
 
@@ -120,7 +168,7 @@ checks:
 
 | Row | Layer | Result | Meaning and fix |
 |---|---|---|---|
-| `sdk:serl_controller` | 1 sdk | PASS `serl_controller X and franky_control Y from the same build (...)` / FAIL | `build_info.json` against the installed franky wheel: version, `libfranky.so` sha256 and the bundled libfranka file, without importing either extension. On FAIL, reinstall both wheels from one build directory (above). |
+| `sdk:serl_controller` | 1 sdk | PASS `serl_controller X and franky_control Y from the same build (...)` / FAIL | `build_info.json` against the installed franky: version, `libfranky.so` sha256 and the libfranka (the wheel's bundled file, or the system library of a source build and its sha256), without importing either extension. On FAIL, rerun the native install script (or reinstall both wheels from one build directory). |
 | `config:serl_control` | 1 sdk | PASS / WARN `cartesian_controller: serl ignores control: [...]` | The station's `control:` sets franky Cartesian tracker gains that serl mode never uses. Move them to `serl:` (SERL names) or drop them. |
 | `mode:serl_realtime` | 5 mode | PASS / WARN `... with realtime: ignore ...` | Install a PREEMPT_RT kernel and set `realtime: enforce`. |
 | `mode:internal_realtime` | 5 mode | PASS / WARN (`cartesian_controller: internal` only) | libfranka's Cartesian velocity interface aborts on any 1 kHz discontinuity. Install a PREEMPT_RT kernel and set `realtime: enforce`. |
@@ -137,10 +185,11 @@ serl mode (`could not be cross-checked`), because only SERL's joint reset uses t
 
 The robot server version also identifies the model. Franka's compatibility matrix maps server
 versions ≤ 5 to robot system 4.x (Franka Emika Robot, `panda`) and ≥ 6 to system 5.x (Franka
-Research 3, `fr3`). libfranka ≥ 0.10 only connects to system 5.x. Zizhu's libfranka handshake
-reported server version 9, which is a system 5.x robot, so most likely `fr3`. **Confirm it in Desk**:
+Research 3, `fr3`). libfranka ≥ 0.10 only connects to system 5.x. For example, a handshake that
+reports server version 9 belongs to a system 5.x robot, so most likely `fr3`. **Confirm it in Desk**:
 the system version under Settings → System (4.x = Franka Emika Robot, 5.x = Franka Research 3)
-and the robot type shown there. Then set `robot_model: fr3` in Zizhu's station.
+and the robot type shown there. Then set `robot_model` in the station (`rwrl setup --robot-model`
+asks it before the joint limits, so the datasheet default matches the model).
 
 ## Auto-recovery (`serl_auto_recover`)
 
@@ -337,33 +386,51 @@ instead of killing ROS processes. `set_target` rejects non-finite poses and non-
 quaternions. Auto-recovery starts a fresh controller instead of calling `starting()` on the old
 one (above). Validation on hardware: see [SERL controller: robot validation](serl-robot-validation.md).
 
-## SpaceMouse in serl mode: the raw base frame
+## SpaceMouse in serl mode: the task frame
 
 `--spacemouse-mode serl` reproduces HIL-SERL's `SpaceMouseExpert` + `SpacemouseIntervention`.
 HIL-SERL applies no operator rotation: the device twist reaches the env in the robot **base
-frame**. rwrl's serl mode does the same by default, even when the operator profile or
-`teleop_options_yaml` supplies an `input_rotation`. In that case the rotation is validated and
-kept as provenance, but it does not drive. To drive through it anyway, set
-`use_profile_rotation: true` in the SpaceMouse options:
+frame**, which assumes an upright base. rwrl rotates the twist (translation and rotation by the
+same matrix) into the base frame before the end-effector target is formed, on every SpaceMouse
+path; none of the controllers rotates again:
+
+| Mode | Rotation into the base frame | `teleop_control` `input_frame` |
+|---|---|---|
+| serl (default) | the station `task_frame` rotation `base_R_table` alone (no profile yaw) | `task_frame` |
+| serl, `use_profile_rotation: true` | the profile's `input_rotation` (`base_R_table · Rz(yaw)`) | `profile` |
+| serl, no `task_frame` | none (raw base frame, as HIL-SERL) | `base` |
+| tracker, a profile selected | the profile's `input_rotation` | (profile) |
+| tracker, no profile, a `task_frame` | `base_R_table` alone | `task_frame` |
+| tracker, neither | none | (base) |
+
+With an upright base and no `task_frame` this is exactly HIL-SERL. On a rolled mount (for example
+a base turned about its x axis by about 45°, `base_R_table = Rx(±45°)`) the raw base frame would
+make "push up" move along the tilted base z axis; with the measured `task_frame` (`rwrl workspace
+frame set --from-points`, see the station tutorial) "up" is vertical again. Policy actions are
+already base-frame deltas and are never rotated.
+
+**Placement (no calibration).** Put the SpaceMouse as HIL-SERL does: its front towards task-frame
++x (table forward, away from the robot base), its left towards +y, up = +z (vertical). Then check
+the six single axes: each push moves the TCP along, and each twist turns it about, the same
+task-frame axis. `rwrl workspace capture` reports the TCP position in the task frame
+(`task_position`) before and after a one-axis push. When the SpaceMouse cannot sit that way, set
+`use_profile_rotation: true` so that the calibrated profile yaw is applied too:
 
 ```yaml
 # teleop_options_yaml (or the station's teleop.options)
 input_rotation: [[0, -1, 0], [1, 0, 0], [0, 0, 1]]
-use_profile_rotation: true        # serl mode only; default false (raw base frame, as HIL-SERL)
+use_profile_rotation: true        # serl mode only; default false (task_frame rotation only)
 ```
 
 `use_profile_rotation` must be `true` or `false`. It is a serl-mode option: tracker mode always
-applies the profile rotation and rejects `use_profile_rotation: false`. When the options carry a
-rotation, the compared `teleop_control` block records the choice
-(`..., "gripper": "serl_buttons", "use_profile_rotation": false}`). Blocks without a rotation keep
-their previous form. **Resume refusal.** A serl-mode run saved before this change, with a profile
-rotation, drove through that rotation. Its saved block has no `use_profile_rotation` key, so a
-resume now fails the `teleop_control` comparison instead of silently changing the drive frame. To
-continue such a run with its old behaviour, set `use_profile_rotation: true` and start a new run,
-or restore the run under the code that recorded it.
+applies the profile rotation and rejects `use_profile_rotation: false`. The compared
+`teleop_control` block records the choice and the input frame, so resuming a run recorded with
+another frame is refused (a `teleop_control` mismatch) instead of silently changing the drive
+frame. To continue such a run with its old behaviour, restore it under the code that recorded it,
+or start a new run.
 
 In serl mode the target is the measured pose plus action × `xyz_scale_m` / `rot_scale_rad` every
-step (Zizhu: 0.02 m and 0.1 rad, SERL's peg-insertion values). There is no tracker and no lead cap.
+step (for example 0.02 m and 0.1 rad, SERL's peg-insertion values). There is no tracker and no lead cap.
 Together with `cartesian_controller: serl`, a full deflection asks SERL's controller for 2 cm per
 step, and SERL's `translational_clip_*` (0.01 m by default) limits the force that error produces.
 

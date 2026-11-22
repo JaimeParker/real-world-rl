@@ -637,7 +637,13 @@ values are filled in from your config.
 
 The `franky` extra installs the default `franky-control` wheel, which bundles one libfranka
 version. A robot whose robot server version differs refuses the handshake, and the doctor
-reports `libfranka mismatch: robot server <N>, installed library <M>`. Then:
+reports `libfranka mismatch: robot server <N>, installed library <M>`. With
+`cartesian_controller: serl`, do not use `--install-sdk`: the doctor reports `sdk.franky.serl`
+`BLOCKED` instead of planning the official wheel (it would replace the franky that
+`serl_controller` was built with) and names the rebuild,
+`LIBFRANKA_VERSION=<x.y.z> bash native/serl_controller/scripts/install-on-ubuntu.sh` (see
+[SERL controller](serl-controller.md#installing-franky-and-serl_controller)); for other stations
+with a `serl_controller` installed, the plan's `Advice:` says it will stop loading. Otherwise:
 
 ```bash
 rwrl doctor --station robot.yaml --install-sdk         # asks before installing

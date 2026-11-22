@@ -21,7 +21,7 @@ SpaceMouse 怎样带动 Franka，取决于两个互不相关的设置：
 |---|---|---|
 | `impedance` | 默认组合。franky 的 `CartesianImpedanceTracker` 按 `control:` 增益跟随 tracker 指令（`rwrl setup` 会写入近似 SERL 的增益）。非实时内核也能用。 | HIL-SERL 的干预语义，由 franky 的 tracker 执行：增益近似 SERL，但控制器不是 SERL 的。 |
 | `internal` | tracker 指令交给机器人自带控制器执行（速度运动在 0.2 s 内消除误差，≤ 0.25 m/s）。需要 `realtime: enforce`。尚未在硬件上验证。 | HIL-SERL 目标每一步的跳变都变成一次速度运动。实时性要求同左。 |
-| `serl` | SERL 的阻抗控制器跟随 tracker 指令。需要配对的 wheel 和 `realtime: enforce`。 | 最接近 HIL-SERL：HIL-SERL 的干预方式、SERL 的控制器和 SERL 的关节复位。需要配对的 wheel 和 `realtime: enforce`。 |
+| `serl` | SERL 的阻抗控制器跟随 tracker 指令。需要一起构建的 franky + `serl_controller` 和 `realtime: enforce`。 | 最接近 HIL-SERL：HIL-SERL 的干预方式、SERL 的控制器和 SERL 的关节复位。需要这一对和 `realtime: enforce`。 |
 
 切换只改配置，不改代码：
 
@@ -60,21 +60,46 @@ joint_limits: [...]                # still refuse move_to_joints targets outside
 - `serl` 保存 SERL 的参数（见下面的[参数](#parameters)）。这个模式下 `control:` 里 Cartesian tracker 的键不起作用；关节相关键、`max_delta_tau` 和 `gains_time_constant` 仍用于关节伺服 tracker。
 - `serl_auto_recover: {enabled, max_per_episode}`：分别是布尔值和 ≥ 0 的整数，未知键会报错。
 
-<a id="installing-the-matching-wheels"></a>
+<a id="installing-franky-and-serl_controller"></a>
 
-### 安装配对的 wheel
+### 安装 franky 与 serl_controller
 
-`serl_controller` 的运动类派生自 franky 的 C++ 类，并链接 franky wheel 自带的 `libfranky.so` 和打包的 `libfranka-<hash>.so`，所以两个 wheel 必须来自**同一次构建**，官方 franky wheel 不能和它一起用。`native/serl_controller/docker/build-on-host.sh` 用未修改的 franky（v2.0.0）为 CPython 3.10 / libfranka 0.17.0 构建这两个 wheel。构建结果保存在 `local/wheels/rwrl-franky-build-<date>/`，附带 `BUILD_INFO.txt` 和 `SHA256SUMS`。`local/` 不进 git，所以要把整个目录复制到机器人主机（例如用 `rsync -a`）。然后在项目环境中：
+`serl_controller` 的运动类派生自 franky 的 C++ 类，扩展链接 franky 自己的 `libfranky.so` 以及 franky 构建时用的 libfranka，所以两者必须来自**同一次构建**，官方 franky wheel 不能和它一起用。franky 本身保持未修改（v2.0.0）。
+
+**在机器人主机上本地构建（推荐的路径）。** Franka 的 NUC 就是普通 Ubuntu，不需要 Docker。激活项目环境，在仓库根目录运行：
+
+```bash
+LIBFRANKA_VERSION=0.17.0 bash native/serl_controller/scripts/install-on-ubuntu.sh
+```
+
+脚本用 apt 安装编译所需的包；在环境里安装 CMake ≥ 3.24、scikit-build-core 和 pybind11 3.0.4（与 franky 相同）；克隆 franky v2.0.0，核对 commit 并确认检出未修改；用 franky 自己未修改的 `docker/common/install-*` 脚本把 Eigen、pybind11、ruckig 和 `LIBFRANKA_VERSION` 版本的 libfranka（含 poco，0.14 起还有 pinocchio）装进 `/usr/local`（已有同版本 libfranka 时复用；另一版本只有设置 `REPLACE_LIBFRANKA=1` 才替换）；从源码把 franky pip 安装到环境里（版本 `2.0.0+libfranka.X`）；用 scikit-build-core（不隔离构建）对着这个 franky 构建并安装 `serl_controller`；最后运行 CTest（含两个与 SERL 原始源码对比的 golden 测试）、Python 绑定测试、导入检查和 doctor 的 `sdk:serl_controller` 检查。日志在 `~/.cache/rwrl-native-build/logs/`（`WORK=` 可改位置）。其他开关：`SKIP_APT=1`、`SKIP_DEPS=1`、`SKIP_TESTS=1`、`RETRIES=N`（网络步骤）、`PIP_INDEX_URL`。它已在干净的 Ubuntu 22.04（CPython 3.10.12、x86_64、libfranka 0.17.0）上完整跑通；Ubuntu 20.04 需要为本项目另装 Python ≥ 3.10。
+
+`LIBFRANKA_VERSION` 由机器人服务器版本决定（从 `rwrl doctor` 的 `libfranka mismatch: robot server N, installed library M` 行读取，或在 Desk → Settings → System 读系统版本，对照 Franka 的[兼容矩阵](https://frankarobotics.github.io/docs/compatibility.html)交叉核对）。franky v2.0.0 的 `doc/compatibility.json` 给出每个服务器版本所需的最低 libfranka；建议版本是 franky 发布 wheel 时用的版本：
+
+| 机器人服务器版本 | libfranka 范围 | 建议 `LIBFRANKA_VERSION` |
+|---|---|---|
+| 10 | ≥ 0.18.0 | 0.21.2 |
+| 9 | 0.15.0 – 0.17.x | 0.17.0（已验证） |
+| 8 | 0.14.1 – 0.14.x | 0.14.2 |
+| 7 | 0.13.3 – 0.14.0 | 0.13.3 |
+| 6 | 0.10.0 – 0.13.2 | 0.12.1 |
+| 5 | 0.9.1 – 0.9.x | 0.9.2 |
+| 4 | 0.8.0 – 0.9.0 | 0.8.0 |
+| ≤ 3 | < 0.8 | 不支持（serl_controller 需要 libfranka ≥ 0.8） |
+
+**安装顺序。** `cartesian_controller: serl` 时，这个脚本就是 franky 的安装方式：用它代替 `rwrl doctor --install-sdk` 或 `pip install franky-control`，后两者会装回官方 wheel，拆散这一对。工作站为 `cartesian_controller: serl` 时 doctor 拒绝 `--install-sdk`（`sdk.franky.serl` BLOCKED，并给出重建命令）；其他工作站装有 `serl_controller` 时，计划里会给出警告。之前装过官方 wheel 没关系，脚本会先卸载它。之后再运行 `pip install -e '.[franky]'` 会保留源码构建（它的版本满足依赖要求）。
+
+**在别处构建 wheel（可选）。** `native/serl_controller/docker/build-on-host.sh` 在有 Docker 的构建机上构建一对 manylinux wheel（默认 CPython 3.10、libfranka 0.17.0），给多台相同的机器人主机用，见 native README。同一个构建目录的两个 wheel 一起安装：
 
 ```bash
 pip uninstall -y franky-control serl-controller
-W=local/wheels/rwrl-franky-build-20261122-cxxpass      # one build directory
+W=path/to/wheels                                      # one build directory
 (cd $W && sha256sum -c SHA256SUMS)
 pip install $W/franky_control-*.whl $W/serl_controller-*.whl
 rwrl doctor                                            # sdk:serl_controller must PASS
 ```
 
-`serl_controller` 自带一个 `build_info.json`，记录 franky wheel 的版本与 commit、链接时 `libfranky.so` 的 sha256、打包的 libfranka 文件和构建 id。两个 wheel 不配对时，doctor 的 `sdk:serl_controller` 会 FAIL，导入时也会失败并抛出指明缺失库的 `VersionMismatch`。要换回官方 franky wheel，先执行 `pip uninstall -y franky-control serl-controller`，再执行 `rwrl doctor --install-sdk`，并把工作站改成 `impedance` 或 `internal`。
+`serl_controller` 自带一个 `build_info.json`，记录 franky 的版本与 commit、链接时 `libfranky.so` 的 sha256、布局（`wheel`：franky wheel 自带的 libfranka，`libfranka_file`；`source`：franky 构建时用的系统 libfranka，`libfranka_path` 及其 sha256）和构建 id。不配对时 doctor 的 `sdk:serl_controller` 会 FAIL（构建之后系统 libfranka 被替换也会），导入时也会失败并抛出指明缺失库的 `VersionMismatch`。要换回官方 franky wheel，先把工作站改成 `impedance` 或 `internal`，再执行 `rwrl doctor --install-sdk`。
 
 <a id="realtime-kernel"></a>
 
@@ -90,7 +115,7 @@ SERL 的 1 kHz 扭矩循环是在强制实时下运行的。没有 PREEMPT_RT �
 
 | 行 | 层 | 结果 | 含义与处理 |
 |---|---|---|---|
-| `sdk:serl_controller` | 1 sdk | PASS `serl_controller X and franky_control Y from the same build (...)` / FAIL | 不导入任何扩展，把 `build_info.json` 和已安装的 franky wheel 对照：版本、`libfranky.so` 的 sha256 和打包的 libfranka 文件。FAIL 时从同一个构建目录重装两个 wheel（见上）。 |
+| `sdk:serl_controller` | 1 sdk | PASS `serl_controller X and franky_control Y from the same build (...)` / FAIL | 不导入任何扩展，把 `build_info.json` 和已安装的 franky 对照：版本、`libfranky.so` 的 sha256 和 libfranka（wheel 自带的文件，或源码构建所用的系统库及其 sha256）。FAIL 时重跑本地安装脚本（或从同一个构建目录重装两个 wheel）。 |
 | `config:serl_control` | 1 sdk | PASS / WARN `cartesian_controller: serl ignores control: [...]` | 工作站的 `control:` 设置了 franky Cartesian tracker 的增益，而 serl 模式根本不用它们。把它们移到 `serl:`（使用 SERL 的名称）或者删掉。 |
 | `mode:serl_realtime` | 5 mode | PASS / WARN `... with realtime: ignore ...` | 安装 PREEMPT_RT 内核并设置 `realtime: enforce`。 |
 | `mode:internal_realtime` | 5 mode | PASS / WARN（仅 `cartesian_controller: internal`） | libfranka 的 Cartesian 速度接口在 1 kHz 下出现任何不连续都会中止。安装 PREEMPT_RT 内核并设置 `realtime: enforce`。 |
@@ -102,7 +127,7 @@ SERL 的 1 kHz 扭矩循环是在强制实时下运行的。没有 PREEMPT_RT �
 
 `mode:robot_model` 把工作站里的值和已连接机器人报告的信息对照。franky 构建里有 `Robot.server_version` 时就用它。franky 2.0 没有绑定机器人的服务器版本（只有 `Gripper.server_version`，那是夹爪自己的协议），所以这时改用机器人提供的 URDF（`Robot.model_urdf`，libfranka ≥ 0.15）里的关节名：`fr3_joint*` 表示 `fr3`，`panda_joint*` 表示 `panda`。两者都拿不到时，impedance 和 internal 模式下照常通过；serl 模式下会警告 `could not be cross-checked`，因为只有 SERL 的关节复位会用到这些限位。
 
-服务器版本本身也能区分型号。按 Franka 的兼容性表，服务器版本 ≤ 5 对应系统 4.x（Franka Emika Robot，`panda`），≥ 6 对应系统 5.x（Franka Research 3，`fr3`）。libfranka ≥ 0.10 只能连接系统 5.x。Zizhu 的 libfranka 握手报告的服务器版本是 9，属于系统 5.x，所以大概率是 `fr3`。**请在 Desk 中确认**：在 Settings → System 下查看系统版本（4.x = Franka Emika Robot，5.x = Franka Research 3）和机器人型号，然后在 Zizhu 的工作站里设置 `robot_model: fr3`。
+服务器版本本身也能区分型号。按 Franka 的兼容性表，服务器版本 ≤ 5 对应系统 4.x（Franka Emika Robot，`panda`），≥ 6 对应系统 5.x（Franka Research 3，`fr3`）。libfranka ≥ 0.10 只能连接系统 5.x。例如握手报告服务器版本 9 的机器人属于系统 5.x，所以大概率是 `fr3`。**请在 Desk 中确认**：在 Settings → System 下查看系统版本（4.x = Franka Emika Robot，5.x = Franka Research 3）和机器人型号，然后在工作站里设置 `robot_model`（`rwrl setup --robot-model` 会在关节限位之前询问它，让数据表默认值与型号一致）。
 
 <a id="auto-recovery-serl_auto_recover"></a>
 
@@ -222,21 +247,34 @@ real_robot:
 
 停止是平滑的（franky 的 `TorqueStopMotion`；关节复位在保持阶段结束），而不是直接结束 ROS 进程。`set_target` 拒绝非有限位姿和非单位四元数。自动恢复启动新控制器，而不是在旧控制器上调用 `starting()`（见上）。硬件验证见 [SERL 控制器：真机验证](serl-robot-validation.md)。
 
-<a id="spacemouse-in-serl-mode-the-raw-base-frame"></a>
+<a id="spacemouse-in-serl-mode-the-task-frame"></a>
 
-## serl 模式下的 SpaceMouse：原始基座坐标系
+## serl 模式下的 SpaceMouse：任务坐标系
 
-`--spacemouse-mode serl` 复现 HIL-SERL 的 `SpaceMouseExpert` + `SpacemouseIntervention`。HIL-SERL 不做任何操作员旋转，设备的 twist 直接以机器人**基座坐标系**进入环境。rwrl 的 serl 模式默认也这样做，即使操作员档案或 `teleop_options_yaml` 提供了 `input_rotation`：这时旋转矩阵会被校验并作为来源信息保存，但不参与驱动。如果确实要用它驱动，在 SpaceMouse 选项里设置 `use_profile_rotation: true`：
+`--spacemouse-mode serl` 复现 HIL-SERL 的 `SpaceMouseExpert` + `SpacemouseIntervention`。HIL-SERL 不做任何操作员旋转，设备的 twist 直接以机器人**基座坐标系**进入环境，这默认机器人是正装的。rwrl 在每条 SpaceMouse 路径上，都在生成末端目标之前把 twist（平移和旋转用同一个矩阵）转到基座系；三种控制器都不再旋转：
+
+| 模式 | 转到基座系用的旋转 | `teleop_control` 的 `input_frame` |
+|---|---|---|
+| serl（默认） | 只用工作站 `task_frame` 的旋转 `base_R_table`（不加档案 yaw） | `task_frame` |
+| serl，`use_profile_rotation: true` | 档案的 `input_rotation`（`base_R_table · Rz(yaw)`） | `profile` |
+| serl，没有 `task_frame` | 不旋转（原始基座系，同 HIL-SERL） | `base` |
+| tracker，选了档案 | 档案的 `input_rotation` | （档案） |
+| tracker，没有档案、有 `task_frame` | 只用 `base_R_table` | `task_frame` |
+| tracker，两者都没有 | 不旋转 | （基座） |
+
+正装且没有 `task_frame` 时，这与 HIL-SERL 完全相同。基座侧装（例如绕自身 x 轴转了约 45°，`base_R_table = Rx(±45°)`）时，原始基座系会让“向上推”沿倾斜的基座 z 轴走；有了测得的 `task_frame`（`rwrl workspace frame set --from-points`，见工作站教程），“上”又是竖直向上。策略动作本来就是基座系增量，从不旋转。
+
+**摆放（不需要标定）。** 按 HIL-SERL 的方式摆放 SpaceMouse：前方朝任务系 +x（桌面前方、离开底座），左方朝 +y，上为 +z（竖直）。然后检查六个单轴：每次推动让 TCP 沿同一任务系轴移动，每次扭转让它绕同一轴转动。`rwrl workspace capture` 给出 TCP 在任务系中的位置（`task_position`），在单轴推动前后各读一次。SpaceMouse 不能这样摆时，设置 `use_profile_rotation: true`，让标定的档案 yaw 也参与：
 
 ```yaml
 # teleop_options_yaml (or the station's teleop.options)
 input_rotation: [[0, -1, 0], [1, 0, 0], [0, 0, 1]]
-use_profile_rotation: true        # serl mode only; default false (raw base frame, as HIL-SERL)
+use_profile_rotation: true        # serl mode only; default false (task_frame rotation only)
 ```
 
-`use_profile_rotation` 只能是 `true` 或 `false`，而且只属于 serl 模式：tracker 模式总是应用档案旋转，遇到 `use_profile_rotation: false` 会报错。选项里带有旋转时，参与比较的 `teleop_control` 块会记录这个选择（`..., "gripper": "serl_buttons", "use_profile_rotation": false}`）；不带旋转的块保持原来的形式。**拒绝恢复。** 在这次修改之前保存、带有档案旋转的 serl 模式运行，当时是经过旋转驱动的。它保存的块里没有 `use_profile_rotation`，所以现在恢复时 `teleop_control` 比较会失败，而不会悄悄换掉驱动坐标系。想按旧行为继续，就设置 `use_profile_rotation: true` 开一个新运行，或者用记录这次运行的旧代码来恢复。
+`use_profile_rotation` 只能是 `true` 或 `false`，而且只属于 serl 模式：tracker 模式总是应用档案旋转，遇到 `use_profile_rotation: false` 会报错。参与比较的 `teleop_control` 块记录这个选择和输入坐标系，所以用另一种坐标系录制的运行在恢复时会被拒绝（`teleop_control` 不一致），而不会悄悄换掉驱动坐标系。想按旧行为继续，就用记录这次运行的代码恢复，或者开一个新运行。
 
-serl 模式下，每一步的目标是测量位姿加 action × `xyz_scale_m` / `rot_scale_rad`（Zizhu：0.02 m 和 0.1 rad，即 SERL 插销任务的值）。没有 tracker，也没有领先量上限。配合 `cartesian_controller: serl` 时，摇杆推满相当于每步向 SERL 控制器要求 2 cm，由 SERL 的 `translational_clip_*`（默认 0.01 m）限制这个误差产生的力。
+serl 模式下，每一步的目标是测量位姿加 action × `xyz_scale_m` / `rot_scale_rad`（例如 0.02 m 和 0.1 rad，即 SERL 插销任务的值）。没有 tracker，也没有领先量上限。配合 `cartesian_controller: serl` 时，摇杆推满相当于每步向 SERL 控制器要求 2 cm，由 SERL 的 `translational_clip_*`（默认 0.01 m）限制这个误差产生的力。
 
 <a id="known-differences-from-hil-serl-rl-side-out-of-scope"></a>
 

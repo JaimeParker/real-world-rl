@@ -677,6 +677,40 @@ def test_handshake_confirmed_server_version_plans_the_franky_wheel(host, monkeyp
     assert action.python and action.argv == franky_wheel_install_argv(9)
 
 
+def test_install_sdk_refuses_the_official_wheel_for_a_serl_station(host, monkeypatch):
+    """cartesian_controller: serl pairs franky with serl_controller; the official franky wheel
+    would replace that franky, so the doctor blocks instead of proposing it."""
+    from real_world_rl.devices.robots.franka import FrankaConfig
+
+    config = FrankaConfig(name="left", arm_backend="fake", gripper=None, cartesian_controller="serl")
+    monkeypatch.setattr(doctor, "load_targets", lambda args: ([("left", config, "unused", False, "")], set()))
+    monkeypatch.setattr(host, "inspect_system", lambda **kw: None)
+    rows = [{"name": "handshake", "ok": False, "message": "libfranka mismatch",
+             "details": {"libfranka_server_version": 9}}]
+    monkeypatch.setattr(host.report, "run", lambda argv, **kwargs: (0, json.dumps(rows)))
+    doctor.inspect(SimpleNamespace(mock=True), host)
+    assert not any(a.id.startswith("sdk:") for a in host.actions)
+    finding = next(f for f in host.findings if f.id == "sdk.franky.serl")
+    assert finding.status == "BLOCKED" and "cartesian_controller: serl" in finding.message
+    assert "install-on-ubuntu.sh" in finding.hint and "server version 9" in finding.hint
+
+
+def test_install_sdk_warns_that_an_installed_serl_controller_stops_loading(host, monkeypatch):
+    from real_world_rl.devices import RobotConfig
+    from real_world_rl.doctor import deps
+
+    config = RobotConfig.from_dict({"type": "franka", "arm_backend": "fake", "name": "left", "gripper": None})
+    monkeypatch.setattr(doctor, "load_targets", lambda args: ([("left", config, "unused", False, "")], set()))
+    monkeypatch.setattr(host, "inspect_system", lambda **kw: None)
+    monkeypatch.setattr(deps, "serl_controller_installed", lambda: True)
+    rows = [{"name": "handshake", "ok": False, "message": "libfranka mismatch",
+             "details": {"libfranka_server_version": 9}}]
+    monkeypatch.setattr(host.report, "run", lambda argv, **kwargs: (0, json.dumps(rows)))
+    doctor.inspect(SimpleNamespace(mock=True), host)
+    action = next(a for a in host.actions if a.id == "sdk:franky")
+    assert "serl_controller is installed" in action.advice and "install-on-ubuntu.sh" in action.advice
+
+
 def test_device_hints_name_rwrl_commands_and_no_device_autofix():
     from real_world_rl.doctor import checks
 

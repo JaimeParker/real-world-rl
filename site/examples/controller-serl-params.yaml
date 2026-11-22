@@ -1,0 +1,42 @@
+# 教程片段：显式写出的 serl: 块（全部是默认值，省略或写 null 效果相同）。
+type: franka
+name: franka
+arm_backend: franky
+robot_ip: REPLACE_WITH_FCI_IP
+gripper:
+  backend: franky
+  max_width_m: 0.08
+  mode: binary
+cartesian_controller: serl
+robot_model: fr3
+realtime: enforce
+# start serl
+serl:
+  translational_stiffness: 2000.0
+  translational_damping: 89.0
+  rotational_stiffness: 150.0
+  rotational_damping: 7.0
+  nullspace_stiffness: 0.2
+  joint1_nullspace_stiffness: 100.0
+  translational_clip_x: 0.01
+  translational_clip_y: 0.01
+  translational_clip_z: 0.01
+  translational_clip_neg_x: 0.01
+  translational_clip_neg_y: 0.01
+  translational_clip_neg_z: 0.01
+  rotational_clip_x: 0.05
+  rotational_clip_y: 0.05
+  rotational_clip_z: 0.05
+  rotational_clip_neg_x: 0.05
+  rotational_clip_neg_y: 0.05
+  rotational_clip_neg_z: 0.05
+  translational_Ki: 0.0
+  rotational_Ki: 0.0
+# end serl
+# start load
+# 手爪夹着 Desk 里没登记的工具时（示例数字，按实测替换）：
+load:
+  mass_kg: 0.2                        # 只写额外负载，Desk 已登记的 Franka Hand 不要重复算
+  center_of_mass_m: [0.0, 0.0, 0.05]  # 法兰坐标系，m
+  inertia: [[0.0002, 0.0, 0.0], [0.0, 0.0002, 0.0], [0.0, 0.0, 0.0001]]  # 绕质心，kg·m²
+# end load

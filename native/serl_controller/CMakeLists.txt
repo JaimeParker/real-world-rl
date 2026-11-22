@@ -22,14 +22,20 @@ option(SERL_CONTROLLER_BUILD_PYTHON "Build the pybind11 extension serl_controlle
 option(SERL_CONTROLLER_BUILD_TESTS "Build the C++ tests (CTest)" ${_serl_default_tests})
 
 # franky does not install a CMake package, so it is described by hand. Build against
-# the franky *wheel* that will be deployed: its headers come from the franky source
-# tree of the same tag, its libraries from the installed (auditwheel-repaired) wheel.
-set(FRANKY_INCLUDE_DIR "" CACHE PATH "franky source include/ directory (same tag as the franky wheel)")
-set(FRANKY_LIBRARY "" CACHE FILEPATH "libfranky.so from the installed franky wheel (site-packages/franky/)")
+# the franky that will be deployed: its headers come from the franky source tree of the
+# same tag, its libfranky.so from the installed franky package. Two layouts are supported:
+#   wheel:  an auditwheel-repaired franky wheel (docker/build-wheels.sh); libfranka is the
+#           wheel's bundled site-packages/franky_control.libs/libfranka-<hash>.so.<ver>,
+#           passed in FRANKY_LINK_LIBRARIES;
+#   source: franky pip-installed from source against a system libfranka (scripts/
+#           install-on-ubuntu.sh); FRANKY_LINK_LIBRARIES is empty and Franka::Franka (the
+#           libfranka franky was built against) is linked.
+set(FRANKY_INCLUDE_DIR "" CACHE PATH "franky source include/ directory (same tag as the installed franky)")
+set(FRANKY_LIBRARY "" CACHE FILEPATH "libfranky.so of the installed franky (site-packages/franky/)")
 set(FRANKY_LINK_LIBRARIES "" CACHE STRING
     "Further libraries to link instead of Franka::Franka, e.g. the wheel's bundled libfranka-<hash>.so.<ver>")
 set(SERL_CONTROLLER_INSTALL_RPATH "$ORIGIN/../franky;$ORIGIN/../franky_control.libs" CACHE STRING
-    "RPATH of the Python extension (finds the franky wheel's libraries next to it in site-packages)")
+    "RPATH of the Python extension (finds franky's libraries next to it in site-packages; the source layout also gets libfranka's directory)")
 
 find_package(Eigen3 3.4 REQUIRED NO_MODULE)
 
@@ -118,6 +124,10 @@ endif()
 set(SERL_CONTROLLER_LIBFRANKY_SHA256 "")
 set(SERL_CONTROLLER_LIBFRANKA_FILE "")
 set(SERL_CONTROLLER_LIBFRANKA_VERSION "")
+set(SERL_CONTROLLER_FRANKY_LAYOUT "")
+set(SERL_CONTROLLER_LIBFRANKA_PATH "")
+set(SERL_CONTROLLER_LIBFRANKA_SHA256 "")
+set(_serl_extra_rpath "")
 if(SERL_CONTROLLER_WITH_FRANKY)
   file(SHA256 "${FRANKY_LIBRARY}" SERL_CONTROLLER_LIBFRANKY_SHA256)
   set(SERL_CONTROLLER_LIBFRANKA_VERSION "${Franka_VERSION}")
@@ -127,6 +137,21 @@ if(SERL_CONTROLLER_WITH_FRANKY)
       set(SERL_CONTROLLER_LIBFRANKA_FILE "${_name}")
     endif()
   endforeach()
+  if(SERL_CONTROLLER_LIBFRANKA_FILE)
+    set(SERL_CONTROLLER_FRANKY_LAYOUT "wheel")
+  else()
+    # Source layout: record the system libfranka franky and this extension link against, so
+    # `rwrl doctor` notices when it is replaced (another libfranka install) after the build.
+    set(SERL_CONTROLLER_FRANKY_LAYOUT "source")
+    get_target_property(_franka_location Franka::Franka LOCATION)
+    if(NOT _franka_location OR NOT EXISTS "${_franka_location}")
+      message(FATAL_ERROR "serl_controller: cannot resolve the libfranka library of Franka::Franka")
+    endif()
+    file(REAL_PATH "${_franka_location}" SERL_CONTROLLER_LIBFRANKA_PATH)
+    file(SHA256 "${SERL_CONTROLLER_LIBFRANKA_PATH}" SERL_CONTROLLER_LIBFRANKA_SHA256)
+    get_filename_component(_serl_extra_rpath "${SERL_CONTROLLER_LIBFRANKA_PATH}" DIRECTORY)
+    message(STATUS "serl_controller: source layout, libfranka ${SERL_CONTROLLER_LIBFRANKA_PATH}")
+  endif()
 endif()
 if(SERL_CONTROLLER_WITH_FRANKY)
   set(SERL_CONTROLLER_WITH_FRANKY_JSON true)
@@ -151,7 +176,7 @@ if(SERL_CONTROLLER_BUILD_PYTHON)
   endif()
   set_target_properties(_serl_controller PROPERTIES
     CXX_EXTENSIONS OFF
-    INSTALL_RPATH "${SERL_CONTROLLER_INSTALL_RPATH}"
+    INSTALL_RPATH "${SERL_CONTROLLER_INSTALL_RPATH};${_serl_extra_rpath}"
     BUILD_WITH_INSTALL_RPATH OFF)
   install(TARGETS _serl_controller LIBRARY DESTINATION serl_controller COMPONENT python)
   install(FILES "${CMAKE_CURRENT_BINARY_DIR}/generated/build_info.json"

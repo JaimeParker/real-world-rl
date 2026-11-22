@@ -1,4 +1,4 @@
-路线三 3. 启动 HIL-SERL
+启动 HIL-SERL 训练
 ================================================================================
 
 本章按设备服务、learner、actor 的顺序启动，再用记录验证数据与参数的两个方向。
@@ -15,7 +15,7 @@
 
 开始前先确认初始化方式，决定操作员何时接管。
 单夹爪任务构造 ``RLPDHybrid``：六维连续机械臂动作和一个离散夹爪头。
-无夹爪契约使用 ``ContinuousHilRLPD``。本路线不使用前章 BC 的 final.pt 自动初始化。
+无夹爪契约使用 ``ContinuousHilRLPD``。本章不使用前面 BC 的 final.pt 自动初始化。
 
 learner 从新网络开始，把 ``--demo-dataset-paths`` 的数据放入 demo buffer。
 示范不会计入 ``learning_starts``；要收到本例 100 条在线 transition 才开始更新。

@@ -71,12 +71,14 @@ FRANKY_VERSION_HINT = (
 _BLOCKING_ROBOT_MODES = ("Reflex", "UserStopped", "Guiding")
 CARTESIAN_CONTROLLERS = ("impedance", "internal", "serl")
 SERL_CONTROLLER_DISTRIBUTION = "serl-controller"
-SERL_WHEELS_DOC = "docs/serl-controller.md (Installing the matching wheels)"
+SERL_WHEELS_DOC = "docs/serl-controller.md (Installing franky and serl_controller)"
+SERL_NATIVE_INSTALL = "native/serl_controller/scripts/install-on-ubuntu.sh"
 SERL_INSTALL_HINT = (
-    "install the franky_control and serl_controller wheels FROM THE SAME BUILD, together: "
-    "pip uninstall -y franky-control serl-controller && pip install "
-    "<dir>/franky_control-*.whl <dir>/serl_controller-*.whl with <dir> one build directory, e.g. "
-    f"local/wheels/rwrl-franky-build-<date>/ (built by native/serl_controller/docker/); see {SERL_WHEELS_DOC}"
+    "franky and serl_controller must come from the same build: on the robot PC run "
+    f"LIBFRANKA_VERSION=<x.y.z> bash {SERL_NATIVE_INSTALL} (builds both from source in the active env), "
+    "or install both wheels of one wheel build directory together: pip uninstall -y franky-control "
+    "serl-controller && pip install <dir>/franky_control-*.whl <dir>/serl_controller-*.whl; "
+    f"see {SERL_WHEELS_DOC}"
 )
 # HIL-SERL's franka_server.reset_joint (rail-berkeley/hil-serl @ c32939b), after it launches the
 # joint controller: sleep 1 s, clear errors, sleep 1 s, then poll the joints once per second until
@@ -270,13 +272,34 @@ def serl_build_pairing() -> tuple[bool, str, str, dict]:
                 f"was built against (libfranky.so sha256 {str(digest)[:12]} != {str(info.get('libfranky_sha256'))[:12]}; "
                 "e.g. the official wheel instead of the one from the same build)", SERL_INSTALL_HINT, details)
     libfranka = info.get("libfranka_file") or ""
-    libs_dir = None if franky_dir is None else franky_dir.parent / "franky_control.libs"
-    if not libfranka or libs_dir is None or not (libs_dir / libfranka).is_file():
-        return (False, f"the bundled libfranka '{libfranka}' serl_controller links against is missing from "
-                f"{libs_dir}", SERL_INSTALL_HINT, details)
+    if libfranka:
+        # Wheel layout: libfranka is bundled in the franky wheel (auditwheel), next to franky/.
+        libs_dir = None if franky_dir is None else franky_dir.parent / "franky_control.libs"
+        if libs_dir is None or not (libs_dir / libfranka).is_file():
+            return (False, f"the bundled libfranka '{libfranka}' serl_controller links against is missing from "
+                    f"{libs_dir}", SERL_INSTALL_HINT, details)
+        linked = libfranka
+    else:
+        # Source layout (native/serl_controller/scripts/install-on-ubuntu.sh): franky and
+        # serl_controller both link the system libfranka recorded at build time.
+        path = info.get("libfranka_path") or ""
+        if not path:
+            return (False, "serl_controller's build_info.json records neither a bundled nor a system libfranka",
+                    SERL_INSTALL_HINT, details)
+        try:
+            system_digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        except OSError:
+            return (False, f"the libfranka serl_controller was built against ({path}) is gone; "
+                    "was libfranka removed or replaced by another version?", SERL_INSTALL_HINT, details)
+        details["libfranka_sha256"] = system_digest
+        if info.get("libfranka_sha256") and system_digest != info.get("libfranka_sha256"):
+            return (False, f"{path} changed since serl_controller was built (sha256 {system_digest[:12]} != "
+                    f"{str(info.get('libfranka_sha256'))[:12]}; libfranka was rebuilt or reinstalled)",
+                    SERL_INSTALL_HINT, details)
+        linked = f"source build, {path}"
     return (True, f"serl_controller {info.get('serl_controller_version')} and franky_control "
             f"{franky_version_installed} from the same build ({info.get('build_id') or 'unnamed build'}; "
-            f"{libfranka})", "", details)
+            f"{linked})", "", details)
 
 
 @dataclass

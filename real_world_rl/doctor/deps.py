@@ -144,3 +144,19 @@ def franky_wheel_install_argv(server_version: int, python: str | None = None) ->
         "--force-reinstall",
         "--no-deps",
     ]
+
+
+def serl_controller_installed() -> bool:
+    """Whether a serl_controller package is installed (found without importing it)."""
+    return _importable("serl_controller")
+
+
+def serl_pair_rebuild_hint(server_version: int) -> str:
+    """How to get franky + serl_controller for ``server_version`` without the official franky wheel."""
+    from real_world_rl.devices.backends.arms.franky import FRANKA_COMPATIBILITY_URL, SERL_NATIVE_INSTALL
+
+    return (
+        f"look up the libfranka version for robot server version {server_version} in {FRANKA_COMPATIBILITY_URL}, "
+        f"then rebuild the pair on this PC: LIBFRANKA_VERSION=<x.y.z> bash {SERL_NATIVE_INSTALL} "
+        "(docs/serl-controller.md); or set cartesian_controller: impedance and rerun --install-sdk"
+    )

@@ -1,4 +1,4 @@
-路线三 2. 准备一个可训练的任务
+准备可训练的任务
 ================================================================================
 
 本章让 :doc:`record` 中的同一个任务有明确的 reset、结束条件、成功标签和奖励。
@@ -32,7 +32,7 @@
      - 由 session 复制。SpaceMouse 应为 spacemouse；前章 GELLO 笛卡尔路径应为 leader_cartesian。
        保留 session 目录中的 leader-options.yaml、leader-robot.yaml 及其引用关系。
    * - ``real_robot.max_episode_steps``、``reset_settle_s``
-     - 本路线前章分别为 200 步和 0.5 秒；脚本以真实 session 为准。用已验证频率计算任务预算，
+     - 前面章节分别为 200 步和 0.5 秒；脚本以真实 session 为准。用已验证频率计算任务预算，
        在现场确认等待足够后才改，不根据 learner 的运行速度定回合长度。
    * - ``reward_from_teleop_events``、``teleop_success_reward``
      - 本章选择 true、1.0；成功判据由操作员按任务定义确认，例如物体已稳定放入目标区域。
@@ -81,7 +81,7 @@ daemon 未配置时先按 :doc:`deploy` 的设备服务流程建立连接，不�
 2. 把复位、结束与奖励分开核对
 --------------------------------------------------------------------------------
 
-本路线保留 ``task.name: none``，复用前章示范的实验约定，通过事件 wrapper 提供任务标签。
+这里保留 ``task.name: none``，复用前章示范的实验约定，通过事件 wrapper 提供任务标签。
 reset 使用原 real_robot.home_joints，未设置时读取 station 的 home；随后开爪并等待 reset_settle_s。
 home 的七个值来自 :doc:`station` 的 q 读数和已审阅起始姿态，不在这里另给通用关节角。
 

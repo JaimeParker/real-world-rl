@@ -1,12 +1,12 @@
-路线三 1. 先看懂一次在线实验
+看懂一次在线强化学习实验
 ================================================================================
 
-本路线把 :doc:`station` 的工作站、:doc:`record` 的示范和 :doc:`deploy` 的执行检查
+真机强化学习这几章把 :doc:`station` 的工作站、:doc:`record` 的示范和 :doc:`deploy` 的执行检查
 接成一次在线实验。先完成部署章的观测、动作和停止检查，再让策略参与真机控制。
 使用 openpi 的读者也先完成 :doc:`deploy-openpi`；这里训练的是本仓 HIL-SERL 策略，
 不会把 openpi 服务自动变成 HIL-SERL 的初始策略。
 
-本路线选用前面验证过的单臂、七维笛卡尔动作和人工成功／失败标注。
+这几章选用前面验证过的单臂、七维笛卡尔动作和人工成功／失败标注。
 SpaceMouse 使用 tracker；GELLO 使用 leader_cartesian。复用 ``local/station.yaml``、
 ``local/task.yaml`` 和 ``local/first-demo.pkl``，另写 ``local/rl-task.yaml`` 保存训练设置。
 先不启用分类器、抓取惩罚或免复位的 FWBW，便于核对一次奖励到底从哪里来。
@@ -16,7 +16,7 @@ SpaceMouse 使用 tracker；GELLO 使用 leader_cartesian。复用 ``local/stati
 
 按下面的部署位置安排进程，避免 learner 和 actor 同时打开硬件。
 设备服务是持有机械臂、夹爪和相机连接的进程；actor 是执行控制循环的进程；
-learner 是更新策略参数的进程。本路线让 actor 与设备服务同在机器人 PC，learner 在训练机。
+learner 是更新策略参数的进程。这几章让 actor 与设备服务同在机器人 PC，learner 在训练机。
 两者也可同机运行，连接 learner 时改用回环地址。
 
 .. literalinclude:: ../examples/rl-overview-diagram.txt
@@ -55,7 +55,7 @@ actor 通过 ``real_robot.remote`` 找设备服务，通过 ``sync_host:sync_por
 #. 遥操作 wrapper 按接管状态和逐维 mask 选择执行动作。无人接管时策略控制；
    人工接管时 ``intervene_action`` 替换相应动作。设备层仍会实施限位和安全约束。
 #. 环境把动作送往设备服务，再读取 next_obs。人工 ``s``／``f`` 事件形成任务结果；
-   本路线成功奖励为 1，失败奖励为 0，并分别终止／截断回合。
+   这里成功奖励为 1，失败奖励为 0，并分别终止／截断回合。
 #. actor 写入 obs、action、reward、next_obs、done，同时归档 policy_action、
    human_action_mask、回合标记和策略版本。``action`` 是交给环境执行的请求，
    不是编码器测得的实际位移；实际运动要对照前后观测。
@@ -79,7 +79,7 @@ transition 有 ``record_id``、``episode_id``、``step_index`` 和动作／策�
 应读 learner journal。仅看到 episode_start 时检查 actor 是否还在 START_NEUTRAL。
 没有 terminated 但有 truncated 是截断，不能据此推断成功。
 
-3. 明确这条路线的验收证据
+3. 明确这几章的验收证据
 --------------------------------------------------------------------------------
 
 每完成一章，留下能对应到下一章的文件或 ID。
@@ -94,14 +94,14 @@ transition 有 ``record_id``、``episode_id``、``step_index`` 和动作／策�
 
 **你应该看到**：一条连续的证据链；不是只凭 loss 下降判断真机学会了任务。
 **如果不对**：缺逐步数据就回查 journal；缺成功标签就回查事件源；缺策略版本就确认读取的是
-当前 actor 的在线归档，而非路线一的录制器文件。
+当前 actor 的在线归档，而非 :doc:`record` 的录制器文件。
 
 .. note::
 
    **本章哪些内容需要真机确认**
 
    设备服务连接、观测新鲜度、动作与实测运动、接管及交还、停止效果和控制时序需现场确认。
-   本路线的 CPU 假环境只验证数据与更新链；本地 socket 被沙箱禁止，HTTP 同步仍需现场验证。
+   这里的 CPU 假环境只验证数据与更新链；本地 socket 被沙箱禁止，HTTP 同步仍需现场验证。
 
 检查清单：能指出两个服务地址；知道谁发动作、谁写奖励、谁做梯度更新；
 能区分请求动作、实测运动、journal 接收和 replay 训练。

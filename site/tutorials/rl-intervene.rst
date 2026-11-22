@@ -1,4 +1,4 @@
-路线三 4. 做一次人工纠正
+训练中做一次人工纠正
 ================================================================================
 
 本章只追踪一段接管：策略提出了什么、人替换了什么、learner 收到了哪一条。
@@ -46,7 +46,7 @@
    .. tab-item:: GELLO
 
       使用 :doc:`gello` 的 leader_cartesian session，保留 leader-options.yaml 的路径与标定。
-      本路线按末端相对变化控制，不是关节扩展中的 joint_abs／joint_delta。
+      这里按末端相对变化控制，不是关节扩展中的 joint_abs／joint_delta。
 
       .. literalinclude:: ../examples/rl-intervene.sh
          :language: bash

@@ -1,9 +1,9 @@
-路线一 2A. 使用 SpaceMouse
+用 SpaceMouse 遥操作
 ================================================================================
 
 本章沿用 :doc:`station` 的 ``local/station.yaml`` 和 ``local/task.yaml``。
 在插着 SpaceMouse 的录制机器、仓库根目录运行命令。先读输入，再让机械臂运动。
-本路线使用基座系；上一章的工作区也是 ``base``。
+工作区沿用 :doc:`station` 的 ``base``；SpaceMouse 的方向以 :doc:`station` 第 11 步的桌面坐标系为准。
 
 .. tip::
 
@@ -85,7 +85,13 @@
 3. 建立方向档案，核对坐标系
 --------------------------------------------------------------------------------
 
+先确认 :doc:`station` 第 11 步做完了：机械臂不是正装时，station 里要有测好的 ``task_frame``
+（例如 ``name: table``）。SpaceMouse 的读数先按桌面方向理解（前 = 桌面 +x，左 = +y，上 = 竖直 +z），
+再由 ``task_frame`` 的旋转 ``base_R_table`` 转到机器人基座系，最后才变成末端目标交给控制器。
+方向档案只在这之上再加一个 yaw：SpaceMouse 在桌上朝哪个方向摆。
+
 方向档案保存当前设备摆放方向与任务方向之间的旋转，避免每次凭手感猜方向。
+正装、没有 ``task_frame`` 的机器人用下面的命令（``--frame base``）：
 
 .. literalinclude:: ../examples/spacemouse.sh
    :language: bash
@@ -107,9 +113,15 @@ roll／pitch／yaw 分别绕前向 X、左向 Y、向上 Z 旋转（右手规则
 ``profiles show`` 应选中 operator-base，``workspace show`` 应仍显示上一章审阅过的 base 边界。
 只采水平四向能拟合 yaw，但不能证明旋转方向已经验证。
 
-如果现场使用命名任务坐标系，先测量并配置 station 的 ``task_frame``，
-再把 ``--frame`` 改成它的 ``name``；档案的 yaw 会与该任务系到基座系的变换组合。
-本章没有测量新任务系，因此继续使用 base。方向档案不改变工作区几何。
+有 ``task_frame`` 的机器人（例如侧装 45°）用桌面系标定，``--frame`` 写 ``task_frame`` 的 ``name``：
+
+.. literalinclude:: ../examples/spacemouse.sh
+   :language: bash
+   :start-after: # start calibrate-table
+   :end-before: # end calibrate-table
+
+这时提示里的方向按桌面理解（前、左、上都是桌面的），档案的 yaw 与 ``base_R_table`` 组合成最终旋转。
+一定要先定 ``task_frame`` 再标定档案；之后改了 ``task_frame``，档案要重新标定。方向档案不改变工作区几何。
 
 **如果不对**：
 
@@ -184,13 +196,36 @@ roll／pitch／yaw 分别绕前向 X、左向 Y、向上 Z 旋转（右手规则
 .. note::
 
    机械臂由谁执行这些目标，取决于 station 的 ``cartesian_controller`` （``impedance`` 默认、``internal``、``serl``），
-   与这里的 tracker／serl 模式无关，两者可以任意组合。想换成 SERL 原版控制器时看 :doc:`serl-controller`；
-   换的只是 station 里的一行，方向档案和 preset 都不用改。
+   与这里的 tracker／serl 模式无关，两者可以任意组合，见 :doc:`controller`。
+   控制器收到的已经是基座系目标，不会再旋转；换控制器只改 station 里的一行，方向档案和 preset 都不用改。
+
+**单轴检查。** 每次只沿一个方向推（或绕一个轴扭）一下，看 TCP 是否沿\ **桌面**\ 的同一方向走（或绕同一轴转）。
+平移用 ``workspace capture`` 读数：会话前读一次，会话里只推一个方向约 3 cm 后交还、按 ``s``、按 ``q`` 退出，再读一次：
+
+.. literalinclude:: ../examples/spacemouse.sh
+   :language: bash
+   :start-after: # start axis-check
+   :end-before: # end axis-check
+
+.. literalinclude:: ../examples/spacemouse-axis-output.txt
+   :language: text
+   :start-after: # start capture
+   :end-before: # end capture
+
+``task_position`` 是 TCP 在桌面系里的位置（没有 ``task_frame`` 时就是基座系）。只推了“上”时，应该只有 z 明显增加：
+
+.. literalinclude:: ../examples/spacemouse-axis-output.txt
+   :language: text
+   :start-after: # start check
+   :end-before: # end check
+
+前、左、上三个方向各做一次；三个旋转用眼睛看：绕“前”轴扭帽，夹爪绕桌面前方的轴转，依此类推。
+推“上”而 TCP 斜着走，说明 ``task_frame`` 没写或角度不对，回到 :doc:`station` 第 11 步。
 
 tracker 的领先上限不能超过 preset 一步的动作尺度，否则会话启动时报
 ``needs xyz_scale_m >= lead_cap_m and rot_scale_rad >= lead_cap_rad``。
-例如 Zizhu 按 SERL 的习惯把 ``real_robot.xyz_scale_m`` 设为 0.02、``rot_scale_rad`` 设为 0.1，
-于是在 preset 顶层同时写 ``teleop_lead_cap_m: 0.02`` （角度上限 0.05 不超过 0.1，保持默认）。
+例如按 SERL 的习惯把 ``real_robot.xyz_scale_m`` 设为 0.02、``rot_scale_rad`` 设为 0.1 时，
+要在 preset 顶层同时写 ``teleop_lead_cap_m: 0.02`` （默认角度上限 0.3 rad 超过 0.1，也要写 ``teleop_lead_cap_rad: 0.1``）。
 
 **如果不对**：
 
@@ -251,9 +286,53 @@ stderr 也不会再打印 ``using preset``。
 **你应该看到**：运动输入超过 0.001 或任一夹爪按钮按住时接管；
 松开帽和按钮交还。button_0 按住关闭，button_1 按住打开，同时按时关闭优先。
 它输出原始归一化输入，不使用 tracker 的目标速度与领先限制。
-和 HIL-SERL 一样，这个输入直接当作\ **机器人基座系**\ 的动作：第 3 步方向档案里的旋转默认\ **不用**，
-推帽 +x 就是基座 +x。确实想让 serl 模式也套用档案旋转时，在 station 的 ``teleop.options``
-写 ``use_profile_rotation: true`` （只接受 true／false；tracker 模式始终使用档案）。
+方向：serl 模式默认只用 station ``task_frame`` 的旋转 ``base_R_table`` 把输入转到基座系，\ **不加**\ 第 3 步档案的 yaw。
+所以 SpaceMouse 要按 HIL-SERL 的方式\ **摆正**\ ：帽子的“前”对着桌面 +x（离开机器人底座的方向），“左”对着桌面 +y，“上”是竖直向上。
+从上往下看：
+
+.. code-block:: text
+
+                 桌面 +x（前，离开底座）
+                        ▲
+                        │
+          +y（左） ◄── [SpaceMouse]       线缆一侧朝向操作员
+                        │
+                 ┌──────┴──────┐
+                 │  Franka 底座 │          +z：竖直向上（垂直纸面朝外）
+                 └─────────────┘
+
+正装的机器人（没有 ``task_frame``）里桌面系就是基座系，这正是 HIL-SERL 的做法：它假设机器人正装，直接用原始基座系。
+侧装的机器人有了 ``task_frame``，推“上”仍是竖直向上，不会沿倾斜的基座 z 轴走。
+摆正后不需要标定。做下面六个单轴检查，每次只动一个轴，看 TCP 是否沿（或绕）桌面系的同一个轴运动：
+
+.. list-table::
+   :header-rows: 1
+
+   * - 操作
+     - TCP 应该
+   * - 向前推帽
+     - 沿桌面 +x 走（离开底座）
+   * - 向左推帽
+     - 沿桌面 +y 走
+   * - 向上提帽
+     - 竖直向上走
+   * - 绕前后轴转帽（右侧向下）
+     - 绕桌面 x 轴转，夹爪右侧向下
+   * - 帽子前倾（前缘向下）
+     - 绕桌面 y 轴转，夹爪前端向下
+   * - 从上方看逆时针扭帽
+     - 从上方看逆时针转
+
+平移的方向用 ``workspace capture`` 的 ``task_position`` 读数确认（与第 4 步相同，会话前后各读一次，每次会话只推一个方向）：
+
+.. literalinclude:: ../examples/spacemouse.sh
+   :language: bash
+   :start-after: # start serl-axis-check
+   :end-before: # end serl-axis-check
+
+实在不能这样摆（例如操作员只能站在侧面）时，用第 3 步的档案：在 station 的 ``teleop.options``
+写 ``use_profile_rotation: true``，serl 模式就用档案的完整旋转（``base_R_table`` × 档案 yaw）。
+它只接受 true／false；tracker 模式始终使用档案（没有档案时用 ``task_frame``）。
 这个选择会写进录制的 teleop_control 记录；用旧版本录制、隐式套用了档案旋转的 RL 运行，
 在新版本恢复（resume）时会因为记录不一致被拒绝，而不是悄悄换方向。
 会话同时把环境 ``cartesian_semantics`` 切成 ``serl``；增加 RPY 裁剪并改变夹爪执行约定，
@@ -264,7 +343,8 @@ stderr 也不会再打印 ``using preset``。
 * ``serl requires complete safety_box`` 或 ``safety_box_rpy``：补齐新 preset 的环境层边界；仅 station 中有位置边界还不够。
 * 以为短按会保持接管：SERL 使用当前输入和按钮电平，改回 tracker 才有锁存接管。
 * 想调 tracker 速度却没有效果：SERL 不使用这些选项；重新审阅环境尺度及位置／姿态边界。
-* 方向和 tracker 模式不一样：serl 模式默认是原始基座系，不套档案旋转；站在机器人对面操作时方向会反，这是预期行为。
+* 方向和 tracker 模式不一样：serl 模式默认不加档案 yaw；SpaceMouse 没按上图摆正时方向会转一个角度，这是预期行为。摆正它，或写 ``use_profile_rotation: true``。
+* 推“上”时 TCP 斜着走：``task_frame`` 没写或不准，回到 :doc:`station` 第 11 步。
 
 .. note::
 
@@ -277,5 +357,5 @@ stderr 也不会再打印 ``using preset``。
 检查清单：能读六轴和按钮；方向档案已保存并选中；单轴运动符合预期；
 能接管、开闭爪、交还并退出。
 
-选择 GELLO 的读者转到 :doc:`gello`；想换成 SERL 原版控制器时先看 :doc:`serl-controller`；
+选择 GELLO 的读者转到 :doc:`gello`；用 ``serl`` 控制器的读者回到 :doc:`controller` 第 8 步检查反射后的自动恢复；
 否则完成 SpaceMouse 练习后直接进入 :doc:`record`。

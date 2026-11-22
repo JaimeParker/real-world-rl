@@ -441,19 +441,42 @@ def inspect(args, host: Host):
                 "use separate project environments; doctor will not select one robot's SDK",
             )
         else:
-            from real_world_rl.doctor.deps import franky_wheel_install_argv
+            from real_world_rl.doctor.deps import (
+                franky_wheel_install_argv,
+                serl_controller_installed,
+                serl_pair_rebuild_hint,
+            )
 
             version = next(iter(versions))
-            host.propose(
-                Action(
-                    "sdk:franky",
-                    "sdk.franky",
-                    f"Install Franky wheel for handshake-confirmed server version {version}",
-                    franky_wheel_install_argv(version),
-                    python=True,
-                    exclusive=True,
+            serl_robots = [
+                name for name, config, *_ in targets
+                if getattr(config, "cartesian_controller", None) == "serl"
+            ]
+            if serl_robots:
+                # The official wheel would silently replace the franky serl_controller is paired
+                # with (built from source or from one wheel build): never propose it here.
+                host.add(
+                    "sdk.franky.serl",
+                    "BLOCKED",
+                    f"{', '.join(serl_robots)}: cartesian_controller: serl; --install-sdk would replace the "
+                    "franky that serl_controller was built against with the official wheel and break the pair",
+                    serl_pair_rebuild_hint(version),
                 )
-            )
+            else:
+                host.propose(
+                    Action(
+                        "sdk:franky",
+                        "sdk.franky",
+                        f"Install Franky wheel for handshake-confirmed server version {version}",
+                        franky_wheel_install_argv(version),
+                        python=True,
+                        exclusive=True,
+                        advice=(
+                            "serl_controller is installed and will not load next to the official wheel; "
+                            "cartesian_controller: serl then needs the pair rebuilt: " + serl_pair_rebuild_hint(version)
+                        ) if serl_controller_installed() else "",
+                    )
+                )
     # When no station was commissioned, USB-only sources can still be inspected independently.
     if not targets:
         host.add(

@@ -109,7 +109,7 @@ rwrl setup
 向导探测硬件、询问问题，在你同意时校准 GELLO，写入带注释的 `station.yaml`，对它运行 doctor 并打印后续命令。每个问题都有对应选项（`rwrl setup --help`）；提供选项后不再询问。例如一台机械臂带 GELLO，其余逐项询问：
 
 ```bash
-rwrl setup --arms 1 --arm-names arm --robot-ip 172.16.0.2 --teleop gello --scope local
+rwrl setup --arms 1 --arm-names arm --robot-ip 172.16.0.2 --robot-model fr3 --teleop gello --scope local
 ```
 
 | 选项 | 含义及省略时的默认值 |
@@ -117,6 +117,9 @@ rwrl setup --arms 1 --arm-names arm --robot-ip 172.16.0.2 --teleop gello --scope
 | `--arms 1` or `--arms 2` | 机械臂数量；新站点建议 1 |
 | `--arm-names arm` or `--arm-names left right` | 文件和 doctor 标识中的名称 (`arm.handshake`) |
 | `--robot-ip 172.16.0.2` | 各臂 FCI 地址，也会探测 |
+| `--robot-model fr3` | 每臂：`panda`（Desk 系统 4.x）或 `fr3`（5.x）；决定数据表 `joint_limits`；`--non-interactive` 下新机械臂必填 |
+| `--cartesian-controller serl` | 每臂：`impedance`（默认）、`internal` 或 `serl`（需要一起构建的 franky + serl_controller，见 [SERL 控制器](../serl-controller.md)） |
+| `--realtime enforce` | 每臂：`ignore` 或 `enforce`；internal／serl 或 PREEMPT_RT 内核时默认 enforce |
 | `--gripper franky` | `franky`（Franka Hand）、`none`（无 Hand）、`fake` 或 `serl_http` |
 | `--cameras none` or `--cameras SERIAL=wrist` | 每臂：`rwrl discover` 的序列号及观测名称，逗号分隔 |
 | `--camera-resolution 1280x720`, `--camera-fps 15`, `--camera-depth yes` | 每臂相机配置；未设置时新相机为 640x480、30 fps、无深度，保留的相机沿用原值 |
@@ -139,7 +142,7 @@ rwrl setup --arms 1 --arm-names arm --robot-ip 172.16.0.2 --teleop gello --scope
 ```bash
 GELLO_PORT=/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
 rwrl setup --non-interactive --arms 1 --arm-names arm --robot-ip 172.16.0.2 \
-    --arm-backend franky --gripper franky --home-joints 0,-0.785,0,-2.356,0,1.571,0.785 \
+    --arm-backend franky --gripper franky --robot-model fr3 --home-joints 0,-0.785,0,-2.356,0,1.571,0.785 \
     --cameras none --teleop gello --gello-port $GELLO_PORT --gello-baudrate 57600 \
     --gello-joint-ids 1,2,3,4,5,6,7 --gello-gripper-id 8 --intervention always \
     --event-device none --daemon-port 50051 --scope local

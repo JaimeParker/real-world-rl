@@ -9,6 +9,9 @@ STATION_SCOPES = ("local", "user")
 ARM_BACKENDS = ("franky", "serl_http", "fake")
 GRIPPER_CHOICES = (*ARM_BACKENDS, "none")
 TELEOP_CHOICES = ("gello", "spacemouse", "fake", "none")
+ROBOT_MODELS = ("panda", "fr3")
+CARTESIAN_CONTROLLERS = ("impedance", "internal", "serl")
+REALTIME_MODES = ("ignore", "enforce")
 SECTIONS = ("cameras", "teleop", "daemon")
 MAX_ARMS = 2
 FRANKA_NUM_JOINTS = 7
@@ -20,7 +23,7 @@ DEFAULT_MAX_DELTA_JOINT_RAD = 0.04
 def build_parser(parser=None) -> argparse.ArgumentParser:
     parser = parser if parser is not None else argparse.ArgumentParser(
         prog="rwrl setup",
-        description='``rwrl setup``: detect the hardware, ask a few questions, calibrate the GELLO,\nwrite the station yaml, check it with the doctor and print the next commands.\n\n    rwrl setup                       # interactive, probes the hardware\n    rwrl setup --mock                # canned hardware, simulated calibration\n    rwrl setup --station local/station.yaml [--only cameras|teleop|daemon]\n    rwrl setup --non-interactive --arms 1 --robot-ip 172.16.0.2 ...\n\nEvery question has a flag; per-arm flags take one value per arm (or one for all arms).\n``--non-interactive`` fails on a question that has neither a flag nor a ``--station`` value.',
+        description='``rwrl setup``: detect the hardware, ask a few questions, calibrate the GELLO,\nwrite the station yaml, check it with the doctor and print the next commands.\n\n    rwrl setup                       # interactive, probes the hardware\n    rwrl setup --mock                # canned hardware, simulated calibration\n    rwrl setup --station local/station.yaml [--only cameras|teleop|daemon]\n    rwrl setup --non-interactive --arms 1 --robot-ip 172.16.0.2 --robot-model fr3 ...\n\nEvery question has a flag; per-arm flags take one value per arm (or one for all arms).\n``--non-interactive`` fails on a question that has neither a flag nor a ``--station`` value.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     run = parser.add_argument_group("run")
@@ -42,11 +45,20 @@ def build_parser(parser=None) -> argparse.ArgumentParser:
     questions.add_argument("--arm-names", nargs="+", default=None, help="default: arm, or left right")
     questions.add_argument("--arm-backend", nargs="+", default=None, help=" | ".join(ARM_BACKENDS))
     questions.add_argument("--gripper", nargs="+", default=None, help=" | ".join(GRIPPER_CHOICES))
+    questions.add_argument("--robot-model", nargs="+", default=None,
+                           help=f"per arm: {' | '.join(ROBOT_MODELS)} (Desk system 4.x = panda, 5.x = fr3); picks the "
+                                "joint-limit defaults; needed for a new arm with --non-interactive")
+    questions.add_argument("--cartesian-controller", nargs="+", default=None,
+                           help=f"per arm: {' | '.join(CARTESIAN_CONTROLLERS)} (default impedance; internal and serl "
+                                "need arm backend franky, serl also franky + serl_controller built together)")
+    questions.add_argument("--realtime", nargs="+", default=None,
+                           help=f"per arm: {' | '.join(REALTIME_MODES)} (default: enforce for internal / serl or on a "
+                                "PREEMPT_RT kernel, else ignore)")
     questions.add_argument("--home-joints", nargs="+", default=None,
                            help="comma-separated rad values per arm, or none (write --home-joints=-0.1,... when the first is negative)")
     questions.add_argument("--joint-limits", nargs="+", default=None,
                            help=f"per arm: {2 * FRANKA_NUM_JOINTS} comma-separated rad values, lo,hi per joint "
-                                "(default: Panda datasheet; write --joint-limits=-2.9,2.9,... as the first is negative)")
+                                "(default: the --robot-model datasheet table; write --joint-limits=-2.9,2.9,... as the first is negative)")
     questions.add_argument("--safety-box", nargs="+", default=None,
                            help="per arm: xmin,ymin,zmin,xmax,ymax,zmax in m, base frame "
                                 f"(suggested: {','.join(map(str, SUGGESTED_SAFETY_BOX))})")

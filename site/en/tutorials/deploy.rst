@@ -1,4 +1,4 @@
-Deployment A. Deploy a BC policy trained in this repository
+Deploy a BC Policy Trained Here
 ================================================================================
 
 The Chinese chapter covers checkpoint configuration checks, saved-observation

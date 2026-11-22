@@ -1,0 +1,78 @@
+# start mismatch
+示例：已装 franky 的 libfranka 与机器人不匹配时 doctor 的 handshake 行（格式示例）。
+FAIL           franka.handshake: libfranka mismatch: robot server 9, installed library 10
+# end mismatch
+# start native
+摘自一次真实运行：干净的 Ubuntu 22.04.5、Python 3.10.12、LIBFRANKA_VERSION=0.17.0（容器里代替 NUC，无真机）。
+== 4. eigen, pybind11, ruckig, poco, pinocchio, libfranka (franky/docker/common, unmodified)
+eigen: ok
+pybind11: ok
+ruckig: ok
+poco: ok
+pinocchio v3.4.0 (libfranka >= 0.14 needs it; the longest build step)
+pinocchio: ok
+building libfranka 0.17.0
+libfranka: 0.17.0
+
+== 5. franky v2.0.0 from source (pip, against libfranka 0.17.0)
+franky_control 2.0.0+libfranka.0.17.0: /home/robot/venv/lib/python3.10/site-packages/franky/libfranky.so
+import franky: ok
+
+== 6. serl_controller (scikit-build-core, no build isolation)
+  -- serl_controller: pybind11 3.0.4
+  -- serl_controller: source layout, libfranka /usr/local/lib/libfranka.so.0.17.0
+
+== 7a. C++ tests (golden SERL comparisons + franky motions), same compiler and franky
+1/3 Test #1: golden_equivalence ...............   Passed    5.66 sec
+2/3 Test #2: joint_reset_golden ...............   Passed    0.81 sec
+3/3 Test #3: motion ...........................   Passed    0.33 sec
+100% tests passed, 0 tests failed out of 3
+
+== 7b. Python binding tests
+11 passed in 0.51s
+
+== 8. smoke import and pairing check
+serl_controller 0.1.0 derives from franky's motions: ok
+PASS  sdk:serl_controller: serl_controller 0.1.0 and franky_control 2.0.0+libfranka.0.17.0 from the same build (rwrl-native-20261122T065202Z; source build, /usr/local/lib/libfranka.so.0.17.0)
+built: 2026-11-22T07:03:11Z (rwrl-native-20261122T065202Z)
+os: Ubuntu 22.04.5 LTS 5.15.0-139-generic x86_64
+python: 3.10.12 (/home/robot/venv/bin/python)
+compiler: c++ (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
+libfranka: 0.17.0
+franky: v2.0.0 e7e63c7c7118f427ad33211500b33b81b4011bb4 (unmodified, from source), installed as franky_control 2.0.0+libfranka.0.17.0
+serl_controller: 0.1.0
+# end native
+# start doctor
+示例：cartesian_controller: serl 时 doctor 新增或相关的行（按源码格式编写，不是真机实测记录；impedance／internal 没有前两行，internal 有 mode:internal_realtime）。
+PASS           franka.sdk:serl_controller: serl_controller 0.1.0 and franky_control 2.0.0+libfranka.0.17.0 from the same build (rwrl-native-<UTC 时间>; source build, /usr/local/lib/libfranka.so.0.17.0)
+PASS           franka.config:serl_control: no control: keys ignored by cartesian_controller: serl
+PASS           franka.mode:realtime_kernel: PREEMPT_RT kernel; realtime: enforce
+PASS           franka.mode:libfranka_version: franky 2.0.0+libfranka.0.17.0 (libfranka: 0.17.0)
+PASS           franka.mode:serl_realtime: cartesian_controller: serl with realtime: enforce
+PASS           franka.mode:robot_model: robot_model: fr3 (robot URDF: fr3)
+# end doctor
+# start doctor-warn
+示例：常见的 WARN／FAIL 行（同样是格式示例）。
+FAIL           franka.sdk:serl_controller: the installed franky_control 2.0.0 is not the wheel serl_controller was built against (libfranky.so sha256 <a> != <b>; e.g. the official wheel instead of the one from the same build)
+WARN           franka.config:serl_control: cartesian_controller: serl ignores control: ['translational_stiffness', 'rotational_stiffness'] (franky Cartesian tracker gains); Cartesian servo runs SERL's controller with the serl: parameters
+WARN           franka.mode:serl_realtime: cartesian_controller: serl with realtime: ignore: SERL's 1 kHz torque loop ran with realtime enforced (franka_control); without it, jitter can trip communication reflexes
+WARN           franka.mode:robot_model: robot_model: panda but the robot's URDF (Robot.model_urdf) is a fr3; SERL's joint reset would use the panda joint limits
+# end doctor-warn
+# start home
+示例：cartesian_controller: serl 下的 rwrl home go（数字是演示）。
+target home [0.0000, -0.7850, 0.0000, -2.3560, 0.0000, 1.5710, 0.7850]; max delta 0.4120 rad
+proceed? [y/N] y
+source: station home_joints
+home (rad): [0.0000, -0.7850, 0.0000, -2.3560, 0.0000, 1.5710, 0.7850]
+q (rad): [0.0003, -0.7846, -0.0002, -2.3555, 0.0001, 1.5713, 0.7849]
+delta (home - q, rad): [-0.0003, -0.0004, 0.0002, -0.0005, -0.0001, -0.0003, 0.0001]
+max delta: 0.000500 rad
+# end home
+# start recover-log
+示例：反射（reflex）停掉 SERL 控制器后，下一个 servo 目标触发自动恢复时的日志（WARNING 级别）。
+arm 'franka': SERL impedance controller stopped (<libfranka 的错误文字>); auto-recovery 1/5 this episode: clearing errors and restarting the controller at the measured pose
+示例：本回合已经自动恢复 5 次，第 6 次不再自动处理，servo 报可恢复错误：
+franka SERL impedance controller stopped: <错误文字> (serl_auto_recover: max_per_episode 5 reached, 5 auto-recoveries this episode)
+示例：错误清不掉（例如外部使能按钮仍按下）时：
+franka SERL impedance controller stopped: <错误文字>; recover_from_errors failed: <原因> (serl_auto_recover could not clear it)
+# end recover-log

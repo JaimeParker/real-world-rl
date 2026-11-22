@@ -126,10 +126,11 @@ or use `tracker` when there is no training configuration.
 
 For an inclined robot base, `teleop_options_yaml` may supply `input_rotation`, a
 finite proper 3×3 rotation matrix `base_R_input`. Tracker mode rotates
-translation and angular input into the robot base frame. Serl mode, like HIL-SERL, drives the
-raw base frame and keeps the rotation as provenance only, unless the options set
-`use_profile_rotation: true` (see
-[SERL controller: SpaceMouse in serl mode](serl-controller.md#spacemouse-in-serl-mode-the-raw-base-frame)).
+translation and angular input into the robot base frame (with no profile, the station
+`task_frame` rotation alone). Serl mode rotates by the station `task_frame` rotation only (no
+profile yaw; with no `task_frame` it drives the raw base frame, like HIL-SERL) and keeps the
+profile rotation as provenance, unless the options set `use_profile_rotation: true` (see
+[SERL controller: SpaceMouse in serl mode](serl-controller.md#spacemouse-in-serl-mode-the-task-frame)).
 Axis inversions and the tracker's per-axis deadzone precede rotation; SERL takeover still uses
 the raw six-axis norm. Each rotated three-vector is uniformly reduced only when needed
 to fit the action cube, preserving its direction. No origin translation is

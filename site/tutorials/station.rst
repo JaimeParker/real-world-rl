@@ -1,4 +1,4 @@
-路线一 1. 建立工作站
+建立工作站
 ================================================================================
 
 你会接通一台 Franka、Franka Hand 和一台 RealSense，再写好第一份实验配置。
@@ -56,11 +56,11 @@
 
 其余字段保持默认：``type``、``name``、``arm_backend``、``realtime``、
 ``relative_dynamics_factor``、``cartesian_controller``、``claim``。
-``cartesian_controller: impedance`` 表示由 franky 的阻抗 tracker 执行末端目标，普通内核也能用；
-另外两个选项 ``internal`` 和 ``serl`` 以后只改这一行即可切换，见 :doc:`serl-controller`。
-``robot_model`` 决定 SERL 关节复位用哪张关节限位表，也是 ``rwrl setup`` 给 ``joint_limits`` 的默认来源。这里使用 ``franky``；需要强制实时内核时才把
-``realtime`` 改成 ``enforce``，并先准备 PREEMPT_RT。归位速度需要调整时再审阅
-``relative_dynamics_factor``，它控制 ``move_to_*`` 的速度、加速度和 jerk 比例。
+``cartesian_controller: impedance`` 表示由 franky 的阻抗 tracker 执行末端目标，普通内核也能用。
+先保持它：做完第 3 步后，:doc:`controller` 会帮你在 ``impedance``、``internal``、``serl`` 中选定一个，
+并装好它需要的软件、填好 ``realtime``。
+``robot_model`` 决定 SERL 关节复位用哪张关节限位表，也是 ``rwrl setup`` 给 ``joint_limits`` 的默认来源。
+归位速度需要调整时再审阅 ``relative_dynamics_factor``，它控制 ``move_to_*`` 的速度、加速度和 jerk 比例。
 ``claim: true`` 保留本机设备独占锁。
 
 插入 RealSense，运行发现命令：
@@ -126,8 +126,11 @@
 **如果不对**：
 
 * ``franka.os:ping``／``franka.os:tcp`` 失败：核对 IP、NUC 网口和控制柜状态。
-* ``franka.handshake`` 失败：检查 FCI、设备占用；若报告 ``libfranka mismatch``，按报告匹配
-  franky wheel。``--install-sdk`` 只处理握手确认的版本不匹配。
+* ``franka.handshake`` 失败：检查 FCI、设备占用。若报告 ``libfranka mismatch: robot server N, ...``，
+  记下 N，先读 :doc:`controller` 第 2 步再决定怎么装 franky：打算用 ``serl`` 的，\ **不要**\ 运行
+  ``rwrl doctor --install-sdk``，按 :doc:`controller` 第 4B 步在本机一起构建 franky 和 serl_controller；
+  其他控制器才用 ``rwrl doctor --station local/station.yaml --install-sdk`` 换成匹配的 franky wheel。
+  ``--install-sdk`` 只处理握手确认的版本不匹配。
 * ``franka.feedback:arm`` 失败：检查电源、急停和 Desk 状态，修复后重跑。
 * ``franka.feedback:camera:wrist`` 报 ``no frames within 2s``：检查 USB 3 带宽，换接口后重连。
   夹爪反馈异常则按后面的夹爪检查核对行程和单位。
@@ -141,7 +144,7 @@
 .. warning::
 
    接下来会手动引导机械臂。先确认负载、停止方式、周围空间和现场监护。
-   测量期间不要运行 ``home move``、录制或 reset。以后执行 reset 前，
+   测量期间不要运行 ``home go``、录制或 reset。以后执行 reset 前，
    还要确认归位路径和开爪不会碰撞或掉落物体。
 
 按现场手动引导流程放到安全的起始姿态，退出引导后读取：
@@ -373,7 +376,7 @@ RGB 张量是 ``(1, H, W, 3)`` 的 uint8。
    * - 必须改的字段
      - 怎么得到这个值
    * - ``action_mode`` / ``xyz_scale_m`` / ``rot_scale_rad``
-     - 本路线先保留 ``cartesian_delta``、0.05 m、0.3 rad；与接下来遥操作的目标限制一起核对。
+     - 先保留 ``cartesian_delta``、0.05 m、0.3 rad；与接下来遥操作的目标限制一起核对。
    * - ``control_hz``
      - 本例先用 10 Hz；接入后按实测循环能力调整，并在采集与部署时保持一致。
    * - ``max_episode_steps``
@@ -471,9 +474,151 @@ RGB 张量是 ``(1, H, W, 3)`` 的 uint8。
 * 记住的文件被移走或改名：命令会报 ``chosen with `rwrl use station` does not exist``；
   重新运行 ``rwrl use station <yaml>``，或用 ``rwrl use --clear station`` 清除选择。
 
-现在两份配置已准备好。下一章 :doc:`spacemouse` 会选择输入设备，
-用 ``teleop run`` 把 station 和 preset 合成一份会话配置，再开始接管练习。
-本章 preset 没有独立的连接信息，因此先沿用这条合并流程。
+11. 看清机械臂怎么装，测桌面坐标系
+--------------------------------------------------------------------------------
+
+这一步在第一次遥操作之前做。它决定 SpaceMouse（以及任何“按桌面方向”给出的指令）怎么变成机械臂的运动。
+
+先看机械臂是怎么装的：**正装**\ （底座平放在桌面上）、\ **侧装**\ （例如绕自己的 x 轴转了约 45°，本实验室常见），
+还是有别的倾斜或偏转。SpaceMouse 放在桌面上，它的方向是桌面的方向：前 = 桌面 +x，左 = +y，上 = 竖直 +z。
+Franka 的基座坐标系跟着底座走；底座不正装时，基座的 “上” 不是竖直向上。
+所以 SpaceMouse 的指令要先\ **转到基座系**\ ，再变成末端目标：
+
+.. code-block:: text
+
+   SpaceMouse 读数 (桌面系 table：前 +x、左 +y、上 +z；平移 xyz 和旋转 rpy 各三维)
+        │   × 方向档案的 yaw（只描述 SpaceMouse 在桌上朝哪摆，见 SpaceMouse 章第 3 步）
+        ▼
+   base_R_table  = station task_frame.base_T_frame 的左上 3×3
+        │   Δp_base = base_R_table · Δp_table ；Δω_base = base_R_table · Δω_table
+        ▼   （平移和旋转用同一个矩阵）
+   基座系里的增量
+        │   位置：目标 = 当前位姿 + 缩放后的 Δp_base ；姿态：旋转增量左乘当前姿态
+        ▼
+   末端目标（基座系）
+        ▼
+   控制器 cartesian_controller：impedance | internal | serl （它们收到的已是基座系目标，不再旋转）
+
+正装的机器人 ``base_R_table`` 是单位矩阵，这一步可以跳过（不写 ``task_frame``）。
+不正装时写好 ``task_frame``，tracker 和 serl 两种 SpaceMouse 模式、三种控制器就都按它工作：
+
+.. list-table::
+   :header-rows: 1
+
+   * - 情况
+     - SpaceMouse 指令怎么转到基座系
+   * - tracker 模式，有方向档案
+     - 档案的旋转：``base_R_table`` × 档案 yaw（档案按 ``--frame table`` 标定）
+   * - tracker 模式，没有档案，有 ``task_frame``
+     - 只用 ``base_R_table``
+   * - serl 模式（默认）
+     - 只用 ``base_R_table``，不加档案 yaw
+   * - serl 模式，``use_profile_rotation: true``
+     - 档案的旋转（``base_R_table`` × 档案 yaw）
+   * - 没有 ``task_frame``
+     - 不旋转，读数直接当基座系；只对正装机器人正确（HIL-SERL 就假设机器人正装，直接用基座系）
+
+策略输出的动作本来就是基座系增量，不经过这条链。
+
+**11.1 写名义值，判断正负号。** 先按安装方式写一个名义的 ``task_frame``。下面是“底座绕 x 轴转了 +45°”的写法：
+
+.. literalinclude:: ../examples/station-frame.yaml
+   :language: yaml
+   :start-after: # start nominal
+   :end-before: # end nominal
+
+``base_T_frame`` 是 4×4 矩阵：左上 3×3 的三列分别是桌面的 +x、+y、+z 在基座系里的方向；
+最后一列是桌面系原点在基座系里的位置（名义值先写 0）。
++45° 还是 −45°，用一次竖直抬高来判断：把 TCP 放在工作区中部，读一次 ``tcp``，
+手动引导它\ **竖直**\ （按房间的上方，不是按机械臂的某个轴）抬高约 10 cm，再读一次：
+
+.. literalinclude:: ../examples/station.sh
+   :language: bash
+   :start-after: # start frame-sign
+   :end-before: # end frame-sign
+
+.. literalinclude:: ../examples/station-frame-output.txt
+   :language: text
+   :start-after: # start frame-sign
+   :end-before: # end frame-sign
+
+两次 xyz 之差就是“桌面向上”在基座系里的方向，也就是矩阵第三列（乘 0.1 m）：
+
+.. list-table::
+   :header-rows: 1
+
+   * - xyz 的变化（约）
+     - 安装
+     - 名义 ``base_R_table``
+   * - ``[0, 0, +0.10]``
+     - 正装
+     - 单位矩阵（不写 ``task_frame``）
+   * - ``[0, -0.07, +0.07]``
+     - 绕基座 x 轴 +45°
+     - 上面的 ``Rx(+45°)``
+   * - ``[0, +0.07, +0.07]``
+     - 绕基座 x 轴 −45°
+     - ``Rx(-45°)``：把上面矩阵第 2 行第 3 列改成 ``+0.7071…``、第 3 行第 2 列改成 ``-0.7071…``
+
+**11.2 测出真实的坐标系。** 名义值只是起点：实际安装总有偏差。例如本实验室一台名义 45° 的机械臂，
+手眼标定测出 roll 41.8°、pitch 2.3°、yaw −6.7°；另一台是 −46.1°、−0.4°、3.9°。
+用三个点测出完整的 roll／pitch／yaw：
+
+1. 原点 ``frame-origin``：桌面上一个好找的点，例如桌角附近；
+2. ``frame-x``：沿桌面的“前”方向（SpaceMouse 前方要对着的方向）离原点 20–30 cm；
+3. ``frame-y``：沿桌面的“左”方向离原点 20–30 cm。
+
+三个点离桌面的高度保持一样（例如都让指尖刚好碰到桌面上贴的标记）。沿用第 4 步的手动引导流程：
+引导到一个点，退出引导，捕获；再去下一个点：
+
+.. literalinclude:: ../examples/station.sh
+   :language: bash
+   :start-after: # start frame-capture
+   :end-before: # end frame-capture
+
+``--output`` 相对 station 所在目录，所以写入 ``local/frame-points.yaml``。然后先不带 ``--save`` 看候选，满意后再带 ``--save`` 写入 station：
+
+.. literalinclude:: ../examples/station.sh
+   :language: bash
+   :start-after: # start frame-set
+   :end-before: # end frame-set
+
+**你应该看到**：候选 ``task_frame`` 和下面这些读数（这里是合成数据的真实输出）：
+
+.. literalinclude:: ../examples/station-frame-output.txt
+   :language: text
+   :start-after: # start frame-set
+   :end-before: # end frame-set
+
+.. list-table::
+   :header-rows: 1
+
+   * - 读数
+     - 怎么看
+   * - ``rpy_deg``
+     - 桌面系相对基座的 roll／pitch／yaw（``base_R_table = Rz(yaw)·Ry(pitch)·Rx(roll)``）。应接近名义值：侧装 45° 的 roll 在 ±45° 附近，相差几度属于正常的安装偏差；差十几度先查点是否取错。
+   * - ``axis_lengths_m``
+     - 原点到 x 点、y 点的距离。越长越准，建议都在 0.2 m 以上。
+   * - ``y_axis_angle_deg``
+     - y 点偏离“与 x 垂直”的角度（y 轴会自动改成与 x 垂直）。桌边是直角时应只有几度；很大说明 y 点取歪了。
+
+带 ``--save`` 时先显示改动、确认后才写入；``workspace frame show`` 再显示一次保存结果和 ``rpy_deg``。
+
+**11.3 先坐标系，后档案。** 坐标系定好以后，再去 :doc:`spacemouse` 标定方向档案（``--frame table``）：
+这样档案的 yaw 只描述 SpaceMouse 在桌上怎么摆，不再混入机械臂的安装角度。
+改了 ``task_frame`` 之后，之前在旧坐标系下标定的档案和捕获的点都要重做。
+最后在 :doc:`spacemouse` 第 4 步用单轴推动验证：推帽向上，TCP 应竖直向上走；向前推，TCP 沿桌面前方走。
+
+**如果不对**：
+
+* ``origin, x-axis and y-axis points are collinear``：y 点要离开 x 方向那条线。
+* ``x-axis point is ... mm from the origin``：x 点离原点太近，拉开到 20 cm 以上。
+* ``rpy_deg`` 和名义值差很多：检查 x、y 点有没有取反（前／左），三个点是否同高。
+* ``the station workspace is defined in frame ...``：工作区用的是别的坐标系；本章工作区是 ``base``，不受影响。
+* 正装机器人测出的 roll／pitch 只有零点几度：可以不写 ``task_frame``，或者保留测量值，两者都对。
+
+现在两份配置和桌面坐标系都已准备好。下一章 :doc:`controller` 选定并装好 Franka 控制器；
+之后 :doc:`spacemouse` 用 ``teleop run`` 把 station 和 preset 合成一份会话配置，开始接管练习。
 
 .. note::
 
@@ -483,3 +628,4 @@ RGB 张量是 ``(1, H, W, 3)`` 的 uint8。
    夹爪行程和开闭、相机模式与画面、home 与归位路径、工作区和单步上限、
    动作方向和幅度、10 Hz 控制时序、0.5 秒稳定时间，都要现场确认。
    ``workspace show`` 只显示配置，不验证现场几何、碰撞或在线 daemon。
+   桌面坐标系的名义角度和实测角度、单轴方向也要现场确认。

@@ -13,6 +13,21 @@ rwrl teleop calibrate --backend spacemouse --profile operator-base --frame base 
 rwrl teleop profiles show --profile operator-base
 rwrl workspace show
 # end calibrate
+# start calibrate-table
+rwrl teleop calibrate --backend spacemouse --profile operator-table --frame table --output spacemouse-profiles.yaml --use
+rwrl teleop profiles show --profile operator-table
+rwrl workspace frame show
+# end calibrate-table
+# start axis-check
+rwrl workspace capture
+rwrl teleop run --backend spacemouse --record local/spacemouse-axis.pkl --num-successes 1 --max-episodes 1
+rwrl workspace capture
+# end axis-check
+# start serl-axis-check
+rwrl workspace capture
+rwrl --preset local/task-serl.yaml teleop run --backend spacemouse --mode serl --record local/spacemouse-serl-axis.pkl --num-successes 1 --max-episodes 1
+rwrl workspace capture
+# end serl-axis-check
 # start practice
 rwrl teleop run --backend spacemouse --record local/spacemouse-practice.pkl --num-successes 1 --max-episodes 1
 # end practice

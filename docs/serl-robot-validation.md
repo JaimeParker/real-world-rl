@@ -1,17 +1,17 @@
-# SERL controller: robot validation (Zizhu)
+# SERL controller: robot validation
 
 This is the hardware checklist for `cartesian_controller: serl` and the SpaceMouse modes. Run it in
-order on the lab robot PC (Zizhu: an FR3 behind a NUC, SpaceMouse on the NUC), from the repository
+order on the robot PC (for example an FR3 behind a NUC, with the SpaceMouse on the NUC), from the repository
 root with the project environment active. Each step says what to look at and when it passes. Stop
 at the first step that fails, and keep its logs. Background: [SERL controller](serl-controller.md).
 
 Safety for every motion step: one person holds the external activation device and nobody else is
 in the cell. Use a free workspace well inside `safety_box`, and start with the arm at home.
 
-## 0. Bring the lab machine's working tree to this code
+## 0. Bring the robot PC's working tree to this code
 
-The lab checkout still carries an older patch (a Codex working-tree patch on top of `b227e74`).
-Save it, then reset to the commits that contain this work, once they are pushed:
+If the checkout carries local changes, save them, then update to the commits that contain this
+work:
 
 ```bash
 git status --short
@@ -45,26 +45,30 @@ latency should stay well below 100 µs.
 
 Pass: `realtime.kernel` and `realtime.limits` PASS in `rwrl doctor`.
 
-## 2. Install the wheel pair
+## 2. Build and install franky + serl_controller
 
-Copy the build directory from the development machine. It is in the git-ignored `local/wheels/`.
+Read the robot server version from `rwrl doctor` (`libfranka mismatch: robot server N, ...`, or,
+when the handshake passes, the installed franky's `+libfranka.X` label) and pick
+`LIBFRANKA_VERSION` from the table in
+[SERL controller](serl-controller.md#installing-franky-and-serl_controller). Do not run
+`rwrl doctor --install-sdk` for this station. Then, on the robot PC (no Docker):
 
 ```bash
-rsync -a <dev>:<repo>/local/wheels/rwrl-franky-build-20261122-cxxpass/ local/wheels/rwrl-franky-build-20261122-cxxpass/
-W=local/wheels/rwrl-franky-build-20261122-cxxpass
-(cd $W && sha256sum -c SHA256SUMS)
-pip uninstall -y franky-control serl-controller
-pip install $W/franky_control-*.whl $W/serl_controller-*.whl
+LIBFRANKA_VERSION=0.17.0 bash native/serl_controller/scripts/install-on-ubuntu.sh
 python -c "import franky, serl_controller as sc; print(sc.BUILD_INFO)"
+cat ~/.cache/rwrl-native-build/BUILD_INFO.txt
 ```
 
-Pass: both import, and `BUILD_INFO` names the same build id as `$W/BUILD_INFO.txt`.
+Pass: the script ends with `PASS  sdk:serl_controller`, CTest passes (including
+`golden_equivalence` and `joint_reset_golden`), and `BUILD_INFO` names the build id of
+`BUILD_INFO.txt` with `franky_layout: source`. (A wheel pair built elsewhere with the Docker recipe
+works as well; install both wheels of one build directory together.)
 
 ## 3. robot_model: confirm in Desk
 
 In Desk → Settings → System, read the system version (4.x = Franka Emika Robot / `panda`, 5.x =
-Franka Research 3 / `fr3`) and the robot type. Zizhu's libfranka handshake reported server
-version 9 (system 5.x), so `fr3` is expected. Set it in the station:
+Franka Research 3 / `fr3`) and the robot type. A server version ≥ 6 (system 5.x) means `fr3` is
+expected. Set it in the station:
 
 ```yaml
 robot_model: fr3
@@ -72,7 +76,7 @@ robot_model: fr3
 
 ## 4. Doctor, first with the current controller, then with serl
 
-First run `rwrl doctor` on the unchanged station (`impedance`). The new franky wheel must not
+First run `rwrl doctor` on the unchanged station (`impedance`). The source-built franky must not
 break anything: `sdk:arm`, `handshake`, `feedback:*` and `mode:robot_mode` PASS, and
 `mode:robot_model` reads `robot_model: fr3 (robot URDF: fr3)` (or the server version).
 
@@ -173,7 +177,9 @@ python scripts/analyze_teleop_direction.py local/cmp-*.session-*/
 ```
 
 Restart the daemon after each station change, and keep `spacemouse_mode` / `--mode` aligned with
-the table. `--mode serl` needs the preset's xyz and RPY safety boxes. Pass, per run: every segment
+the table. For run C, place the SpaceMouse as HIL-SERL does (front = task-frame +x, left = +y,
+up = vertical +z) and check the six single axes first; a rolled base needs the measured
+`task_frame` (see the station tutorial). `--mode serl` needs the preset's xyz and RPY safety boxes. Pass, per run: every segment
 has angle < 10° and coast (lead) < 3 mm. Record the median angle, the speed and the lead at release
 per run. The serl runs should be at least as good as run A.
 
@@ -232,10 +238,9 @@ cp local/station.yaml.before-serl-validation.bak local/station.yaml
 ```
 
 Older copies are `local/station.yaml.bak.<UTC>` (setup wizard) and `local/station.yaml.<id>.bak`
-(CLI edits). To return to the official franky wheel, run
-`pip uninstall -y franky-control serl-controller` and then `rwrl doctor --install-sdk`. Keep
-`cartesian_controller: impedance` or `internal` with that wheel. To return to the old code, check
-out the previous commit, or apply the patch saved in step 0 on top of `b227e74`.
+(CLI edits). To return to the official franky wheel, switch the station to
+`cartesian_controller: impedance` or `internal`, then run `rwrl doctor --install-sdk`. To return
+to the old code, check out the previous commit, or apply the patch saved in step 0.
 
 Hand back the session directories (`local/*.session-*/`), the daemon log, the analysis output and
 the doctor report (`rwrl --json doctor > local/doctor-serl.json`).

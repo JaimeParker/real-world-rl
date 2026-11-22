@@ -1,4 +1,4 @@
-Gello
+Teleoperate with GELLO
 ================================================================================
 
 The English version will follow once the Chinese chapter is final.

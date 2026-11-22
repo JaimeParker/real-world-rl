@@ -1,4 +1,4 @@
-路线一 4. 检查录制结果
+检查录制结果
 ================================================================================
 
 本章接着 :doc:`record` 的 ``local/first-demo`` 输出，全部操作离线，不连接机器人。
@@ -84,7 +84,7 @@ measurements.csv 每行对应一个区间指标。源 SQLite 以只读方式打�
 不能据此推断动作造成了这段运动。
 
 真实录制中，把 action 按同回合的 contract 解码，再比较 state 与 next_state。
-本路线 current 语义下前三维乘 0.05 m，旋转三维乘 0.3 rad；这是环境请求，
+按前面的 preset，current 语义下前三维乘 0.05 m，旋转三维乘 0.3 rad；这是环境请求，
 机械臂实际运动还受控制器、边界及跟踪误差影响。
 教程 task 的 state_fields 从 tcp_pose 开始，TCP xyz 在 state 的前 3 项；
 这个合成例子先放七维 joint_pos，故脚本取第 7–9 项。迁移脚本时先查 contract，别照抄切片。
@@ -126,7 +126,7 @@ timestamp_s 在 step 后记录，而 xyz 取 step 前的 obs，绝对时间存�
 human_action_mask 等归档字段。缺口前最后一步会标为 training_segment_end，避免训练时跨缺口接轨迹。
 contract 中核对 action_mode、arm_action_dim、gripper_in_action、state_fields、
 experiment 中的观测键与形状，以及动作尺度和 experiment.teleop_control；与以后训练、部署保持一致。
-本路线应有 state 和 rgb_wrist，动作七维；GELLO 关节扩展则是八维。
+按前面的配置应有 state 和 rgb_wrist，动作七维；GELLO 关节扩展则是八维。
 
 保留条件是成功回合且有人工步骤；默认剔除 teleop_syncing 的对齐步骤。
 同一成功回合中的无人操作段也不进入 pkl。成功标注发生在交还之后时，
@@ -176,4 +176,4 @@ experiment 中的观测键与形状，以及动作尺度和 experiment.teleop_co
 检查清单：能说出 episode_id、起止 step_index／时间戳和 mask；能找到 action 与前后状态；
 能解释 pkl 少了哪些步骤，以及失败尝试保存在何处。
 
-路线一完成。接下来进入 :doc:`bc-data`，准备训练数据。
+工作站与录制这一部分完成。接下来进入 :doc:`bc-data`，准备训练数据。

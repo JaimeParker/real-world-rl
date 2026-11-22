@@ -1,0 +1,26 @@
+# 教程片段：cartesian_controller: serl 的 station 字段。
+type: franka
+name: franka
+arm_backend: franky
+robot_ip: REPLACE_WITH_FCI_IP
+gripper:
+  backend: franky
+  max_width_m: 0.08
+  mode: binary
+# start controller
+cartesian_controller: serl        # SERL 的笛卡尔阻抗控制器 + 10 s 关节复位
+robot_model: fr3                  # SERL 关节复位按它选关节限位表
+realtime: enforce                 # SERL 当年在 realtime_config: enforce 下运行
+control: null                     # 不写 impedance 的笛卡尔增益；serl 模式下它们无效
+# end controller
+# start serl-null
+serl: null                        # null = SERL compliance_param.cfg 的默认值（下表）
+# end serl-null
+# start recover
+serl_auto_recover:                # null 等同于下面两行
+  enabled: true
+  max_per_episode: 5
+# end recover
+# start load
+load: null                        # null：保留 Desk 里设置的末端负载
+# end load

@@ -1,7 +1,7 @@
 """``python -m real_world_rl.demos ...`` (console script ``real-world-rl-record``).
 
 Records teleoperated demos on the real robot; see ``real_world_rl/demos/record.py``
-and ``docs/recording-demos.md``.
+and ``https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/recording-demos.html``.
 """
 from __future__ import annotations
 

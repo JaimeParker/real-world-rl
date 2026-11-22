@@ -1,0 +1,47 @@
+# Tutorial template: fill in IP and serial number first; replace home and boundaries after measuring.
+# start arm
+type: franka
+name: franka
+arm_backend: franky
+robot_ip: REPLACE_WITH_FCI_IP
+realtime: ignore
+relative_dynamics_factor: 0.2
+cartesian_controller: impedance
+robot_model: panda
+claim: true
+# end arm
+# start home
+# Example numbers: replace with seven measured values from rwrl q at a safe starting pose.
+home_joints: [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]
+# end home
+# start bounds
+# Example numbers from robot.franka.example.yaml; replace with reviewed site boundaries.
+safety_box: [0.3, -0.3, 0.05, 0.7, 0.3, 0.6]
+workspace:
+  frame: base
+  low: [0.3, -0.3, 0.05]
+  high: [0.7, 0.3, 0.6]
+max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.1}
+# end bounds
+# start gripper
+gripper:
+  backend: franky
+  max_width_m: 0.08
+  mode: binary
+  binary_threshold: 0.5
+  shares_arm_session: false
+  speed_m_s: 0.3
+  grasp_force_n: 130.0
+  close_width_m: 0.01
+  open_width_m: null
+# end gripper
+# start camera
+cameras:
+  - name: wrist
+    backend: realsense
+    serial: REPLACE_WITH_REALSENSE_SERIAL
+    width: 640
+    height: 480
+    fps: 30
+    enable_depth: false
+# end camera

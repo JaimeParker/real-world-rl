@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any, Iterator
 
 import numpy as np
 
+from real_world_rl.common.docs_links import docs_url
 from real_world_rl.devices.arm import Arm, ControlMode
 from real_world_rl.devices.control import (
     SERL_PARAM_NAMES,
@@ -71,7 +72,10 @@ FRANKY_VERSION_HINT = (
 _BLOCKING_ROBOT_MODES = ("Reflex", "UserStopped", "Guiding")
 CARTESIAN_CONTROLLERS = ("impedance", "internal", "serl")
 SERL_CONTROLLER_DISTRIBUTION = "serl-controller"
-SERL_WHEELS_DOC = "docs/serl-controller.md (Installing franky and serl_controller)"
+SERL_WHEELS_DOC = (
+    docs_url("reference/serl-controller", "en-serl-controller-installing-franky-and-serl_controller")
+    + " (Installing franky and serl_controller)"
+)
 SERL_NATIVE_INSTALL = "native/serl_controller/scripts/install-on-ubuntu.sh"
 SERL_INSTALL_HINT = (
     "franky and serl_controller must come from the same build: on the robot PC run "

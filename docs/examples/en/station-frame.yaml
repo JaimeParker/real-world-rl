@@ -1,0 +1,20 @@
+# Tutorial snippet: table task_frame for a tilted mounting (merge at the top level of local/station.yaml).
+type: franka
+name: franka
+arm_backend: franky
+robot_ip: REPLACE_WITH_FCI_IP
+gripper:
+  backend: franky
+  max_width_m: 0.08
+  mode: binary
+# start nominal
+# Nominal: table axes relative to base axes are Rx(+45°) (base_R_table); inverse of the base-to-table mounting transform. For comparison only; use the measurement from step 11.2 in the end.
+task_frame:
+  name: table
+  base_T_frame:                 # 4x4, row-major; upper-left 3x3 is base_R_table, last column is the origin (m, base frame)
+    - [1.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.7071067811865476, -0.7071067811865476, 0.0]
+    - [0.0, 0.7071067811865476, 0.7071067811865476, 0.0]
+    - [0.0, 0.0, 0.0, 1.0]
+  source: nominal Rx(+45 deg) mount; replace with rwrl workspace frame set --from-points
+# end nominal

@@ -4,8 +4,8 @@ build:
   tools:
     python: "3.12"
 sphinx:
-  configuration: site/conf.py
+  configuration: docs/conf.py
   fail_on_warning: true
 python:
   install:
-    - requirements: site/requirements.txt
+    - requirements: docs/requirements.txt

@@ -1,0 +1,17 @@
+# Local run output: run from the repository root, with this chapter's two configurations under local/.
+# start remember
+remembered station local/station.yaml in local/.rwrl-use.json
+station: local/station.yaml (rwrl use)
+preset: none (pass --preset or run `rwrl use preset <yaml>`)
+remembered preset local/task.yaml in local/.rwrl-use.json
+station: local/station.yaml (rwrl use)
+preset: local/task.yaml (rwrl use)
+# end remember
+# start show
+station: local/station.yaml (rwrl use)
+preset: local/task.yaml (rwrl use)
+# end show
+# start fallback
+using preset local/task.yaml (from rwrl use)
+using station local/station.yaml (from rwrl use)
+# end fallback

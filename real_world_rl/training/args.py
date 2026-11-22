@@ -158,7 +158,7 @@ class TeleopArgs:
     # real_robot_bimanual env. "spacemouse": a SpaceMouse over the cartesian command tracker
     # (button 0 takes over); "pico": a Pico VR controller over the same tracker (bind takes over);
     # "spacemouse_twist": the old raw twist, sim only, not for real robots.
-    # See docs/teleop.md for every device. No default: every process that builds a teleop source
+    # See https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/teleop.html for every device. No default: every process that builds a teleop source
     # (actor, eval, record, collect, deploy with a task) needs it (require_teleop_device).
     teleop_selected_parts: list[str] = field(default_factory=list)
     teleop_idle_behavior: Literal["hold", "policy"] = "hold"

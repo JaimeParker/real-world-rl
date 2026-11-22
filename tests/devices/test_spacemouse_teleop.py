@@ -408,7 +408,7 @@ def test_teleop_check_fails_naming_an_unknown_3dconnexion_device_without_a_suppo
     result = run_teleop_check(monkeypatch, [BT_ENTRY])
     assert not result.ok
     assert ("unknown 3Dconnexion-vendor HID device 256f:c63a; add it to spacemouse-devices.yaml "
-            "(see docs/spacemouse-commissioning.md#site-device-table) (/dev/hidraw6)") in result.message
+            "(see https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/spacemouse-commissioning.html#en-spacemouse-commissioning-site-device-table) (/dev/hidraw6)") in result.message
     assert "site-device-table" in result.hint
 
 

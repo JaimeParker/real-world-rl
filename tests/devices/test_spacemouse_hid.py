@@ -170,7 +170,7 @@ def test_a_vendor_match_with_an_unlisted_product_is_not_supported(monkeypatch):
 def test_unknown_device_message_names_the_table_and_the_doc_anchor():
     assert reader.unknown_device_message(0x256F, 0xC63A) == (
         "unknown 3Dconnexion-vendor HID device 256f:c63a; add it to spacemouse-devices.yaml "
-        "(see docs/spacemouse-commissioning.md#site-device-table)")
+        "(see https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/spacemouse-commissioning.html#en-spacemouse-commissioning-site-device-table)")
 
 
 # -- local table: lookup, merge, validation ------------------------------------------------

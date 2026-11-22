@@ -1,14 +1,18 @@
 # real-world-rl
 
-**Tutorials:** [中文](site/index.rst) · [English placeholders](site/en/index.rst) · [Read the Docs build and publishing](site/README.md)
+Documentation: https://real-world-rl.readthedocs.io/
 
-**Reference:** [English](docs/README.md) · [中文](docs/README.zh-CN.md)
+[English](README.md) · [中文](README.zh-CN.md)
 
-For GPU-hosted Pi0.5 evaluation, see [Deploy with an openpi policy server](docs/deploy-openpi.md).
+**Tutorials:** [中文](https://real-world-rl.readthedocs.io/zh-cn/latest/en/index.html) · [English placeholders](https://real-world-rl.readthedocs.io/zh-cn/latest/en/index.html) · [Read the Docs build and publishing](https://real-world-rl.readthedocs.io/zh-cn/latest/en/index.html)
 
-**Start here:** [安装与初验](site/tutorials/install.rst), then
-[建立工作站](site/tutorials/station.rst). These step-by-step tutorials are the
-Read the Docs sources under `site/`; `docs/` retains the GitHub reference guides.
+**Reference:** [English](https://real-world-rl.readthedocs.io/zh-cn/latest/en/index.html) · [中文](https://real-world-rl.readthedocs.io/zh-cn/latest/en/index.html)
+
+For GPU-hosted Pi0.5 evaluation, see [Deploy with an openpi policy server](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/deploy-openpi.html).
+
+**Start here:** [安装与初验](https://real-world-rl.readthedocs.io/zh-cn/latest/en/tutorials/install.html), then
+[建立工作站](https://real-world-rl.readthedocs.io/zh-cn/latest/en/tutorials/station.html). These step-by-step tutorials are the
+Read the Docs sources under `docs/`; `docs/` retains the GitHub reference guides.
 
 Real-world RL orchestration split out of
 [rl-garden](https://github.com/JaimeParker/rl-garden): `ActorLoop`/
@@ -21,7 +25,7 @@ buffers, policies, the `EnvBackend`/`BasePolicy` contracts) and registers
 `franka_real` through rl-garden's `rlgarden.env_backends` entry-point group
 — no file inside the `rl_garden` package itself needs editing to add it.
 Hardware/communication code lives in this repository in the torch-free device layer of
-`real_world_rl` ([device-layer guide](docs/devices.md)); the learning side (torch, rl-garden) is the `learning` extra, so a robot PC that
+`real_world_rl` ([device-layer guide](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/devices.html)); the learning side (torch, rl-garden) is the `learning` extra, so a robot PC that
 only serves the daemon installs `pip install -e '.[franky,grpc]'`. `franka_real`'s own coupling
 to the device layer is HTTP/JSON only (`FrankaBridgeClient`), no shared Python types.
 
@@ -42,14 +46,14 @@ Python module entrypoints and scripts in `examples/` remain compatibility aliase
 
 SpaceMouse defaults to `--spacemouse-mode tracker`; opt into `--spacemouse-mode serl`
 for raw motion takeover, release returning control to the policy, and held-button gripper control, with
-configured xyz/RPY safety boxes ([mode guide](docs/teleop.md#spacemouse)).
+configured xyz/RPY safety boxes ([mode guide](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/teleop.html#en-teleop-spacemouse)).
 
 | Method | What it is | Guide |
 |---|---|---|
 | `serl` | Two-process SERL: actor on the robot PC, learner on the GPU box, RLPD (state or image obs). | [Running on hardware](#running-on-hardware) |
-| `hil_serl` | `serl` plus human interventions (teleop wrapper), a growing demo buffer, an optional reward classifier and a DQN gripper (`RLPDHybrid`). | [Running on hardware](#running-on-hardware), [`docs/hil-serl-roadmap.md`](docs/hil-serl-roadmap.md) |
-| `residual_hil_serl` | `hil_serl` with a bounded residual on top of a frozen base policy (zero, rl-garden checkpoint or ACT); `--residual-variant continuous\|hybrid`. | [`docs/residual.md`](docs/residual.md) |
-| `silri` | HIL-RL (SiLRI): actor pulled towards a learned model of the human's interventions under a state-wise Lagrange multiplier. | [`docs/silri.md`](docs/silri.md) |
+| `hil_serl` | `serl` plus human interventions (teleop wrapper), a growing demo buffer, an optional reward classifier and a DQN gripper (`RLPDHybrid`). | [Running on hardware](#running-on-hardware), [HIL-SERL Roadmap](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/hil-serl-roadmap.html) |
+| `residual_hil_serl` | `hil_serl` with a bounded residual on top of a frozen base policy (zero, rl-garden checkpoint or ACT); `--residual-variant continuous\|hybrid`. | [Residual RL with human intervention (`residual_hil_serl`)](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/residual.html) |
+| `silri` | HIL-RL (SiLRI): actor pulled towards a learned model of the human's interventions under a state-wise Lagrange multiplier. | [HIL-RL (SiLRI)](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/silri.html) |
 | `real_world_bc` | Offline behaviour cloning over demo pkls; no actor/learner split. | [Demo and snapshot contract sidecar](#demo-and-snapshot-contract-sidecar) |
 
 ## Repository layout
@@ -99,7 +103,7 @@ source .venv/bin/activate
 ```
 
 Installer options, the daemon-only robot PC, the manual route and what to do when a step fails
-are in [tutorial 01 Install](docs/tutorial/01-install.md).
+are in [tutorial 01 Install](https://real-world-rl.readthedocs.io/zh-cn/latest/en/tutorials/install.html).
 
 ## Tests
 
@@ -115,10 +119,10 @@ rl-garden's own suite runs inside the submodule (see `rl-garden/.agents/runbooks
 
 ## Running on hardware
 
-**New to the hardware?** The [tutorial](docs/tutorial/00-overview.md) (index:
-[docs/README.md](docs/README.md)) is a first-day walkthrough for one Franka arm with a GELLO leader
+**New to the hardware?** The [tutorial](https://real-world-rl.readthedocs.io/zh-cn/latest/en/index.html) (index:
+[real-world-rl tutorials](https://real-world-rl.readthedocs.io/zh-cn/latest/en/index.html)) is a first-day walkthrough for one Franka arm with a GELLO leader
 arm: station setup, demo recording, BC and ACT, HIL-SERL / residual / SiLRI, and deployment; two
-arms are in [docs/bimanual.md](docs/bimanual.md#two-arms-the-tutorial-steps). This section is the
+arms are in [Two arms as one env (`real_robot_bimanual`)](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/bimanual.html#en-bimanual-two-arms-the-tutorial-steps). This section is the
 reference.
 
 Everything below drives a `real_robot` env (any device-layer robot). `franka_real` (the HTTP
@@ -126,19 +130,19 @@ bridge) is always cartesian 7-D and is not covered here. Install this package
 (`pip install -e ./rl-garden -e '.[learning]'`) so that the `real_robot` backend is registered through the
 `rlgarden.env_backends` entry point; without it `--env-backend real_robot` fails with
 `Unknown env backend 'real_robot'`.
-Two arms as one env: `--env-backend real_robot_bimanual`, see [`docs/bimanual.md`](docs/bimanual.md).
+Two arms as one env: `--env-backend real_robot_bimanual`, see [Two arms as one env (`real_robot_bimanual`)](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/bimanual.html).
 
 ### Robot daemon
 
 The robot daemon runs on the robot PC (see the device-layer guide,
-[How to Start](docs/daemon.md#serve-the-robot)):
+[How to Start](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/daemon.html#en-daemon-serve-the-robot)):
 
 ```bash
 rwrl setup                  # writes ./local/station.yaml (the setup wizard)
 rwrl daemon --watchdog-s 5  # serves it: no --station needed
 ```
 
-The [setup wizard](docs/tutorial/02-setup.md) writes the station yaml of a Franka station
+The [setup wizard](https://real-world-rl.readthedocs.io/zh-cn/latest/en/tutorials/station.html) writes the station yaml of a Franka station
 (one daemon process per robot for a two-arm station). A hand-written robot yaml is served with
 `rwrl daemon --station robot.yaml --bind 0.0.0.0:50051 --watchdog-s 5`.
 
@@ -160,7 +164,7 @@ express (it flattens them); give it in a YAML preset passed with `--config`, whi
 The single-arm preset is
 [`examples/presets/hil_single_arm.yaml`](examples/presets/hil_single_arm.yaml) (`joint_delta`, one
 128 x 128 `wrist` camera, the daemon at `127.0.0.1:50051`); copy it to `hil.yaml` and edit
-`remote` and `obs.rgb` ([tutorial 10, appendix](docs/tutorial/10-hil-training.md#the-env-preset-localgello_cartesianyaml)). A
+`remote` and `obs.rgb` ([tutorial 10, appendix](https://real-world-rl.readthedocs.io/zh-cn/latest/en/tutorials/rl-task.html)). A
 `joint_abs` preset changes the mode and adds the limits:
 
 ```yaml
@@ -218,23 +222,23 @@ HID or ZMQ device is opened on the GPU box. `--teleop-device spacemouse` is a Sp
 actor's machine, driven through the device layer's `SpaceMouseTeleop` (needs `hidapi==0.14.0.post4`, import `hid`).
 The `TeleopSource` contract, the `info` keys the wrapper writes (`intervene_action`, `policy_action`,
 `intervened`, `intervention_onset`, `human_episode_end`, `teleop_events`), the demo and recording
-scripts, and how to add a device are in [`docs/teleop.md`](docs/teleop.md).
+scripts, and how to add a device are in [Teleoperation](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/teleop.html).
 
 ### Teleop (`--teleop-device robot`)
 
 hil_serl can take interventions from the teleop part of the robot itself (the robot yaml's
 `teleop:` section: SpaceMouse, a GELLO leader arm or the `fake` backend), served by the daemon. For
 leader arms (`--teleop-device leader_arm`/`gello`, onset policies, event devices) see
-[Leader arms (GELLO)](docs/teleop.md#leader-arms-gello).
+[Leader arms (GELLO)](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/teleop.html#en-teleop-leader-arms-gello).
 `--teleop-options-yaml PATH` supplies device options the CLI has no flags for (GELLO port and
 calibration, SpaceMouse index, daemon address), and `--teleop-event-device keyboard|stdin` takes
 the intervention toggle and events from a second device; both are described in
-[`docs/teleop.md`](docs/teleop.md).
+[Teleoperation](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/teleop.html).
 `--teleop-device spacemouse` opens a SpaceMouse on the actor's own machine through the same
 device-layer `SpaceMouseTeleop` instead (no robot yaml `teleop:` section needed): button 0 takes
 over and hands back, button 1 toggles the gripper, the puck is a velocity through the cartesian
 command tracker, and the labels come from `--teleop-event-device stdin`. The device
-table, the `TeleopSource` contract and how to add a device are in [`docs/teleop.md`](docs/teleop.md).
+table, the `TeleopSource` contract and how to add a device are in [Teleoperation](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/teleop.html).
 For `--teleop-device robot`:
 
 - `cartesian_delta` actions pass through as they are; `joint_abs` is normalized onto
@@ -283,7 +287,7 @@ rwrl deploy --checkpoint runs/.../checkpoints/checkpoint_<step>.pt \
 (`--algo rlpd` for a serl checkpoint, `rlpd_hybrid` for hil_serl, `real_world_bc` for a
 `real_world_bc` run, `residual_hil_serl` / `residual_hil_serl_hybrid` and `silri` as in their
 sections below; `--env-backend real_robot_bimanual` for a two-arm run, see
-[`docs/bimanual.md`](docs/bimanual.md#deploy).) The training run's
+[Two arms as one env (`real_robot_bimanual`)](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/bimanual.html#en-bimanual-deploy).) The training run's
 `config.json` (next to `checkpoints/`) is the source of truth for the action/observation
 contract:
 
@@ -309,7 +313,7 @@ contract:
   true; an active task or explicit `--teleop-device` composes the operator setup. Use
   `--no-enable-teleop` for an unattended run. Classifiers/tasks can provide explicit outcomes;
   primary `success_rate` means autonomous success over completed episodes. See
-  [tutorial 11](docs/tutorial/11-deploy.md) for both deployment modes.
+  [tutorial 11](https://real-world-rl.readthedocs.io/zh-cn/latest/en/tutorials/deploy.html) for both deployment modes.
 
 ### Residual RL (`residual_hil_serl`)
 
@@ -321,7 +325,7 @@ select parts; the optional BC term uses actual human dimensions with nonzero res
 `hybrid` (`ResidualRLPDHybrid`) on the arm dims with the DQN gripper. Only the actor, eval
 and deploy build the base policy; deploy rebuilds it from the checkpoint metadata
 (`--algo residual_hil_serl` or `residual_hil_serl_hybrid`). See
-[`docs/residual.md`](docs/residual.md).
+[Residual RL with human intervention (`residual_hil_serl`)](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/residual.html).
 
 ### HIL-RL (`silri`)
 
@@ -331,7 +335,7 @@ multiplier, so consistent human behaviour constrains the policy and inconsistent
 leaves it to the critic. Same actor / learner / eval roles, teleop devices and demo pkls as
 hil_serl; the learner pretrains on the demo buffer, refreshes the human model as
 interventions arrive, and the actor tags the transition before each takeover
-(`intervention_onset`). Deploy with `--algo silri`. See [`docs/silri.md`](docs/silri.md).
+(`intervention_onset`). Deploy with `--algo silri`. See [HIL-RL (SiLRI)](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/silri.html).
 
 ### Demo and snapshot contract sidecar
 
@@ -418,21 +422,21 @@ package.
 
 Run training with `rwrl train serl --role ...`
 (see that file's module docstring for the two-process actor/learner launch
-shape). See [`docs/teleop.md`](docs/teleop.md) for the teleop demo/recording
-workflow, and [`docs/hil-serl-roadmap.md`](docs/hil-serl-roadmap.md) for what
+shape). See [Teleoperation](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/teleop.html) for the teleop demo/recording
+workflow, and [HIL-SERL Roadmap](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/hil-serl-roadmap.html) for what
 HIL-SERL capability was and wasn't migrated, and why.
 
 
 Experiment recovery, autonomous/assisted metrics, part takeover and trajectory archives are
-documented in [Real-world experiments](docs/real-world-experiments.md). Human action masks
+documented in [Real-world experiments](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/real-world-experiments.html). Human action masks
 keep partial demonstrations aligned through BC, residual and SiLRI training; no-gripper
 HIL configurations use continuous policies. Hardware validation remains pending.
 
 Current learner recovery uses `bundle_manifest.json` together with its checkpoint directory and
 SQLite journal. Actor uploads use a persistent outbox; keep actor identity/path across a restart.
 Selected parts and observation preprocessing enter the experiment contract. See
-[tutorial 10](docs/tutorial/10-hil-training.md#9-resume-an-interrupted-run) and
-[Arm control profiles](docs/control-profiles.md).
+[tutorial 10](https://real-world-rl.readthedocs.io/zh-cn/latest/en/tutorials/rl-resume.html) and
+[Arm control profiles](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/control-profiles.html).
 
 ## Acknowledgements and citation
 

@@ -1,0 +1,11 @@
+# start topology
+Robot / cameras / gripper
+        ⇅ SDK
+Robot PC: device service rwrl daemon (owns hardware connections)
+        ⇅ gRPC,127.0.0.1:50051
+Robot PC: actor (observations, inference, teleop, env.step) ← SpaceMouse or GELLO + terminal events
+        │ obs, executed action, reward, next_obs, masks, record_id
+        ↓ local outbox → HTTP :6000 → learner journal
+Training machine: learner (online replay + demo replay → gradient updates)
+        └──── policy session/version/global_update → actor next parameter refresh
+# end topology

@@ -16,6 +16,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator, Mapping, Sequence
 
+from real_world_rl.common.docs_links import docs_url
 from real_world_rl.devices import (
     CameraConfig,
     DeviceError,
@@ -692,7 +693,7 @@ def _ask_controller(
         prompt.echo(
             "Cartesian controller: impedance = franky's torque tracker (control: gains, any kernel); "
             "internal = the robot's own controller; serl = SERL's controller (serl: gains, needs franky and "
-            "serl_controller built together, see docs/serl-controller.md)"
+            f"serl_controller built together, see {docs_url('reference/serl-controller')})"
         )
         prior_controller = None if prior is None else config.cartesian_controller
         given = answers.for_arm("cartesian_controllers", "--cartesian-controller", index, count)

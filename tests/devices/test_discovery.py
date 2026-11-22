@@ -103,7 +103,7 @@ def test_empty_report_formats_none_lines():
 UNKNOWN_BT = {
     "vid": "256f", "pid": "c63a", "product": "", "path": "/dev/hidraw6",
     "message": "unknown 3Dconnexion-vendor HID device 256f:c63a; add it to spacemouse-devices.yaml "
-               "(see docs/spacemouse-commissioning.md#site-device-table)",
+               "(see https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/spacemouse-commissioning.html#en-spacemouse-commissioning-site-device-table)",
 }
 
 

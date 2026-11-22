@@ -1,6 +1,6 @@
 # Env preset for one Franka arm driven in cartesian_delta by a GELLO leader arm
-# (--teleop-device leader_cartesian, docs/gello.md), state-only observations, 50 Hz. The
-# follower tracks a persistent command target (docs/teleop.md, "Leader arm on a cartesian
+# (--teleop-device leader_cartesian, https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/gello.html), state-only observations, 50 Hz. The
+# follower tracks a persistent command target (https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/teleop.html, "Leader arm on a cartesian
 # robot"): a fixed hold pose while nobody drives, a command that leads the measured TCP by at
 # most 0.05 m / 0.3 rad and advances at most 0.05 m/s / 0.3 rad/s while the operator does.
 # The env scales must be at least the lead caps (0.05 m / 0.3 rad here).

@@ -16,7 +16,7 @@ from real_world_rl.cli.errors import CliError
 from real_world_rl.common import station_paths
 from real_world_rl.discovery.autoconfig import resolve_station_config_path
 
-EXAMPLES = Path(__file__).resolve().parents[1] / "site" / "examples"
+EXAMPLES = Path(__file__).resolve().parents[1] / "docs" / "examples"
 
 
 @pytest.fixture

@@ -25,7 +25,7 @@ guard short reports, and close failed opens. The built-in device table is unchan
 Models a site meets beyond that table (a new product id, a firmware variant) are added or
 overridden by the site's local device table, ``spacemouse-devices.yaml``, never in this file:
 ``load_device_specs`` merges it over the built-in table and is the one entry point to the
-runtime table. Format and location: docs/spacemouse-commissioning.md, "Site device table".
+runtime table. Format and location: https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/spacemouse-commissioning.html, "Site device table".
 """
 from __future__ import annotations
 
@@ -38,6 +38,7 @@ from pathlib import Path
 from types import MappingProxyType, ModuleType
 from typing import Any, Mapping, NamedTuple, Sequence
 
+from real_world_rl.common.docs_links import docs_url
 from real_world_rl.devices.errors import DeviceNotFound, SdkMissing, VersionMismatch
 
 HIDAPI_REQUIREMENT = "hidapi==0.14.0.post4"
@@ -388,7 +389,9 @@ BUILTIN_DEVICE_SPECS: Mapping[str, DeviceSpec] = MappingProxyType(_BUILTIN_DEVIC
 DEVICE_TABLE_FILENAME = "spacemouse-devices.yaml"
 DEVICE_TABLE_OPTION = "device_table"  # teleop option: an explicit local table
 DEVICE_TABLE_SCHEMA_VERSION = 1
-SITE_TABLE_DOC = "docs/spacemouse-commissioning.md#site-device-table"
+SITE_TABLE_DOC = docs_url(
+    "reference/spacemouse-commissioning", "en-spacemouse-commissioning-site-device-table"
+)
 AXIS_NAMES = ("x", "y", "z", "roll", "pitch", "yaw")
 _ENTRY_KEYS = frozenset({"hid_id", "layout", "led_id", "mappings", "button_mapping", "axis_scale", "evidence"})
 # Without ``layout:`` an entry spells out its decoding; ``led_id`` defaults to None (no LED).

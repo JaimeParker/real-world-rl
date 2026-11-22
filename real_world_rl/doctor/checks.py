@@ -9,6 +9,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Callable
 
+from real_world_rl.common.docs_links import docs_url
 from real_world_rl.devices import (
     Arm,
     Camera,
@@ -177,7 +178,7 @@ def _serl_control_result(config: RobotConfig) -> CheckResult:
         1, "config:serl_control", True,
         f"cartesian_controller: serl ignores control: {ignored} (franky Cartesian tracker gains); "
         "Cartesian servo runs SERL's controller with the serl: parameters",
-        hint="move the gains to serl: (SERL names, see docs/serl-controller.md) or drop them; they apply again "
+        hint=f"move the gains to serl: (SERL names, see {docs_url('reference/serl-controller')}) or drop them; they apply again "
         "with cartesian_controller: impedance", warning=True, details={"ignored": ignored})
 
 

@@ -1,101 +1,56 @@
-"""Chinese translation source tracking, independent of learning dependencies."""
-
-from __future__ import annotations
-
-import hashlib
-import importlib.util
-import json
+"""CLI compatibility for the RST pair checker at its historical script path."""
+from pathlib import Path
 import subprocess
 import sys
-import tempfile
-import unittest
-from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts/check_zh_manifest.py"
-SPEC = importlib.util.spec_from_file_location("check_zh_manifest", SCRIPT)
-assert SPEC is not None and SPEC.loader is not None
-checker = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(checker)
+SCRIPT = ROOT / 'scripts/check_zh_manifest.py'
+MANIFEST = Path('docs/translation-manifest.json')
 
 
-class ManifestTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
-        self.manifest = self.root / checker.MANIFEST
-        self.manifest.parent.mkdir(parents=True)
-        (self.root / "source.md").write_text("# Source\n", encoding="utf-8")
-        (self.root / "translation.md").write_text("# 译文\n", encoding="utf-8")
-        self.document = {
-            "translation": "translation.md", "source_sha256": "", "source": "source.md",
-        }
-        self.write_manifest()
-
-    def write_manifest(self) -> None:
-        self.manifest.write_text(json.dumps({"documents": [self.document]}, indent=2) + "\n",
-                                 encoding="utf-8")
-
-    def run_script(self, *flags: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run([sys.executable, str(SCRIPT), str(self.root), *flags],
-                              capture_output=True, text=True, check=False)
-
-    def test_stale_is_warning_by_default_and_strict_failure(self) -> None:
-        original = self.manifest.read_bytes()
-        result = self.run_script()
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("stale: source.md", result.stdout)
-        self.assertEqual(self.run_script("--strict").returncode, 1)
-        self.assertEqual(self.manifest.read_bytes(), original)
-
-    def test_update_preserves_format_order_and_metadata(self) -> None:
-        # CRLF, tabs, compact objects, escaped Unicode, no trailing newline, and
-        # identically named metadata keys must all survive unchanged.
-        original = ('{\r\n\t"source_sha256":"metadata", "language":"\\u4e2d",\r\n'
-                    '\t"documents": [{"translation":"translation.md", '
-                    '"source_sha256" : "", "source":"source.md"}]}')
-        self.manifest.write_bytes(original.encode())
-        result = self.run_script("--update", "--strict")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        digest = hashlib.sha256((self.root / "source.md").read_bytes()).hexdigest()
-        expected = original.replace('"source_sha256" : ""', f'"source_sha256" : "{digest}"')
-        self.assertEqual(self.manifest.read_bytes(), expected.encode())
-        self.assertEqual(checker.check_manifest(self.root), [])
-        self.assertEqual(self.run_script("--update").returncode, 0)
-        self.assertEqual(self.manifest.read_bytes(), expected.encode())
-        (self.root / "source.md").write_text("changed", encoding="utf-8")
-        self.assertEqual(self.run_script("--strict").returncode, 1)
-
-    def test_missing_source_and_translation_are_reported(self) -> None:
-        (self.root / "source.md").unlink()
-        (self.root / "translation.md").unlink()
-        result = self.run_script("--update", "--strict")
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("missing source: source.md", result.stdout)
-        self.assertIn("missing translation: translation.md", result.stdout)
-        self.assertEqual(json.loads(self.manifest.read_text())["documents"][0]["source_sha256"], "")
-        self.assertEqual(self.run_script().returncode, 0)
-
-    def test_updates_multiple_documents_without_reordering(self) -> None:
-        second = {"source": "other.md", "translation": "translation.md", "source_sha256": "old"}
-        (self.root / "other.md").write_bytes(b"other")
-        self.manifest.write_text(json.dumps({"documents": [self.document, second]}, indent=4),
-                                 encoding="utf-8")
-        self.assertEqual(self.run_script("--update", "--strict").returncode, 0)
-        self.assertEqual(checker.check_manifest(self.root), [])
-        documents = json.loads(self.manifest.read_text())["documents"]
-        self.assertEqual([item["source"] for item in documents], ["source.md", "other.md"])
-
-    def test_repository_manifest_paths_exist(self) -> None:
-        manifest = json.loads((ROOT / checker.MANIFEST).read_text(encoding="utf-8"))
-        for document in manifest["documents"]:
-            for key in ("source", "translation"):
-                with self.subTest(path=document[key]):
-                    if key == "source" and checker.submodule_not_checked_out(ROOT, document[key]):
-                        self.skipTest(f"{document[key]}: submodule not checked out")
-                    self.assertTrue((ROOT / document[key]).is_file(), document[key])
+def run_checker(root, *flags):
+    return subprocess.run([sys.executable, str(SCRIPT), str(root), *flags],
+                          capture_output=True, text=True, check=False)
 
 
-if __name__ == "__main__":
-    unittest.main()
+@pytest.fixture
+def tree(tmp_path):
+    for name in ('README.md', 'README.zh-CN.md', 'docs/index.rst', 'docs/en/index.rst'):
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('original\n')
+    result = run_checker(tmp_path, '--update', '--strict')
+    assert result.returncode == 0, result.stderr
+    return tmp_path
+
+
+def test_warning_and_strict_modes_do_not_rewrite_manifest(tree):
+    original = (tree / MANIFEST).read_bytes()
+    (tree / 'README.md').write_text('changed\n')
+    assert run_checker(tree).returncode == 0
+    strict = run_checker(tree, '--strict')
+    assert strict.returncode == 1
+    assert 'stale:' in strict.stdout
+    assert (tree / MANIFEST).read_bytes() == original
+
+
+def test_update_is_idempotent(tree):
+    original = (tree / MANIFEST).read_bytes()
+    assert run_checker(tree, '--update', '--strict').returncode == 0
+    assert (tree / MANIFEST).read_bytes() == original
+
+
+def test_missing_counterpart_prevents_update(tree):
+    original = (tree / MANIFEST).read_bytes()
+    (tree / 'docs/en/index.rst').unlink()
+    result = run_checker(tree, '--update', '--strict')
+    assert result.returncode == 1
+    assert 'missing counterpart: docs/en/index.rst' in result.stdout
+    assert (tree / MANIFEST).read_bytes() == original
+
+
+def test_repository_manifest():
+    result = run_checker(ROOT, '--strict')
+    assert result.returncode == 0, result.stdout + result.stderr

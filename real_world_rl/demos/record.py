@@ -6,7 +6,7 @@ While nobody intervenes the recorder holds the robot still. Only intervened step
 in the pkl transition-dict format ``load_demo_pkls`` reads (``obs``, ``next_obs``, ``action``,
 ``reward``, ``done``, plus ``grasp_penalty`` when ``GraspPenaltyWrapper`` is in the stack, as
 the hil_serl learner's demo snapshots hold them), with the env's action-contract sidecar next to
-the pkl. See ``docs/recording-demos.md``.
+the pkl. See ``https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/recording-demos.html``.
 
 Episode outcome, read from the intervention wrapper's info keys so any event path works:
 

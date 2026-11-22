@@ -103,7 +103,7 @@ def found_hardware():
 
 UNKNOWN_BT = {'vid': '256f', 'pid': 'c63a', 'product': 'SpaceMouse BT', 'path': '/dev/hidraw6',
               'message': 'unknown 3Dconnexion-vendor HID device 256f:c63a; add it to spacemouse-devices.yaml '
-                         '(see docs/spacemouse-commissioning.md#site-device-table)'}
+                         '(see https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/spacemouse-commissioning.html#en-spacemouse-commissioning-site-device-table)'}
 
 
 def test_discover_json_lists_every_category(monkeypatch, capsys):

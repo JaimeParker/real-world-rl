@@ -15,7 +15,7 @@
 #   LIBFRANKA_VERSION=0.17.0 bash native/serl_controller/scripts/install-on-ubuntu.sh
 #
 # LIBFRANKA_VERSION comes from the robot's server version (Franka's compatibility matrix,
-# https://frankarobotics.github.io/docs/compatibility.html); see docs/serl-controller.md.
+# https://frankarobotics.github.io/docs/compatibility.html); see https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/serl-controller.html.
 #
 # Environment (all optional except LIBFRANKA_VERSION):
 #   WORK=~/.cache/rwrl-native-build   sources, build trees and logs ($WORK/logs)
@@ -66,7 +66,7 @@ export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.version GIT_CONFIG_VALUE_0=HTTP/
 
 # -- 0. checks -------------------------------------------------------------------------------
 [ -n "${LIBFRANKA_VERSION}" ] || die "set LIBFRANKA_VERSION (e.g. LIBFRANKA_VERSION=0.17.0); pick it from \
-the robot server version with Franka's compatibility matrix, see docs/serl-controller.md"
+the robot server version with Franka's compatibility matrix, see https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/serl-controller.html"
 [[ "${LIBFRANKA_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "LIBFRANKA_VERSION must look like 0.17.0"
 [ -r /etc/os-release ] && . /etc/os-release
 [ "${ID:-}" = "ubuntu" ] || echo "warning: tested on Ubuntu 20.04/22.04/24.04, this is ${PRETTY_NAME:-unknown}" >&2
@@ -288,4 +288,4 @@ sys.exit(0 if ok else 1)
   echo "franky: ${FRANKY_TAG} ${FRANKY_COMMIT} (unmodified, from source), installed as franky_control ${FRANKY_DIST_VERSION}"
   echo "serl_controller: $("${PY}" -c 'import importlib.metadata as m; print(m.version("serl-controller"))')"
 } | tee "${WORK}/BUILD_INFO.txt"
-echo "done. Next: set cartesian_controller: serl in the station and run rwrl doctor (see docs/serl-controller.md)."
+echo "done. Next: set cartesian_controller: serl in the station and run rwrl doctor (see https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/serl-controller.html)."

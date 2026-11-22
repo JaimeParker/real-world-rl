@@ -128,7 +128,7 @@ The motion never ends by itself (SERL holds until franka_server kills
 `joint.launch`); `finish()` makes the next tick repeat the previous command as
 `MotionFinished`. How rwrl finishes it (HIL-SERL's `franka_server.reset_joint`:
 poll `np.allclose(target - q, 0, atol=1e-2, rtol=1e-2)` once per second, at most
-30 more polls, then stop and clear errors) is in the repository's docs/devices.md.
+30 more polls, then stop and clear errors) is in the [device guide](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/devices.html).
 
 ## Python use
 
@@ -236,7 +236,7 @@ tests, a smoke import and `rwrl doctor`'s pairing check
 (`serl_build_pairing`). Git runs over HTTP/1.1 and network steps are retried
 (`RETRIES`, default 3). Logs: `~/.cache/rwrl-native-build/logs/` (`WORK=`).
 Pick `LIBFRANKA_VERSION` from the robot server version (table in
-`docs/serl-controller.md`). Verified end to end in a clean Ubuntu 22.04
+[SERL controller guide](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/serl-controller.html)). Verified end to end in a clean Ubuntu 22.04
 (CPython 3.10.12, x86_64, libfranka 0.17.0).
 
 ### Docker recipe (optional: wheels for identical robot PCs)

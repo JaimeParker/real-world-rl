@@ -4,7 +4,7 @@ The actor drives the robot with ``SilriActorLoop`` (noisy policy actions, human 
 through the teleop wrapper, one-step delayed ``intervention_onset`` tags); the learner
 trains ``SiLRI`` from the pushed transitions with ``SilriLearnerLoop`` (online + demo
 buffer, behaviour-cloning pretraining, behaviour-model refreshes); eval runs the
-deterministic policy from ``--load_checkpoint``. See ``docs/silri.md``.
+deterministic policy from ``--load_checkpoint``. See ``https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/silri.html``.
 """
 from __future__ import annotations
 

@@ -3,6 +3,7 @@ import argparse
 from contextlib import contextmanager
 import io
 import json
+import re
 from pathlib import Path
 import sys
 
@@ -36,9 +37,21 @@ def test_registry_contract_and_parser_commands():
         assert callable(command.register)
         assert callable(command.run)
         assert subparsers.choices[command.name].get_default("_command") is command
-    document = (Path(__file__).resolve().parents[1] / "docs/cli.md").read_text()
-    for name in names:
-        assert f"`{name}" in document
+    for language in ("", "en/"):
+        page = Path(__file__).resolve().parents[1] / f"docs/{language}reference/cli.rst"
+        document = page.read_text(encoding="utf-8")
+        prefix = "en-" if language else ""
+        commands = document.split(f".. _{prefix}cli-commands:", 1)[1].split(
+            f".. _{prefix}cli-command-details:", 1
+        )[0]
+        documented = set(re.findall(r"^   \* - ``([a-z][a-z-]*)(?: |``)", commands, re.M))
+        learning = document.split(f".. _{prefix}cli-learning-commands:", 1)[1].split(
+            f".. _{prefix}cli-connection-ownership:", 1
+        )[0]
+        for command_list in re.findall(r"^``[a-z][a-z-]*``(?:(?:[ ,、\\]|and )*``[a-z][a-z-]*``)*", learning, re.M):
+            documented.update(re.findall(r"``([a-z][a-z-]*)``", command_list))
+        assert documented == set(names), page
+
 
 
 @pytest.mark.parametrize("mode,answer,allowed,message", [

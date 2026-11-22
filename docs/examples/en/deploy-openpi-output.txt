@@ -1,0 +1,29 @@
+# start conversion
+pi05_base source weights + source loader + matching assets
+    └─ RLinf conversion entry point (path, arguments, and format need verification)
+         └─ RLinf loadable weights + target loader + matching statistics
+              └─ Service-loadable export (whether export is needed and how need verification)
+# end conversion
+# start topology
+GPU server                                  NUC(beside the robot)
+  openpi serve_policy :8000
+           ↕ WebSocket
+  rwrl deploy-openpi                         rwrl daemon
+           │                                127.0.0.1:50051
+  127.0.0.1:50061 ── ssh -L / gRPC ────────────┘
+                                            ├─ Franka + Hand
+                                            └─ cameras
+# end topology
+# start daemon
+serving franka 'franka' on 127.0.0.1:50051
+# end daemon
+# start episode
+[deploy-openpi] episode=0 steps=30 return=0.000 terminated=False truncated=True health_ok=True outcome=timeout disconnects=0 disconnected_s=0.0 rtt_ms_mean=2.0 inferences=6 inference_ms_mean=40.0 inference_ms_max=45.0 server_infer_ms_mean=30.0
+[deploy-openpi] summary completed_episodes=1 interrupted_episodes=0 success_rate=0.000 disconnects=0 disconnected_s=0.0
+# end episode
+# start waiting
+[deploy-openpi] WAITING outcome=interrupted for robot daemon (robot daemon unreachable at 127.0.0.1:50061)
+[deploy-openpi] reconnect attempt=1 disconnected_s=1.0
+[deploy-openpi] reconnected watchdog_trips=1
+press Enter to reset and start the next episode
+# end waiting

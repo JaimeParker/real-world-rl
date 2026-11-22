@@ -1,6 +1,5 @@
 """HTTP client for the legacy Franka bridge (the transitional
-ROS/``serl_franka_controllers`` bridge -- see
-``docs/superpowers/specs/2026-07-09-real-robot-rl-design.md``).
+ROS/``serl_franka_controllers`` bridge).
 
 Endpoint paths, HTTP verbs, and JSON field names match SERL's own
 ``franka_server.py`` (``3rd_party/serl/serl_robot_infra/robot_servers/``)

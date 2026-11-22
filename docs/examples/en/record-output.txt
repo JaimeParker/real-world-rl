@@ -1,0 +1,26 @@
+# start hold
+Example: the following state lines are reproduced verbatim from session.py; choose one on site according to the episode budget.
+START_NEUTRAL: release motion controls or align an always-on leader with the follower; q exits control.
+EPISODE_HOLD: motion input ignored; q exits control. n starts the next episode (task reset may move/home the arm).
+EPISODE_HOLD: motion input ignored; q exits control. Episode budget reached; next is disabled.
+# end hold
+# start episode
+Example: assume the first episode has 20 steps, 12 human-controlled steps, and a success quota of 2.
+[record] episode=0 steps=20 transitions=12 kept successes=1/2
+# end episode
+# start files
+local/first-demo.trajectory.sqlite3
+local/first-demo.pkl
+local/first-demo.contract.json
+local/first-demo.session-<uuid>/
+  resolved-config.yaml
+  provenance.json
+  summary.json
+  diagnostics-<timestamp>-<id>.jsonl
+  session-events-<timestamp>-<id>.jsonl
+  stop-trace-<timestamp>-<id>.json
+  stop-trace-<timestamp>-<id>.assessment.json
+  leader-robot.yaml       # GELLO only
+  leader-options.yaml     # GELLO only
+local/first-demo.trajectory.pt  # only with export_trajectory_pt: true
+# end files

@@ -321,7 +321,7 @@ def test_an_unknown_3dconnexion_usb_device_is_a_warn_finding(isolated_site, repo
     assert [(row.id, row.status) for row in rows] == [("usb.spacemouse.unknown.256f:c63a", "WARN")]
     assert rows[0].message == (
         "unknown 3Dconnexion-vendor HID device 256f:c63a; add it to spacemouse-devices.yaml "
-        "(see docs/spacemouse-commissioning.md#site-device-table)"
+        "(see https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/spacemouse-commissioning.html#en-spacemouse-commissioning-site-device-table)"
     )
     assert "SpaceMouse Wireless BT" in rows[0].hint
 

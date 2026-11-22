@@ -1,15 +1,15 @@
 """Hardware tutorial and testing-page bash blocks parse against the current CLIs.
 
-Pages are collected from ``docs/tutorial/*.md`` and ``docs/testing/*.md``.
+Pages are collected from ``docs/tutorials/*.rst`` and ``docs/reference/**/*.rst``.
 
-Each ```bash block of a page is read as a small shell script: backslash-newline continuations are
+Each RST shell block of a page is read as a small shell script: backslash-newline continuations are
 joined, ``NAME=value`` lines define variables for the later blocks of the same page, and ``$NAME``
 expands to them. Each remaining command is parsed, and only parsed, by its program's own parser
 (the training registry, the recorder, deploy, the reward-data collector, rl-garden's ACT and
 classifier trainers, rwrl and its device commands): nothing connects, trains or
 opens a device. A flag the tutorial uses that a parser no longer knows fails the test.
 
-A block preceded by ``<!-- tutorial-test: skip -->`` on the line before its fence is not parsed
+A block preceded by ``.. tutorial-test: skip`` on the line before its directive is not parsed
 (installs, ``cp``, ``pytest``, ``tensorboard``, a lone flag). A command whose program this test
 does not know fails, so a new kind of command needs a parser here or the skip marker.
 
@@ -30,12 +30,12 @@ from typing import Callable, Sequence
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-TUTORIAL_DIR = REPO_ROOT / "docs" / "tutorial"
-TESTING_DIR = REPO_ROOT / "docs" / "testing"
-DOCS_INDEX = REPO_ROOT / "docs" / "README.md"
+TUTORIAL_DIR = REPO_ROOT / "docs" / "tutorials"
+TESTING_DIR = REPO_ROOT / "docs" / "reference"
+DOCS_INDEX = REPO_ROOT / "docs" / "index.rst"
 PRESET = REPO_ROOT / "examples" / "presets" / "hil_single_arm.yaml"
 
-SKIP_MARKER = "<!-- tutorial-test: skip -->"
+SKIP_MARKER = ".. tutorial-test: skip"
 PRESET_COPY = "hil.yaml"
 # The tutorial's joint_abs copy of the preset: action_mode switched and joint_limits uncommented.
 PRESET_ABS_COPY = "hil_abs.yaml"
@@ -48,9 +48,6 @@ HOST_PLACEHOLDERS = {"ROBOT_PC": "127.0.0.1", "LEARNER_IP": "127.0.0.1"}
 # The tutorial must keep at least this many commands under test (guards the extractor).
 MIN_PARSED_COMMANDS = 30
 
-_FENCE_OPEN = "```bash"
-_FENCE_CLOSE = "```"
-_BLOCKQUOTE_PREFIX = re.compile(r"^\s*(?:>\s?)*")
 _VARIABLE = re.compile(r"\$(?:\{(\w+)\}|(\w+))")
 _ASSIGNMENT = re.compile(r"^([A-Za-z_]\w*)=(.*)$", re.DOTALL)
 _SHELL_OPERATORS = {"|", "||", "&&", ";", "&", ">", ">>", "<", "2>", "2>&1"}
@@ -82,26 +79,47 @@ class TutorialCommand:
 
 
 def bash_blocks(page: Path) -> list[BashBlock]:
-    """The ```bash blocks of ``page`` (also inside blockquotes), with the line of their fence and
-    whether the line before the fence is the skip marker."""
-    lines = [_BLOCKQUOTE_PREFIX.sub("", line) for line in page.read_text().splitlines()]
-    blocks: list[BashBlock] = []
-    index = 0
-    while index < len(lines):
-        if lines[index].strip() != _FENCE_OPEN:
-            index += 1
+    """Extract RST shell directives and marked shell-file includes."""
+    import textwrap
+
+    lines = page.read_text().splitlines()
+    blocks = []
+    for start, line in enumerate(lines):
+        match = re.match(r"^(\s*)\.\. (code-block|literalinclude)::\s*(.*)$", line)
+        if not match:
             continue
-        start = index
-        skipped = start > 0 and lines[start - 1].strip() == SKIP_MARKER
-        body: list[str] = []
-        index += 1
-        while index < len(lines) and lines[index].strip() != _FENCE_CLOSE:
-            body.append(lines[index])
-            index += 1
-        if index == len(lines):
-            raise ValueError(f"{page.name}:{start + 1}: unterminated ```bash block")
-        blocks.append(BashBlock(str(page.relative_to(REPO_ROOT)), start + 1, "\n".join(body), skipped))
-        index += 1
+        indent, kind, target = match.groups()
+        if kind == "code-block" and target not in {"bash", "console"}:
+            continue
+        if kind == "literalinclude" and not target.endswith(".sh"):
+            continue
+        body = []
+        for following in lines[start + 1:]:
+            if following.strip() and len(following) - len(following.lstrip()) <= len(indent):
+                break
+            body.append(following)
+        options = {}
+        while body and (not body[0].strip() or body[0].lstrip().startswith(":")):
+            option = re.match(r"\s*:(\S+):\s*(.*)", body.pop(0))
+            if option:
+                options[option[1]] = option[2]
+        if kind == "literalinclude":
+            source = (REPO_ROOT / "docs" / target.lstrip("/") if target.startswith("/")
+                      else page.parent / target)
+            text = source.read_text()
+            if "lines" in options:
+                first, last = map(int, options["lines"].split("-"))
+                text = "\n".join(text.splitlines()[first - 1:last])
+            if "start-after" in options:
+                text = text.split(options["start-after"], 1)[1].split("\n", 1)[1]
+            if "end-before" in options:
+                text = text.split(options["end-before"], 1)[0]
+        else:
+            text = textwrap.dedent("\n".join(body))
+        if target == "console":
+            text = re.sub(r"(?m)^\$ ", "", text)
+        blocks.append(BashBlock(str(page.relative_to(REPO_ROOT)), start + 1, text,
+                                start > 0 and lines[start - 1].strip() == SKIP_MARKER))
     return blocks
 
 
@@ -159,10 +177,54 @@ def joint_abs_preset() -> Path:
     return path
 
 
+@functools.lru_cache(maxsize=None)
+def documented_preset(name: str) -> Path:
+    """Materialize the local copies described in the tutorials, without hardware."""
+    import textwrap
+    import yaml
+
+    examples = REPO_ROOT / "docs/examples"
+    if name == "bimanual.yaml":
+        page = (REPO_ROOT / "docs/reference/bimanual.rst").read_text()
+        block = page.split(".. code-block:: yaml", 1)[1].split("\n\n", 1)[1]
+        body = []
+        for line in block.splitlines():
+            if line and not line.startswith(" "):
+                break
+            body.append(line)
+        document = yaml.safe_load(textwrap.dedent("\n".join(body)))
+    elif name in {"local/gello-bimanual.yaml"}:
+        document = yaml.safe_load((REPO_ROOT / "examples/presets/bimanual_gello_smoke.yaml").read_text())
+    else:
+        template = "bc-train.yaml" if name == "local/bc-train.yaml" else "rl-task.yaml"
+        document = yaml.safe_load((examples / template).read_text())
+        if name in {"local/record-cartesian.yaml", "local/gello-joint.yaml"}:
+            document = yaml.safe_load((examples / "task.yaml").read_text())
+            document["real_robot"]["remote"] = "127.0.0.1:50051"
+            if name == "local/gello-joint.yaml":
+                config = (examples / "gello-config.txt").read_text().split("# start joint\n")[1].split("# end joint")[0]
+                patch = yaml.safe_load(config)
+                document["real_robot"].update(patch.pop("real_robot"))
+                document.update(patch)
+        if name == "local/rl-silri.yaml":
+            document["utd"] = 1
+        if name == "local/rl-direct.yaml":
+            document["real_robot"].pop("remote")
+            # Hardware identity is a site input; parser checks need only the mapping.
+            document["real_robot"]["robot"] = {"arm_backend": "fake"}
+    path = Path(tempfile.mkdtemp(prefix="docs-preset-")) / Path(name).name
+    path.write_text(yaml.safe_dump(document))
+    return path
+
+
 def substitute_placeholders(argv: Sequence[str]) -> tuple[str, ...]:
     substituted = []
     for token in argv:
-        if token == PRESET_COPY:
+        if token in {"bimanual.yaml", "local/gello-bimanual.yaml", "local/gello-joint.yaml",
+                     "local/record-cartesian.yaml", "local/rl-task.yaml", "local/rl-direct.yaml",
+                     "local/rl-silri.yaml", "local/bc-train.yaml"}:
+            token = str(documented_preset(token))
+        elif token == PRESET_COPY:
             token = str(PRESET)
         elif token == PRESET_ABS_COPY:
             token = str(joint_abs_preset())
@@ -177,13 +239,18 @@ def substitute_placeholders(argv: Sequence[str]) -> tuple[str, ...]:
 
 
 def page_commands(page: Path) -> list[TutorialCommand]:
-    """The commands of ``page``'s non-skipped ```bash blocks, variables expanded."""
-    variables: dict[str, str] = {}
+    """The commands of ``page``'s non-skipped RST shell blocks, variables expanded."""
+    variables: dict[str, str] = {
+        # These values are established in preceding chapters, then reused.
+        "LEARNER_HOST": "127.0.0.1", "RUN": "first-residual-bc",
+        "BASE": "checkpoint:local/bc-runs/first-bc/checkpoints/final.pt?algo=real_world_bc",
+    }
     commands: list[TutorialCommand] = []
     for block in bash_blocks(page):
         if block.skipped:
             continue
         for line in logical_lines(block.text):
+            line = line.removeprefix("export ")
             where = f"{page.name}:{block.line}"
             try:
                 tokens = shlex.split(expand_variables(line, variables), comments=True)
@@ -211,11 +278,11 @@ def page_commands(page: Path) -> list[TutorialCommand]:
 
 
 def tutorial_pages() -> list[Path]:
-    return sorted(TUTORIAL_DIR.glob("*.md"))
+    return sorted(TUTORIAL_DIR.glob("*.rst"))
 
 
 def session_pages() -> list[Path]:
-    return sorted(TESTING_DIR.glob("*.md"))
+    return sorted(TESTING_DIR.rglob("*.rst"))
 
 
 def _collect() -> tuple[list[TutorialCommand], list[str]]:
@@ -245,6 +312,9 @@ def _check_base_provider(spec: str) -> None:
 def parse_training(argv: Sequence[str]) -> None:
     from real_world_rl.training.registry import registry
 
+    if list(argv) == ["--help"]:
+        registry.run_cli(list(argv))
+        return
     command = registry.parse_command(list(argv))
     _check_base_provider(getattr(command.args, "base_provider", ""))
 
@@ -295,6 +365,20 @@ def parse_classifier_trainer(argv: Sequence[str]) -> None:
         sys.argv = saved
 
 
+def parse_act_deploy(argv: Sequence[str]) -> None:
+    from real_world_rl.deploy.act import ActDeployArgs
+    from real_world_rl.demos.record import parse_args_with_preset
+
+    parse_args_with_preset(ActDeployArgs, list(argv))
+
+
+def parse_openpi_deploy(argv: Sequence[str]) -> None:
+    import tyro
+    from real_world_rl.deploy.openpi.loop import DeployOpenPiArgs, _make_profile
+
+    _make_profile(tyro.cli(DeployOpenPiArgs, args=list(argv)))
+
+
 SCRIPT_PARSERS: dict[str, Callable[[Sequence[str]], None]] = {
     "examples/train_real_world.py": parse_training,
     "examples/record_real_demos.py": parse_recorder,
@@ -329,6 +413,8 @@ def parser_for(argv: Sequence[str]) -> tuple[Callable[[Sequence[str]], None], li
                 "train": parse_training,
                 "record": parse_recorder,
                 "deploy": parse_deploy,
+                "deploy-act": parse_act_deploy,
+                "deploy-openpi": parse_openpi_deploy,
                 "collect-reward": parse_collector,
             }
             # Keep --config in the entrypoint argv: the training registry and
@@ -370,8 +456,8 @@ def test_the_tutorial_blocks_are_well_formed():
 
 def test_the_docs_index_links_every_tutorial_page():
     index = DOCS_INDEX.read_text()
-    missing = [page.name for page in tutorial_pages() if f"tutorial/{page.name}" not in index]
-    assert not missing, f"docs/README.md does not link {missing}"
+    missing = [page.name for page in tutorial_pages() if f"tutorials/{page.stem}" not in index and ":orphan:" not in page.read_text()]
+    assert not missing, f"docs/index.rst does not link {missing}"
 
 
 def test_testing_pages_include_a_parsed_supervised_recorder():
@@ -379,11 +465,11 @@ def test_testing_pages_include_a_parsed_supervised_recorder():
     assert session_pages(), f"no testing pages under {TESTING_DIR}"
     supervised = [
         command for command in COMMANDS
-        if command.page.startswith("docs/testing/")
+        if command.page.startswith("docs/reference/testing/")
         and command.argv[:2] == ("rwrl", "supervise")
     ]
     assert any(parser_for(command.argv)[0] is parse_recorder for command in supervised), (
-        "docs/testing/*.md must retain a parsed supervisor + recorder expansion"
+        "docs/reference/**/*.rst must retain a parsed supervisor + recorder expansion"
     )
 
 
@@ -391,11 +477,12 @@ def test_testing_pages_include_a_parsed_supervised_recorder():
 def test_tutorial_command_parses(command: TutorialCommand):
     try:
         parse, args = parser_for(command.argv)
+        parse(args)
     except LookupError as error:
         pytest.fail(f"{command.page}:{command.line}: {error}")
-    try:
-        parse(args)
     except SystemExit as error:
+        if error.code == 0 and "--help" in command.argv:
+            return
         pytest.fail(
             f"{command.page}:{command.line}: the command no longer parses (exit {error.code}):\n"
             f"{shlex.join(command.argv)}"
@@ -441,7 +528,7 @@ def test_rwrl_learning_parser_hook(monkeypatch, name, parser_name, use_preset_al
 
 
 # -- command spelling guards --------------------------------------------------------------------
-# Every ```bash block counts here, the skipped ones too: a stale spelling in an install or
+# Every RST shell block counts here, the skipped ones too: a stale spelling in an install or
 # systemd snippet is as wrong as one in a parsed command.
 
 # `python -m real_world_rl.*` stays out of the pages (rwrl is the entry point) except these.
@@ -524,3 +611,21 @@ def test_pages_use_python_modules_only_from_the_allowlist():
 def test_command_spelling_detectors(line, retired, disallowed):
     assert retired_device_cli_forms(line) == retired
     assert disallowed_module_forms(line) == disallowed
+
+
+def test_rst_shell_extraction(tmp_path, monkeypatch):
+    monkeypatch.setitem(bash_blocks.__globals__, 'REPO_ROOT', tmp_path)
+    page = tmp_path / 'page.rst'
+    (tmp_path / 'commands.sh').write_text(
+        'ignored\n# start selected\nVALUE=ok\nrwrl doctor \\\n  --mock\n# end selected\nignored\n')
+    page.write_text(
+        '.. code-block:: console\n\n   $ rwrl status\n\n'
+        '.. tutorial-test: skip\n.. code-block:: bash\n\n   cp a b\n\n'
+        '.. literalinclude:: commands.sh\n   :language: bash\n'
+        '   :start-after: # start selected\n   :end-before: # end selected\n\n'
+        '  .. tutorial-test: skip\n  .. code-block:: bash\n\n     pip install example\n')
+    blocks = bash_blocks(page)
+    assert [block.skipped for block in blocks] == [False, True, False, True]
+    assert blocks[0].text.strip() == 'rwrl status'
+    assert logical_lines(blocks[2].text) == ['VALUE=ok', 'rwrl doctor    --mock']
+    assert 'ignored' not in blocks[2].text

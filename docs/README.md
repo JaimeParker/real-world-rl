@@ -1,69 +1,46 @@
-# Documentation Index
+# Documentation contributor guide
 
-[中文文档入口](README.zh-CN.md) — 全部文档的完整中文译文、阅读顺序与操作速查。
+Documentation: https://real-world-rl.readthedocs.io/
 
-## Tutorial
+This is one Sphinx project: Chinese pages live at `docs/index.rst`,
+`docs/tutorials/` and `docs/reference/`; English mirrors the same paths under
+`docs/en/`. Shared snippets live in `docs/examples/`, with translated copies in
+`docs/examples/en/`. Keep commands and values identical across snippet pairs.
+Labels use `<page>-<anchor>` in Chinese and `en-<page>-<anchor>` in English,
+with English anchor slugs and references targeting their own language.
 
-One Franka arm with a Franka Hand, a NUC and a GELLO leader arm, from an empty NUC to a deployed
-pick-and-place policy. The recorder and the HIL actor run directly on the NUC; every step is an
-`rwrl` command. Read in order.
+## Build and check
 
-- [0. Overview and safety](tutorial/00-overview.md)
-- [1. Install](tutorial/01-install.md)
-- [2. Set up the station](tutorial/02-setup.md)
-- [3. Bring up the Franka](tutorial/03-franka-bringup.md)
-- [4. Home, gripper, cameras](tutorial/04-first-motion.md)
-- [5. Teleop: GELLO](tutorial/05-teleop-gello.md): calibrate, read back and run a supervised cartesian session
-- [6. Teleop: SpaceMouse](tutorial/06-teleop-spacemouse.md): HID checks, direction profiles, task frame and supervised sessions
-- [7. Teleop: leader-follower](tutorial/07-teleop-leader-follower.md): joint-space onset and cartesian leaders, including a second arm (needs hardware verification)
-- [8. Record demos](tutorial/08-record-demos.md)
-- [9. Base policy: BC or ACT](tutorial/09-base-policy.md)
-- [10. HIL training](tutorial/10-hil-training.md)
-- [11. Deploy](tutorial/11-deploy.md)
+Run from the repository root (Python 3.12 on Read the Docs):
 
-Beside the robot while recording and training: the
-[operator page](intervening.md). An actor on another machine:
-[remote actor over the robot daemon](remote-actor.md).
+```bash
+pip install -r docs/requirements.txt
+sphinx-build -W -b html docs docs/_build/html
+python scripts/check_zh_manifest.py --strict
+PYTHONPATH=.:rl-garden python -m pytest tests/test_tutorial_commands.py tests/test_site_examples.py tests/test_docs_pairs.py -q
+```
 
-## Reference
+The tests require the `learning,test` extras and pinned rl-garden submodule.
+They guard CLI parsing, include markers, example schemas, translated example
+values, and pair tracking. Use `.. tutorial-test: skip` immediately before a
+shell directive only for blocks that are not CLI invocations.
 
-- [rwrl: station command line](cli.md): global options, every command, exit codes, JSON
-- [rwrl doctor](doctor.md): checks, statuses, repairs, reports and what to do on a red row
-- [Recording demos: recorder flags and the pkl format](recording-demos.md)
-- [GELLO leader arm: hardware, calibration, robot yaml](gello.md)
-- [SpaceMouse commissioning: profiles, task-frame workspace, sessions](spacemouse-commissioning.md)
-- [Device layer: station files, backends, safety rules](devices.md)
-- [SERL controller](serl-controller.md): choosing and switching Franka controllers, building
-  franky + serl_controller on the robot PC, SERL's own controller and joint reset, auto-recovery,
-  the SpaceMouse frame in serl mode, known differences from HIL-SERL
-- [SERL controller: robot validation](serl-robot-validation.md): the ordered hardware checklist
-- [Robot daemon: serving, RemoteRobot and supervision](daemon.md)
-- [Evaluate Pi0.5 with an openpi policy server](deploy-openpi.md)
-- [Arm control profiles](control-profiles.md): station gains, backend capabilities and
-  effective settings
-- [`examples/presets/hil_single_arm.yaml`](../examples/presets/hil_single_arm.yaml): the
-  single-arm env preset
-- [Repository README](../README.md#running-on-hardware): action contract, safety limits, deploy,
-  the demo contract sidecar, the end-to-end try-out with the fake robot
-- [Real-world experiments](real-world-experiments.md): durable uploads, recovery, outcomes,
-  partial takeover, trajectory archives, tasks and observations
-- [Known issues and deferred work](known-issues.md): what a first real run can hit, workarounds,
-  planned fixes
+The pair checker requires all RST counterparts and English example counterparts,
+plus `README.md` / `README.zh-CN.md`. It warns when exactly one side changed;
+`--strict` fails on issues. After reviewing both translations, run
+`python scripts/check_zh_manifest.py --update` to record both SHA-256 hashes in
+`docs/translation-manifest.json`. Open `docs/_build/html/index.html` to preview.
 
-## Concepts
+## Publish on Read the Docs
 
-How the methods and the intervention path work.
+1. Push the documentation changes to the GitHub repository's default branch.
+2. Sign in to [Read the Docs Community](https://app.readthedocs.org/), connect
+   GitHub, and add `JaimeParker/real-world-rl`.
+3. Open **Builds** and check the `latest` build for `main`, or start it from the
+   dashboard. `.readthedocs.yaml` selects `docs/conf.py`, installs the pinned
+   documentation requirements and treats Sphinx warnings as failures.
+4. Open the published Chinese homepage from the dashboard. Check the cards and
+   the **English** language switch. Both languages belong to the same project.
 
-- [Residual RL with human intervention (`residual_hil_serl`)](residual.md)
-- [HIL-RL (SiLRI)](silri.md)
-- [Teleoperation: sources, the intervention wrapper, adding a device](teleop.md)
-- [Two arms as one env (`real_robot_bimanual`)](bimanual.md)
-- [HIL-SERL roadmap: what was ported and how it differs](hil-serl-roadmap.md)
-
-## Hardware test cases
-
-- [Hardware session checklists](testing/README.md): English primary checklists,
-  record CSV conventions and evidence requirements. Hardware results are filled in on site.
-
-Step-by-step tutorials are published with Read the Docs from [site/](../site/index.rst).
-See the [build and publishing guide](../site/README.md). These `docs/` files remain GitHub references.
+The hosting URL is the one assigned by the RTD project dashboard; this source
+change does not publish a project or verify its public address.

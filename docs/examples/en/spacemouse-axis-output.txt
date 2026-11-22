@@ -1,0 +1,15 @@
+# start capture
+Example: rwrl workspace capture output (not saved; illustrative numbers). task_position is the TCP position in the table frame, in m.
+{
+  "base_pose": [0.512, -0.034, 0.296, 0.924, 0.0, 0.0, 0.383],
+  "task_position": [0.091, 0.177, 0.183],
+  "units": "m; quaternion xyzw",
+  "frame": "table",
+  "note": "Measurement only; not an accepted workspace boundary"
+}
+# end capture
+# start check
+Example: task_position before and after one upward puck push (+z), for illustration: z increases about 3 cm, while x and y change only a few millimeters.
+before: "task_position": [0.091, 0.177, 0.183]
+after:  "task_position": [0.093, 0.175, 0.214]
+# end check

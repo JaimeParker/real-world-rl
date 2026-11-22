@@ -1,0 +1,25 @@
+# Experiment preset: later teleop run merges device connection information from --station.
+# start observations
+env_backend: real_robot
+env_id: pick_and_place
+obs:
+  state: true
+  rgb: [wrist]
+  depth: []
+  image_size: [128, 128]
+# end observations
+real_robot:
+  # start action
+  num_joints: 7
+  action_mode: cartesian_delta
+  xyz_scale_m: 0.05
+  rot_scale_rad: 0.3
+  gripper_in_action: true
+  state_fields: [tcp_pose, tcp_vel, joint_pos, joint_vel]
+  control_hz: 10
+  max_episode_steps: 200
+  # end action
+  # start reset
+  # Use station.home_joints for home; the default task is none, and reset homes and opens the gripper.
+  reset_settle_s: 0.5
+  # end reset

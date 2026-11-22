@@ -1,4 +1,4 @@
-"""Demo recording on the real robot (see ``docs/recording-demos.md``).
+"""Demo recording on the real robot (see ``https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/recording-demos.html``).
 
 The recorder exports load on first access, so torch-free submodules (such as the archive
 inspector's arguments) import without the recorder's dependencies.

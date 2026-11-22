@@ -7,7 +7,7 @@
 Takes the env, teleop and observation flags (and the ``--config`` preset) of the HIL training
 entrypoints; pass the ones of the run that will load the demos (``--demo-dataset-paths
 demos/task_20.pkl``). Logic lives in ``real_world_rl/demos/record.py``; see
-``docs/recording-demos.md``.
+``https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/recording-demos.html``.
 """
 from __future__ import annotations
 

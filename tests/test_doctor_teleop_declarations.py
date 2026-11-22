@@ -108,7 +108,10 @@ def test_new_declaration_defaults_and_overrides():
     assert GelloTeleop.DOCTOR_COVERAGE == (2, 'GELLO')
     assert SpaceMouseTeleop.DOCTOR_COVERAGE == (1, 'SpaceMouse')
     assert SpaceMouseTeleop.USB_PROBE_NAME == 'doctor-space'
-    assert SpaceMouseTeleop.DEVICE_TABLE_DOC.endswith('#site-device-table')
+    assert SpaceMouseTeleop.DEVICE_TABLE_DOC == (
+        "https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/"
+        "spacemouse-commissioning.html#en-spacemouse-commissioning-site-device-table"
+    )
     assert SpaceMouseTeleop.HID_PERMISSION_HINT
 
 

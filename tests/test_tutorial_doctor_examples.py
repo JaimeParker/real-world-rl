@@ -1,8 +1,8 @@
 """The doctor outputs shown in the tutorial match a real ``--mock`` run, line for line.
 
-A ```text block whose fence follows the line ``<!-- doctor-example: mock -->`` is the expected
-output of the ``rwrl ... doctor ... --mock`` command in the nearest earlier ```bash block of the
-same page. The command runs in-process with colour off, from an empty directory with no station
+Marked reStructuredText literalincludes contain complete expected output. The nearest earlier
+bash code block or literalinclude supplies the mock command.
+The command runs in-process with colour off, from an empty directory with no station
 or pre-0.1.0 configuration, so only the station the command names is checked. Three values
 depend on the machine and are normalised on both sides before comparing: the ``host.platform``
 and ``host.python`` messages and the ``Report:`` directory. The device probe of a station runs
@@ -21,10 +21,10 @@ import pytest
 from real_world_rl.cli import main
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-TUTORIAL_DIR = REPO_ROOT / "docs" / "tutorial"
-EXAMPLE_MARKER = "<!-- doctor-example: mock -->"
+EXAMPLE_MARKER = ".. doctor-example: mock"
 # The pages whose doctor output the tutorial teaches; each must keep at least one example.
-PAGES_WITH_EXAMPLES = {"01-install.md", "03-franka-bringup.md"}
+PAGES_WITH_EXAMPLES = {f"{language}tutorials/{page}.rst"
+                       for language in ("", "en/") for page in ("install", "station")}
 
 _MACHINE_DEPENDENT = [
     (re.compile(r"^(\S+ +host\.platform: ).*$", re.M), r"\1<platform>"),
@@ -45,49 +45,66 @@ class DoctorExample:
         return f"{self.page}:{self.line}"
 
 
-def _fenced_block(lines: list[str], start: int) -> list[str]:
+def _block(lines: list[str], start: int) -> list[str]:
     body = []
-    index = start + 1
-    while index < len(lines) and lines[index].strip() != "```":
-        body.append(lines[index])
-        index += 1
-    if index == len(lines):
-        raise ValueError(f"unterminated block at line {start + 1}")
+    for line in lines[start + 1:]:
+        if line and not line.startswith("   "):
+            break
+        body.append(line[3:] if line.startswith("   ") else line)
     return body
 
 
-def _doctor_command(lines: list[str], before: int, page: str) -> tuple[str, ...]:
-    """The ``rwrl ... doctor ... --mock`` command of the nearest ```bash block above ``before``."""
+def _included(page: Path, lines: list[str], index: int) -> str:
+    path = page.parent / lines[index].split("::", 1)[1].strip()
+    text = path.read_text(encoding="utf-8")
+    options = dict(re.findall(r"^:([a-z-]+): (.*)$", "\n".join(_block(lines, index)), re.M))
+    if "start-after" in options:
+        text = text.split(options["start-after"], 1)[1].lstrip("\n")
+    if "end-before" in options:
+        text = text.split(options["end-before"], 1)[0]
+    if "lines" in options:
+        first, last = map(int, options["lines"].split("-"))
+        text = "\n".join(text.splitlines()[first - 1:last])
+    return text
+
+
+def _doctor_command(page: Path, lines: list[str], before: int) -> tuple[str, ...]:
     for index in range(before - 1, -1, -1):
-        if lines[index].strip() != "```bash":
+        if lines[index].startswith(".. literalinclude::"):
+            if ":language: bash" not in _block(lines, index):
+                continue
+            text = _included(page, lines, index)
+        elif lines[index] == ".. code-block:: bash":
+            text = "\n".join(_block(lines, index))
+        else:
             continue
-        joined = re.sub(r"\\\n", " ", "\n".join(_fenced_block(lines, index)))
-        commands = [
-            tuple(shlex.split(line, comments=True)) for line in joined.splitlines()
-            if line.strip() and not line.strip().startswith("#")
-        ]
-        commands = [argv for argv in commands if argv[:1] == ("rwrl",) and "doctor" in argv and "--mock" in argv]
-        if len(commands) != 1:
-            raise ValueError(f"{page}:{index + 1}: expected one 'rwrl ... doctor ... --mock' command, found {commands}")
-        return commands[0]
-    raise ValueError(f"{page}:{before + 1}: no ```bash block before the doctor example")
+        joined = re.sub(r"\\\n", " ", text)
+        commands = [tuple(shlex.split(line, comments=True)) for line in joined.splitlines()]
+        commands = [argv for argv in commands
+                    if argv[:1] == ("rwrl",) and "doctor" in argv and "--mock" in argv]
+        if commands:
+            assert len(commands) == 1, (page, commands)
+            return commands[0]
+    raise ValueError(f"{page}:{before + 1}: no mock doctor command before example")
 
 
 def doctor_examples(page: Path) -> list[DoctorExample]:
     lines = page.read_text(encoding="utf-8").splitlines()
     examples = []
     for index, line in enumerate(lines):
-        if line.strip() != EXAMPLE_MARKER:
+        if line != EXAMPLE_MARKER:
             continue
-        fence = index + 1
-        if fence >= len(lines) or lines[fence].strip() != "```text":
-            raise ValueError(f"{page.name}:{index + 1}: {EXAMPLE_MARKER} must directly precede a ```text block")
-        expected = "\n".join(_fenced_block(lines, fence))
-        examples.append(DoctorExample(page.name, fence + 1, _doctor_command(lines, index, page.name), expected))
+        include = index + 1
+        assert lines[include].startswith(".. literalinclude::"), (page, include)
+        examples.append(DoctorExample(
+            page.relative_to(REPO_ROOT / "docs").as_posix(), include + 1,
+            _doctor_command(page, lines, index), _included(page, lines, include),
+        ))
     return examples
 
 
-EXAMPLES = [example for page in sorted(TUTORIAL_DIR.glob("*.md")) for example in doctor_examples(page)]
+EXAMPLES = [example for name in sorted(PAGES_WITH_EXAMPLES)
+            for example in doctor_examples(REPO_ROOT / "docs" / name)]
 
 
 def normalised(text: str) -> str:

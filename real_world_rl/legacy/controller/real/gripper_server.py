@@ -2,7 +2,7 @@
 ``serl_robot_infra/robot_servers/franka_gripper_server.py`` (not imported --
 ``3rd_party/serl`` is reference code, unlike the vendored ROS controller
 ``3rd_party/serl_franka_controllers``, which this repo treats as a real
-dependency; see ``docs/superpowers/specs/2026-07-09-real-robot-rl-design.md``).
+dependency).
 
 Only the Franka hand (``franka_gripper`` ROS action interface) is supported
 in v1. A Robotiq gripper would need its own ``GripperServer`` subclass

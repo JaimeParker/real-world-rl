@@ -5,7 +5,7 @@ human intervention, as HIL-SERL's actor / learner / eval processes.
 dim), ``hybrid`` builds ``ResidualRLPDHybrid`` (residual on the arm dims, DQN
 gripper). ``--base-provider`` names the base policy (see
 ``real_world_rl.policies.base_provider``); only the actor and eval build it,
-the learner records the spec in its checkpoints. See ``docs/residual.md``.
+the learner records the spec in its checkpoints. See ``https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/residual.html``.
 """
 from __future__ import annotations
 

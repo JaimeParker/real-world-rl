@@ -1,0 +1,22 @@
+# Tutorial snippet: station fields for cartesian_controller: impedance (see station.yaml for other fields).
+type: franka
+name: franka
+arm_backend: franky
+robot_ip: REPLACE_WITH_FCI_IP
+gripper:
+  backend: franky
+  max_width_m: 0.08
+  mode: binary
+# start controller
+cartesian_controller: impedance   # Default; franky torque-level impedance tracker
+robot_model: fr3                  # Use panda for Desk system 4.x, fr3 for 5.x
+realtime: ignore                  # A regular kernel works; use enforce with PREEMPT_RT
+# end controller
+# start control
+control:                          # For impedance only; rwrl setup writes these values for a new arm
+  translational_stiffness: 2000.0               # N/m
+  rotational_stiffness: 75.0                    # Nm/rad
+  cartesian_damping: [89.0, 89.0, 89.0, 7.0, 7.0, 7.0]
+  translational_error_clip: [0.01, 0.01, 0.01]  # m; each translational spring-axis term is capped at 20 N, not total contact force
+  rotational_error_clip: [0.10, 0.10, 0.10]     # rad
+# end control

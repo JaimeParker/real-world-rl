@@ -13,7 +13,7 @@ from real_world_rl.cli.preset_edit import Preset
 from real_world_rl.station import load_station
 
 
-SITE = Path(__file__).resolve().parents[1] / "site"
+SITE = Path(__file__).resolve().parents[1] / "docs"
 EXAMPLES = SITE / "examples"
 INCLUDE = re.compile(r"^([ \t]*(?:- )?)\.\. literalinclude::\s+(.+?)\s*$", re.MULTILINE)
 
@@ -144,3 +144,64 @@ def test_task_cameras_match_station() -> None:
     assert set(task.document["obs"]["rgb"]) <= cameras.keys()
     assert all(cameras[name].enable_depth for name in task.document["obs"]["depth"])
     assert all(size > 0 for size in task.document["obs"]["image_size"])
+
+
+def without_hash_comments(text: str) -> list[str]:
+    """Remove comments outside quotes, preserving hashes in command/value strings."""
+    result = []
+    for line in text.splitlines():
+        quote = None
+        escaped = False
+        kept = []
+        for char in line:
+            if escaped:
+                kept.append(char)
+                escaped = False
+                continue
+            if char == '\\' and quote != "'":
+                escaped = True
+            elif char in {'"', "'"}:
+                if quote is None:
+                    quote = char
+                elif quote == char:
+                    quote = None
+            elif char == '#' and quote is None:
+                break
+            kept.append(char)
+        value = ''.join(kept).rstrip()
+        if value.strip():
+            result.append(value)
+    return result
+
+
+def assert_translated_example(chinese: str, english: str, suffix: str) -> None:
+    if suffix in {'.sh', '.yaml', '.yml', '.py'}:
+        assert without_hash_comments(chinese) == without_hash_comments(english)
+    elif suffix == '.txt':
+        zh_lines, en_lines = chinese.splitlines(), english.splitlines()
+        # Output translations preserve line correspondence. Remove only translated
+        # lines at the same position; never discard arbitrary English differences.
+        assert len(zh_lines) == len(en_lines)
+        for number, (zh, en) in enumerate(zip(zh_lines, en_lines), 1):
+            if not re.search(r'[\u3400-\u9fff]', zh):
+                assert zh.replace("，", ",") == en, f'output line {number}: {zh!r} != {en!r}'
+    else:
+        assert chinese == english
+
+
+@pytest.mark.parametrize('english', sorted(p for p in (EXAMPLES / 'en').rglob('*') if p.is_file()),
+                         ids=lambda p: p.name)
+def test_translated_examples_preserve_commands_and_values(english: Path) -> None:
+    chinese = EXAMPLES / english.relative_to(EXAMPLES / 'en')
+    assert chinese.is_file()
+    assert_translated_example(chinese.read_text(), english.read_text(), english.suffix)
+
+
+@pytest.mark.parametrize('suffix,zh,en', [
+    ('.sh', 'rwrl doctor # 检查', 'rwrl status # check'),
+    ('.yaml', 'port: 50051 # 端口', 'port: 50052 # port'),
+    ('.txt', '示例\nsteps=30\n', 'Example\nsteps=31\n'),
+])
+def test_translated_example_comparison_detects_changes(suffix, zh, en):
+    with pytest.raises(AssertionError):
+        assert_translated_example(zh, en, suffix)

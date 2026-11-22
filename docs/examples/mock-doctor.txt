@@ -1,0 +1,13 @@
+PASS           host.platform: <platform>
+PASS           host.python: <python>
+PASS           franka.deps: no extras needed (fake or SDK-free backends)
+PASS           franka.sdk:arm: no SDK needed
+PASS           franka.sdk:gripper: no SDK needed
+SKIPPED        franka.os:ping: skipped (--mock)
+SKIPPED        franka.os:tcp: skipped (--mock)
+PASS           franka.handshake: robot connected
+PASS           franka.feedback:arm: arm feedback received
+PASS           franka.feedback:gripper: gripper width 0.0800 m (1.00 of max_width_m 0.080), grasped=unknown, source FakeGripper
+PASS           franka.mode:none: backend declares no mode checks
+Report: <dir>
+Result: no blocking findings; review SKIPPED/WARN coverage

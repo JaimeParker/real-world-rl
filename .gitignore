@@ -13,7 +13,7 @@ local/
 
 .vscode/
 
-reference/
+/reference/
 temp/
 3rd_party/
 docs/internal/

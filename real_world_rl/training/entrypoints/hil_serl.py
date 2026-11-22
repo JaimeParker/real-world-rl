@@ -2,7 +2,7 @@
 
 Targets HIL-SERL's ``train_rlpd.py`` capability set (online RLPD + demo
 mixing + human intervention + reward classifier), not BC or HG-DAgger's
-growing-dataset problem -- see docs/hil-serl-roadmap.md.
+growing-dataset problem -- see https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/hil-serl-roadmap.html.
 """
 from __future__ import annotations
 
@@ -303,7 +303,7 @@ class HilSerlArgs(HilEnvArgs, RealWorldFrankaArgs, RLPDHybridArgs):
     franka_real: FrankaRealConfig = field(default_factory=FrankaRealConfig)
 
     # Overrides RealWorldFrankaArgs.role's Literal["actor", "learner"] with a
-    # third "eval" role (item 10 of docs/hil-serl-roadmap.md) -- kept local to
+    # third "eval" role (item 10 of https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/hil-serl-roadmap.html) -- kept local to
     # HilSerlArgs rather than the shared RealWorldFrankaArgs so this round's
     # scope stays limited to hil_serl; serl.py is unaffected.
     role: Literal["actor", "learner", "eval"] = "actor"
@@ -316,7 +316,7 @@ class HilSerlArgs(HilEnvArgs, RealWorldFrankaArgs, RLPDHybridArgs):
     # (serl_launcher/serl_launcher/utils/launcher.py) actually run --
     # scoped here only, not touched on RLPDHybridArgs/EncoderConfig
     # themselves, so sim rlpd_hybrid training and serl.py/SerlArgs are
-    # unaffected. See docs/hil-serl-roadmap.md's "Behavioral Divergences"
+    # unaffected. See https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/hil-serl-roadmap.html's "Behavioral Divergences"
     # section.
     backup_entropy: bool = False
     encoder: EncoderConfig = field(

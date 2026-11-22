@@ -1,0 +1,15 @@
+# Tutorial snippet: station fields for cartesian_controller: internal.
+type: franka
+name: franka
+arm_backend: franky
+robot_ip: REPLACE_WITH_FCI_IP
+gripper:
+  backend: franky
+  max_width_m: 0.08
+  mode: binary
+# start controller
+cartesian_controller: internal    # The robot's built-in controller executes velocity motion
+robot_model: fr3
+realtime: enforce                 # The velocity interface is sensitive to 1 kHz jitter; requires PREEMPT_RT
+relative_dynamics_factor: 0.2     # Speed scale for move_to_*; internal mode has no adjustable gains
+# end controller

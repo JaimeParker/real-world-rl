@@ -6,6 +6,7 @@ import importlib.util
 import sys
 from dataclasses import dataclass
 
+from real_world_rl.common.docs_links import docs_url
 from real_world_rl.devices import Camera, RobotConfig, Teleop
 from real_world_rl.devices.backends.arms.franky import FRANKY_DISTRIBUTION, FRANKY_WHEEL_INDEX_URL
 
@@ -158,5 +159,5 @@ def serl_pair_rebuild_hint(server_version: int) -> str:
     return (
         f"look up the libfranka version for robot server version {server_version} in {FRANKA_COMPATIBILITY_URL}, "
         f"then rebuild the pair on this PC: LIBFRANKA_VERSION=<x.y.z> bash {SERL_NATIVE_INSTALL} "
-        "(docs/serl-controller.md); or set cartesian_controller: impedance and rerun --install-sdk"
+        f"({docs_url('reference/serl-controller')}); or set cartesian_controller: impedance and rerun --install-sdk"
     )

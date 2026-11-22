@@ -1,4 +1,4 @@
-"""Teleop sources for human-in-the-loop intervention (see ``docs/teleop.md``)."""
+"""Teleop sources for human-in-the-loop intervention (see ``https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/teleop.html``)."""
 from real_world_rl.teleop.core.contract import (
     LegacyTeleopAdapter,
     TeleopReading,

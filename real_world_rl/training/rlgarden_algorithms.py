@@ -1,7 +1,7 @@
 """Registers the real-world methods that have an agent builder on rl-garden's
 online registry (``residual_hil_serl``, ``residual_hil_serl_hybrid``, ``silri``), so
 ``real_world_rl.deploy.checkpoint`` can rebuild their agents from a checkpoint. Loaded
-through the ``rlgarden.algorithms`` entry-point group (see ``docs/guides/extending.md``
+through the ``rlgarden.algorithms`` entry-point group (see ``rl-garden/docs/guides/extending.md``
 in rl-garden). The residual classes set ``checkpoint_eval_unsupported_reason`` so
 ``rl-garden-eval`` refuses them: they need a base provider that only the real-world eval
 role and deploy build.

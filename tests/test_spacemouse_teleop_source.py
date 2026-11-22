@@ -818,3 +818,45 @@ def test_without_a_local_table_teleop_input_is_unchanged(isolated_site):
     env_building.resolve_teleop_input(args)
     assert args.teleop_input["source_options"] == {"device_index": 2}
     assert "device_table" not in args.teleop_input
+
+
+def _rx(angle):
+    c, s = np.cos(angle), np.sin(angle)
+    return np.array([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]])
+
+
+def test_without_a_profile_the_tracker_turns_the_twist_into_the_task_frame():
+    """A rolled mount (base_R_table = Rx(45 deg)) and no operator profile: pushing the cap up
+    moves the TCP vertically up in the table frame, i.e. along base_R_table @ +z."""
+    rotation = _rx(np.pi / 4)
+    session = _Session(task_frame_rotation=rotation.tolist())
+    session.take_over()
+    session.part.twist = np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
+    start = session.tracker.command[:3].copy()
+    for _ in range(3):
+        session.poll()
+    moved = session.tracker.command[:3] - start
+    np.testing.assert_allclose(moved / np.linalg.norm(moved), rotation @ [0.0, 0.0, 1.0], atol=1e-9)
+
+
+def test_a_profile_rotation_wins_over_the_task_frame_alone():
+    profile = _rx(np.pi / 4) @ np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    session = _Session(input_rotation=profile.tolist(), task_frame_rotation=_rx(np.pi / 4).tolist())
+    session.take_over()
+    session.part.twist = FORWARD_X
+    start = session.tracker.command[:3].copy()
+    session.poll()
+    moved = session.tracker.command[:3] - start
+    np.testing.assert_allclose(moved / np.linalg.norm(moved), profile @ [1.0, 0.0, 0.0], atol=1e-9)
+
+
+def test_the_tracker_block_records_a_task_frame_without_a_profile():
+    from real_world_rl.teleop.spacemouse.source import SpaceMouseTeleopSource
+    tracker = {"lead_cap_m": 0.05, "lead_cap_rad": 0.3, "target_speed_m_s": 0.05, "target_speed_rad_s": 0.3}
+    rotation = _rx(np.pi / 4).tolist()
+    spec = SpaceMouseTeleopSource.control_spec(
+        tracker_options=tracker, source_options=lambda: {"task_frame_rotation": rotation})
+    assert spec["input_frame"] == "task_frame"
+    with_profile = SpaceMouseTeleopSource.control_spec(
+        tracker_options=tracker, source_options=lambda: {"task_frame_rotation": rotation, "input_rotation": rotation})
+    assert "input_frame" not in with_profile

@@ -12,12 +12,13 @@ __all__ = ["SpaceMouseOptions"]
 
 # Operator input rotation is source provenance: recorded actions are already in base
 # coordinates, so a recalibration does not change their meaning.
-_PROVENANCE_INPUT_FRAME_KEYS = ("input_rotation", "input_rotation_semantics")
+_PROVENANCE_INPUT_FRAME_KEYS = ("input_rotation", "input_rotation_semantics", "task_frame_rotation")
 
 
 class SpaceMouseOptions:
     """Mixin of the SpaceMouse ``TeleopSource`` classes (listed before ``TeleopSource``)."""
 
+    INPUT_FRAME = "twist"
     DRIVES_ONE_ARM = True
     RECORDS_TELEOP_INPUT = True
     SUPPORTS_INPUT_DIAGNOSTICS = True

@@ -87,6 +87,8 @@ class TeleopSource(ABC):
     #: Takes ``last_gripper_action_getter``: the gripper actions the intervention wrapper last
     #: sent to the env, one per arm (the source holds them, or starts a take-over from them).
     USES_LAST_GRIPPER_ACTION: ClassVar[bool] = False
+    #: Operator Cartesian input kind ("twist" or "pose"); None for other sources.
+    INPUT_FRAME: ClassVar[Optional[str]] = None
     #: Drives every arm and gripper action part at once: a partial ``selected_parts`` is rejected.
     REQUIRES_FULL_ACTION: ClassVar[bool] = False
     #: Drives exactly one arm: a two-arm env needs ``device="bimanual"`` instead.

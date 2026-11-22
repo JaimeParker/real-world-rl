@@ -9,6 +9,7 @@ from collections.abc import Mapping
 import yaml
 
 from real_world_rl.devices.workspace import task_transform
+from real_world_rl.teleop.core.input_frame import task_frame_rotation
 from real_world_rl.discovery.autoconfig import StationRobot
 from real_world_rl.teleop.spacemouse.calibration import input_rotation
 
@@ -156,4 +157,6 @@ def source_options(station_path, robot_name=None, profile_name=None, *, provenan
                                           if config.task_frame else None))
         if resolved["profile"].get("device_identity") is not None:
             options["expected_device_identity"] = resolved["profile"]["device_identity"]
+    if config.task_frame is not None:
+        options["task_frame_rotation"] = task_frame_rotation(config.task_frame).tolist()
     return options

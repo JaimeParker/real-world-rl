@@ -30,7 +30,7 @@ TRACKER_DEFAULT = (
 SPACEMOUSE_TRACKER_DEFAULT = TRACKER_DEFAULT[:-1] + ', "axis_lock": "dominant"}'
 SERL_DEFAULT = (
     '{"version": "spacemouse_serl_v1", "mode": "serl", "motion_threshold": 0.001, '
-    '"gripper": "serl_buttons"}'
+    '"gripper": "serl_buttons", "input_frame": "base"}'
 )
 NONE = "null"
 
@@ -161,7 +161,7 @@ def test_spacemouse_serl_with_inverted_axes_rotation_and_diagnostics(isolated_si
     control, frozen_input = _blocks(args)
     assert control == (
         '{"version": "spacemouse_serl_v1", "mode": "serl", "motion_threshold": 0.001, '
-        '"gripper": "serl_buttons", "invert_axes": [0, 5], "use_profile_rotation": false, '
+        '"gripper": "serl_buttons", "invert_axes": [0, 5], "use_profile_rotation": false, "input_frame": "base", '
         '"input_diagnostic": {"axes": "rotation", "gain": 0.25}}'
     )
     assert frozen_input == (
@@ -176,7 +176,8 @@ def test_spacemouse_serl_with_the_profile_rotation_enabled(isolated_site):
     path = _options_yaml(isolated_site, f"input_rotation: {ROTATION}\nuse_profile_rotation: true\n")
     args = HilSerlArgs(teleop_device="spacemouse", spacemouse_mode="serl", teleop_options_yaml=path)
     control, frozen_input = _blocks(args)
-    assert control == SERL_DEFAULT[:-1] + ', "use_profile_rotation": true}'
+    assert control == SERL_DEFAULT.replace('"input_frame": "base"',
+                                          '"use_profile_rotation": true, "input_frame": "profile"')
     assert frozen_input == (
         f'{{"options_file": {json.dumps(portable_path(path))}, '
         '"source_options": {"input_rotation": [[0, -1, 0], [1, 0, 0], [0, 0, 1]], "use_profile_rotation": true}}'

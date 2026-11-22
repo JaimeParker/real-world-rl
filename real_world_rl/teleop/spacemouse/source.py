@@ -57,11 +57,11 @@ from typing import Any, Callable, Mapping, Optional, Sequence
 
 import numpy as np
 
+from real_world_rl.teleop.core.input_frame import resolve_input_rotation, rotate_twist
 from real_world_rl.teleop.core.targets.twist_input import (
     diagnostic_input,
     input_sample_diagnostics,
     lock_dominant_group,
-    rotate_input,
 )
 
 from real_world_rl.teleop.spacemouse import (
@@ -139,6 +139,10 @@ class SpaceMouseTeleopSource(SpaceMouseOptions, ToggleableTeleopSource):
         spec = tracker_control_spec(tracker_options)
         options = source_options()
         spec["axis_lock"] = options.get("axis_lock", DEFAULT_AXIS_LOCK)
+        if options.get("input_rotation") is None and options.get("task_frame_rotation") is not None:
+            # No operator profile: the twist still turns into the task frame (recorded, since it
+            # changed from the raw base frame earlier versions drove in).
+            spec["input_frame"] = "task_frame"
         spec.update(cls.compared_input_frame(options))
         return spec
 
@@ -154,6 +158,7 @@ class SpaceMouseTeleopSource(SpaceMouseOptions, ToggleableTeleopSource):
         axis_lock: str = DEFAULT_AXIS_LOCK,
         invert_axes: Sequence[int] = (),
         input_rotation=None,
+        task_frame_rotation=None,  # Used only without input_rotation, which already includes it.
         use_profile_rotation: bool = True,
         expected_device_identity=None,
         diagnostic_axes="all",
@@ -205,8 +210,10 @@ class SpaceMouseTeleopSource(SpaceMouseOptions, ToggleableTeleopSource):
         self._deadzone = float(deadzone)
         lock_dominant_group(np.zeros(6), axis_lock)
         self._axis_lock = axis_lock
-        from real_world_rl.teleop.core.targets.twist_input import validate_input_rotation
-        self._input_rotation = validate_input_rotation(input_rotation)
+        # The operator profile's rotation (task frame times its yaw) when one is selected, else the
+        # station task frame alone: the SpaceMouse sits in the table frame, the base may be rolled.
+        self._input_rotation, _ = resolve_input_rotation(
+            device_rotation=input_rotation, task_frame_rotation=task_frame_rotation)
         diagnostic_input(np.zeros(6), diagnostic_axes, diagnostic_gain)
         self._diagnostic_axes, self._diagnostic_gain = diagnostic_axes, diagnostic_gain
         from real_world_rl.teleop.spacemouse.profiles import validate_device_identity
@@ -377,7 +384,7 @@ class SpaceMouseTeleopSource(SpaceMouseOptions, ToggleableTeleopSource):
         twist = np.clip(np.asarray(action, dtype=np.float64).reshape(_CARTESIAN_ARM_DIM), -1.0, 1.0)
         twist[np.abs(twist) <= self._deadzone] = 0.0
         twist = lock_dominant_group(twist, self._axis_lock)
-        return diagnostic_input(rotate_input(twist, self._input_rotation),
+        return diagnostic_input(rotate_twist(twist, self._input_rotation),
                                 self._diagnostic_axes, self._diagnostic_gain)
 
     def _arm_action(self, twist: np.ndarray, measured: np.ndarray, takeover: bool) -> tuple[bool, np.ndarray]:

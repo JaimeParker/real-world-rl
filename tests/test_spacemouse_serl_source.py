@@ -254,7 +254,7 @@ def test_serl_learner_contract_without_opening_device(backend, monkeypatch):
         assert contract["experiment"]["cartesian_semantics"] == "serl"
         assert contract["experiment"]["sources"]["teleop_control"] == {
             "version": "spacemouse_serl_v1", "mode": "serl",
-            "motion_threshold": 0.001, "gripper": "serl_buttons",
+            "motion_threshold": 0.001, "gripper": "serl_buttons", "input_frame": "base",
         }
     finally:
         env.close()
@@ -584,3 +584,77 @@ def test_tracker_mode_always_applies_the_profile_rotation():
     with pytest.raises(ValueError, match="serl-mode option"):
         SpaceMouseTeleopSource(_Part(), follower_pose_getter=lambda: None, env_contract={
             **LEGACY_ACTION_CONTRACT, "gripper_in_action": False}, use_profile_rotation=False)
+
+
+@pytest.mark.parametrize("has_frame,use_profile,frame", [
+    (True, False, "task_frame"), (True, True, "profile"), (False, False, "base"),
+])
+def test_station_serl_input_frame(tmp_path, has_frame, use_profile, frame):
+    import yaml
+    from scipy.spatial.transform import Rotation
+    from test_spacemouse_profiles_cli import station
+    from real_world_rl.teleop.spacemouse.calibration import yaw_rotation
+
+    path = station(tmp_path)
+    config = yaml.safe_load(path.read_text())
+    rotation = Rotation.from_euler("x", 45, degrees=True).as_matrix()
+    transform = np.eye(4)
+    transform[:3, :3] = rotation
+    config["task_frame"]["base_T_frame"] = transform.tolist()
+    config["teleop"]["options"] = {"use_profile_rotation": use_profile}
+    if not has_frame:
+        del config["task_frame"]
+        del config["teleop_profiles"]
+    path.write_text(yaml.safe_dump(config))
+    args = HilSerlArgs(teleop_device="spacemouse", spacemouse_mode="serl",
+                       teleop_options_yaml=str(path))
+    options = env_building._single_arm_yaml_options(args)
+    env_building.resolve_teleop_input(args)
+    if has_frame:
+        assert options["task_frame_rotation"] == rotation.tolist()
+        assert args.teleop_input["source_options"]["task_frame_rotation"] == rotation.tolist()
+    else:
+        assert "task_frame_rotation" not in options
+    part, source = _source(gripper=False, **options)
+    applied = rotation @ yaw_rotation(.4) if use_profile else rotation if has_frame else np.eye(3)
+    for vector in ([0, 0, 1], [1, 0, 0]):
+        part.twist = np.tile(vector, 2)
+        expected = np.tile(applied @ vector, 2)
+        np.testing.assert_allclose(source.poll().action, expected, atol=1e-7)
+    expected_control = (
+        '{"version": "spacemouse_serl_v1", "mode": "serl", "motion_threshold": 0.001, '
+        '"gripper": "serl_buttons", '
+        + (f'"use_profile_rotation": {str(use_profile).lower()}, ' if has_frame else "")
+        + f'"input_frame": "{frame}"' + '}'
+    )
+    assert json.dumps(env_building.teleop_control_spec(args)) == expected_control
+
+
+@pytest.mark.parametrize("use_profile", [False, True])
+def test_serl_validates_task_frame_rotation_even_when_not_applied(use_profile):
+    with pytest.raises(ValueError, match="proper 3x3 rotation"):
+        _source(task_frame_rotation=np.zeros((3, 3)), use_profile_rotation=use_profile)
+
+
+def test_station_without_profile_still_supplies_task_rotation(tmp_path):
+    import yaml
+    from test_spacemouse_profiles_cli import station
+    from real_world_rl.teleop.spacemouse.profiles import source_options
+
+    path = station(tmp_path)
+    config = yaml.safe_load(path.read_text())
+    del config["teleop_profiles"]
+    path.write_text(yaml.safe_dump(config))
+    assert source_options(path) == {"task_frame_rotation": np.eye(3).tolist()}
+
+
+def test_tracker_ignores_task_frame_rotation():
+    from test_spacemouse_teleop_source import HOME_TCP, NO_GRIPPER
+    from real_world_rl.teleop.spacemouse.calibration import yaw_rotation
+
+    options = dict(follower_pose_getter=lambda: HOME_TCP, env_contract=NO_GRIPPER,
+                   input_rotation=yaw_rotation(.4), axis_lock="off")
+    before = SpaceMouseTeleopSource(_Part(), **options)
+    after = SpaceMouseTeleopSource(_Part(), task_frame_rotation=yaw_rotation(.8), **options)
+    twist = [.1, .2, .3, .4, .5, .6]
+    np.testing.assert_array_equal(before._twist(twist), after._twist(twist))

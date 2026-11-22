@@ -1,8 +1,17 @@
-"""HIL-SERL SpaceMouse intervention: raw base-frame twist and button levels.
+"""HIL-SERL SpaceMouse intervention: raw device twist and button levels, as in HIL-SERL's
+``SpaceMouseExpert`` and ``SpacemouseIntervention``.
 
-As in HIL-SERL (``SpaceMouseExpert`` and ``SpacemouseIntervention``), the device twist reaches the
-env in the robot base frame with no operator rotation: an operator profile's ``input_rotation``
-is applied only with ``use_profile_rotation: true``.
+The SpaceMouse sits in the table's horizontal frame, the Franka base may not (a rolled mount).
+The twist (translation and angular parts alike) is therefore rotated before it becomes an
+end-effector target:
+
+- default: by the station task frame rotation ``task_frame_rotation`` (``base_R_frame`` of
+  ``task_frame.base_T_frame``), so pushing up moves vertically up whatever the mount; a station
+  without ``task_frame`` (an upright base) gets HIL-SERL's raw robot base frame;
+- ``use_profile_rotation: true``: by the operator profile's full ``input_rotation`` (task frame
+  times the profile yaw for where the SpaceMouse sits), as tracker mode does.
+
+The controller (impedance / internal / serl) never rotates again: it receives base-frame targets.
 """
 from __future__ import annotations
 
@@ -11,7 +20,8 @@ from typing import Any, Mapping, Optional, Sequence
 
 import numpy as np
 
-from real_world_rl.teleop.core.targets.twist_input import rotate_input, diagnostic_input, input_sample_diagnostics
+from real_world_rl.teleop.core.input_frame import resolve_input_rotation, rotate_twist
+from real_world_rl.teleop.core.targets.twist_input import diagnostic_input, input_sample_diagnostics
 
 from real_world_rl.contracts.action import (
     LEGACY_ACTION_CONTRACT,
@@ -24,7 +34,8 @@ from real_world_rl.teleop.spacemouse.options import SpaceMouseOptions
 
 # The teleop_control block's version string (compared on resume; never change it).
 SERL_CONTROL_VERSION = "spacemouse_serl_v1"
-# Serl mode drives in the raw base frame unless the profile rotation is explicitly enabled.
+# Serl mode drives in the station task frame (raw base frame without one) unless the
+# operator profile rotation is explicitly enabled.
 DEFAULT_USE_PROFILE_ROTATION = False
 MOTION_THRESHOLD = 0.001
 # These belong to the tracker path, never to native SERL intervention.
@@ -50,10 +61,11 @@ class SpaceMouseSerlTeleopSource(SpaceMouseOptions, TeleopSource):
 
     @classmethod
     def control_spec(cls, *, tracker_options, source_options) -> dict:
-        """The serl semantics: motion threshold, button gripper, inverted axes, whether a
-        configured operator ``input_rotation`` is applied (``use_profile_rotation``, recorded only
-        when the options carry a rotation, so blocks without one keep their form) and the compared
-        input frame (the diagnostics filter)."""
+        """The serl semantics: motion threshold, button gripper, inverted axes,
+        ``use_profile_rotation`` (recorded only when the options carry a profile rotation, so blocks
+        without one keep their form), the frame the twist is driven in (``input_frame``: ``profile``,
+        ``task_frame`` or ``base``) and the compared input frame (the diagnostics filter). The
+        rotation matrices themselves are provenance (``teleop_input``), not compared."""
         options = source_options()
         spec = {"version": SERL_CONTROL_VERSION, "mode": "serl",
                 "motion_threshold": MOTION_THRESHOLD, "gripper": "serl_buttons"}
@@ -62,6 +74,10 @@ class SpaceMouseSerlTeleopSource(SpaceMouseOptions, TeleopSource):
         if options.get("input_rotation") is not None:
             spec["use_profile_rotation"] = _use_profile_rotation(
                 options.get("use_profile_rotation", DEFAULT_USE_PROFILE_ROTATION))
+        use_profile = _use_profile_rotation(
+            options.get("use_profile_rotation", DEFAULT_USE_PROFILE_ROTATION))
+        spec["input_frame"] = ("profile" if use_profile else
+                               "task_frame" if options.get("task_frame_rotation") is not None else "base")
         spec.update(cls.compared_input_frame(options))
         return spec
 
@@ -73,6 +89,7 @@ class SpaceMouseSerlTeleopSource(SpaceMouseOptions, TeleopSource):
         device_index: int = 0,
         invert_axes: Sequence[int] = (),
         input_rotation=None,
+        task_frame_rotation=None,
         use_profile_rotation: bool = DEFAULT_USE_PROFILE_ROTATION,
         expected_device_identity=None,
         diagnostic_axes="all",
@@ -115,8 +132,13 @@ class SpaceMouseSerlTeleopSource(SpaceMouseOptions, TeleopSource):
         self._part = teleop
         from real_world_rl.teleop.core.targets.twist_input import validate_input_rotation
         self._input_rotation = validate_input_rotation(input_rotation)
-        # Keep the validated rotation as provenance; drive with it only when enabled.
-        self._drive_rotation = self._input_rotation if _use_profile_rotation(use_profile_rotation) else None
+        self._task_frame_rotation = validate_input_rotation(task_frame_rotation)
+        use_profile = _use_profile_rotation(use_profile_rotation)
+        # Explicit profile mode without a profile has always driven the base frame.
+        self._drive_rotation, _ = resolve_input_rotation(
+            device_rotation=self._input_rotation if use_profile else None,
+            task_frame_rotation=None if use_profile else self._task_frame_rotation,
+        )
         diagnostic_input(np.zeros(6), diagnostic_axes, diagnostic_gain)
         self._diagnostic_axes, self._diagnostic_gain = diagnostic_axes, diagnostic_gain
         from real_world_rl.teleop.spacemouse.profiles import validate_device_identity
@@ -179,7 +201,7 @@ class SpaceMouseSerlTeleopSource(SpaceMouseOptions, TeleopSource):
         left = bool(sample.buttons.get("button_0", False))
         right = bool(sample.buttons.get("button_1", False))
         intervened = bool(np.linalg.norm(twist) > MOTION_THRESHOLD)
-        action = diagnostic_input(rotate_input(twist, self._drive_rotation),
+        action = diagnostic_input(rotate_twist(twist, self._drive_rotation),
                                   self._diagnostic_axes, self._diagnostic_gain)
         diagnostics = input_sample_diagnostics(sample, action)
         if self.has_gripper:

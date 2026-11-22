@@ -11,7 +11,8 @@ and episode-end presses latched until the next read. This source gives them thei
   hand alone never intervenes.
 - **Anchored mapping** (``pico_anchored_v1``), as ``leader_cartesian``'s ``anchored``: the hand
   pose is first put in the robot base frame with ``input_rotation`` (``base_R_input``, default
-  identity): ``p_l = B p_hand``, ``R_l = B R_hand``. At the take-over the tracker's current
+  the station task frame rotation, or identity without a task frame): ``p_l = B p_hand``,
+  ``R_l = B R_hand``. At the take-over the tracker's current
   command ``(p_c, R_c)`` (the hold pose: the follower does not jump) and the hand pose
   ``(p_l0, R_l0)`` are stored; then ``p* = p_c + (p_l - p_l0)``, ``R* = (R_l R_l0^T) R_c``. A
   hand rotation turns the follower in place. The tracker limits the command to the target speed
@@ -29,6 +30,12 @@ and episode-end presses latched until the next read. This source gives them thei
   a trigger that disagrees at the take-over with the gripper's last commanded state is ignored
   until it crosses to that state, so taking over never drops a grasped object.
 - **Episode end**: the Pico's episode-end press ends the episode.
+
+Operator input follows ``base_R_input = base_R_table @ table_R_device``.
+An explicit ``input_rotation`` is already composed and wins over the env's task frame.
+Without it, a pre-change run with a ``task_frame`` now drives in that task frame.
+Only rotation is applied: the mapping uses anchored deltas, so the task-frame origin
+is not added to the hand pose. Controllers and policy actions are not rotated here.
 
 Under ``CompositeTeleopSource`` (``--teleop-event-device stdin``/``keyboard``) the event device
 adds the outcome labels, episode end and quit; bind stays the only take-over, and a change of the
@@ -70,7 +77,7 @@ from real_world_rl.teleop.core.targets.cartesian_driver import (
 )
 from real_world_rl.teleop.core.targets.cartesian_tracker import CartesianTargetTracker
 from real_world_rl.teleop.core.targets.follower import PoseGetter
-from real_world_rl.teleop.core.targets.twist_input import validate_input_rotation
+from real_world_rl.teleop.core.input_frame import resolve_input_rotation, rotate_pose, task_frame_rotation
 from real_world_rl.teleop.pico import backend as _pico_backend  # registers "pico"
 
 __all__ = ["PICO_CONTRACT", "PicoTeleopSource", "TARGET_MAPPING"]
@@ -98,6 +105,7 @@ class PicoTeleopSource(TeleopPartSource, ToggleableTeleopSource):
     ever turns into an idle reading.
     """
 
+    INPUT_FRAME = "pose"
     TRACKS_CARTESIAN_TARGET = True
 
     @classmethod
@@ -154,7 +162,11 @@ class PicoTeleopSource(TeleopPartSource, ToggleableTeleopSource):
             self._tracker, source_name="pico", follower_pose_getter=follower_pose_getter,
             pos_scale_m=pos_scale_m, rot_scale_rad=rot_scale_rad, clock=clock,
         )
-        self._input_rotation = validate_input_rotation(input_rotation)
+        self._input_rotation, self._input_frame = resolve_input_rotation(
+            device_rotation=input_rotation,
+            task_frame_rotation=task_frame_rotation(task_frame) if input_rotation is None else None,
+        )
+        self._input_frame_name = task_frame["name"] if self._input_frame == "task_frame" else None
         if gripper_binarize_threshold is not None and not 0.0 <= gripper_binarize_threshold <= 1.0:
             raise ValueError(f"gripper_binarize_threshold must be in [0, 1], got {gripper_binarize_threshold}")
         self._gripper_binarize_threshold = gripper_binarize_threshold
@@ -186,6 +198,11 @@ class PicoTeleopSource(TeleopPartSource, ToggleableTeleopSource):
         self._previous_event_toggle = False
         self._anchor: Optional[tuple[np.ndarray, np.ndarray]] = None  # (p_c0 - p_l0, R_l0^T R_c0)
         self._gripper_latched = False
+
+    @property
+    def input_frame(self) -> str:
+        """Applied operator frame: device_profile, task_frame, or base."""
+        return self._input_frame
 
     @property
     def cartesian_tracker(self) -> CartesianTargetTracker:
@@ -247,6 +264,8 @@ class PicoTeleopSource(TeleopPartSource, ToggleableTeleopSource):
 
     def start(self) -> None:
         """Connects the Pico part this source built, or the robot it owns (and checks its part)."""
+        if self.input_frame == "task_frame":
+            logger.info("pico: no input_rotation; driving in task frame %s", self._input_frame_name)
         if self._owned_part is not None:
             self._owned_part.connect()
         elif self._teleop_robot is not None:
@@ -337,9 +356,7 @@ class PicoTeleopSource(TeleopPartSource, ToggleableTeleopSource):
     def _base_frame_pose(self, hand_pose: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """``(p_l, R_l)``: the hand pose with ``input_rotation`` applied (``B p``, ``B R``)."""
         position, rotation = hand_pose[:3], quat_xyzw_to_matrix(hand_pose[3:])
-        if self._input_rotation is not None:
-            position, rotation = self._input_rotation @ position, self._input_rotation @ rotation
-        return position, rotation
+        return rotate_pose(position, rotation, self._input_rotation)
 
     def _arm_action(self, hand: tuple[np.ndarray, np.ndarray], measured: np.ndarray) -> tuple[bool, np.ndarray]:
         """``(intervened, arm action)``; the arm action only matters while intervened."""

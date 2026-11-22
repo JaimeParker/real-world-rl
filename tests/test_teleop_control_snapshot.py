@@ -56,7 +56,7 @@ def test_spacemouse_serl_teleop_control(isolated_site):
     )
     assert json.dumps(env_building.teleop_control_spec(args)) == (
         '{"version": "spacemouse_serl_v1", "mode": "serl", "motion_threshold": 0.001, '
-        '"gripper": "serl_buttons", "invert_axes": [0, 5], "use_profile_rotation": false}'
+        '"gripper": "serl_buttons", "invert_axes": [0, 5], "use_profile_rotation": false, "input_frame": "base"}'
     )
 
 

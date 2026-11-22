@@ -2,28 +2,10 @@
 import numpy as np
 
 
-def validate_input_rotation(value):
-    if value is None:
-        return None
-    rotation = np.asarray(value, dtype=np.float64)
-    if (rotation.shape != (3, 3) or not np.isfinite(rotation).all()
-            or not np.allclose(rotation.T @ rotation, np.eye(3), atol=1e-6, rtol=0)
-            or not np.isclose(np.linalg.det(rotation), 1.0, atol=1e-6, rtol=0)):
-        raise ValueError("input_rotation must be a finite proper 3x3 rotation: base_R_input")
-    return rotation.copy()
-
-
-def rotate_input(twist, rotation):
-    if rotation is None:
-        return twist
-    result = np.asarray(twist, dtype=np.float64).copy().reshape(6)
-    # Translation and angular velocity rotate as separate vectors. There is no
-    # origin translation term: these are input directions, not a spatial wrench.
-    for start in (0, 3):
-        vector = rotation @ result[start:start + 3]
-        # Keep direction if diagonal input would exceed the action cube.
-        result[start:start + 3] = vector / max(1.0, float(np.max(np.abs(vector))))
-    return result
+from real_world_rl.teleop.core.input_frame import (
+    rotate_twist as rotate_input,
+    validate_input_rotation,
+)
 
 
 AXIS_LOCKS = ("dominant", "off")
@@ -52,6 +34,9 @@ def input_frame_contract(options):
         "input_rotation": rotation.tolist(),
         "input_rotation_semantics": "base_R_input_direction_preserving_cube_v1",
     }
+    task_rotation = validate_input_rotation(options.get("task_frame_rotation"))
+    if task_rotation is not None:
+        result["task_frame_rotation"] = task_rotation.tolist()
     axes, gain = options.get("diagnostic_axes", "all"), options.get("diagnostic_gain", 1.)
     diagnostic_input(np.zeros(6), axes, gain)
     if axes != "all" or gain != 1.:

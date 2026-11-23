@@ -98,7 +98,7 @@ class FakeGelloTeleop(FakeTeleop):
 
 def make_pynput() -> types.ModuleType:
     """pynput stand-in: ``fake.keyboard.listeners[-1].press(key)``/``.release(key)`` drive the
-    callbacks; ``Key`` has ``space``/``esc``/``shift``, ``KeyCode(char)`` is a character key."""
+    callbacks; ``Key`` has ``space``/``esc``/``shift``/``enter``, ``KeyCode(char)`` is a character key."""
     fake = types.ModuleType("pynput")
     keyboard = types.ModuleType("pynput.keyboard")
 
@@ -106,6 +106,7 @@ def make_pynput() -> types.ModuleType:
         space = "space"
         esc = "esc"
         shift = "shift"
+        enter = "enter"
 
     class KeyCode:
         def __init__(self, char):

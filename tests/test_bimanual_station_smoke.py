@@ -332,7 +332,8 @@ def _run_hil_serl_actor(env) -> list[dict]:
 
 
 def _record(env, daemons, demo_path: Path) -> list[dict]:
-    args = RecordDemosArgs(**_env_fields(daemons), output_dir=str(demo_path), num_successes=1)
+    args = RecordDemosArgs(**_env_fields(daemons), output_dir=str(demo_path), num_successes=1,
+                           episode_end_behavior="auto")
     episodes = []
 
     def stop_unless_kept(episode) -> None:

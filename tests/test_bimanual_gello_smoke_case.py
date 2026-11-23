@@ -17,7 +17,7 @@ def test_smoke_preset_records_one_attempt_on_two_local_fake_daemons(tmp_path, st
     output = tmp_path / "left"
     args = parse_record_args([
         "--config", str(ROOT / "examples/presets/bimanual_gello_smoke.yaml"),
-        "--output-dir", str(output), "--max-episodes", "1",
+        "--output-dir", str(output), "--max-episodes", "1", "--episode-end-behavior", "auto",
     ])
     assert args.teleop_event_device is None  # headless: events arrive from device-side inputs
     assert not args.obs.rgb and args.teleop_onset == "arm"

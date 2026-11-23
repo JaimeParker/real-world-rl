@@ -185,6 +185,46 @@ class BimanualRealRobotEnv(gym.Env):
             return None
         return next(iter(self._last_obs["frames"].values()))
 
+    # -- episode-boundary hold (episode_end_behavior=confirm) ------------------------------
+
+    def require_session_hold(self, mode="hold"):
+        """``confirm`` only: every arm holds through its own ``RealRobotEnv``."""
+        if mode != "confirm":
+            raise ValueError("episode_end_behavior=hold requires a real_robot Cartesian env")
+        for env in self.arms.values():
+            env.require_session_hold(mode=mode)
+
+    def session_event(self, phase, reason):
+        for env in self.arms.values():
+            env.session_event(phase, reason)
+
+    def session_observe(self):
+        """A fresh merged observation without a step or reset."""
+        results = self._on_every_arm(lambda arm, env: env.session_observe())
+        return self._merge_observations(results)
+
+    def session_start_target(self):
+        return self._on_every_arm(lambda arm, env: env.session_start_target())
+
+    def session_hold_target(self):
+        return self._on_every_arm(lambda arm, env: env.session_hold_target())
+
+    def session_hold_tick(self, target):
+        """Every arm re-sends its own target (``target`` maps arm name -> target), concurrently."""
+        return self._on_every_arm(lambda arm, env: env.session_hold_tick(target[arm]))
+
+    def session_grippers(self):
+        return [(arm, fraction, max_width_m) for arm, env in self.arms.items()
+                for _, fraction, max_width_m in env.session_grippers()]
+
+    def session_gripper(self, open, arms=None):
+        """Each selected arm's (all by default) gripper through its own env, in arm order."""
+        commanded = []
+        for arm, env in self.arms.items():
+            if (arms is None or arm in arms) and env.session_gripper(open):
+                commanded.append(arm)
+        return commanded
+
     def close(self) -> None:
         failures: list[tuple[str, Exception]] = []
         for arm, env in self.arms.items():

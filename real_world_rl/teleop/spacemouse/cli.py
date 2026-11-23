@@ -221,13 +221,14 @@ def run_session(args, ctx):
     plan = SessionPlan(
         settings={"teleop_device": "spacemouse", "spacemouse_mode": mode,
                   "teleop_options_yaml": str(path), "teleop_robot": args.robot,
-                  "teleop_profile": resolved["name"], "episode_end_behavior": "hold",
+                  "teleop_profile": resolved["name"], "episode_end_behavior": "confirm",
                   "neutral_threshold": resolved["profile"]["neutral_threshold"]},
         env_overrides={"cartesian_semantics": "serl"} if mode == "serl" else {},
         confirm_detail=(f"target SpaceMouse {mode} session on {selected.config.name}; task reset may home; "
                         + ("button 0 takes over / hands back, button 1 toggles the gripper; " if mode == "tracker"
                            else "moving the puck intervenes; ")
-                        + "s/f ends episode and holds; n resets next; q exits"),
+                        + "s/f ends the episode and holds the arm (o/c gripper); n resets (gripper check first); "
+                        "SPACE starts the next episode; q exits"),
         provenance_files={"profiles": resolved["file"]}, summary_extra={"profile": resolved["name"]},
         diagnose=diagnostic)
     return run_supervised_session(args, ctx, plan)

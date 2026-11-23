@@ -7,7 +7,7 @@
 
 录制器与 HIL actor 使用完全相同的环境构建方式（\ ``build_hil_env(args, role="actor")``\ ），因此接受与 ``train_real_world.py hil_serl`` 相同的环境、遥操作、观测参数和 ``--config`` 预设。请采用后续加载示范的运行参数：录制的观测和动作必须与其环境匹配（加载时检查数据集头 ``dataset.json`` 的 ``action_contract``\ ；对旧 pkl 则检查其契约附属文件）。\ :doc:`教程 08 <../tutorials/record>`\  讲解首次录制，\ :doc:`操作员指南 <intervening>`\  是操作员指南（按键、接管起始和记录内容）。
 
-对于已调试 ``real_robot`` 工作站上的 SpaceMouse，受监督的 \ :ref:`rwrl teleop run 流程 <spacemouse-commissioning-supervised-recording-sessions>`\  增加显式回合结束保持。标签封存轨迹；此后手柄运动不生效，直到 ``n`` 请求新回合且手柄稳定回中。\ ``q`` 释放控制，达到回合预算后也如此。仍支持同一轨迹内反复接管/交还，不触发此回中检查。检查后，录制和 actor 循环获取新观测；首个归档帧及策略输入均来自回中确认后，图像堆叠历史也用该新帧重新填充。Python 录制器默认仍为 ``episode_end_behavior: auto``\ ；直接使用时需显式选择 ``hold``\ 。
+录制器默认 ``episode_end_behavior: confirm``\ ：每个回合在 reset 后由操作员按空格开始，结束后手臂停在原处，夹爪由操作员检查，再按 ``n`` 才复位（\ :ref:`回合边界 <recording-demos-episode-boundaries>`\ ）。受监督的 \ :ref:`rwrl teleop run 流程 <spacemouse-commissioning-supervised-recording-sessions>`\  也用 confirm；仍支持同一轨迹内反复接管/交还。只有 ACTIVE 里的步骤被记录，首个归档帧来自按下空格那一刻的新观测，图像堆叠历史也用该新帧重新填充。训练命令默认仍为 ``auto``\ ，单人版 ``hold`` 需显式选择。
 
 使用 \ :doc:`SpaceMouse 验收清单 <testing/spacemouse-control-session>`\  及其记录模板，验证两种模式的方向、工作区、保持和正常停止。仅成功示范不能证明硬件通过验收或正常停止稳定。
 
@@ -58,7 +58,7 @@ SpaceMouse tracker 模式参数（默认 ``--spacemouse-mode tracker``；详情�
      - 0, 0.05, ``[]``
      - SpaceMouse 序号、每轴静止噪声死区（满幅比例）、要翻转的输出轴（0–5）
 
-``--teleop-event-device keyboard``\ （本机桌面会话）和 ``--teleop-event-device stdin``\ （运行录制器的终端，也支持 SSH）的操作键：\ ``t`` 接管，\ ``h`` 交还，\ ``s`` 成功，\ ``f`` 失败，\ ``r`` 重录，Esc 结束回合，\ ``q`` 结束回合并在处理后停止录制器。
+``--teleop-event-device keyboard``\ （本机桌面会话）和 ``--teleop-event-device stdin``\ （运行录制器的终端，也支持 SSH）的操作键：\ ``t`` 接管，\ ``h`` 交还，\ ``s`` 成功，\ ``f`` 失败，\ ``r`` 重录，Esc 结束回合，\ ``q`` 结束回合并在处理后停止录制器；confirm（默认）下回合之间还用空格（开始）、\ ``n``\ （reset）、\ ``o``/``c``\ （夹爪）和 Enter（夹爪检查确认），见\ :ref:`回合边界 <recording-demos-episode-boundaries>`\ 。
 
 双臂（\ ``--env-backend real_robot_bimanual``\ ）：\ ``--teleop-device bimanual --teleop-arm-device leader_arm``\ （或 ``gello``\ 、\ ``robot``\ ）每臂读取一个 leader，录制器逐臂处理。保持动作属于各臂自身（\ ``joint_abs`` 中为各 follower 关节在自身限位下的值），回合开始检查逐臂比较 leader 与 follower 并指出差距最大的臂，\ ``--max-episode-steps`` 替换 ``--real_robot_bimanual.max_episode_steps``\ 。任一操作员介入都会记录该步；另一臂保持不动。命令见 \ :ref:`bimanual.md <bimanual-teleop-and-demo-recording>`\ 。
 
@@ -92,9 +92,15 @@ SpaceMouse tracker 模式参数（默认 ``--spacemouse-mode tracker``；详情�
    * - ``--max-episode-steps``
      - 未设置
      - 回合步数上限；设置时替换 ``--real_robot.max_episode_steps``\ 、\ ``--real_robot_bimanual.max_episode_steps``
+   * - ``--episode-end-behavior``
+     - ``confirm``
+     - 回合结束后：\ ``confirm`` 操作员按键复位并开始，\ ``hold`` 单人、等中立确认的 ``n``\ ，\ ``auto`` 立刻 reset；见\ :ref:`回合边界 <recording-demos-episode-boundaries>`
+   * - ``--gripper-open-fraction``\ 、\ ``--gripper-closed-fraction``
+     - 0.95、0.05
+     - confirm：\ ``n`` 时夹爪宽度占最大宽度的比例至少 open 算全开、至多 closed 算全合，直接 reset；介于两者之间进入夹爪检查
    * - ``--start-tolerance-rad``
      - 0.8
-     - ``joint_abs``\ ：任一关节的 leader 与 follower 差值超过此值时拒绝开始回合
+     - ``joint_abs``\ ：任一关节的 leader 与 follower 差值超过此值时拒绝开始回合；confirm 下改为锁住空格，终端列出差得多的关节，对齐后才能开始
    * - ``--keep-syncing-steps``
      - 关闭
      - 将 leader 追赶行作为普通监督步纳入训练行；数据集始终保留 syncing 标记，这一选择写入数据集头，训练加载时沿用
@@ -110,13 +116,163 @@ SpaceMouse tracker 模式参数（默认 ``--spacemouse-mode tracker``；详情�
 
 ``--control-hz`` 像对 actor 一样控制循环频率。不支持 ``--fwbw``\ 。
 
+.. _recording-demos-episode-boundaries:
+
+回合边界：confirm、hold 与 auto
+--------------------------------------------------------------------------------
+
+``--episode-end-behavior``\ （配置键 ``episode_end_behavior``\ ）决定一个回合结束后发生什么：
+
+.. list-table::
+   :header-rows: 1
+   :widths: 12 40 24 24
+
+   * - 值
+     - 回合结束后
+     - 默认用在
+     - 要求
+   * - ``confirm``
+     - 手臂停在原处；操作员按键处理夹爪、请求 reset、开始下一回合（本节余下部分）
+     - ``rwrl record``、\ ``rwrl teleop run``\ ；actor 和评估也支持
+     - 一个事件设备；单臂或双臂，笛卡尔或关节动作
+   * - ``hold``
+     - 手臂停在原处，等一个经过中立检查的 ``n`` 再 reset；一个人操作
+     - 需要显式选择
+     - 单臂笛卡尔 ``real_robot``，运动设备能报告中立读数（SpaceMouse、\ ``leader_cartesian``\ ）
+   * - ``auto``
+     - 立刻 reset，不等任何按键
+     - 训练命令（\ ``hil_serl`` 等）
+     - 无
+
+``confirm`` 适合两个人：操作员 A 在运行命令的终端按键，操作员 B 遥操作。回合分成六个阶段，进入每个阶段时打印一行 ``<阶段>: ...``\ （stderr），同时写一条会话事件（\ ``session-events`` 文件）。下面是一次完整运行的原样输出，夹爪宽度和关节名随现场不同：
+
+.. literalinclude:: ../examples/record-output.txt
+   :language: text
+   :start-after: # start confirm
+   :end-before: # end confirm
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 40 40
+
+   * - 阶段
+     - 手臂与记录
+     - 按键
+   * - ``RESETTING``
+     - 手臂回 home，之后夹爪张开。不记录；reset 期间按的键被丢弃
+     - 无
+   * - ``READY``
+     - 手臂停在 reset 后实测的位姿，遥操作运动被忽略。不记录
+     - ``空格`` 开始回合；\ ``q`` 退出
+   * - ``ACTIVE``
+     - 遥操作，逐步记录；回合第 0 行是按下空格时重新读取的观测
+     - ``s``/``f``/``r``/``Esc`` 判定并结束回合（下表）；\ ``q`` 判定后退出；\ ``t``/``h`` 照常接管／交还
+   * - ``POST_EPISODE``
+     - 笛卡尔臂重复发送最后一个被接受的目标，关节臂保持实测关节；夹爪不变，遥操作运动被忽略。不记录
+     - ``o`` 张开、\ ``c`` 合上夹爪（阶段不变）；\ ``n`` 请求 reset；\ ``q`` 退出
+   * - ``GRIPPER_CHECK``
+     - 同 ``POST_EPISODE``
+     - ``Enter`` 马上 reset；\ ``o`` 在原地张开，回到 ``POST_EPISODE``\ ；其它键回到 ``POST_EPISODE``\ ；\ ``q`` 退出
+   * - ``STOPPING``
+     - 释放控制，已结束的回合已在磁盘上
+     - 无
+
+空格、\ ``n``\ 、\ ``o``\ 、\ ``c``\ 、Enter 只在上表所列阶段起作用，ACTIVE 里按下没有效果。每个等待周期都重发保持目标、检查机械臂健康和步骤看门狗，再喂监督心跳；这段时间不调用 ``env.step``\ ，所以等待不进轨迹，也不写数据集。
+
+**夹爪检查。** ``n`` 时读夹爪宽度占最大宽度的比例：至少 ``gripper_open_fraction``\ （全开）或至多 ``gripper_closed_fraction``\ （全合）就直接 reset；介于两者之间，夹爪可能夹着物体，进入 ``GRIPPER_CHECK``\ 。双臂时列出每个半合的夹爪，\ ``o`` 只张开这些。读不到宽度的夹爪（没有宽度反馈）总是询问，提示里写 ``no width feedback``\ 。reset 先回 home，再张开夹爪，所以 Enter 后物体在 home 处掉下；要在原地放下，先按 ``o``\ 。
+
+**预算用完。** 成功配额或 ``--max-episodes`` 满足后，最后一个回合仍先进入 ``POST_EPISODE``\ （o/c 可用），提示 ``n or q = end the session (no reset)``\ ；\ ``n`` 或 ``q`` 结束会话，不 reset。\ ``q`` 在任何阶段都有效。
+
+**起始锁（\ ``joint_abs``\ ）。** 在 ``READY``\ ，任一主臂关节离从臂超过 ``start_tolerance_rad`` 时空格被锁住，终端列出差得多的臂和关节（只在列表变化或按了空格时刷新，至多每 0.5 秒一行），对齐后才能开始，不会抛错退出：
+
+.. literalinclude:: ../examples/record-output.txt
+   :language: text
+   :start-after: # start lock
+   :end-before: # end lock
+
+**事件设备。** confirm 需要一个事件设备，否则启动时（任何 reset 之前）报错：``--teleop-event-device keyboard|stdin|jsonl``\ ，或 GELLO 的 evdev ``event_device``\ 。机械臂主臂部件读取的设备（\ ``leader_arm``\ 、\ ``leader_cartesian``\ ，经机器人 daemon）要等机器人连上才知道有没有事件设备，此时只打印一行 ``CONFIRM: ...`` 提示：空格和 ``n`` 没反应时改传 ``--teleop-event-device stdin``\ 。各设备的键名：
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - 设备
+     - 空格 / Enter / 其它
+   * - ``keyboard``\ （pynput，本机桌面）
+     - 空格键和 Enter（含小键盘 Enter）；字母按小写；Esc
+   * - ``stdin``\ （运行命令的终端，可经 SSH）
+     - 空格和 Return（CR 或 LF，CRLF 算一次）；字母按小写；单独的 Esc，方向键、功能键序列被跳过。终端进入 cbreak 模式，按住键会重复
+   * - ``jsonl``\ （\ ``--teleop-events-file``\ ，\ ``teleop run --events-file``\ ）
+     - 事件名 ``start`` = 空格、\ ``enter``\ 、\ ``open`` = o、\ ``close`` = c、\ ``next`` = n、\ ``quit`` = q，以及原有的 ``takeover``\ 、\ ``handback``\ 、\ ``success``\ 、\ ``failure``\ 、\ ``rerecord``\ 、\ ``end``\ ；每次 poll 读一行
+   * - GELLO ``event_device``\ （evdev）
+     - 事件 ``start_episode``/``next_episode``/``gripper_open``/``gripper_close``/``confirm``/``operator_quit``\ ，默认键见 :doc:`gello`
+
+其它设备不产生这些键：只有运动、没有事件设备的 ``spacemouse``\ 、\ ``leader_arm`` 等，要另配上面之一。
+
+**回合判定键（ACTIVE）。**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - 键
+     - 结果
+   * - ``s``
+     - 成功：保留（至少有一个人工步）；之后进入 ``POST_EPISODE``
+   * - ``f``
+     - 失败：标为 discarded（\ ``failure event``\ ），不保留
+   * - ``r``
+     - 重录：标为 discarded（\ ``rerecord``\ ）。confirm 下之后也进入 ``POST_EPISODE``\ ，下一回合要 ``n`` 和空格才开始
+   * - ``Esc``
+     - 不判定就结束：discarded（\ ``no success``\ ）
+   * - 步数上限
+     - 截断，不算成功：discarded（\ ``no success``\ ）
+   * - ``q``
+     - 该回合照常判定，随后会话进入 ``STOPPING``
+
+标错了不用重录：\ ``rwrl dataset drop`` 把保留的回合标为 discarded（\ ``manual``\ ），\ ``rwrl dataset undrop`` 恢复，见\ :ref:`复查与维护 <recording-demos-review-and-maintenance>`\ 。
+
+**选项。**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 12 58
+
+   * - 参数
+     - 默认值
+     - 含义
+   * - ``--episode-end-behavior``
+     - 录制 ``confirm``\ ，训练 ``auto``
+     - 见上表；\ ``rwrl record`` 默认 confirm，训练命令默认 auto
+   * - ``--gripper-open-fraction``
+     - 0.95
+     - confirm：夹爪宽度占最大宽度的比例至少为此值算全开，\ ``n`` 时不问
+   * - ``--gripper-closed-fraction``
+     - 0.05
+     - confirm：比例至多为此值算全合，\ ``n`` 时不问。须满足 0 ≤ closed < open ≤ 1，否则启动报错
+   * - ``--start-tolerance-rad``
+     - 0.8
+     - 录制器的 ``joint_abs``\ ：confirm 下它是起始锁的阈值（空格锁住，不报错）；auto/hold 下仍是拒绝开始的差值。actor 和评估的 confirm 同样使用该值，默认 0.8
+   * - ``--neutral-threshold``\ 、\ ``--neutral-stable-s``
+     - 0.05、0.2
+     - 只用于 ``hold``\ ；confirm 不看中立
+
+**什么时候用哪一个。** 录示范用 confirm（默认）。强化学习训练默认 auto，回合结束立刻 reset，learner 照常训练；任务需要人把场景摆回去（放回物体、换物体）时，改成 confirm：actor 在 ``POST_EPISODE``/``READY`` 等人，期间不推送轨迹，learner 继续用已有数据训练。actor 和评估把 ``episode_end_behavior: confirm`` 当作任何 HIL 配置字段使用；起止键与本节相同，评估跑完最后一个回合后停在 ``POST_EPISODE``\ （不 reset）。hold 只在只有一个人、手上有 SpaceMouse 且是笛卡尔臂时有意义。
+
+**还没在真机上验证的地方。**
+
+- 关节模式的保持用实测关节：机械臂上没有被接受的关节目标可重发，控制器在当时的位置继续跟踪，每步关节限幅约束任何差值。
+- Franka Hand 的开合是异步的：按 ``o`` 后立刻 ``n`` 可能仍读到半合而再问一次。
+- 事件设备在机器人 PC 的 daemon 上时，旧 daemon 不转发新键，A 会一直停在 ``READY``\ ；升级机器人 PC 上的 daemon。
+- 夹爪宽度反馈依赖夹爪后端；读不到时按「总是询问」处理，不会自动开爪。
+
 .. _recording-demos-what-happens-in-an-episode:
 
 回合内的处理流程
 --------------------------------------------------------------------------------
 
-1. 环境 reset（机器人回 home，夹爪打开）。
-2. 仅 ``joint_abs``\ ：录制器读取一次 leader，与 follower 的 ``joint_pos`` 比较。任一关节差值超过 ``--start-tolerance-rad`` 时停止并给出逐关节误差：先将 leader 对齐 follower 位姿再重启。低于容差时由起始策略（\ ``--teleop-onset``\ ）处理接管：\ ``ramp`` 每步以 ``--teleop-ramp-step-rad`` 将 follower 移向 leader，\ ``arm`` 等待 leader 进入 ``--teleop-arm-tolerance-rad``\ 。读取通过未激活接管开关的运动设备进行，因此起始策略不会隐藏差距，也不会消费事件设备按钮。
+1. 环境 reset（机器人回 home，夹爪打开）。confirm 下 reset 之后还要操作员按空格（\ ``READY``\ ）才开始记录，见\ :ref:`回合边界 <recording-demos-episode-boundaries>`\ 。
+2. 仅 ``joint_abs``\ （auto/hold；confirm 用起始锁，不会报错停止）：录制器读取一次 leader，与 follower 的 ``joint_pos`` 比较。任一关节差值超过 ``--start-tolerance-rad`` 时停止并给出逐关节误差：先将 leader 对齐 follower 位姿再重启。低于容差时由起始策略（\ ``--teleop-onset``\ ）处理接管：\ ``ramp`` 每步以 ``--teleop-ramp-step-rad`` 将 follower 移向 leader，\ ``arm`` 等待 leader 进入 ``--teleop-arm-tolerance-rad``\ 。读取通过未激活接管开关的运动设备进行，因此起始策略不会隐藏差距，也不会消费事件设备按钮。
 3. 每步录制器发送保持动作；操作员介入时，介入包装器改为执行操作员动作。保持动作将机器人留在原处：\ ``joint_delta``\ （以及双臂 ``cartesian_delta``\ ）为零机械臂动作，\ ``joint_abs`` 为 follower 当前关节位置，单臂 ``cartesian_delta`` 则为返回固定保持位姿的动作（reset 后及每次交还时采样；\ ``leader_cartesian`` 使用输入源自身 tracker，见 \ :ref:`teleop.md <teleop-mapping>`\ ），避免机械臂漂移。距保持位姿超过一步（\ ``--real-robot.xyz-scale-m``/``--real-robot.rot-scale-rad``\ ）时发送饱和动作，逐步返回。夹爪维度保持最后执行的夹爪动作（reset 后为打开），每臂一个：夹爪是最后 ``num_arms`` 个动作维度（动作契约布局）。\ ``run_recorder(args, hold_action_fn_factory=...)`` 可注入其它保持策略（以构建后的环境调用）。
 4. 每步都写入数据集（无人介入的保持步也在）。训练视图选择介入步；两种关节模式的 leader 追赶均带 ``teleop_syncing``\ ，除非设置 ``--keep-syncing-steps``\ ，否则排除。数据集派生训练视图仍排除 syncing。人工掩码选择专家维度，空闲保持补充动作没有专家标签。
 5. 环境终止或截断时回合结束：操作员的回合结束按钮（键盘 Esc）截断，步数上限截断，成功键终止（默认 ``--reward-from-teleop-events``\ ），奖励分类器终止。仍在介入时按成功键：仅介入步进入示范记录，因此终止步也必须是介入步。
@@ -133,7 +289,7 @@ SpaceMouse tracker 模式参数（默认 ``--spacemouse-mode tracker``；详情�
    * - ``failure``\ （\ ``f``\ ）
      - 回合标为 discarded（``failure event``\ ），即使先前已有成功标签
    * - ``rerecord``\ （\ ``r``\ ）
-     - 立即结束回合并标为 discarded（``rerecord``\ ），开始下一回合
+     - 立即结束回合并标为 discarded（``rerecord``\ ），开始下一回合（confirm 下进入 ``POST_EPISODE``\ ，下一回合要 ``n`` 和空格）
 
 每个回合都存入数据集；只有至少有一个人工步的成功回合标为 kept，其余标为 discarded 并带原因（下表）。每个完成回合打印其结果。Ctrl-C 停止会话：已写入的回合不受影响，被打断的那个回合只要已有一步，就存为 discarded（``interrupted``\ ），在环境释放机器人之后写入；\ ``q`` 键（\ ``operator_quit``\ ）结束当前回合，照常判定结果，然后以同样方式停止会话。
 

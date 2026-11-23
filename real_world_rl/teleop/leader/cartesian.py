@@ -83,7 +83,10 @@ MAPPINGS = ("anchored", "absolute")
 _LEADER_ACTION_SPACE = "joint_abs"
 _CARTESIAN_ACTION_MODE = "cartesian_delta"
 _CARTESIAN_ARM_DIM = 6
-_FORWARDED_EVENTS = ("success", "failure", "rerecord")
+# The outcome events, then the episode_end_behavior=confirm keys of a device-side event_device
+# (operator_keys.CONFIRM_EVENT_KEYS).
+_FORWARDED_EVENTS = ("success", "failure", "rerecord", "start_episode", "next_episode",
+                     "gripper_open", "gripper_close", "confirm", "operator_quit")
 _DEFAULT_REMOTE_NAME = "leader"
 
 logger = logging.getLogger(__name__)
@@ -305,6 +308,11 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
             teleop.reset()
         except DeviceNotConnected:
             return
+
+    def provides_operator_keys(self) -> None:
+        """Unknown before the robot connects: the confirm-mode keys come from the teleop part's
+        ``event_device`` when it binds them."""
+        return None
 
     def poll(self) -> TeleopReading:
         """One leader read; the part's own ``intervening`` is the operator's signal."""

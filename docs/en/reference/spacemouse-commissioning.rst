@@ -335,16 +335,13 @@ required position and RPY limits. ``--profile NAME`` overrides the station defau
 ``--num-successes`` defaults to 20; ``--max-episodes`` is optional. Each episode can
 contain multiple human/policy handovers. The mode's takeover behavior is unchanged.
 
-After an episode ends, the session holds the last device-accepted target and
-ignores puck movement. ``n`` requests the next episode, including the task's reset;
-all six input axes must stay within the selected profile's neutral threshold
-(default 0.05) with released buttons for 0.2 seconds. ``q`` releases control and
-exits. Reaching the recording budget disables ``n`` but continues holding until
-``q``. Faults and signals still invoke cleanup. Holding does not add transitions
-to the completed trajectory.
+After an episode ends the session enters ``POST_EPISODE``: it holds the last device-accepted target,
+ignores puck movement and leaves the gripper unchanged; ``o``/``c`` in the terminal open and close the gripper, ``n`` requests the next episode (including the task's reset; a partly closed gripper is confirmed in ``GRIPPER_CHECK`` first), and after the reset space in ``READY`` starts it. ``q`` releases control and
+exits. Once the recording budget is reached, ``n`` or ``q`` ends the session without another reset. Faults and signals still invoke cleanup. Holding does not add transitions
+to the completed trajectory. Phases and keys are in :ref:`Episode boundaries <en-recording-demos-episode-boundaries>`. This is ``--episode-end-behavior confirm``, which ``teleop run`` always uses; the neutral threshold and the 0.2-second neutral check belong to ``hold`` only.
 
-The Python recorder retains its existing automatic episode behavior by default.
-Pass ``--episode-end-behavior hold`` to opt into the same session behavior, with
+The Python recorder ``rwrl record`` also defaults to ``confirm`` (it needs an event device).
+Pass ``--episode-end-behavior hold`` to opt into the single-operator neutral-confirmed session behavior, with
 ``--neutral-threshold`` and ``--neutral-stable-s`` available explicitly. This requires ``real_robot`` Cartesian control and a composite source with a
 separate event device plus a motion source implementing ``session_input()``
 (SpaceMouse or ``leader_cartesian``). Other configurations are rejected before reset.
@@ -436,19 +433,19 @@ labels. Supported SpaceMouse readers take an advisory device-path claim, so a
 second project reader is refused until the first closes. Diagnostics also check
 for existing hardware process owners and do not take over their devices.
 
-Every reset in a holding session is followed by a neutral gate: the arm holds
+Every reset in a ``hold`` session is followed by a neutral gate: the arm holds
 its post-reset measured pose until the puck and buttons remain neutral for
 ``neutral_stable_s`` (default 0.2 seconds). ``q`` can exit during this gate. The gate
-does not run when handing control between policy and operator within a trajectory.
+does not run when handing control between policy and operator within a trajectory. ``confirm`` (what ``teleop run`` uses) skips this check; space in ``READY`` starts the episode instead.
 
 For agent-driven event input, add ``--events-file local/events.jsonl`` to
 ``rwrl teleop run``, or ``--events-file -`` for a pipe on stdin. Create the file
 before launching and append one JSON object per line, for example
 ``{"event":"takeover"}``. Supported events are ``takeover``, ``handback``, ``success``,
-``failure``, ``rerecord``, ``end``, ``next`` and ``quit``. SpaceMouse tracker still uses button 0 for takeover/handback and ignores those
+``failure``, ``rerecord``, ``end``, ``next`` and ``quit``, plus ``start``, ``enter``, ``open`` and ``close`` for confirm. SpaceMouse tracker still uses button 0 for takeover/handback and ignores those
 JSONL toggle events; SERL retains motion/button-based intervention.
 ``leader_cartesian`` sessions use the JSONL takeover/handback events. This input replaces terminal keys.
-Wait for ``EPISODE_HOLD`` before sending ``next``; reset can move/home the robot.
+Wait for ``POST_EPISODE`` (``EPISODE_HOLD`` under ``hold``) before sending ``next``, and for ``READY`` before sending ``start``; reset can move/home the robot.
 Events are consumed in order, at most one per control poll. A regular file is
 tailed; closing a pipe before ``quit`` is a fault. Malformed or unknown events
 fail rather than silently continuing. Direct Python/training entry points use
@@ -502,7 +499,7 @@ evidence; it does not collect a trace or certify that a physical stop is fixed.
 
 HIL-SERL, residual HIL-SERL and SiLRI training actors can also opt in with
 ``--episode-end-behavior hold``, ``--neutral-threshold 0.05`` and
-``--neutral-stable-s 0.2``. Their default remains ``auto``. This requires the same
+``--neutral-stable-s 0.2``. Their default remains ``auto``; when a person has to rearrange the scene between episodes, use ``--episode-end-behavior confirm`` (see :ref:`Episode boundaries <en-recording-demos-episode-boundaries>`). ``hold`` requires the same
 Cartesian real-robot backend and composite event/neutral-input source as recording.
 Each episode is sealed before holding; holding adds no transitions or policy
 steps. Explicit ``next`` permits reset, then neutral input is checked again.
@@ -565,7 +562,7 @@ exit unsuccessfully after evidence export; insufficient evidence remains BLOCKED
 
 CLI sessions also write private ``session-events-<timestamp>-<id>.jsonl``, separate from trajectory
 transitions. Each schema-1 row has sequence, monotonic time, episode index, phase
-and reason. Phases are ``READY`` (awaiting reset/neutral), ``ACTIVE``, ``EPISODE_HOLD``,
+and reason. Phases are ``READY`` (awaiting reset/neutral, under confirm awaiting space), ``ACTIVE``, ``EPISODE_HOLD`` (hold), ``RESETTING``, ``POST_EPISODE``, ``GRIPPER_CHECK`` (confirm),
 ``STOPPING``, ``CLOSED`` and ``FAULT``. ``CLOSED`` means cleanup returned successfully,
 not that hardware stop acceptance passed. An interrupted process may leave the
 last phase unfinished; absence of ``CLOSED`` must not be inferred as release.

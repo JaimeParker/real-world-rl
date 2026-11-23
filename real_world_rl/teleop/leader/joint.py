@@ -146,6 +146,11 @@ class LeaderArmPartSource(TeleopPartSource, ToggleableTeleopSource):
 
     # -- source protocol -----------------------------------------------------------
 
+    def provides_operator_keys(self) -> None:
+        """Unknown before the robot connects: the confirm-mode keys come from the teleop part's
+        ``event_device`` when it binds them."""
+        return None
+
     def poll(self) -> TeleopReading:
         """One leader read; the part's own ``intervening`` is the operator toggle."""
         return self._poll(toggle=None)

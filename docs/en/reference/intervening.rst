@@ -39,7 +39,11 @@ the same mode and preset as recording and training. See \ :ref:`mode details <en
    * - Esc
      - end the episode without a success label (``human_episode_end``)
    * - ``q``
-     - end the current episode and stop the recorder/actor after processing it
+     - end the current episode and stop the recorder/actor after processing it; under confirm it quits at once in the between-episode phases
+   * - space
+     - confirm: start the episode in READY; no effect in ACTIVE
+   * - ``n``, ``o``, ``c``, Enter
+     - confirm: in POST_EPISODE ask for the reset / open / close the gripper; in GRIPPER_CHECK Enter confirms the reset and ``o`` opens in place first. No effect in ACTIVE
    * - GELLO trigger
      - close (``-1``) when squeezed, open (``+1``) when released, after the takeover latch is matched
    * - SpaceMouse button 0
@@ -100,6 +104,8 @@ SpaceMouse
    Keyboard ``t`` and ``h`` do not change this device's takeover state.
 5. Use keyboard ``s``\ **/**\ ``f``\ **/**\ ``r``\ **/Esc/**\ ``q`` for outcomes and quit. In the recorder label
    success while button-0 takeover remains active.
+
+With the default recording workflow ``episode_end_behavior: confirm``, the arm holds where it is after an episode, ``o``/``c`` handle the gripper, ``n`` asks for the reset (a partly closed gripper is asked about once), and space after the reset starts the next episode; see :ref:`Episode boundaries <en-recording-demos-episode-boundaries>`.
 
 With the opt-in ``episode_end_behavior: hold`` workflow, a trajectory label freezes
 the last accepted target and ignores puck motion. Press n to request a new

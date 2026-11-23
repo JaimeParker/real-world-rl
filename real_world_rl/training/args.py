@@ -88,9 +88,16 @@ class RealWorldFrankaArgs:
 class _HilEnvArgsBeforeTeleop:
     """HIL-only fields preceding TeleopArgs; preserves the public field order."""
 
-    episode_end_behavior: Literal["auto", "hold"] = "auto"
+    # Episode boundaries: "auto" resets at once; "hold" holds the arm until a neutral-confirmed
+    # n (Cartesian); "confirm" holds it until the operator resets (n, after a gripper check) and
+    # starts (SPACE) each episode from an event device (real_world_rl.teleop.core.session.ConfirmSession).
+    episode_end_behavior: Literal["auto", "hold", "confirm"] = "auto"
     neutral_threshold: float = .05
     neutral_stable_s: float = .2
+    # confirm: at n, a gripper narrower than gripper_open_fraction and wider than
+    # gripper_closed_fraction of its maximum width may hold an object, so the operator is asked first.
+    gripper_open_fraction: float = .95
+    gripper_closed_fraction: float = .05
 
     # Only used when role="eval": number of deterministic episodes to run.
     eval_n_trajs: int = 10

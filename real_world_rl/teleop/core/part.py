@@ -41,7 +41,10 @@ __all__ = [
 ]
 
 _CARTESIAN_ARM_DIM = 6
-_FORWARDED_EVENTS = ("success", "failure", "rerecord")
+# The outcome events, then the episode_end_behavior=confirm keys of a device-side event_device
+# (operator_keys.CONFIRM_EVENT_KEYS).
+_FORWARDED_EVENTS = ("success", "failure", "rerecord", "start_episode", "next_episode",
+                     "gripper_open", "gripper_close", "confirm", "operator_quit")
 # Comfortably above the local Teleop's fault latency (5 failed polls x 10 ms backoff).
 DEFAULT_READ_TIMEOUT_S = 1.0
 

@@ -178,9 +178,9 @@ SpaceMouse 标定档案与任务坐标系工作空间
 
 ``--mode serl`` 使用原生 SERL 接管语义；预设须提供所需位置和 RPY 限制。\ ``--profile NAME`` 覆盖工作站默认。\ ``--num-successes`` 默认 20，\ ``--max-episodes`` 可选。每回合可包含多次人工/策略交接，模式的接管行为不变。
 
-回合结束后，会话保持最后的设备已接受目标，忽略操纵帽运动。\ ``n`` 请求下一回合（包括任务 reset）；全部六轴须在所选档案中立阈值（默认 0.05）内且按钮松开，持续 0.2 秒。\ ``q`` 释放控制并退出。达到录制预算后禁用 ``n``\ ，但保持到 ``q``\ 。故障和信号仍执行清理。保持期间不向已完成轨迹添加 transition。
+回合结束后进入 ``POST_EPISODE``\ ：会话保持最后的设备已接受目标，忽略操纵帽运动，夹爪不变；终端的 ``o``/``c`` 开合夹爪，\ ``n`` 请求下一回合（包括任务 reset；夹爪半合时先经 ``GRIPPER_CHECK`` 确认），reset 后 ``READY`` 里按空格才开始。\ ``q`` 释放控制并退出。达到录制预算后 ``n`` 或 ``q`` 直接结束会话，不再 reset。故障和信号仍执行清理。保持期间不向已完成轨迹添加 transition。阶段与按键见\ :ref:`回合边界 <recording-demos-episode-boundaries>`\ 。这是 ``--episode-end-behavior confirm``\ ，\ ``teleop run`` 固定使用它；中立阈值和 0.2 秒中立检查只属于 ``hold``\ 。
 
-Python 录制器默认保留原自动回合行为。传 ``--episode-end-behavior hold`` 可启用相同会话行为，可显式设 ``--neutral-threshold``\ 、\ ``--neutral-stable-s``\ 。要求 ``real_robot`` 笛卡尔环境，以及独立事件设备与实现 ``session_input()`` 的运动源（SpaceMouse 或 ``leader_cartesian``）组成的复合源。其他配置在 reset 前拒绝。
+Python 录制器 ``rwrl record`` 默认也是 ``confirm``\ （要事件设备）。传 ``--episode-end-behavior hold`` 可启用单人的中立确认会话行为，可显式设 ``--neutral-threshold``\ 、\ ``--neutral-stable-s``\ 。要求 ``real_robot`` 笛卡尔环境，以及独立事件设备与实现 ``session_input()`` 的运动源（SpaceMouse 或 ``leader_cartesian``）组成的复合源。其他配置在 reset 前拒绝。
 
 私有同级 ``<output-stem>.session-<id>`` 目录保存生效配置与会话结果。全局 ``--json`` 下子进程输出到 stderr。实际正常停止稳定性仍需独立物理验证；进程成功退出不是实测停止验收结果。
 
@@ -222,9 +222,9 @@ tracker 模式每次读数只保留一组轴（默认 ``axis_lock: dominant``\ �
 
 实时交互采集需要终端。代理可用 ``--samples`` 拟合同样的带标签 JSON；\ ``--yes`` 不会生成人工方向标签。受支持 SpaceMouse 读取器获取建议性设备路径 claim，第二个项目读取器会被拒绝，直到第一个关闭。诊断也检查现有硬件进程拥有者，不接管其设备。
 
-保持会话的每次 reset 后都有中立门控：机械臂保持 reset 后实测位姿，直到操纵帽/按钮持续中立 ``neutral_stable_s``\ （默认 0.2 秒）。门控期间 ``q`` 可退出。轨迹内策略与人工交接时不执行此门控。
+``hold`` 会话的每次 reset 后都有中立门控：机械臂保持 reset 后实测位姿，直到操纵帽/按钮持续中立 ``neutral_stable_s``\ （默认 0.2 秒）。门控期间 ``q`` 可退出。轨迹内策略与人工交接时不执行此门控。\ ``confirm``\ （\ ``teleop run`` 用的）不做这道检查，改由 ``READY`` 里的空格开始。
 
-代理驱动事件输入时，在 ``rwrl teleop run`` 加 ``--events-file local/events.jsonl``\ ，或 ``--events-file -`` 从 stdin 管道读取。启动前创建文件，每行追加一个 JSON 对象，如 ``{"event":"takeover"}``\ 。支持事件为 ``takeover``\ 、\ ``handback``\ 、\ ``success``\ 、\ ``failure``\ 、\ ``rerecord``\ 、\ ``end``\ 、\ ``next``\ 、\ ``quit``\ 。SpaceMouse tracker 仍由按钮 0 接管/交还，忽略这些 JSONL 切换事件；SERL 保留运动/按钮介入。``leader_cartesian`` 会话使用 JSONL takeover/handback。此输入替代终端按键。发送 ``next`` 前等待 ``EPISODE_HOLD``\ ；reset 可移动/归位机器人。事件按顺序消费，每次控制轮询最多一个。普通文件以 tail 方式读取；\ ``quit`` 前关闭管道是故障。格式错误或未知事件会失败，不会静默继续。直接 Python/训练入口使用 ``--teleop-event-device jsonl --teleop-events-file <path-or-dash>``\ 。
+代理驱动事件输入时，在 ``rwrl teleop run`` 加 ``--events-file local/events.jsonl``\ ，或 ``--events-file -`` 从 stdin 管道读取。启动前创建文件，每行追加一个 JSON 对象，如 ``{"event":"takeover"}``\ 。支持事件为 ``takeover``\ 、\ ``handback``\ 、\ ``success``\ 、\ ``failure``\ 、\ ``rerecord``\ 、\ ``end``\ 、\ ``next``\ 、\ ``quit``\ ，以及 confirm 的 ``start``\ 、\ ``enter``\ 、\ ``open``\ 、\ ``close``\ 。SpaceMouse tracker 仍由按钮 0 接管/交还，忽略这些 JSONL 切换事件；SERL 保留运动/按钮介入。``leader_cartesian`` 会话使用 JSONL takeover/handback。此输入替代终端按键。发送 ``next`` 前等待 ``POST_EPISODE``\ （\ ``hold`` 下是 ``EPISODE_HOLD``\ ），发送 ``start`` 前等待 ``READY``\ ；reset 可移动/归位机器人。事件按顺序消费，每次控制轮询最多一个。普通文件以 tail 方式读取；\ ``quit`` 前关闭管道是故障。格式错误或未知事件会失败，不会静默继续。直接 Python/训练入口使用 ``--teleop-event-device jsonl --teleop-events-file <path-or-dash>``\ 。
 
 已保存的正常停止证据可离线评估，无需连接硬件或加载工作站。在任意机器仓库中激活项目环境后运行：
 
@@ -241,7 +241,7 @@ schema-1 JSON 轨迹含主机单调时钟上的 ``stop_start_s``\ 、\ ``stop_en
 
 已知违规产生 ``FAIL``\ ，证据不足或陈旧产生 ``BLOCKED``\ 。退出码 PASS 为 0、FAIL 为 3、BLOCKED 为 4、输入无效为 2。结果含输入文件 SHA-256。评估不平滑或修改样本。\ ``PASS`` 仅适用于所给样本，不能确立连续时间最大值；仅两个端点快照不够。此命令评估证据，不采集轨迹，也不证明物理停止问题已修复。
 
-HIL-SERL、残差 HIL-SERL、SiLRI 训练 actor 也可用 ``--episode-end-behavior hold``\ 、\ ``--neutral-threshold 0.05``\ 、\ ``--neutral-stable-s 0.2`` 启用，默认仍为 ``auto``\ 。要求与录制相同的笛卡尔真机后端和事件/中立输入复合源。每回合在保持前封存；保持不添加 transition 或策略步。显式 ``next`` 允许 reset，再检查中立。FWBW 因免 reset 回合处理不同而拒绝此选项。Python 用户可在 ``actor.run()`` 前调用 ``actor.configure_episode_session("hold", ...)``\ 。有限步数预算会禁用 next 并保持到 quit，即使最后一步未终止回合。
+HIL-SERL、残差 HIL-SERL、SiLRI 训练 actor 也可用 ``--episode-end-behavior hold``\ 、\ ``--neutral-threshold 0.05``\ 、\ ``--neutral-stable-s 0.2`` 启用，默认仍为 ``auto``\ ；任务需要人把场景摆回去时可用 ``--episode-end-behavior confirm``\ （见\ :ref:`回合边界 <recording-demos-episode-boundaries>`\ ）。``hold`` 要求与录制相同的笛卡尔真机后端和事件/中立输入复合源。每回合在保持前封存；保持不添加 transition 或策略步。显式 ``next`` 允许 reset，再检查中立。FWBW 因免 reset 回合处理不同而拒绝此选项。Python 用户可在 ``actor.run()`` 前调用 ``actor.configure_episode_session("hold", ...)``\ 。有限步数预算会禁用 next 并保持到 quit，即使最后一步未终止回合。
 
 实时标定记录 USB vendor/product 标识，以及设备提供的序列号。Tracker 和 SERL 源在打开输入、回合 reset 前检查身份。不匹配会拒绝运行并释放源拥有的输入；不关闭调用者拥有的输入。无序列号时，vendor/product 匹配只能证明型号，不能证明个体。更换此类设备后需重验方向映射。无设备身份的离线档案仍明确不绑定身份，绝不从设备索引猜测身份。
 
@@ -253,7 +253,7 @@ HIL-SERL、残差 HIL-SERL、SiLRI 训练 actor 也可用 ``--episode-end-behavi
 
 ``rwrl teleop run`` 通过仅运行时注入的 ``RWRL_STOP_TRACE_PATH`` 启用正常停止证据。\ ``RWRL_DIAGNOSTICS_PATH``\ 、\ ``RWRL_SESSION_EVENTS_PATH`` 指定其他运行时证据路径，默认均关闭。这些路径不在 ``RealRobotEnvConfig`` 或持久配置中。Python 调用者向 ``RealRobotEnv(..., report_paths=...)`` 单独传入 ``RuntimeReportPaths(stop_trace=..., diagnostics=..., session_events=...)``\ 。省略 ``report_paths`` 时，环境通过 ``RuntimeReportPaths.from_environ()`` 读取变量。后端须在 reset 前声明 ``stop_trace_v1``\ （目前为 Franky 和更新后的 Franka daemon）。控制期间使用同一连接采样，保留滚动停止前窗口。显式正常退出会采集停止，观察 2.1 秒后释放连接。会话报告目录写入 ``stop-trace-<timestamp>-<id>.json`` 和配套 ``.assessment.json``\ ，\ ``summary.json`` 含评估。已知验收失败会在导出证据后令子进程失败退出；证据不足保留 BLOCKED。
 
-CLI 会话还写入独立于轨迹 transition 的私有 ``session-events-<timestamp>-<id>.jsonl``\ 。每个 schema-1 行含序号、单调时间、回合索引、阶段、原因。阶段为 ``READY``\ （等待 reset/中立）、\ ``ACTIVE``\ 、\ ``EPISODE_HOLD``\ 、\ ``STOPPING``\ 、\ ``CLOSED``\ 、\ ``FAULT``\ 。\ ``CLOSED`` 表示清理成功返回，不代表硬件停止验收通过。中断可能留下未结束阶段；不能从缺少 ``CLOSED`` 推断已释放。Python recorder/actor 用户可运行时注入 ``RuntimeReportPaths(session_events=...)``\ 。运行目录内文件名唯一，第二次环境 ``close()`` 不重复导出。清理记录当前异常类型；已有 ``operator_quit`` STOPPING 行不重复。
+CLI 会话还写入独立于轨迹 transition 的私有 ``session-events-<timestamp>-<id>.jsonl``\ 。每个 schema-1 行含序号、单调时间、回合索引、阶段、原因。阶段为 ``READY``\ （等待 reset/中立，confirm 下等待空格）、\ ``ACTIVE``\ 、\ ``EPISODE_HOLD``\ （hold）、\ ``RESETTING``\ 、\ ``POST_EPISODE``\ 、\ ``GRIPPER_CHECK``\ （confirm）、\ ``STOPPING``\ 、\ ``CLOSED``\ 、\ ``FAULT``\ 。\ ``CLOSED`` 表示清理成功返回，不代表硬件停止验收通过。中断可能留下未结束阶段；不能从缺少 ``CLOSED`` 推断已释放。Python recorder/actor 用户可运行时注入 ``RuntimeReportPaths(session_events=...)``\ 。运行目录内文件名唯一，第二次环境 ``close()`` 不重复导出。清理记录当前异常类型；已有 ``operator_quit`` STOPPING 行不重复。
 
 故障与中断立即清理，跳过正常观察等待。Daemon 停止观察允许 stop/read，拒绝新控制写入。原 SDK 停止规律不变。报告质量/质心及 SDK/服务器元数据是观测，不是已验证负载标定。停止元数据还以 SHA-256 指纹记录 SDK facade、实现及父类模块文件（含 Python 包装背后的原生模块）。缺失文件记录不可用。这是磁盘指纹，不证明已加载内存或链接系统库。模型证据包含可取得的质量、质心、惯量、法兰到末端和末端到刚度坐标系变换；SDK 缺失字段保留 null。环境导出轨迹包含 ``metadata.session_exit``\ ：已知退出原因、回合索引、环境配置 SHA-256。活动轨迹或保持中显式 q 记录 ``operator_quit``\ ，其他正常关闭为 ``normal_close``\ 。上下文本身不证明停止成功。Python 调用者可在同一已连接 Franky/remote arm 先 ``begin_stop_trace()`` 再 ``stop_with_trace()``\ ；停止抛错后仍可读 ``last_stop_trace``\ 。成功带轨迹停止后，后端在停止后观察前进入 IDLE，所以 daemon 动作期限到期不会再次停止。观察期间拒绝新运动或进入伺服模式，普通 stop 仍可用。之后恢复需显式选择控制模式。停止失败不会错误标记为空闲，也不会禁用 watchdog 故障回退。
 

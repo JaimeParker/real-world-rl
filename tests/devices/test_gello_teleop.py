@@ -210,7 +210,8 @@ def make_dynamixel_sdk(bus: FakeServoBus) -> dict[str, types.ModuleType]:
 # -- fake evdev --------------------------------------------------------------------
 
 EV_SYN, EV_KEY = 0, 1
-KEY_CODES = {"KEY_ESC": 1, "KEY_R": 19, "KEY_S": 31, "KEY_F": 33, "KEY_A": 30, "KEY_SPACE": 57, "KEY_B": 48}
+KEY_CODES = {"KEY_ESC": 1, "KEY_R": 19, "KEY_S": 31, "KEY_F": 33, "KEY_A": 30, "KEY_SPACE": 57, "KEY_B": 48,
+             "KEY_N": 49, "KEY_O": 24, "KEY_C": 46, "KEY_ENTER": 28, "KEY_Q": 16}
 InputEvent = collections.namedtuple("InputEvent", "type code value")
 
 
@@ -634,6 +635,24 @@ def test_unknown_evdev_key_name_is_rejected_at_connect(servo_bus, evdev):
     with pytest.raises(ValueError, match="unknown evdev key name 'KEY_NOPE'"):
         teleop.connect()
     assert not servo_bus.ports[0].is_open and not teleop.is_connected
+
+
+def test_confirm_keys_fire_on_their_default_keys(gello, evdev):
+    teleop = gello(event_device=EVENT_DEVICE)
+    for key in ("KEY_N", "KEY_O", "KEY_C", "KEY_ENTER", "KEY_Q", "KEY_SPACE"):
+        evdev.tap(key)
+    expected = ["next_episode", "gripper_open", "gripper_close", "confirm", "operator_quit", "start_episode"]
+    assert sorted(fired_events(teleop, expected)) == sorted(expected)
+
+
+def test_the_start_key_shares_the_toggle_key_and_a_taken_key_stays_with_its_action(gello, evdev):
+    teleop = gello(intervention="toggle", event_device=EVENT_DEVICE,
+                   event_keys={"success": "KEY_N", "operator_quit": None})
+    evdev.tap("KEY_SPACE")
+    evdev.tap("KEY_N")
+    evdev.tap("KEY_Q")
+    assert sorted(fired_events(teleop, ["start_episode", "success"])) == ["start_episode", "success"]
+    assert settled_read(teleop, lambda s: s.intervening).buttons == {"toggle": True}
 
 
 def test_one_key_bound_to_two_actions_is_rejected(servo_bus, evdev):

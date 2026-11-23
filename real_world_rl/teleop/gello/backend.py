@@ -46,7 +46,18 @@ DEFAULT_EVENT_KEYS = {
     "failure": "KEY_F",
     "rerecord": "KEY_R",
 }
-_KEY_ACTIONS = (TOGGLE_ACTION, *EVENT_KEYS)
+# episode_end_behavior=confirm keys (operator_keys.CONFIRM_EVENT_KEYS), raised as events of the
+# same name. Each is bound to its default key only when that key is free (the start key may share
+# the toggle's key: one press then toggles and starts); event_keys binds or unbinds them explicitly.
+CONFIRM_EVENT_KEYS = {
+    "start_episode": "KEY_SPACE",
+    "next_episode": "KEY_N",
+    "gripper_open": "KEY_O",
+    "gripper_close": "KEY_C",
+    "confirm": "KEY_ENTER",
+    "operator_quit": "KEY_Q",
+}
+_KEY_ACTIONS = (TOGGLE_ACTION, *EVENT_KEYS, *CONFIRM_EVENT_KEYS)
 _OPTION_KEYS = {
     "port",
     "baudrate",
@@ -304,7 +315,7 @@ class DynamixelBus:
 class _GelloHandle:
     bus: DynamixelBus
     event_device: Any = None
-    event_key_codes: dict[int, str] = field(default_factory=dict)
+    event_key_codes: dict[int, tuple[str, ...]] = field(default_factory=dict)
     event_type_key: int | None = None
 
 
@@ -381,6 +392,7 @@ class GelloTeleop(Teleop):
         event_device = options.get("event_device")
         self._event_device_path = None if event_device is None else str(event_device)
         self._event_keys = _event_key_names(options.get("event_keys"))
+        self._unbound_keys = {action for action, key in dict(options.get("event_keys") or {}).items() if key is None}
         if self._intervention == "toggle" and (
             self._event_device_path is None or TOGGLE_ACTION not in self._event_keys
         ):
@@ -464,7 +476,17 @@ class GelloTeleop(Teleop):
                 raise ValueError(
                     f"gello event_keys: '{key_name}' is bound to both {codes[code]} and {action}"
                 )
-            codes[code] = action
+            codes[code] = (action,)
+        for action, key_name in CONFIRM_EVENT_KEYS.items():
+            if action in self._event_keys or action in self._unbound_keys:
+                continue  # bound or unbound explicitly
+            code = getattr(evdev.ecodes, key_name, None)
+            if not isinstance(code, int):
+                continue
+            if code not in codes:
+                codes[code] = (action,)
+            elif action == "start_episode" and codes[code] == (TOGGLE_ACTION,):
+                codes[code] = (TOGGLE_ACTION, action)
         try:
             device = evdev.InputDevice(self._event_device_path)
         except OSError as error:
@@ -518,7 +540,8 @@ class GelloTeleop(Teleop):
             action=joints.astype(np.float32),
             gripper=gripper,
             buttons={TOGGLE_ACTION: toggle_on if self._intervention == "toggle" else False},
-            events_now={key: key in pressed for key in EVENT_KEYS},
+            events_now={**{key: key in pressed for key in EVENT_KEYS},
+                        **{key: True for key in CONFIRM_EVENT_KEYS if key in pressed}},
             active=True if self._intervention == "always" else toggle_on,
         )
 
@@ -533,9 +556,7 @@ class GelloTeleop(Teleop):
             if event is None:
                 return pressed
             if event.type == handle.event_type_key and event.value == EVDEV_KEY_DOWN:
-                action = handle.event_key_codes.get(event.code)
-                if action is not None:
-                    pressed.append(action)
+                pressed.extend(handle.event_key_codes.get(event.code, ()))
 
 
 def _servo_ids(option: str, values: Any) -> list[int]:

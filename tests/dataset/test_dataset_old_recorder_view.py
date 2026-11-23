@@ -121,7 +121,8 @@ READINGS = [
 def _run(tmp_path, keep_syncing_steps):
     inner = InterventionWrapper(CameraJointEnv(), ScriptedTeleopSource(READINGS, action_mode="joint_abs", arm_action_dim=7))
     spy = OldRowsSpy(inner, keep_syncing_steps)
-    args = RecordDemosArgs(num_successes=1, control_hz=1e6, keep_syncing_steps=keep_syncing_steps)
+    args = RecordDemosArgs(num_successes=1, control_hz=1e6, keep_syncing_steps=keep_syncing_steps,
+                           episode_end_behavior="auto")
     record_into_dataset(spy, args, tmp_path / "ds", obs_spec=SPEC, on_episode=spy.on_episode)
     return spy, spy.rows, Dataset(tmp_path / "ds")
 

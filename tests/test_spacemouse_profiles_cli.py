@@ -77,7 +77,7 @@ def test_run_builds_supervised_child_with_hold(tmp_path, capsys, monkeypatch, ex
     payload = json.loads(capsys.readouterr().out)
     from pathlib import Path
     resolved = yaml.safe_load((Path(payload['report_directory']) / 'resolved-config.yaml').read_text())
-    assert resolved['episode_end_behavior'] == 'hold'
+    assert resolved['episode_end_behavior'] == 'confirm'
     assert 'teleop_diagnostic_axes' not in resolved
     assert 'teleop_diagnostic_gain' not in resolved
     assert resolved['num_successes'] == 20
@@ -164,7 +164,7 @@ def test_motion_diagnostic_launches_supervised_limited_session(tmp_path, capsys,
     assert resolved['num_successes'] == 1
     assert resolved['max_episodes'] == 1
     assert resolved['max_episode_steps'] == 20
-    assert resolved['episode_end_behavior'] == 'hold'
+    assert resolved['episode_end_behavior'] == 'confirm'
     assert not {'stop_trace_path', 'diagnostics_path', 'session_events_path'} & resolved['real_robot'].keys()
     assert calls[0][1:5] == ['-m', 'real_world_rl.cli', 'supervise', '--']
 

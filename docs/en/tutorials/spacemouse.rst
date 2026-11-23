@@ -220,16 +220,17 @@ Default target speeds are 0.05 m/s and 0.3 rad/s; lead caps are 0.05 m and 0.3 r
    :start-after: # start practice
    :end-before: # end practice
 
-After confirming the run, release the puck and both buttons and wait for the neutral check to pass. Press button_0 to take over,
+After confirming the run, the session resets and waits in READY: the arm holds at home and puck and button motion is ignored. Arrange the objects and press space in the terminal to start the episode (ACTIVE).
+Release the puck and both buttons, then press button_0 to take over,
 push gently in one direction, then release the puck. The target stops advancing, but the robot may finish moving through the remaining lead distance.
 While controlling, press button_1 to toggle the gripper open / closed. Press button_0 again to hand back.
 After hand-back, the recorder holds the current pose. Terminal ``t`` / ``h`` do not control this mode.
-Finally press ``s`` to mark the practice successful, then ``q`` during the hold phase to quit.
+Finally press ``s`` to mark the practice successful; the episode enters POST_EPISODE, where ``q`` quits. The between-episode keys (space, ``n``, ``o``/``c``) are in :doc:`record`.
 
 **What you should see**: pressing button_0 to take over prints ``INTERVENTION ON: the operator drives the arm``;
 about 0.3 s after hand-back it prints ``INTERVENTION OFF: the operator handed back``. Pressing ``s`` or ``f`` prints
 ``EPISODE MARK: success`` or ``failure``. Puck motion moves the robot only after button_0 is pressed. Take-over retains the last gripper command;
-it does not open automatically. Releasing the puck is not hand-back. EPISODE_HOLD appears after the episode ends; see :doc:`record`.
+it does not open automatically. Releasing the puck is not hand-back. POST_EPISODE appears after the episode ends; see :doc:`record`.
 
 Your wrist may tilt the puck while pushing it. Tracker mode defaults to ``axis_lock: dominant``: each reading retains only
 the translation or rotation group with the larger peak and zeros the other, so a pure x push does not introduce pitch.
@@ -242,7 +243,7 @@ For simultaneous translation and rotation, set ``axis_lock: "off"`` in the stati
    The controller receives base-frame targets and does not rotate them again. Switching controllers changes one station field; the orientation profile and preset need no changes.
 
 **Single-axis check.** Push in just one direction (or twist about one axis) at a time. Check that the TCP moves in the same **table**\ direction (or rotates about the same axis).
-For translation, read with ``workspace capture``: once before the session, then push only one direction about 3 cm, hand back, press ``s`` and ``q`` to exit, and read again:
+For translation, read with ``workspace capture``: once before the session, then press space to start, push only one direction about 3 cm, hand back, press ``s`` and ``q`` to exit, and read again:
 
 .. literalinclude:: ../../examples/spacemouse.sh
    :language: bash
@@ -267,7 +268,7 @@ If pushing “up” makes the TCP move diagonally, ``task_frame`` is missing or 
 To restrict diagnostic input, add ``--diagnose translation``,
 ``rotation`` or ``all`` to the ``teleop run`` above. This session moves the robot and requires an already reviewed workspace in the station.
 Here ``--gain`` defaults to 0.2, range (0, 1]; ``--duration-s`` defaults to 5 s, range (0, 300],
-and is converted to an episode step cap. Unless explicitly specified, both the success quota and episode budget are 1. The episode still enters hold when it ends.
+and is converted to an episode step cap. Unless explicitly specified, both the success quota and episode budget are 1. The episode still enters POST_EPISODE when it ends, and once the budget is used up, ``n`` or ``q`` ends the session.
 Without ``--diagnose``, gain and duration-s have no effect. Input-filter settings are written into the control contract.
 
 Tracker lead caps cannot exceed the preset's per-step action scales. Otherwise session startup reports
@@ -277,7 +278,7 @@ also set ``teleop_lead_cap_m: 0.02`` at the preset's top level (the default angu
 
 **If it doesn't**:
 
-* ``START_NEUTRAL`` keeps waiting: release the puck and buttons, then check idle noise and the profile's neutral_threshold (default 0.05).
+* Stuck at READY: the episode starts when you press space in the terminal that runs ``rwrl``; the puck and buttons do not start it. The profile's neutral_threshold (default 0.05) is used only in ``hold`` mode.
 * ``WORKSPACE HOLD: <axes>``: the request is out of bounds. Recheck workspace and safety_box, hand back and take over again. Do not enlarge boundaries to bypass the check.
 * Direction or magnitude differs: exit the session, recheck the orientation profile, task frame and preset action scales, then repeat single-axis practice.
 

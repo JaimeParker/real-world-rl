@@ -104,6 +104,10 @@ The seven home values come from the q readings and reviewed starting pose in :do
 
 ``episode_end_behavior: hold`` makes the actor hold after an episode ends and wait for n, then pass a neutral check before the next reset.
 It does not change handback between policy and human control within an episode. ``max_episode_steps`` is the truncation limit.
+Training commands default to ``auto``: the env resets right after an episode. When a person has to rearrange the scene (an object fell on the table, or must be swapped), use ``episode_end_behavior: confirm`` instead:
+the actor waits in POST_EPISODE and READY for a person, who presses ``o``/``c`` for the gripper, ``n`` to reset (a partly closed gripper is asked about once) and space to start the next episode;
+the actor pushes no trajectory in those phases, and the learner keeps training on what it has. confirm needs an event device (``--teleop-event-device stdin``, ``keyboard`` or ``jsonl``)
+and supports Cartesian and joint arms; this chapter is a single-operator Cartesian session and keeps ``hold``. The phases and keys are in :doc:`../reference/recording-demos`.
 A success event makes reward at least 1 and sets terminated=True. A failure event takes priority over success in the same step and sets
 task_success=False and truncated=True. The underlying reward is 0 in this configuration, so a failure row has reward=0;
 the failure wrapper itself does not guarantee zeroing an arbitrary classifier reward. Esc only ends the episode; it does not add a success label.

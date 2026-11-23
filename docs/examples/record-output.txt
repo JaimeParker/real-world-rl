@@ -1,3 +1,34 @@
+# start diagram
+RESETTING --reset 完成--> READY --SPACE--> ACTIVE --s/f/r/Esc/步数上限--> POST_EPISODE
+    ^                                                                         |
+    |  n：夹爪全开或全合，直接 reset                                          |
+    +-------------------------------------------------------------------------+
+    |  n：夹爪半合                                                            v
+    +----------- Enter 后 reset ------------------------------------- GRIPPER_CHECK
+                                                       （o 或其它键：回到 POST_EPISODE）
+POST_EPISODE 里 o/c 开合夹爪，阶段不变。预算用完时 POST_EPISODE 的 n 或 q 直接结束，不 reset。
+任何阶段按 q -> STOPPING。
+# end diagram
+# start confirm
+示例：以下状态行按 session.py 原样列出，是一轮（成功）加预算用完的结束；夹爪宽度和具体句子随现场不同。
+RESETTING: the arm moves home, then the gripper opens; keys pressed now are discarded, wait for READY.
+READY: arm holds at home, teleop motion ignored; rearrange the scene. SPACE = start the episode, q = quit.
+ACTIVE: episode 1 started; teleoperate now. s = success, f = failure, r = rerecord, Esc = end the episode, q = quit after it.
+POST_EPISODE: arm holds here, gripper unchanged, teleop motion ignored. o = open gripper, c = close gripper, n = reset for the next episode, q = quit.
+GRIPPER_CHECK: the gripper is partly closed (23.4 mm) and may hold an object. Enter = reset now (the gripper opens after the arm reaches home); o = open it here first. Any other key = back to POST_EPISODE.
+GRIPPER: open sent to arm.
+RESETTING: the arm moves home, then the gripper opens; keys pressed now are discarded, wait for READY.
+READY: arm holds at home, teleop motion ignored; rearrange the scene. SPACE = start the episode, q = quit.
+ACTIVE: episode 2 started; teleoperate now. s = success, f = failure, r = rerecord, Esc = end the episode, q = quit after it.
+POST_EPISODE: episode budget reached; arm holds here, gripper unchanged, teleop motion ignored. o = open gripper, c = close gripper, n or q = end the session (no reset).
+STOPPING: episode budget reached; the session ends without a reset.
+# end confirm
+# start lock
+示例：GELLO 关节模式，主臂还没对上从臂时（READY 阶段，起始容差 0.8 rad）。
+READY: start locked: leader joints further than 0.8 rad from the follower: arm j3 1.02 rad; move the leader onto the follower.
+READY: SPACE ignored, start locked: leader joints further than 0.8 rad from the follower: arm j3 1.02 rad; move the leader onto the follower.
+READY: leader aligned with the follower; SPACE = start the episode, q = quit.
+# end lock
 # start hold
 示例：以下状态行按 session.py 原样列出；现场按回合预算选择其中一条。
 START_NEUTRAL: release motion controls or align an always-on leader with the follower; q exits control.

@@ -216,7 +216,7 @@ class RealRobotEnv(gym.Env):
             return DeviceFault(message, hint=hint, device=robot.name)
 
         arm = robot.arm
-        if getattr(self, "_session_hold_required", False):
+        if getattr(self, "_session_hold_required", False) and config.action_mode == "cartesian_delta":
             self._validate_session_hold(arm)
         if arm.num_joints != config.num_joints:
             raise fault(
@@ -843,15 +843,20 @@ class RealRobotEnv(gym.Env):
             return None
         return next(iter(self._last_obs["frames"].values()))
 
-    def require_session_hold(self):
-        """Declare the opt-in before reset; defer remote capability checks to connect."""
-        if self.config.action_mode != "cartesian_delta":
+    def require_session_hold(self, mode="hold"):
+        """Declare the opt-in before reset; defer remote capability checks to connect.
+
+        ``hold`` (``episode_end_behavior=hold``) needs ``cartesian_delta``; ``confirm`` also holds
+        the joint action modes (``session_hold_tick`` re-sends a measured joint pose)."""
+        if mode == "hold" and self.config.action_mode != "cartesian_delta":
             raise ValueError("session hold currently requires cartesian_delta")
+        if mode not in ("hold", "confirm"):
+            raise ValueError(f"unknown session hold mode {mode!r}")
         first = not getattr(self, "_session_hold_required", False)
         self._session_hold_required = True
         if first:
             self.session_event("READY", "awaiting_reset")
-        if self._validated:
+        if self._validated and self.config.action_mode == "cartesian_delta":
             self._validate_session_hold(self.robot.arm)
 
     def output_path(self, name):
@@ -884,15 +889,21 @@ class RealRobotEnv(gym.Env):
                               hint="upgrade the backend/daemon before starting a hold session")
 
     def session_start_target(self):
+        """The pose to hold after a reset: the measured TCP pose (``cartesian_delta``) or the
+        measured joints (the joint modes, ``confirm`` only)."""
         if self.config.action_mode != "cartesian_delta":
-            raise ValueError("session hold currently requires cartesian_delta")
+            return self._measured_joint_target()
         return np.asarray(self.robot.arm.read_state()["tcp_pose"], dtype=np.float64).copy()
 
     def session_hold_target(self):
         """The episode's last accepted target. Nothing between the final step and this read
-        stops the arm; any stop ends the control segment and leaves no target to hold."""
+        stops the arm; any stop ends the control segment and leaves no target to hold.
+
+        The joint modes (``confirm`` only) have no accepted joint target on the device, so they
+        hold the measured joints: the controller keeps tracking where the arm is, without a jump
+        (the device's per-step joint limit bounds any difference)."""
         if self.config.action_mode != "cartesian_delta":
-            raise ValueError("session hold currently requires cartesian_delta")
+            return self._measured_joint_target()
         # A step-watchdog trip already stopped the arm (and cleared the target): report the trip.
         self._check_in_step_watchdog()
         target = self.robot.arm.last_cartesian_target
@@ -900,8 +911,17 @@ class RealRobotEnv(gym.Env):
             raise RuntimeError("no accepted Cartesian target to hold")
         return np.asarray(target, dtype=np.float64).copy()
 
+    def _measured_joint_target(self):
+        self._check_in_step_watchdog()
+        joints = np.asarray(self.robot.arm.read_state()["joint_pos"], dtype=np.float64).copy()
+        if joints.shape != (self.config.num_joints,) or not np.isfinite(joints).all():
+            raise RuntimeError(f"invalid measured joints to hold: {joints.tolist()}")
+        return joints
+
     def session_hold_tick(self, target):
         """Refresh a fixed accepted target without stepping a terminated episode."""
+        if self.config.action_mode != "cartesian_delta":
+            return self._session_hold_joints(target)
         self._check_in_step_watchdog()
         health = self.robot.arm.health()
         if not health.ok:
@@ -920,6 +940,55 @@ class RealRobotEnv(gym.Env):
             self._record_control_diagnostic(None, target, target, {"arm": raw}, kind="hold", accepted=accepted)
         self._check_in_step_watchdog()
         return raw
+
+    def _session_hold_joints(self, target):
+        """Re-send a fixed joint target through the arm's joint servo (the controller the episode
+        used: impedance tracker or trajectory_impedance), after the same health, watchdog and
+        measured-workspace checks as the Cartesian hold."""
+        self._check_in_step_watchdog()
+        health = self.robot.arm.health()
+        if not health.ok:
+            raise RuntimeError(f"cannot hold an unhealthy arm: {health}")
+        raw = self.robot.arm.read_state()
+        if "tcp_pose" in raw:
+            self._check_workspace_feedback(raw["tcp_pose"])
+        self.robot.arm.servo_joints(np.asarray(target, dtype=np.float64))
+        self._check_in_step_watchdog()
+        return raw
+
+    # -- confirm-mode gripper access (episode_end_behavior=confirm) -------------------
+
+    def session_grippers(self):
+        """``[(arm, width fraction or None, max width m or None)]`` of this env's gripper (empty
+        without one): the freshly measured normalized width (``Gripper.width``, 1 = fully open),
+        None when the gripper reports no usable width."""
+        gripper = self.robot.gripper
+        if gripper is None:
+            return []
+        try:
+            fraction = float(gripper.width)
+        except Exception as error:  # no feedback (e.g. an unconfigured stroke): ask the operator
+            logger.warning("gripper width unavailable: %s", error)
+            fraction = None
+        if fraction is not None and not np.isfinite(fraction):
+            fraction = None
+        max_width_m = getattr(gripper, "max_width_m", None)
+        return [("arm", fraction, None if max_width_m is None else float(max_width_m))]
+
+    def session_gripper(self, open, arms=None):
+        """Open (``open=True``) or close the gripper between episodes through the env's own
+        gripper path: ``serl`` semantics a forced binary command, otherwise the normalized command
+        1/0 to the robot (binarized by the gripper's threshold in binary mode). Returns the arms
+        commanded (``["arm"]``, or ``[]`` without a gripper)."""
+        if self.robot.gripper is None or (arms is not None and "arm" not in arms):
+            return []
+        if self.config.cartesian_semantics == "serl":
+            self.robot.gripper.command_binary(bool(open), force=True)
+            self._last_gripper_act = time.monotonic()
+        else:
+            raw = self._send_and_observe({"gripper": {"gripper": np.array([1.0 if open else 0.0])}})
+            self._observe(raw)
+        return ["arm"]
 
     def close(self) -> None:
         if self._closed:

@@ -383,7 +383,8 @@ def recorded_demos(station, preset, workdir) -> RecordedDemos:
 
     demo_path = workdir / "demos" / "task"
     args = parse_record_args(
-        [*_env_flags(preset), "--teleop-onset", "arm", "--output-dir", str(demo_path), "--num-successes", "1"]
+        [*_env_flags(preset), "--teleop-onset", "arm", "--output-dir", str(demo_path), "--num-successes", "1",
+         "--episode-end-behavior", "auto"]
     )
     # The recorder's default: the success key pays the reward and ends the episode.
     assert args.reward_from_teleop_events

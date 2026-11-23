@@ -135,17 +135,17 @@ hil_serl（以及 residual、SiLRI）从参数推导源 kwargs（\ ``robot``/``l
      - ``KeyboardTeleopSource``
      - 经 ``pynput`` 读取本机键盘
      - 遵循环境动作约定；动作始终为零
-     - ``t`` 接管，\ ``h`` 交还，Esc 结束回合，\ ``s``/``f``/``r`` 产生 ``success``/``failure``/``rerecord``\ ，\ ``q`` 结束回合并产生 ``operator_quit``\ （recorder 和 actor 循环在该回合后停止）。属于事件设备，单独使用仅适合纯事件测试。需要 ``pynput``\ （扩展 ``reward-collection``\ ）及桌面会话，在 ``start()`` 导入。
+     - ``t`` 接管，\ ``h`` 交还，Esc 结束回合，\ ``s``/``f``/``r`` 产生 ``success``/``failure``/``rerecord``\ ，\ ``q`` 结束回合并产生 ``operator_quit``\ （recorder 和 actor 循环在该回合后停止）。confirm 流程另认空格（``space``\ ，开始回合）和 Enter（含小键盘 Enter，``enter``\ ），以及回合之间的 ``n``/``o``/``c``\ 。属于事件设备，单独使用仅适合纯事件测试。需要 ``pynput``\ （扩展 ``reward-collection``\ ）及桌面会话，在 ``start()`` 导入。
    * - ``stdin``
      - ``StdinTeleopSource``
      - 运行进程的终端（cbreak 模式，\ ``close()`` 恢复；支持 SSH，无需桌面）
      - 遵循环境动作约定；动作始终为零
-     - 与 ``keyboard`` 同样按键。kwargs：\ ``fd``\ （默认 stdin）、\ ``poll_interval_s=0.02``\ 。输入结束使下次轮询抛出 ``DeviceFault``\ 。
+     - 与 ``keyboard`` 同样按键；空格是 ``space``\ ，Return（CR 或 LF，CRLF 算一次）是 ``enter``\ 。kwargs：\ ``fd``\ （默认 stdin）、\ ``poll_interval_s=0.02``\ 。输入结束使下次轮询抛出 ``DeviceFault``\ 。
    * - ``jsonl``
      - ``JsonlEventSource``
      - 追加式文件，或 stdin 管道
      - 遵循单臂环境动作约定；动作始终为零
-     - ``--teleop-event-device jsonl --teleop-events-file PATH``\ （stdin 用 ``-``\ ）。每次轮询一个事件：``takeover``、``handback``、``success``、``failure``、``rerecord``、``end``、``next``、``quit``。文件 EOF 等待追加；quit 前管道 EOF 报错。Reset 保留未读取事件。
+     - ``--teleop-event-device jsonl --teleop-events-file PATH``\ （stdin 用 ``-``\ ）。每次轮询一个事件：``takeover``、``handback``、``success``、``failure``、``rerecord``、``end``、``next``、``quit``，confirm 流程另有 ``start``\ （空格）、\ ``enter``\ 、\ ``open``\ （o）、\ ``close``\ （c）。文件 EOF 等待追加；quit 前管道 EOF 报错。Reset 保留未读取事件。
    * - ``composite``
      - ``CompositeTeleopSource``
      - 运动源加事件源
@@ -352,6 +352,35 @@ HIL actor 接受相同两个参数。配置两种安全框后，加 ``--spacemou
 ``q_follower`` 来自环境最新观测的 ``joint_pos``\ ，所以 ``state_fields`` 须包含它。除非事件设备提供切换，切换状态来自部件 ``intervening``\ （机器人 PC 上 evdev ``event_device`` 配合 ``intervention: toggle``\ ，或 ``always``\ ）：
 
 ``--teleop-event-device keyboard``\ （或 ``stdin``\ ）用 ``CompositeTeleopSource`` 包装运动设备：运动来自 ``--teleop-device``\ ，介入状态和 ``episode_end``/``success``/``failure``/``rerecord``/``operator_quit`` 来自 actor 事件设备（keyboard/stdin：\ ``t`` 接管、\ ``h`` 交还、Esc 结束、\ ``s``/``f``/``r``\ 、\ ``q`` 退出）。主臂源仍对该状态应用起始策略，忽略部件自身 ``intervention`` 设置。（\ ``--teleop-device spacemouse`` 保留按钮 0 接管，仅从事件设备读取事件，见 \ :ref:`SpaceMouse <teleop-spacemouse>`\ 。）
+
+.. _teleop-confirm-keys:
+
+``episode_end_behavior: confirm``\ （录制器和 ``rwrl teleop run`` 的默认）在回合之间多读五个键，由事件设备按顺序交给 ``ConfirmSession``\ 。事件源收到 ``enable_confirm_keys()`` 后保留每次按键的先后顺序（最多 64 个），回合内这些键没有效果：
+
+.. list-table::
+   :header-rows: 1
+   :widths: 14 18 68
+
+   * - 键
+     - 事件名
+     - 作用
+   * - 空格
+     - ``start_episode``
+     - READY：开始回合
+   * - ``n``
+     - ``next_episode``
+     - POST_EPISODE：请求 reset（夹爪半合时先进入 GRIPPER_CHECK）
+   * - ``o``/``c``
+     - ``gripper_open``/``gripper_close``
+     - POST_EPISODE、GRIPPER_CHECK：张开／合上夹爪（GRIPPER_CHECK 里只有 ``o``\ ，先原地张开）
+   * - Enter
+     - ``confirm``
+     - GRIPPER_CHECK：确认马上 reset
+   * - ``q``
+     - ``operator_quit``
+     - 任何阶段退出（原有的键）
+
+事件设备是 ``keyboard``、\ ``stdin``、\ ``jsonl``\ ，或带 ``event_device`` 的 GELLO（evdev 键见 :doc:`gello`\ ）。没有这样的设备时 confirm 启动即报错。阶段、夹爪检查和选项见 :ref:`回合边界 <recording-demos-episode-boundaries>`\ 。
 
 .. _teleop-leader-arm-on-a-cartesian-robot-leader_cartesian:
 

@@ -178,7 +178,7 @@ Franka FCI 仅允许一个控制连接。直连时先结束录制器或 actor，
      - SpaceMouse 仅输入诊断（\ :doc:`指南 <spacemouse-commissioning>`\ ）
      - 0 / 1 / 2
    * - ``teleop run``
-     - 带回合保持的受监督录制；\ ``--backend gello`` 用 GELLO 笛卡尔主臂；reset 前询问（\ :ref:`指南 <spacemouse-commissioning-supervised-recording-sessions>`\ ）
+     - 受监督录制，回合边界用 ``confirm``\ （操作员按空格开始、按 ``n`` 复位，见\ :ref:`回合边界 <recording-demos-episode-boundaries>`\ ）；\ ``--backend gello`` 用 GELLO 笛卡尔主臂；reset 前询问（\ :ref:`指南 <spacemouse-commissioning-supervised-recording-sessions>`\ ）
      - 子进程状态或包装器错误
    * - ``teleop probe-hid``
      - 为现场设备表记录类似 SpaceMouse 的 HID（\ :ref:`详情 <cli-teleop-probe-hid>`\ ）

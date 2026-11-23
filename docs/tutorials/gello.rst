@@ -165,9 +165,9 @@ station 声明了 daemon、但 daemon 已停止时，把全局 ``--direct`` 放�
    :end-before: # end practice
 
 当前 ``teleop run`` 的活动回合由终端 ``t`` 接管、``h`` 交还。
-默认 always 模式没有实体切换；中立门要求主臂请求位姿与从臂实测位姿的领先量在阈值内。
-看到 START_NEUTRAL 通过后按 t，移动主臂，试一次触发器开闭，再按 h。
-最后按 s 标记成功、q 退出保持阶段。下一章解释标注。
+默认 always 模式没有实体切换。reset 后会话停在 READY，按空格开始回合（ACTIVE）；
+看到 ACTIVE 后按 t，移动主臂，试一次触发器开闭，再按 h。
+最后按 s 标记成功，回合进入 POST_EPISODE，按 q 退出。一个人在主臂和终端之间切换即可，两人分工的完整流程见 :doc:`record`。下一章解释标注。
 
 **你应该看到**：从臂跟随主臂末端相对变化，交还后保持；
 接管时若触发器与上次夹爪状态不同，先把触发器移到该状态，再控制开闭。
@@ -176,7 +176,7 @@ station 声明了 daemon、但 daemon 已停止时，把全局 ``--direct`` 放�
 
 **如果不对**：
 
-* 一直停在 START_NEUTRAL：always 模式将主臂与从臂对齐并稳定保持；若另用 toggle 模式，则关闭设备 toggle。
+* 一直停在 READY：按空格才开始回合，要在运行 ``rwrl`` 的终端里按。
 * Space 能切设备状态却不接管活动回合：当前会话使用终端事件源，按 t/h；不要混用两套接管状态。
 * ``WORKSPACE HOLD``：先交还，检查请求方向和边界，再接管。不要通过扩大工作区掩盖错误映射。
 
@@ -210,7 +210,7 @@ station 声明了 daemon、但 daemon 已停止时，把全局 ``--direct`` 放�
    * - ``real_robot.action_mode``、``joint_scale_rad``
      - 本扩展按仓库双臂烟测 preset 使用 joint_delta、0.01 rad；现场确认该步长。
    * - ``teleop_onset``、``episode_end_behavior``
-     - arm 要求接管时对齐；auto 用于关节环境，当前 session hold 只支持笛卡尔环境。
+     - arm 要求接管时对齐；本例用 auto：回合结束后自动 reset。hold 只支持笛卡尔环境；关节环境可改用 confirm（要事件设备，如 ``--teleop-event-device stdin``），得到\ :doc:`record`\ 的两人流程，保持用实测关节，需要现场确认。
 
 其余保留复制配置；``teleop_arm_tolerance_rad`` 默认 0.1 rad，只有重新审阅对齐容差后才改。
 此时每臂七个关节增量加夹爪，共八维；别与前面的七维数据混用。
@@ -261,7 +261,7 @@ joint_delta 已按 joint_scale_rad 限幅，初次追赶标记持续到主臂首
    :end-before: # end joint
 
 **你应该看到**：新数据集头 action_contract 的 action_mode 为 joint_delta，arm_action_dim 为 7。
-若选择 joint_abs 环境，录制器还会在回合开始检查主从最大差值（默认 0.8 rad）。
+若选择 joint_abs 环境，录制器还会在回合开始检查主从最大差值（默认 0.8 rad）；改用 confirm 后，这一项变成 READY 里的起始锁：差值超过容差时空格不起作用，终端列出差得多的关节，对齐后才能开始，不会报错退出。
 
 **如果不对**：动作维数或关节限位不匹配时停止运行，核对主从关节顺序和对应范围；
 报 ``leader arm too far`` 时先对齐，不能仅扩大 start_tolerance_rad。

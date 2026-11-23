@@ -163,17 +163,17 @@ them) are not the env's in the env's order.
      - ``KeyboardTeleopSource``
      - this machine's keyboard via ``pynput``
      - follows the env's action contract; action always zeros
-     - ``t`` takes over, ``h`` hands back, Esc ends the episode, ``s``/``f``/``r`` raise ``success``/``failure``/``rerecord``, ``q`` ends the episode and raises ``operator_quit`` (the recorder and the actor loops stop after that episode). An event device: on its own it only suits event-only tests. Needs ``pynput`` (extra ``reward-collection``) and a desktop session, imported at ``start()``.
+     - ``t`` takes over, ``h`` hands back, Esc ends the episode, ``s``/``f``/``r`` raise ``success``/``failure``/``rerecord``, ``q`` ends the episode and raises ``operator_quit`` (the recorder and the actor loops stop after that episode). The confirm flow also reads space (``space``, start the episode) and Enter (including keypad Enter, ``enter``), plus ``n``/``o``/``c`` between episodes. An event device: on its own it only suits event-only tests. Needs ``pynput`` (extra ``reward-collection``) and a desktop session, imported at ``start()``.
    * - ``stdin``
      - ``StdinTeleopSource``
      - the terminal running the process (cbreak mode, restored on ``close()``; works over SSH, no desktop session)
      - follows the env's action contract; action always zeros
-     - the ``keyboard`` keys. kwargs: ``fd`` (default stdin), ``poll_interval_s=0.02``. End of input raises ``DeviceFault`` on the next poll.
+     - the ``keyboard`` keys; the space bar is ``space`` and Return (CR or LF; a CRLF pair is one press) is ``enter``. kwargs: ``fd`` (default stdin), ``poll_interval_s=0.02``. End of input raises ``DeviceFault`` on the next poll.
    * - ``jsonl``
      - ``JsonlEventSource``
      - an append-only file, or a pipe on stdin
      - follows the single-arm env action contract; action always zeros
-     - ``--teleop-event-device jsonl --teleop-events-file PATH`` (``-`` for stdin). One event per poll: ``takeover``, ``handback``, ``success``, ``failure``, ``rerecord``, ``end``, ``next``, ``quit``. File EOF waits; pipe EOF before quit faults. Reset preserves unread events.
+     - ``--teleop-event-device jsonl --teleop-events-file PATH`` (``-`` for stdin). One event per poll: ``takeover``, ``handback``, ``success``, ``failure``, ``rerecord``, ``end``, ``next``, ``quit``, and for the confirm flow ``start`` (space), ``enter``, ``open`` (o), ``close`` (c). File EOF waits; pipe EOF before quit faults. Reset preserves unread events.
    * - ``composite``
      - ``CompositeTeleopSource``
      - a motion source plus an event source
@@ -553,6 +553,35 @@ actor's machine (keyboard and stdin: ``t`` takes over, ``h`` hands back, Esc end
 part's own ``intervention`` setting is then ignored. (``--teleop-device spacemouse`` keeps its own
 take-over on button 0 and takes only the events from the event device, see
 \ :ref:`SpaceMouse <en-teleop-spacemouse>`\ .)
+
+.. _en-teleop-confirm-keys:
+
+``episode_end_behavior: confirm`` (the default of the recorder and ``rwrl teleop run``) reads five more keys between episodes, handed in order by the event device to ``ConfirmSession``. Once the source receives ``enable_confirm_keys()`` it keeps the order of key presses (at most 64), and inside an episode these keys do nothing:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 14 18 68
+
+   * - Key
+     - Event name
+     - Effect
+   * - space
+     - ``start_episode``
+     - READY: start the episode
+   * - ``n``
+     - ``next_episode``
+     - POST_EPISODE: ask for the reset (a partly closed gripper enters GRIPPER_CHECK first)
+   * - ``o``/``c``
+     - ``gripper_open``/``gripper_close``
+     - POST_EPISODE, GRIPPER_CHECK: open / close the gripper (only ``o`` in GRIPPER_CHECK, which opens in place first)
+   * - Enter
+     - ``confirm``
+     - GRIPPER_CHECK: confirm and reset now
+   * - ``q``
+     - ``operator_quit``
+     - Quit in any phase (the existing key)
+
+The event device is ``keyboard``, ``stdin``, ``jsonl``, or a GELLO with an ``event_device`` (evdev keys in :doc:`gello`). Without such a device confirm fails at startup. Phases, the gripper check and the options are in :ref:`Episode boundaries <en-recording-demos-episode-boundaries>`.
 
 .. _en-teleop-leader-arm-on-a-cartesian-robot-leader_cartesian:
 

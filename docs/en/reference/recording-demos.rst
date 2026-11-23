@@ -19,15 +19,10 @@ observations and actions must match its env (the dataset header's ``action_contr
 \ :doc:`Tutorial 08 <../tutorials/record>`\  walks through the first recording session, and
 the \ :doc:`operator page <intervening>`\  lists the keys, the onset and what is recorded.
 
-For SpaceMouse on a commissioned ``real_robot`` station, the supervised
-\ :ref:`rwrl teleop run workflow <en-spacemouse-commissioning-supervised-recording-sessions>`\  adds explicit
-episode-end holding. A label seals the trajectory; puck motion then has no
-effect until ``n`` requests a new episode and the puck is stably neutral. ``q``
-releases control, including after the episode budget is reached. Repeated
-takeover/hand-back inside a trajectory remains supported and does not invoke
-this neutral gate. After the gate, recording and actor loops acquire a fresh observation;
-the first archived frame and policy input are from after neutral confirmation, with image
-stack histories refilled from that fresh frame. The Python recorder's default remains ``episode_end_behavior: auto``; select ``hold`` explicitly when using it directly.
+The recorder defaults to ``episode_end_behavior: confirm``: after a reset the operator starts every episode with space, and after it the arm holds where it is, the operator checks the gripper, and only ``n`` resets (\ :ref:`Episode boundaries <en-recording-demos-episode-boundaries>`\ ). The supervised
+\ :ref:`rwrl teleop run workflow <en-spacemouse-commissioning-supervised-recording-sessions>`\  uses confirm too; repeated
+takeover/hand-back inside a trajectory remains supported. Only steps in ACTIVE are recorded, the first archived frame is a fresh observation taken when space is pressed,
+and image stack histories are refilled from that frame. Training commands still default to ``auto``, and the single-operator ``hold`` must be selected explicitly.
 
 Use the \ :doc:`SpaceMouse acceptance checklist <testing/spacemouse-control-session>`\ 
 and its record template for direction, workspace, holding and normal-stop
@@ -97,7 +92,7 @@ SpaceMouse tracker-mode flags (``--spacemouse-mode tracker``, the default; detai
 The operator keys of ``--teleop-event-device keyboard`` (this machine's desktop session) and
 ``--teleop-event-device stdin`` (the terminal running the recorder, also over SSH): ``t`` takes over,
 ``h`` hands back, ``s`` success, ``f`` failure, ``r`` rerecord, Esc ends the episode, ``q`` ends the episode
-and stops the recorder after it.
+and stops the recorder after it. In confirm (the default) the keys between episodes are space (start), ``n`` (reset), ``o``/``c`` (gripper) and Enter (confirm the gripper check); see \ :ref:`Episode boundaries <en-recording-demos-episode-boundaries>`\ .
 
 Two arms (``--env-backend real_robot_bimanual``): ``--teleop-device bimanual --teleop-arm-device leader_arm`` (or ``gello``, or ``robot``) reads one leader per arm, and the recorder works per arm.
 The hold action is each arm's own (in ``joint_abs``, every follower's joints on its own limits),
@@ -136,9 +131,15 @@ Recorder flags
    * - ``--max-episode-steps``
      - unset
      - episode step cap; replaces ``--real_robot.max_episode_steps``, ``--real_robot_bimanual.max_episode_steps`` when set
+   * - ``--episode-end-behavior``
+     - ``confirm``
+     - What follows an episode: ``confirm`` the operator resets and starts with keys, ``hold`` one operator with a neutral-confirmed ``n``, ``auto`` resets at once; see \ :ref:`Episode boundaries <en-recording-demos-episode-boundaries>`
+   * - ``--gripper-open-fraction``, ``--gripper-closed-fraction``
+     - 0.95, 0.05
+     - confirm: on ``n`` a gripper at or above open of its maximum width counts as fully open and at or below closed as fully closed, and resets directly; in between enters the gripper check
    * - ``--start-tolerance-rad``
      - 0.8
-     - ``joint_abs``: refuse to start an episode while the leader is further than this from the follower in any joint
+     - ``joint_abs``: refuse to start an episode while the leader is further than this from the follower in any joint; in confirm, space is locked instead and the terminal lists the joints that are too far apart
    * - ``--keep-syncing-steps``
      - off
      - include leader catch-up rows as ordinary supervised training rows; the dataset always retains their syncing marker, and the choice is written to the dataset header and followed when training loads it
@@ -155,13 +156,163 @@ The tracker lead-cap and target-speed rules above do not apply to this mode.
 
 ``--control-hz`` paces the loop as it paces the actor. ``--fwbw`` is not supported.
 
+.. _en-recording-demos-episode-boundaries:
+
+Episode boundaries: confirm, hold and auto
+--------------------------------------------------------------------------------
+
+``--episode-end-behavior`` (config key ``episode_end_behavior``) decides what happens after an episode ends:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 12 40 24 24
+
+   * - Value
+     - After an episode ends
+     - Default for
+     - Needs
+   * - ``confirm``
+     - The arm holds where it is; the operator presses keys to handle the gripper, ask for the reset and start the next episode (the rest of this section)
+     - ``rwrl record``, ``rwrl teleop run``; the actor and evaluation support it too
+     - An event device; one or two arms, Cartesian or joint actions
+   * - ``hold``
+     - The arm holds where it is until a neutral-confirmed ``n`` resets it; one operator
+     - Must be selected explicitly
+     - A single-arm Cartesian ``real_robot`` and a motion device that reports a neutral reading (SpaceMouse, ``leader_cartesian``)
+   * - ``auto``
+     - Resets at once; no key
+     - Training commands (``hil_serl`` etc.)
+     - Nothing
+
+``confirm`` suits two people: operator A presses keys in the terminal that runs the command and operator B teleoperates. The episode moves through six phases. Entering each one prints a ``<PHASE>: ...`` line (stderr) and writes a session event (the ``session-events`` file). The following is a whole run, verbatim; gripper widths and joint names vary on site:
+
+.. literalinclude:: ../../examples/en/record-output.txt
+   :language: text
+   :start-after: # start confirm
+   :end-before: # end confirm
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 40 40
+
+   * - Phase
+     - Arm and recording
+     - Keys
+   * - ``RESETTING``
+     - The arm moves home, then the gripper opens. Not recorded; keys pressed during the reset are discarded
+     - None
+   * - ``READY``
+     - The arm holds the pose measured after the reset, teleop motion is ignored. Not recorded
+     - ``space`` starts the episode; ``q`` quits
+   * - ``ACTIVE``
+     - Teleoperation, recorded step by step; row 0 of the episode is the observation freshly read when space is pressed
+     - ``s``/``f``/``r``/``Esc`` give the verdict and end the episode (table below); ``q`` gives the verdict, then quits; ``t``/``h`` take over and hand back as usual
+   * - ``POST_EPISODE``
+     - A Cartesian arm re-sends the last accepted target, a joint arm holds the measured joints; the gripper is unchanged and teleop motion is ignored. Not recorded
+     - ``o`` opens and ``c`` closes the gripper (the phase stays); ``n`` asks for the reset; ``q`` quits
+   * - ``GRIPPER_CHECK``
+     - Same as ``POST_EPISODE``
+     - ``Enter`` resets now; ``o`` opens in place and returns to ``POST_EPISODE``; any other key returns to ``POST_EPISODE``; ``q`` quits
+   * - ``STOPPING``
+     - Control is released; finished episodes are already on disk
+     - None
+
+Space, ``n``, ``o``, ``c`` and Enter act only in the phases listed above; pressing them in ACTIVE does nothing. Every wait tick re-sends the hold target, checks the arm's health and the step watchdog, and then feeds the supervisor heartbeat; ``env.step`` is not called, so waiting is not added to the trajectory and nothing is written to the dataset.
+
+**Gripper check.** On ``n`` the session reads the gripper width as a fraction of its maximum width: at least ``gripper_open_fraction`` (fully open) or at most ``gripper_closed_fraction`` (fully closed) resets directly; anything in between may hold an object and enters ``GRIPPER_CHECK``. With two arms every partly closed gripper is listed and ``o`` opens only those. A gripper that reports no width (no width feedback) is always asked about, and the prompt says ``no width feedback``. The reset homes first and opens the gripper after, so after Enter an object drops at home; to put it down in place, press ``o`` first.
+
+**Budget reached.** Once the success quota or ``--max-episodes`` is met, the last episode still enters ``POST_EPISODE`` first (o/c work), with the prompt ``n or q = end the session (no reset)``; ``n`` or ``q`` ends the session without a reset. ``q`` works in every phase.
+
+**Start lock (``joint_abs``).** In ``READY``, while any leader joint is further from its follower than ``start_tolerance_rad``, space is locked and the terminal lists the arm and joints that are too far apart (it refreshes only when the list changes or space is pressed, at most one line every 0.5 seconds). The session starts once they are aligned and never exits with an error:
+
+.. literalinclude:: ../../examples/en/record-output.txt
+   :language: text
+   :start-after: # start lock
+   :end-before: # end lock
+
+**Event device.** confirm needs an event device, and without one it fails at startup, before any reset: ``--teleop-event-device keyboard|stdin|jsonl``, or the evdev ``event_device`` of a GELLO. A leader read through the robot's teleop part (``leader_arm``, ``leader_cartesian``, via the robot daemon) cannot tell whether an event device exists until the robot connects; it only prints one ``CONFIRM: ...`` line saying that if space and ``n`` do nothing, pass ``--teleop-event-device stdin``. Key names per device:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Device
+     - Space / Enter / others
+   * - ``keyboard`` (pynput, this desktop)
+     - The space bar and Enter (including keypad Enter); letters lower-cased; Esc
+   * - ``stdin`` (the terminal running the command, also over SSH)
+     - Space and Return (CR or LF; a CRLF pair is one press); letters lower-cased; a lone Esc, with arrow and function key sequences skipped. The terminal enters cbreak mode and a held key repeats
+   * - ``jsonl`` (``--teleop-events-file``, ``teleop run --events-file``)
+     - Event names ``start`` = space, ``enter``, ``open`` = o, ``close`` = c, ``next`` = n, ``quit`` = q, plus the existing ``takeover``, ``handback``, ``success``, ``failure``, ``rerecord``, ``end``; one line per poll
+   * - GELLO ``event_device`` (evdev)
+     - Events ``start_episode``/``next_episode``/``gripper_open``/``gripper_close``/``confirm``/``operator_quit``; default keys in :doc:`gello`
+
+Other devices produce none of these keys: a motion-only ``spacemouse`` or ``leader_arm`` needs one of the above in addition.
+
+**Verdict keys (ACTIVE).**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Key
+     - Result
+   * - ``s``
+     - Success: kept (needs at least one human-controlled step); the session then enters ``POST_EPISODE``
+   * - ``f``
+     - Failure: flagged discarded (``failure event``), not kept
+   * - ``r``
+     - Rerecord: flagged discarded (``rerecord``). In confirm the session also enters ``POST_EPISODE`` afterwards; the next episode needs ``n`` and space
+   * - ``Esc``
+     - Ends without a verdict: discarded (``no success``)
+   * - Step cap
+     - Truncation, not a success: discarded (``no success``)
+   * - ``q``
+     - The episode is judged as usual, then the session enters ``STOPPING``
+
+A wrong verdict needs no re-recording: ``rwrl dataset drop`` flags a kept episode discarded (``manual``) and ``rwrl dataset undrop`` restores it; see \ :ref:`Review and maintenance <en-recording-demos-review-and-maintenance>`\ .
+
+**Options.**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 12 58
+
+   * - Flag
+     - Default
+     - What
+   * - ``--episode-end-behavior``
+     - ``confirm`` for recording, ``auto`` for training
+     - See the table above; ``rwrl record`` defaults to confirm, training commands to auto
+   * - ``--gripper-open-fraction``
+     - 0.95
+     - confirm: a gripper at or above this fraction of its maximum width counts as fully open and is not asked about on ``n``
+   * - ``--gripper-closed-fraction``
+     - 0.05
+     - confirm: at or below this fraction counts as fully closed and is not asked about on ``n``. Must satisfy 0 <= closed < open <= 1, otherwise startup fails
+   * - ``--start-tolerance-rad``
+     - 0.8
+     - Recorder ``joint_abs``: in confirm it is the threshold of the start lock (space is locked, no error); in auto/hold it is still the gap that refuses to start. The actor and evaluation use the same value in confirm, default 0.8
+   * - ``--neutral-threshold``, ``--neutral-stable-s``
+     - 0.05, 0.2
+     - ``hold`` only; confirm does not look at neutral
+
+**Which one when.** Record demonstrations with confirm (the default). Reinforcement-learning training defaults to auto: an episode ends, the env resets at once and the learner keeps training. Switch to confirm when a person has to rearrange the scene between episodes (put objects back, swap them): the actor then waits in ``POST_EPISODE``/``READY`` for a person and pushes nothing meanwhile, while the learner keeps training on what it has. The actor and evaluation take ``episode_end_behavior: confirm`` like any HIL config field; the keys are the same as in this section, and evaluation stops in ``POST_EPISODE`` after its last episode (no reset). hold only makes sense with one person, a SpaceMouse in hand and a Cartesian arm.
+
+**Not yet validated on hardware.**
+
+- The joint-mode hold uses the measured joints: the arm has no accepted joint target to re-send, so the controller keeps tracking where the arm is, and the per-step joint limit bounds any difference.
+- The Franka Hand opens and closes asynchronously: pressing ``n`` right after ``o`` may still read as partly closed and ask again.
+- When the event device sits on the robot PC's daemon, an older daemon does not forward the new keys and A stays in ``READY``; upgrade the daemon on the robot PC.
+- The gripper width feedback depends on the gripper backend; when it cannot be read, the session treats it as "always ask" and never opens the gripper by itself.
+
 .. _en-recording-demos-what-happens-in-an-episode:
 
 What happens in an episode
 --------------------------------------------------------------------------------
 
-1. The env resets (the robot homes, the gripper opens).
-2. ``joint_abs`` only: the recorder reads the leader once and compares it with the follower's
+1. The env resets (the robot homes, the gripper opens). In confirm, recording starts only after the operator presses space (``READY``); see \ :ref:`Episode boundaries <en-recording-demos-episode-boundaries>`\ .
+2. ``joint_abs`` only (auto/hold; confirm uses the start lock and never stops with an error): the recorder reads the leader once and compares it with the follower's
    ``joint_pos``. When any joint is further apart than ``--start-tolerance-rad``, it stops with the
    per-joint error: move the leader onto the follower's pose and restart. Below the tolerance the
    onset policy (``--teleop-onset``) handles the takeover: ``ramp`` moves the follower to the leader
@@ -200,7 +351,7 @@ evdev device; the SpaceMouse buttons raise none):
    * - ``failure`` (``f``)
      - the episode is flagged discarded (``failure event``), even after a success
    * - ``rerecord`` (``r``)
-     - the episode ends at once, flagged discarded (``rerecord``), and the next one starts
+     - the episode ends at once, flagged discarded (``rerecord``), and the next one starts (in confirm the session enters ``POST_EPISODE``; the next episode needs ``n`` and space)
 
 Every episode is stored in the dataset; only successful episodes with at least one human-controlled step are flagged kept, and the rest are flagged discarded with a reason (table below). Each finished episode is
 printed with its outcome. Ctrl-C stops the session: episodes already written are unaffected, and the interrupted episode, if it has at least one step, is stored as discarded (``interrupted``) after the environment has released the robot; the

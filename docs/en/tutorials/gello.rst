@@ -165,9 +165,9 @@ It uses leader forward kinematics, so still check the mechanism, joint order and
    :end-before: # end practice
 
 In current ``teleop run`` active episodes, terminal ``t`` takes over and ``h`` hands back.
-Default always mode has no physical toggle. The neutral gate requires the lead between the leader's requested pose and the follower's measured pose to be within threshold.
-Once START_NEUTRAL passes, press t, move the leader, try opening and closing with the trigger, then press h.
-Finally press s to mark success and q to exit the hold phase. The next chapter explains labeling.
+Default always mode has no physical toggle. After the reset the session waits in READY; press space to start the episode (ACTIVE).
+Once ACTIVE appears, press t, move the leader, try opening and closing with the trigger, then press h.
+Finally press s to mark success; the episode enters POST_EPISODE, where q exits. One person can switch between the leader and the terminal; the full two-person workflow is in :doc:`record`. The next chapter explains labeling.
 
 **What you should see**: the follower follows relative changes in the leader end effector and holds after hand-back;
 if the trigger differs from the last gripper state at take-over, first move the trigger to that state before controlling opening and closing.
@@ -176,7 +176,7 @@ The session report's ``resolved-config.yaml`` contains ``teleop_device: leader_c
 
 **If it doesn't**:
 
-* Stuck at START_NEUTRAL: in always mode, align the leader with the follower and hold it steady. If using toggle mode instead, turn the device toggle off.
+* Stuck at READY: the episode starts only when you press space, in the terminal that runs ``rwrl``.
 * Space switches device state but does not take over the active episode: this session uses the terminal event source. Press t/h; do not mix the two take-over states.
 * ``WORKSPACE HOLD``: hand back, check request direction and boundaries, then take over again. Do not enlarge the workspace to hide a mapping error.
 
@@ -210,7 +210,7 @@ This extension uses ``python -m real_world_rl.demos``, the same recording entry 
    * - ``real_robot.action_mode``, ``joint_scale_rad``
      - This extension follows the repository's bimanual smoke-test preset: joint_delta and 0.01 rad. Confirm that step size on site.
    * - ``teleop_onset``, ``episode_end_behavior``
-     - arm requires alignment at take-over. auto is for joint environments; current session hold supports only Cartesian environments.
+     - arm requires alignment at take-over. This example uses auto: the env resets right after an episode. hold supports only Cartesian environments; a joint environment can use confirm instead (it needs an event device such as ``--teleop-event-device stdin``), which gives the two-person flow of :doc:`record`, with the hold using the measured joints; confirm this on site.
 
 Keep the rest of the copied configuration. ``teleop_arm_tolerance_rad`` defaults to 0.1 rad; change it only after reviewing the alignment tolerance again.
 Each arm now has seven joint deltas plus the gripper, eight dimensions total. Do not mix this with the earlier seven-dimensional data.
@@ -261,7 +261,7 @@ See :doc:`record` for recording artifacts and recovery. Use a separate dataset f
    :end-before: # end joint
 
 **What you should see**: the new dataset header's action_contract has action_mode joint_delta and arm_action_dim 7.
-For a joint_abs environment, the recorder also checks the maximum leader–follower difference at episode start (default 0.8 rad).
+For a joint_abs environment, the recorder also checks the maximum leader–follower difference at episode start (default 0.8 rad); with confirm this becomes a start lock in READY: while the difference exceeds the tolerance, space does nothing, the terminal lists the joints that are too far apart, and the session starts once they are aligned, without exiting with an error.
 
 **If it doesn't**: stop if action dimensions or joint limits do not match. Check leader and follower joint order and corresponding ranges;
 if ``leader arm too far`` appears, align first. Do not merely increase start_tolerance_rad.

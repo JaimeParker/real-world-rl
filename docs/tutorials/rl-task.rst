@@ -104,6 +104,10 @@ home 的七个值来自 :doc:`station` 的 q 读数和已审阅起始姿态，�
 
 ``episode_end_behavior: hold`` 使 actor 在回合结束后保持并等待 n，再经过中立检查进入下一次 reset。
 它不改变回合内策略和人工的交还逻辑。``max_episode_steps`` 是截断上限。
+训练命令默认 ``auto``\ ：回合结束立刻 reset。任务要人把场景摆回去时（物体掉在桌上、要换一个物体），改用 ``episode_end_behavior: confirm``\ ：
+actor 在 POST_EPISODE 和 READY 等人，操作员按 ``o``/``c`` 处理夹爪、``n`` 复位（夹爪半合会先问一次）、空格开始下一回合，
+两个阶段里 actor 不推送轨迹，learner 继续用已有数据训练。confirm 要一个事件设备（``--teleop-event-device stdin``\ 、\ ``keyboard`` 或 ``jsonl``\ ），
+支持笛卡尔和关节臂；本章是单人笛卡尔会话，仍用 ``hold``\ 。完整的阶段和按键见 :doc:`../reference/recording-demos`\ 。
 成功事件令 reward 至少为 1、terminated=True；失败事件优先于同一步成功，令
 task_success=False、truncated=True。本配置底层 reward 为 0，所以失败行 reward=0；
 失败 wrapper 本身并不保证把任意分类器奖励清零。Esc 只结束回合，不补成功标签。

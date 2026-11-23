@@ -16,7 +16,8 @@ class SessionEvents:
         self.sequence = 0
 
     def emit(self, phase, *, reason, episode_index=None):
-        if phase not in {'READY', 'ACTIVE', 'EPISODE_HOLD', 'STOPPING', 'CLOSED', 'FAULT'}:
+        if phase not in {'READY', 'ACTIVE', 'EPISODE_HOLD', 'POST_EPISODE', 'GRIPPER_CHECK', 'RESETTING',
+                         'STOPPING', 'CLOSED', 'FAULT'}:
             raise ValueError('unknown session phase')
         row = {'schema_version': 1, 'sequence': self.sequence, 'monotonic_s': time.monotonic(),
                'phase': phase, 'reason': reason, 'episode_index': episode_index}

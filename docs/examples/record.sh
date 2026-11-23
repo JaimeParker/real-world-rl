@@ -39,3 +39,8 @@ rwrl supervise --log runs/record-spacemouse/supervise.jsonl -- \
     --real_robot.watchdog_s 0.3 \
     --output-dir local/ordinary-spacemouse --num-successes 1
 # end ordinary-spacemouse
+
+# start start-event
+# Only after seeing READY and arranging the scene:
+printf '%s\n' '{"event":"start"}' >> local/record-events.jsonl
+# end start-event

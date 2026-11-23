@@ -133,7 +133,7 @@ def _run_actor(args) -> None:
         if args.episode_end_behavior != "auto":
             loop.configure_episode_session(args.episode_end_behavior,
                                            neutral_threshold=args.neutral_threshold,
-                                           neutral_stable_s=args.neutral_stable_s)
+                                           neutral_stable_s=args.neutral_stable_s, **_confirm_options(args))
         loop_owns_env = True
         loop.run()
     finally:
@@ -248,7 +248,7 @@ def _run_eval(args) -> None:
     from real_world_rl.training.evaluation import evaluate_policy
     evaluate_policy(env, policy, episodes=args.eval_n_trajs, seed=args.seed,
         control_hz=actor_control_hz(args), episode_end_behavior=args.episode_end_behavior,
-        neutral_threshold=args.neutral_threshold, neutral_stable_s=args.neutral_stable_s)
+        neutral_threshold=args.neutral_threshold, neutral_stable_s=args.neutral_stable_s, **_confirm_options(args))
 
 
 def run_residual_hil_serl(args: "ResidualHilSerlArgs") -> None:
@@ -321,3 +321,10 @@ class ResidualHilSerlHybridArgs(ResidualHilSerlArgs):
 
 
 registry.register("residual_hil_serl", ResidualHilSerlArgs, run_residual_hil_serl)
+
+
+def _confirm_options(args) -> dict:
+    """``episode_end_behavior=confirm`` options for the actor loop and evaluation."""
+    from real_world_rl.teleop.core.session import confirm_session_options
+
+    return confirm_session_options(args)

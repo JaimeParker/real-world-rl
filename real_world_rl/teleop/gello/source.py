@@ -142,6 +142,7 @@ class GelloTeleopSource(ToggleableTeleopSource):
             "poll_interval_s": poll_interval_s,
         }
         options.update({key: value for key, value in optional.items() if value is not None})
+        self._event_device = event_device
         config = TeleopConfig(name=_BACKEND, backend=_BACKEND, hold_s=hold_s, options=options)
         self._part = _gello_teleop_class()(config, read_timeout_s=read_timeout_s)
         self._mapped = LeaderArmPartSource(
@@ -182,6 +183,11 @@ class GelloTeleopSource(ToggleableTeleopSource):
     @property
     def has_gripper(self) -> bool:
         return self._mapped.has_gripper
+
+    def provides_operator_keys(self) -> bool:
+        """With an ``event_device`` the GELLO raises the confirm-mode keys
+        (``backend.CONFIRM_EVENT_KEYS``)."""
+        return self._event_device is not None
 
     def start(self) -> None:
         self._part.connect()

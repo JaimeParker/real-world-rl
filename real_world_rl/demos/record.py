@@ -23,6 +23,12 @@ Episode outcome, read from the intervention wrapper's info keys so any event pat
 - an episode cut short by Ctrl-C or an error is stored as discarded (``interrupted``) when it
   has a step, after the env released the robot.
 
+Episode boundaries (``--episode-end-behavior``, default ``confirm``): the operator at the event
+device starts every episode with SPACE after a reset, and after it ends the arm holds where it is
+(POST_EPISODE: o/c gripper, n resets after a gripper check, q quits; see
+``real_world_rl.teleop.core.session.ConfirmSession``); only the episode's own steps are recorded.
+``auto`` resets right after each episode, ``hold`` waits for a neutral-confirmed n.
+
 The hold policy (``hold_action_fn_for``, injectable through ``run_recorder``'s
 ``hold_action_fn_factory``) is reset after every env reset and observes every step; on a
 ``cartesian_delta`` arm it holds a fixed pose (``real_world_rl.teleop.core.hold.CartesianHold``).
@@ -41,7 +47,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping, Optional, Sequence
+from typing import Any, Callable, Literal, Mapping, Optional, Sequence
 
 import numpy as np
 import torch
@@ -53,7 +59,6 @@ from rl_garden.common.env_args import EnvBackendArgs, EnvRunArgs
 from real_world_rl.contracts.action import (
     LEGACY_ACTION_CONTRACT,
     action_dim_of,
-    arm_block_slices,
     demo_contract_of,
     get_env_action_contract,
     num_arms_of,
@@ -64,9 +69,7 @@ from real_world_rl.envs.wrappers.intervention import InterventionWrapper
 from real_world_rl.loops.actor import ActorLoop
 from real_world_rl.teleop.core.hold import (
     HoldPolicy,
-    _arm_envs_of,
     as_hold_policy,
-    follower_joint_pos,
     hold_action_fn_for,
 )
 from real_world_rl.teleop.core.contract import TeleopReading, TeleopSource
@@ -129,6 +132,11 @@ class RecordDemosArgs(HilEnvArgs, RealWorldFrankaArgs, EnvRunArgs, ObservationAr
     # the env's own reward.
     reward_from_teleop_events: bool = True
 
+    # Episode boundaries (HilEnvArgs): the recorder defaults to "confirm", where the operator at
+    # the event device holds the arm after each episode (o/c gripper), resets it (n, after a
+    # gripper check) and starts the next episode (SPACE); "auto" resets at once.
+    episode_end_behavior: Literal["auto", "hold", "confirm"] = "confirm"
+
     # The demo dataset directory (``real_world_rl.dataset``). Required. A new directory is
     # created; an existing dataset is appended to when its header matches this run's env.
     output_dir: Optional[str] = None
@@ -143,6 +151,7 @@ class RecordDemosArgs(HilEnvArgs, RealWorldFrankaArgs, EnvRunArgs, ObservationAr
     max_episode_steps: Optional[int] = None
     # joint_abs: refuse to start an episode while the leader is further than this from the
     # follower in any joint (rad). Below it, --teleop-onset (ramp or arm) handles the takeover.
+    # In confirm mode the start key stays locked instead (READY names the joints).
     start_tolerance_rad: float = 0.8
     # Also record the leader-arm onset catch-up steps of the ramp policy (tagged
     # ``teleop_syncing``) as ordinary supervised demo rows; by default they are left out.
@@ -191,10 +200,14 @@ def executed_gripper_actions(executed: Any, num_grippers: int) -> Any:
 
 
 def _validate_episode_limit(args: RecordDemosArgs) -> None:
-    from real_world_rl.teleop.core.session import validate_neutral_options
-    if args.episode_end_behavior not in ("auto", "hold"):
-        raise ValueError("episode_end_behavior must be auto or hold")
+    from real_world_rl.teleop.core.session import (
+        validate_episode_end_behavior,
+        validate_gripper_fractions,
+        validate_neutral_options,
+    )
+    validate_episode_end_behavior(args.episode_end_behavior)
     validate_neutral_options(args.neutral_threshold, args.neutral_stable_s)
+    validate_gripper_fractions(args.gripper_open_fraction, args.gripper_closed_fraction)
     if args.max_episodes is not None and args.max_episodes < 1:
         raise ValueError("--max-episodes must be positive when set")
 
@@ -215,15 +228,14 @@ def check_leader_near_follower(
     its own follower: the result is ``(num_arms, num_joints)`` and the error names the arm
     furthest apart.
     """
+    from real_world_rl.teleop.core.session import leader_follower_gaps
+
     if contract["action_mode"] != "joint_abs":
         raise ValueError(f"the leader/follower start check needs joint_abs, got {contract['action_mode']!r}")
     reading = _read_leader(source)
     if num_arms_of(contract) != 1:
         return _check_leaders_near_followers(env, reading, contract, tolerance_rad)
-    low, high = np.asarray(contract["joint_limits"], dtype=np.float64).T
-    arm = np.asarray(reading.action[: len(low)], dtype=np.float64)
-    leader = low + (arm + 1.0) / 2.0 * (high - low)
-    error = np.abs(leader - follower_joint_pos(env))
+    error = leader_follower_gaps(env, reading, contract)[0]
     if float(error.max()) > tolerance_rad:
         raise LeaderFollowerGapError(
             f"leader arm too far from the follower to start an episode: |q_leader - q_follower| = "
@@ -236,15 +248,10 @@ def check_leader_near_follower(
 def _check_leaders_near_followers(
     env: Any, reading: TeleopReading, contract: Mapping[str, Any], tolerance_rad: float
 ) -> np.ndarray:
+    from real_world_rl.teleop.core.session import leader_follower_gaps
+
     arm_names = list(contract["arm_names"])
-    action = np.asarray(reading.action, dtype=np.float64)
-    per_arm_limits = np.asarray(contract["joint_limits"], dtype=np.float64)
-    errors = []
-    for block, arm_env, limits in zip(arm_block_slices(contract), _arm_envs_of(env, contract), per_arm_limits):
-        low, high = limits.T
-        leader = low + (action[block] + 1.0) / 2.0 * (high - low)
-        errors.append(np.abs(leader - follower_joint_pos(arm_env)))
-    errors = np.stack(errors)
+    errors = leader_follower_gaps(env, reading, contract)
     worst = int(np.argmax(errors.max(axis=1)))
     if float(errors[worst].max()) > tolerance_rad:
         per_arm = ", ".join(f"{arm}: {np.round(error, 3).tolist()}" for arm, error in zip(arm_names, errors))
@@ -287,7 +294,8 @@ def record_demos(
     action (``info["intervene_action"]``) and its flags; the training view later selects the
     intervened ones (ramp-onset ``teleop_syncing`` steps only with ``args.keep_syncing_steps``).
     In ``joint_abs``, each episode starts with ``check_leader_near_follower``
-    (``args.start_tolerance_rad``). ``on_episode`` is called with every finished episode; an
+    (``args.start_tolerance_rad``); with ``episode_end_behavior=confirm``
+    (``_record_demos_confirm``) the start key stays locked instead. ``on_episode`` is called with every finished episode; an
     episode with the operator's quit key is the last one. An exception leaves the episode being
     recorded open in ``writer`` (``writer.active_episode``) for the caller to finish or abort.
     """
@@ -296,6 +304,8 @@ def record_demos(
     _validate_episode_limit(args)
     hold = as_hold_policy(hold_action_fn)
     wrapper = intervention_wrapper_of(env)
+    if args.episode_end_behavior == "confirm":
+        return _record_demos_confirm(env, args, hold, wrapper, writer=writer, on_episode=on_episode)
     if args.episode_end_behavior == "hold":
         from real_world_rl.teleop.core.session import require_session_source, session_backend
         session_backend(env)  # reject unsupported backends before reset can move the arm
@@ -353,6 +363,65 @@ def record_demos(
                                   control_hz=control_hz, neutral_threshold=args.neutral_threshold,
                                   neutral_stable_s=args.neutral_stable_s) == "quit":
                 break
+    return episodes
+
+
+def _record_demos_confirm(
+    env: Any,
+    args: RecordDemosArgs,
+    hold: HoldPolicy,
+    wrapper: InterventionWrapper,
+    *,
+    writer: DatasetWriter,
+    on_episode: Optional[Callable[[RecordedEpisode], None]],
+) -> list[RecordedEpisode]:
+    """``record_demos`` with ``episode_end_behavior=confirm`` (``ConfirmSession``): every episode
+    starts at the operator's start key after a reset and ends into ``POST_EPISODE``, where the
+    operator asks for the next reset; only the steps between the start key and the episode's end
+    are recorded (row 0 is a fresh observation taken at the start key). ``joint_abs`` locks the
+    start key while the leader is too far from the follower instead of raising."""
+    from real_world_rl.teleop.core.session import ConfirmSession, session_observe
+    from real_world_rl.training.runtime_paths import actor_control_hz
+
+    contract = get_env_action_contract(env) or LEGACY_ACTION_CONTRACT
+    control_hz = actor_control_hz(args)
+    session = ConfirmSession(  # checks the backend and the event device before any reset
+        env, wrapper.source, control_hz=control_hz, contract=contract,
+        start_tolerance_rad=args.start_tolerance_rad,
+        gripper_open_fraction=args.gripper_open_fraction,
+        gripper_closed_fraction=args.gripper_closed_fraction,
+    )
+    num_grippers = num_grippers_of(contract)
+    named_state = _named_state_reader(env)
+    episodes: list[RecordedEpisode] = []
+    num_kept = writer.num_kept
+    index = 0
+
+    def budget_left() -> bool:
+        return num_kept < args.num_successes and (args.max_episodes is None or index < args.max_episodes)
+
+    def reset() -> None:
+        env.reset(seed=args.seed if index == 0 else None)
+        hold.reset()
+
+    if not budget_left():
+        return episodes
+    started = session.first_episode(reset)
+    while started == "start":
+        obs = session_observe(env)  # row 0: the frame at the start key
+        episode = _record_episode(
+            env, obs, args, hold, index=index, num_grippers=num_grippers,
+            control_period_s=1.0 / control_hz, writer=writer, named_state=named_state,
+        )
+        episodes.append(episode)
+        num_kept += int(episode.kept)
+        if on_episode is not None:
+            on_episode(episode)
+        index += 1
+        if episode.operator_quit:
+            session.stopping("operator_quit")
+            break
+        started = session.between_episodes(reset, allow_next=budget_left())
     return episodes
 
 

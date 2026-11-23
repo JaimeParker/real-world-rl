@@ -10,8 +10,10 @@ import sys
 from real_world_rl.teleop.core.operator_keys import OperatorKeySource
 from real_world_rl.teleop.core.registry import register_teleop_source
 
+# Event name -> operator key; start/enter/open/close are the confirm-mode keys (space, Enter, o, c).
 _KEYS = {"takeover": "t", "handback": "h", "success": "s", "failure": "f",
-         "rerecord": "r", "end": "esc", "next": "n", "quit": "q"}
+         "rerecord": "r", "end": "esc", "next": "n", "quit": "q",
+         "start": "space", "enter": "enter", "open": "o", "close": "c"}
 _MAX_BYTES = 65536
 
 

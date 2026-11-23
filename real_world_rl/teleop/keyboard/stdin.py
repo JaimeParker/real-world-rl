@@ -1,5 +1,6 @@
 """The terminal as an event device (``device="stdin"``): the operator keys of
-``real_world_rl.teleop.core.operator_keys`` (``t``/``h``/``s``/``f``/``r``/``Esc``/``q``) typed into
+``real_world_rl.teleop.core.operator_keys`` (``t``/``h``/``s``/``f``/``r``/``Esc``/``q``, and
+``space``/``n``/``o``/``c``/``Enter`` between episodes in confirm mode) typed into
 the terminal that runs the process. Needs no desktop session (works over SSH), unlike ``keyboard``.
 """
 from __future__ import annotations
@@ -10,7 +11,12 @@ import sys
 import threading
 from typing import Any, List, Optional
 
-from real_world_rl.teleop.core.operator_keys import EPISODE_END_KEY, OperatorKeySource
+from real_world_rl.teleop.core.operator_keys import (
+    CONFIRM_KEY,
+    EPISODE_END_KEY,
+    START_KEY,
+    OperatorKeySource,
+)
 from real_world_rl.teleop.core.registry import register_teleop_source
 
 __all__ = ["StdinTeleopSource", "keys_from_bytes"]
@@ -23,7 +29,8 @@ _READ_SIZE = 64
 
 def keys_from_bytes(data: bytes) -> List[str]:
     """The key names in a chunk read from the terminal: lower-cased characters, ``"esc"`` for a
-    lone Escape. Escape sequences (arrow and function keys) are skipped, not read as Esc."""
+    lone Escape, ``"space"`` for the space bar and ``"enter"`` for Return (CR or LF; a CRLF pair
+    is one press). Escape sequences (arrow and function keys) are skipped, not read as Esc."""
     text = data.decode(errors="ignore")
     keys: List[str] = []
     index = 0
@@ -35,7 +42,17 @@ def keys_from_bytes(data: bytes) -> List[str]:
                 end += 1  # parameter and intermediate bytes up to the final byte
             index = end + 1
             continue
-        keys.append(EPISODE_END_KEY if char == _ESCAPE else char.lower())
+        if char == "\r" and index + 1 < len(text) and text[index + 1] == "\n":
+            index += 1  # CRLF: one Return
+            char = "\n"
+        if char == _ESCAPE:
+            keys.append(EPISODE_END_KEY)
+        elif char == " ":
+            keys.append(START_KEY)
+        elif char in "\r\n":
+            keys.append(CONFIRM_KEY)
+        else:
+            keys.append(char.lower())
         index += 1
     return keys
 

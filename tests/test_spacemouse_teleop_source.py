@@ -597,7 +597,7 @@ def test_recording_a_demo_with_the_spacemouse_and_scripted_operator_events(tmp_p
     assert isinstance(hold, CartesianHold) and hold.tracker is source.cartesian_tracker
 
     transitions, episodes, _ = record_into_dataset(
-        wrapper, RecordDemosArgs(num_successes=1, control_hz=1e6, max_episodes=1), tmp_path / "demos", hold_action_fn=hold
+        wrapper, RecordDemosArgs(num_successes=1, control_hz=1e6, max_episodes=1, episode_end_behavior="auto"), tmp_path / "demos", hold_action_fn=hold
     )
     assert len(episodes) == 1 and episodes[0].success
     actions = torch.cat([torch.as_tensor(row["action"]).reshape(1, -1) for row in transitions]).numpy()

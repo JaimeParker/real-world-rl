@@ -3,8 +3,8 @@
     {
       "zh": "README.zh-CN.md",
       "en": "README.md",
-      "zh_sha256": "02c57fd9369522bdf0b21ef1b834369717079ac99fbb1e90375f90d92d7ce4a5",
-      "en_sha256": "a17dbdec5c82f130f668d23ca85e403a81e8c660bbaa67e256eba7798e1261f0"
+      "zh_sha256": "3c955896a85e1e54a5caa9f2a1a50b8831318a37417cf2bcc525f8001a799285",
+      "en_sha256": "b60204e8166ba01ed372ee318cb95d1c348e5d97705930aada0f267a99a3462b"
     },
     {
       "zh": "docs/examples/controller-impedance.yaml",
@@ -69,8 +69,8 @@
     {
       "zh": "docs/examples/record-output.txt",
       "en": "docs/examples/en/record-output.txt",
-      "zh_sha256": "cf077d2c8e3994b316914a36d113001dfcb0352a134cffb716e4455875a79fdf",
-      "en_sha256": "8420e20c25904ab33f198a29680940bb756baa90457d83228e88c0ef831a839a"
+      "zh_sha256": "ad8cc1b4b8194ad12da8f3cde11850f0d842e3ab668087de21283791e9a80efb",
+      "en_sha256": "51e5204350b2dd72858e6ead807e4c2d67129efcdbc6ab8ccd7ffc56cddd52a5"
     },
     {
       "zh": "docs/examples/rl-overview-diagram.txt",
@@ -141,8 +141,8 @@
     {
       "zh": "docs/reference/cli.rst",
       "en": "docs/en/reference/cli.rst",
-      "zh_sha256": "1933b0dcf1581682d55a4b1e74743372b35d0898fb581607da5644a29c6ed461",
-      "en_sha256": "fbe087a4954f52f2ee53a59fdcd8e4272db79a6c338436eb41c7f13589e19cef"
+      "zh_sha256": "b8af78002153443c6915baa3c431d6fc3f4acba3a097c67feaac2215d56e04e7",
+      "en_sha256": "190fbfb584a182accac1a137ffffb0bd681c118e5d579cb78d13c8c626842185"
     },
     {
       "zh": "docs/reference/control-profiles.rst",
@@ -183,8 +183,8 @@
     {
       "zh": "docs/reference/gello.rst",
       "en": "docs/en/reference/gello.rst",
-      "zh_sha256": "4e430bb254c40caa776d3a6bb846aba6617c0c049cd9cc0d8269cb1d59e17b97",
-      "en_sha256": "34f0103654b116edd90e4951c64b4a59266b8f834c21efcabfebc784a8915ee0"
+      "zh_sha256": "1ec9762c60b48ec5585c71b3606d5027c8e53f1c1afebd122e9b67717eae15a7",
+      "en_sha256": "6b94ff4fe90a7ae827c162dac790c95d70970f9e8dad84d755d86025e29d8967"
     },
     {
       "zh": "docs/reference/hil-serl-roadmap.rst",
@@ -201,8 +201,8 @@
     {
       "zh": "docs/reference/intervening.rst",
       "en": "docs/en/reference/intervening.rst",
-      "zh_sha256": "bba9af3c8e7dea6d8f08c7a38cb6ad5a02dc680a12af996eb128fcfaeafaf66a",
-      "en_sha256": "9dce2743ded8d1cfc4c33901b38b5910fec2d8baae7900ea9dbf63c49ccc79fc"
+      "zh_sha256": "308291a694f42905a4d9ea26a7b6d9385934e7aa5c8b77a0b8de2c895add4fb6",
+      "en_sha256": "6401997aa1a67bb3d674641e44e6999bdead72dca92f04512d43a458f8e38b71"
     },
     {
       "zh": "docs/reference/joint-controller.rst",
@@ -225,8 +225,8 @@
     {
       "zh": "docs/reference/recording-demos.rst",
       "en": "docs/en/reference/recording-demos.rst",
-      "zh_sha256": "efa6ca4642929b2f540e0f183cf9bab7d2bfe84d1218f8560ad0252241e64d02",
-      "en_sha256": "b3d5ef98d46b1e0eeccf2efb2155f299abf296d7ae29bdf164d1c2374a1ca787"
+      "zh_sha256": "618e42185ddf6577428b76ae38d559ac0a26d7d5141c3a14887184afa755b155",
+      "en_sha256": "bc3e69bfcfe3cf809c4ff1a04cfe5829b34656cc9cdae62abca0c776223c0e3f"
     },
     {
       "zh": "docs/reference/remote-actor.rst",
@@ -261,14 +261,14 @@
     {
       "zh": "docs/reference/spacemouse-commissioning.rst",
       "en": "docs/en/reference/spacemouse-commissioning.rst",
-      "zh_sha256": "19ce36bd7820a738803cf758e0d3f7b450940144c18716be3bf7e8e825ce836e",
-      "en_sha256": "f82010484939173e17df416f899bd7564aa327849ffb76cff8e99a95268788a3"
+      "zh_sha256": "431cdde6a8527d23462f9eb97d5f511b8328da9f00fd9ccf8126d6c9419bde35",
+      "en_sha256": "bebb914cafb37b6bca3109554a8ff32740916cef629490d4ac8aabab8f79beec"
     },
     {
       "zh": "docs/reference/teleop.rst",
       "en": "docs/en/reference/teleop.rst",
-      "zh_sha256": "8d0a598bf20e6c7bddbc3ffab97bbce3bd7596a1158966ac145a8a501a04c2e7",
-      "en_sha256": "58b7e6cffc6b7fe171c6bd0751510611d08dedcfef8f84b2b47022ed56bde952"
+      "zh_sha256": "05a8bdfcf68624e163df0fe084df0307b73fb7783c9332f263a0b4fa7a6d171a",
+      "en_sha256": "2937d3cc3e9c975330d0dfcfb3fc921fe0b4f0aa74332d703a5db259065fae49"
     },
     {
       "zh": "docs/reference/testing/bimanual-gello-session.rst",
@@ -333,8 +333,8 @@
     {
       "zh": "docs/tutorials/gello.rst",
       "en": "docs/en/tutorials/gello.rst",
-      "zh_sha256": "7f2f3a5870dfded2b9f6f61821c98f9ef78c3d9f4ffab1ff51dd5cad97cb299b",
-      "en_sha256": "1f5afbdc9f7cc398939c383708d95b87df92bc387342de61cbff703759235f53"
+      "zh_sha256": "1447031f4800c43424f0fc1b96bbd57fd9317968b24baf05e8959ad2985a04b8",
+      "en_sha256": "0de4a1e10324779f4aa5faded9dae33f1f3cf94c7e55ae3031a1f4a1f2242a5f"
     },
     {
       "zh": "docs/tutorials/inspect.rst",
@@ -351,8 +351,8 @@
     {
       "zh": "docs/tutorials/record.rst",
       "en": "docs/en/tutorials/record.rst",
-      "zh_sha256": "969cb0b846c6a8a96c1eda43163fcc7b17b5782e3b5bd0b9d6768e9ed3815795",
-      "en_sha256": "03f73deced1dd5af2e0b1d23ab027885779c4e0cfd1ce1d4de3bc85ca1ca5bd5"
+      "zh_sha256": "76df7868d4acfc114e05b46513ba45a316dceaab4b4ecd68618eb3b0d6e568ff",
+      "en_sha256": "d1141c39649bdd2e1eba8ca33843eff7ecf3101090017806bc0b422fbdbf6f22"
     },
     {
       "zh": "docs/tutorials/rl-intervene.rst",
@@ -375,8 +375,8 @@
     {
       "zh": "docs/tutorials/rl-task.rst",
       "en": "docs/en/tutorials/rl-task.rst",
-      "zh_sha256": "b4a3bdc56385a9e6c89dddc4921c795247303a34ea56727018fe042a9c535f48",
-      "en_sha256": "dbd4224b8a67d48b9a11650878331dad4e338e7ed4f40c36a06630376abe934e"
+      "zh_sha256": "0b7228ddd9bc6f1d3ac7ff9833ed85b636258e6c8fa670034cd51fb1e1dc1d85",
+      "en_sha256": "730d2ea8cc8a88b54c603e13a5db258c7bc2cc4ab112035dac9bdc97624f3f2e"
     },
     {
       "zh": "docs/tutorials/rl-train.rst",
@@ -393,8 +393,8 @@
     {
       "zh": "docs/tutorials/spacemouse.rst",
       "en": "docs/en/tutorials/spacemouse.rst",
-      "zh_sha256": "7b29ffb42331801b967862ee767c150216ec8134843a01c324c88ba9762e2906",
-      "en_sha256": "b3a9d665c1cf94cdec04c8e85abff196996fa3d612d094919ffacf4b0f7a16c4"
+      "zh_sha256": "1fb71a16015cbbf2e4ddde399ee87c446432fbb0186b47121ff4b3b760d59136",
+      "en_sha256": "d4da0526f367c1a165c6973a4bc7c5c71b4cb6d8feac8f99659720e9742bc3ac"
     },
     {
       "zh": "docs/tutorials/station.rst",

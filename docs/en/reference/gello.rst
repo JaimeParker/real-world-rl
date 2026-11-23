@@ -167,6 +167,8 @@ The resulting robot YAML fields (placeholder angles must be replaced by the unit
        intervention: always            # always: every poll intervenes | toggle: follows the toggle key of event_device
        event_device: null              # /dev/input/by-id/...-event-kbd (evdev, on this machine)
        event_keys: {toggle: KEY_SPACE, episode_end: KEY_ESC, success: KEY_S, failure: KEY_F, rerecord: KEY_R}
+       # episode_end_behavior=confirm keys, bound where the key is free: start_episode KEY_SPACE (shares the toggle key),
+       # next_episode KEY_N, gripper_open KEY_O, gripper_close KEY_C, confirm KEY_ENTER, operator_quit KEY_Q; `<action>: null` unbinds one
        poll_interval_s: 0.0
 
 .. _en-gello-3-the-robot-yaml-real_robot-franky:
@@ -323,6 +325,38 @@ Where the intervention toggle comes from:
    the event device's state replaces it.
 -  An evdev pedal or keyboard on the robot PC: set ``intervention: toggle`` and ``event_device: /dev/input/by-id/...`` in the yaml's ``teleop:`` options (extra ``gello-events``, user in the ``input``
    group) and drop ``--teleop-event-device``. The keys are ``event_keys`` (defaults above).
+
+.. _en-gello-confirm-event-keys:
+
+**evdev keys for confirm.** ``episode_end_behavior: confirm`` (the default of the recorder and ``rwrl teleop run``) needs an event device. A GELLO with an ``event_device`` provides these keys itself, so ``--teleop-event-device`` is not needed; the keys reach the session as events of the same name:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 18 58
+
+   * - ``event_keys`` action
+     - Default key
+     - What
+   * - ``start_episode``
+     - ``KEY_SPACE``
+     - READY: start the episode. Shares space with ``toggle``: one press both toggles the takeover and starts
+   * - ``next_episode``
+     - ``KEY_N``
+     - POST_EPISODE: ask for the reset (a partly closed gripper enters GRIPPER_CHECK first)
+   * - ``gripper_open``
+     - ``KEY_O``
+     - Open the gripper; in GRIPPER_CHECK, open it in place
+   * - ``gripper_close``
+     - ``KEY_C``
+     - POST_EPISODE: close the gripper
+   * - ``confirm``
+     - ``KEY_ENTER``
+     - GRIPPER_CHECK: confirm and reset now
+   * - ``operator_quit``
+     - ``KEY_Q``
+     - Quit in any phase
+
+These defaults are bound only where the key is free: the keys of ``toggle``, ``episode_end``, ``success``, ``failure`` and ``rerecord`` take priority, and only ``start_episode`` may share a key with ``toggle``. To change a key, name the action in ``event_keys``, for example ``{start_episode: KEY_ENTER, next_episode: KEY_PAGEDOWN}``; write ``<action>: null`` to unbind one (with a pedal that has few keys, the terminal covers the rest). Two explicitly named actions on the same key are an error. The event device sits on the robot PC, so an older daemon does not forward these new keys; when no key does anything and the session stays in READY, upgrade the daemon on the robot PC. The recording flow is in :doc:`../tutorials/record`.
 
 .. _en-gello-two-gellos-two-arms:
 

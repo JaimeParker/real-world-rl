@@ -100,17 +100,29 @@ class ActorLoop:
         self._trajectory_outcome = None
         self._snapshot_metadata = {}
         self._episode_session = None
+        self._confirm_options = None
 
     def configure_episode_session(self, behavior="auto", *, neutral_threshold=.05,
-                                  neutral_stable_s=.2):
-        """Opt into operator-controlled episode boundaries; auto stays compatible."""
-        from real_world_rl.teleop.core.session import validate_neutral_options
-        if behavior not in ("auto", "hold"):
-            raise ValueError("episode_end_behavior must be auto or hold")
+                                  neutral_stable_s=.2, gripper_open_fraction=.95,
+                                  gripper_closed_fraction=.05, start_tolerance_rad=.8):
+        """Opt into operator-controlled episode boundaries; auto stays compatible. ``confirm``
+        (``ConfirmSession``) waits in POST_EPISODE/READY for the operator's keys while the
+        learner keeps training on what it has."""
+        from real_world_rl.teleop.core.session import (
+            validate_episode_end_behavior,
+            validate_gripper_fractions,
+            validate_neutral_options,
+        )
+        validate_episode_end_behavior(behavior)
         validate_neutral_options(neutral_threshold, neutral_stable_s)
+        validate_gripper_fractions(gripper_open_fraction, gripper_closed_fraction)
         self._episode_session = ({"neutral_threshold": neutral_threshold,
                                   "neutral_stable_s": neutral_stable_s}
                                  if behavior == "hold" else None)
+        self._confirm_options = ({"gripper_open_fraction": gripper_open_fraction,
+                                  "gripper_closed_fraction": gripper_closed_fraction,
+                                  "start_tolerance_rad": start_tolerance_rad}
+                                 if behavior == "confirm" else None)
 
     def _wait_episode_session(self, *, starting=False, allow_next=True):
         if self._episode_session is None:
@@ -289,6 +301,8 @@ class ActorLoop:
         return {}
 
     def run(self, total_steps: Optional[int] = None) -> None:
+        if getattr(self, "_confirm_options", None) is not None:
+            return self._run_confirm(total_steps)
         heartbeat = Heartbeat.from_env()
         try:
             if self._episode_session is not None:
@@ -360,6 +374,74 @@ class ActorLoop:
                 sleep_for = self.control_period - elapsed
                 if sleep_for > 0:
                     time.sleep(sleep_for)
+        finally:
+            _cleanup([
+                heartbeat.begin_long_operation,
+                lambda: _close(self.env),
+                lambda: _close(getattr(self, "base_provider", None)),
+                self._on_run_end,
+                lambda: self._end_trajectory(interrupted=True),
+                self.sync_client.stop,
+            ])
+
+    def _run_confirm(self, total_steps: Optional[int] = None) -> None:
+        """``run`` with ``episode_end_behavior=confirm``: every episode starts at the operator's
+        start key after a reset and ends into POST_EPISODE (``ConfirmSession``); the waits push
+        nothing, so the trajectory holds only the episodes' own steps."""
+        from real_world_rl.teleop.core.session import ConfirmSession, confirm_source, session_observe
+
+        heartbeat = Heartbeat.from_env()
+        try:
+            source = confirm_source(self.env)
+            session = ConfirmSession(self.env, source, control_hz=1. / self.control_period,
+                                     **self._confirm_options)
+            self._bind_experiment()
+            self.sync_client.start()
+            self.policy.eval()
+            wait = getattr(self.sync_client, "wait_for_policy", None)
+            if wait is not None:
+                wait()
+            self._maybe_refresh_policy()
+            first = [True]
+
+            def reset():
+                self.env.reset(seed=self.seed if first[0] else None)
+                first[0] = False
+
+            started = session.first_episode(reset)
+            step = 0
+            while started == "start":
+                obs = session_observe(self.env)
+                self._begin_trajectory()
+                while True:
+                    loop_start = time.perf_counter()
+                    self._maybe_refresh_policy()
+                    policy_action, ctx = self._act(obs)
+                    next_obs, reward, terminated, truncated, info = self.env.step(
+                        policy_action.to(self.env_device(obs)))
+                    heartbeat.beat()
+                    self._push(self._archive_transition(self._build_transition(
+                        obs, next_obs, policy_action, reward, terminated, truncated, info, ctx
+                    ), terminated, truncated, info, policy_action))
+                    step += 1
+                    quit_requested = operator_quit_requested(info)
+                    if bool(terminated) or bool(truncated) or quit_requested:
+                        self._on_episode_end(info)
+                        self._end_trajectory(terminated=bool(terminated), truncated=bool(truncated))
+                        break
+                    if total_steps is not None and step >= total_steps:
+                        self._end_trajectory(interrupted=True)
+                        break
+                    obs = next_obs
+                    sleep_for = self.control_period - (time.perf_counter() - loop_start)
+                    if sleep_for > 0:
+                        time.sleep(sleep_for)
+                if quit_requested:
+                    session.stopping("operator_quit")
+                    logger.info("operator quit: stopping the actor after this episode")
+                    break
+                started = session.between_episodes(
+                    reset, allow_next=total_steps is None or step < total_steps)
         finally:
             _cleanup([
                 heartbeat.begin_long_operation,

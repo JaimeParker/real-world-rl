@@ -128,6 +128,8 @@ GELLO 是 Franka Panda 的被动式 3D 打印副本，关节采用 Dynamixel 舵
        intervention: always            # always: every poll intervenes | toggle: follows the toggle key of event_device
        event_device: null              # /dev/input/by-id/...-event-kbd (evdev, on this machine)
        event_keys: {toggle: KEY_SPACE, episode_end: KEY_ESC, success: KEY_S, failure: KEY_F, rerecord: KEY_R}
+       # episode_end_behavior=confirm keys, bound where the key is free: start_episode KEY_SPACE (shares the toggle key),
+       # next_episode KEY_N, gripper_open KEY_O, gripper_close KEY_C, confirm KEY_ENTER, operator_quit KEY_Q; `<action>: null` unbinds one
        poll_interval_s: 0.0
 
 .. _gello-3-the-robot-yaml-real_robot-franky:
@@ -246,6 +248,38 @@ actor 用 Panda 正向运动学将主臂关节变成笛卡尔 twist（\ ``--tele
 
 -  ``--teleop-event-device keyboard``（可选桌面路径）：通过 ``pynput`` 读取 actor 机器键盘（\ ``t`` 接管、\ ``h`` 交还、Esc 结束回合、\ ``s``/``f``/``r`` 产生成功/失败/重录，\ ``q`` 结束回合并在回合后停止运行；\ ``pynput`` 需要该机器桌面会话）。\ ``--teleop-event-device stdin`` 从运行命令的终端读取相同按键（无需桌面，可通过 SSH）。YAML 保持 ``intervention: always``\ ，事件设备状态会替代它。
 -  机器人 PC 上的 evdev 脚踏或键盘：在 YAML 的 ``teleop:`` 选项中设 ``intervention: toggle``\ 、\ ``event_device: /dev/input/by-id/...``\ （扩展 ``gello-events``\ ，用户加入 ``input`` 组），省略 ``--teleop-event-device``\ 。按键由 ``event_keys`` 指定（默认值见上文）。
+
+.. _gello-confirm-event-keys:
+
+**confirm 的 evdev 按键。** ``episode_end_behavior: confirm``\ （录制器和 ``rwrl teleop run`` 的默认）需要一个事件设备。GELLO 配了 ``event_device`` 就自己提供这些键，不必再加 ``--teleop-event-device``\ ；键以同名事件交给会话：
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 18 58
+
+   * - ``event_keys`` 动作
+     - 默认键
+     - 作用
+   * - ``start_episode``
+     - ``KEY_SPACE``
+     - READY：开始回合。和 ``toggle`` 共用空格：一次按下既切换接管又开始
+   * - ``next_episode``
+     - ``KEY_N``
+     - POST_EPISODE：请求 reset（夹爪半合时先进入 GRIPPER_CHECK）
+   * - ``gripper_open``
+     - ``KEY_O``
+     - 张开夹爪；GRIPPER_CHECK 里在原地张开
+   * - ``gripper_close``
+     - ``KEY_C``
+     - POST_EPISODE：合上夹爪
+   * - ``confirm``
+     - ``KEY_ENTER``
+     - GRIPPER_CHECK：确认马上 reset
+   * - ``operator_quit``
+     - ``KEY_Q``
+     - 任何阶段退出
+
+这些默认键只在对应的键没被占用时才绑定：\ ``toggle``\ 、\ ``episode_end``\ 、\ ``success``\ 、\ ``failure``\ 、\ ``rerecord`` 的键优先，只有 ``start_episode`` 可以和 ``toggle`` 共用一个键。要换键，在 ``event_keys`` 里写出该动作，例如 ``{start_episode: KEY_ENTER, next_episode: KEY_PAGEDOWN}``\ ；写 ``<动作>: null`` 取消绑定（脚踏键少时，剩下的键由终端补齐）。显式写出的两个动作用了同一个键会报错。事件设备在机器人 PC 上，所以旧版 daemon 不转发这些新键，按键毫无反应、会话停在 READY 时，升级机器人 PC 上的 daemon。录制流程见 :doc:`../tutorials/record`\ 。
 
 .. _gello-two-gellos-two-arms:
 

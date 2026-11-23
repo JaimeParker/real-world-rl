@@ -211,7 +211,7 @@ def _run_actor(args) -> None:
         if args.episode_end_behavior != "auto":
             loop.configure_episode_session(args.episode_end_behavior,
                                            neutral_threshold=args.neutral_threshold,
-                                           neutral_stable_s=args.neutral_stable_s)
+                                           neutral_stable_s=args.neutral_stable_s, **_confirm_options(args))
         loop_owns_env = True
         loop.run()
     finally:
@@ -316,7 +316,7 @@ def _run_eval(args) -> None:
     evaluate_policy(
         env, agent.policy, episodes=args.eval_n_trajs, seed=args.seed,
         control_hz=actor_control_hz(args), episode_end_behavior=args.episode_end_behavior,
-        neutral_threshold=args.neutral_threshold, neutral_stable_s=args.neutral_stable_s,
+        neutral_threshold=args.neutral_threshold, neutral_stable_s=args.neutral_stable_s, **_confirm_options(args),
         predict=lambda obs: agent.policy.predict(agent._obs_to_policy_device(obs), deterministic=True),
     )
 
@@ -334,3 +334,10 @@ def run_silri(args: SilriArgs) -> None:
 
 
 registry.register("silri", SilriArgs, run_silri)
+
+
+def _confirm_options(args) -> dict:
+    """``episode_end_behavior=confirm`` options for the actor loop and evaluation."""
+    from real_world_rl.teleop.core.session import confirm_session_options
+
+    return confirm_session_options(args)

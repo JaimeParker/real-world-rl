@@ -220,16 +220,17 @@ roll／pitch／yaw 分别绕前向 X、左向 Y、向上 Z 旋转（右手规则
    :start-after: # start practice
    :end-before: # end practice
 
-确认运行后，松开输入帽和两个按钮，等待中立检查通过。按 button_0 接管，
+确认运行后，会话 reset 并停在 READY：手臂在 home，帽子和按钮的运动被忽略。摆好物体，在终端按空格开始回合（ACTIVE）。
+松开输入帽和两个按钮，按 button_0 接管，
 轻推一个方向，再松开帽；目标停止推进，机器人可能继续走完剩余领先距离。
 接管中按 button_1 切换开／闭爪；再次按 button_0 交还。
 交还后录制器保持当前位置。终端的 ``t``／``h`` 不控制这个模式。
-最后按 ``s`` 标记练习成功，在保持阶段按 ``q`` 退出。
+最后按 ``s`` 标记练习成功，回合进入 POST_EPISODE，按 ``q`` 退出。空格、``n``、``o``/``c`` 等回合之间的键见 :doc:`record`。
 
 **你应该看到**：按 button_0 接管时终端打印 ``INTERVENTION ON: the operator drives the arm`` ，
 交还后约 0.3 s 打印 ``INTERVENTION OFF: the operator handed back`` ；按 ``s`` 或 ``f`` 打印
 ``EPISODE MARK: success`` 或 ``failure`` 。只有按 button_0 后推帽才运动；接管瞬间保持上次夹爪命令，
-不会自动打开。松帽不等于交还。完成回合后显示 EPISODE_HOLD，详见 :doc:`record`。
+不会自动打开。松帽不等于交还。完成回合后显示 POST_EPISODE，详见 :doc:`record`。
 
 推帽时手腕难免让帽子同时倾斜。tracker 模式默认 ``axis_lock: dominant`` ：每次读数只保留
 平移、旋转两组中峰值较大的一组，另一组清零，所以单纯推 x 不会带出 pitch。
@@ -242,7 +243,7 @@ roll／pitch／yaw 分别绕前向 X、左向 Y、向上 Z 旋转（右手规则
    控制器收到的已经是基座系目标，不会再旋转；换控制器只改 station 里的一行，方向档案和 preset 都不用改。
 
 **单轴检查。** 每次只沿一个方向推（或绕一个轴扭）一下，看 TCP 是否沿\ **桌面**\ 的同一方向走（或绕同一轴转）。
-平移用 ``workspace capture`` 读数：会话前读一次，会话里只推一个方向约 3 cm 后交还、按 ``s``、按 ``q`` 退出，再读一次：
+平移用 ``workspace capture`` 读数：会话前读一次，会话里按空格开始，只推一个方向约 3 cm 后交还、按 ``s``、按 ``q`` 退出，再读一次：
 
 .. literalinclude:: ../examples/spacemouse.sh
    :language: bash
@@ -267,7 +268,7 @@ roll／pitch／yaw 分别绕前向 X、左向 Y、向上 Z 旋转（右手规则
 需要限制诊断输入时，给上述 ``teleop run`` 加 ``--diagnose translation``、
 ``rotation`` 或 ``all``；这是会运动的会话，要求 station 已有审阅过的 workspace。
 此时 ``--gain`` 默认 0.2，范围 (0, 1]；``--duration-s`` 默认 5 秒，范围 (0, 300]，
-换算成回合步数上限。未显式指定时，成功配额和回合预算都为 1；回合结束仍进入保持阶段。
+换算成回合步数上限。未显式指定时，成功配额和回合预算都为 1；回合结束仍进入 POST_EPISODE，预算用完后 ``n`` 或 ``q`` 结束会话。
 不带 ``--diagnose`` 时，gain 和 duration-s 不生效；输入过滤设置会写入控制约定。
 
 tracker 的领先上限不能超过 preset 一步的动作尺度，否则会话启动时报
@@ -277,7 +278,7 @@ tracker 的领先上限不能超过 preset 一步的动作尺度，否则会话�
 
 **如果不对**：
 
-* ``START_NEUTRAL`` 一直等待：松开帽和按钮，检查静置噪声与档案 neutral_threshold（默认 0.05）。
+* 一直停在 READY：开始回合要在运行 ``rwrl`` 的终端按空格，帽子和按钮不管开始。档案的 neutral_threshold（默认 0.05）只用于 ``hold`` 模式。
 * ``WORKSPACE HOLD: <axes>``：请求越界，回查 workspace 和 safety_box；交还后重新接管，不要扩大边界绕过检查。
 * 方向或幅度不符：退出会话，回查方向档案、任务系及 preset 的动作尺度，再做单轴练习。
 

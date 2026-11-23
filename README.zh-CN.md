@@ -33,6 +33,8 @@ rwrl dataset view demos/task                                                # Re
 rwrl train hil_serl --role learner --config hil.yaml --demo-dataset-paths demos/task
 ```
 
+录制默认 `--episode-end-behavior confirm`，适合两个人：一人在终端按键（空格开始回合，`s`/`f`/`r` 判定，`o`/`c` 处理夹爪，夹爪检查后 `n` 复位，`q` 退出），另一人遥操作；需要事件设备，如 `--teleop-event-device stdin`。
+
 `rwrl dataset` 还能丢弃、恢复、清理回合，并导出 pkl（给 ACT 用）或 LeRobot 数据集，见[录制示范](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/recording-demos.html)。
 
 SpaceMouse 默认 `--spacemouse-mode tracker`；可用 `--spacemouse-mode serl` 选择原始运动接管、释放后交还策略和按住按钮控制夹爪，须配置 XYZ/RPY 安全框（[模式指南](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/teleop.html#teleop-spacemouse)）。

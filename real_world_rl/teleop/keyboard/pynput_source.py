@@ -8,7 +8,12 @@ from __future__ import annotations
 import threading
 from typing import Any, Optional, Set
 
-from real_world_rl.teleop.core.operator_keys import EPISODE_END_KEY, OperatorKeySource
+from real_world_rl.teleop.core.operator_keys import (
+    CONFIRM_KEY,
+    EPISODE_END_KEY,
+    START_KEY,
+    OperatorKeySource,
+)
 from real_world_rl.teleop.core.registry import register_teleop_source
 
 
@@ -66,9 +71,16 @@ class KeyboardTeleopSource(OperatorKeySource):
     # -- listener callbacks (pynput's thread) --------------------------------------
 
     def _key_name(self, key: Any) -> Optional[str]:
-        if key == self._keyboard.Key.esc:
+        keys = self._keyboard.Key
+        if key == keys.esc:
             return EPISODE_END_KEY
+        if key == getattr(keys, "space", None):
+            return START_KEY
+        if key is not None and key in (getattr(keys, "enter", None), getattr(keys, "kp_enter", None)):
+            return CONFIRM_KEY
         char = getattr(key, "char", None)
+        if char == " ":
+            return START_KEY
         return char.lower() if isinstance(char, str) else None
 
     def _on_press(self, key: Any) -> None:

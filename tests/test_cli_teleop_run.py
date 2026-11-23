@@ -74,7 +74,7 @@ spacemouse_mode: tracker
 teleop_options_yaml: <ROOT>/station.yaml
 teleop_robot: null
 teleop_profile: front
-episode_end_behavior: hold
+episode_end_behavior: confirm
 neutral_threshold: 0.05
 num_successes: 20
 max_episodes: null
@@ -192,7 +192,7 @@ def test_gello_resolved_config_and_provenance(session, tmp_path, capsys, wrapped
     report = Path(payload["report_directory"])
     config = yaml.safe_load((report / "resolved-config.yaml").read_bytes())
     assert config["teleop_device"] == "leader_cartesian"
-    assert config["episode_end_behavior"] == "hold"
+    assert config["episode_end_behavior"] == "confirm"
     assert config["neutral_threshold"] == .5
     assert config["neutral_stable_s"] == .2
     assert config["teleop_event_device"] == ("jsonl" if events else "stdin")

@@ -121,7 +121,9 @@ def _wrap(env, readings):
 
 
 def _args(**overrides) -> RecordDemosArgs:
-    return RecordDemosArgs(**{"num_successes": 1, "control_hz": 1e6, **overrides})
+    # These tests are about the recording loop with automatic episode boundaries; the recorder's
+    # own default (confirm) is covered in test_confirm_session.py.
+    return RecordDemosArgs(**{"num_successes": 1, "control_hz": 1e6, "episode_end_behavior": "auto", **overrides})
 
 
 @pytest.fixture(autouse=True)
@@ -1082,6 +1084,11 @@ def test_recorder_defaults():
     assert args.reward_from_teleop_events and args.teleop_success_reward == 1.0
     assert args.output_dir is None and args.env_backend == "real_robot"
     assert not hasattr(args, "output_path") and not hasattr(args, "export_trajectory_pt")
+    # Recording waits for the operator at every episode boundary; training stays automatic.
+    assert args.episode_end_behavior == "confirm"
+    assert (args.gripper_open_fraction, args.gripper_closed_fraction) == (0.95, 0.05)
+    from real_world_rl.training.args import HilEnvArgs
+    assert HilEnvArgs().episode_end_behavior == "auto"
 
 
 def test_example_turns_the_teleop_event_reward_off_with_the_negated_flag(example, monkeypatch):

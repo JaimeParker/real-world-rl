@@ -222,7 +222,7 @@ the child.
      - SpaceMouse input-only diagnosis (\ :doc:`guide <spacemouse-commissioning>`\ )
      - 0 / 1 / 2
    * - ``teleop run``
-     - supervised recording with episode holding; ``--backend gello`` uses the GELLO cartesian leader; asks before reset (\ :ref:`guide <en-spacemouse-commissioning-supervised-recording-sessions>`\ )
+     - supervised recording with operator-confirmed episode boundaries (``confirm``: space starts, ``n`` resets; see \ :ref:`Episode boundaries <en-recording-demos-episode-boundaries>`\ ); ``--backend gello`` uses the GELLO cartesian leader; asks before reset (\ :ref:`guide <en-spacemouse-commissioning-supervised-recording-sessions>`\ )
      - child status or wrapper error
    * - ``teleop probe-hid``
      - record a SpaceMouse-like HID device for the site device table (\ :ref:`details <en-cli-teleop-probe-hid>`\ )

@@ -54,6 +54,8 @@ rwrl dataset view demos/task                                                # Re
 rwrl train hil_serl --role learner --config hil.yaml --demo-dataset-paths demos/task
 ```
 
+Recording defaults to `--episode-end-behavior confirm`, meant for two people: one presses keys in the terminal (space starts an episode, `s`/`f`/`r` give the verdict, `o`/`c` handle the gripper, `n` resets after a gripper check, `q` quits) while the other teleoperates; it needs an event device such as `--teleop-event-device stdin`.
+
 `rwrl dataset` also drops, restores and prunes episodes and exports a pkl (for ACT) or a LeRobot
 dataset; see [Recording demos](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/recording-demos.html).
 

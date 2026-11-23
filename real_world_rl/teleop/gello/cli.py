@@ -121,9 +121,10 @@ def run_session(args, ctx):
 
     plan = SessionPlan(
         settings={"teleop_device": "leader_cartesian", "teleop_options_yaml": None,
-                  "episode_end_behavior": "hold", "neutral_threshold": .5, "neutral_stable_s": stable_s},
+                  "episode_end_behavior": "confirm", "neutral_threshold": .5, "neutral_stable_s": stable_s},
         confirm_detail=(f"GELLO leader_cartesian session on {selected.config.name}; terminal t takes over; h hands back; "
-                        "s/f ends episode and holds; n next; q exits"),
+                        "s/f ends the episode and holds the arm (o/c gripper); n resets (gripper check first); "
+                        "SPACE starts the next episode; q exits"),
         prepare_report=prepare_report)
     return run_supervised_session(args, ctx, plan)
 

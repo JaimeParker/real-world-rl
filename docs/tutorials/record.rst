@@ -294,7 +294,7 @@ GELLO 额外保存提取出来的 leader-robot 和 leader-options。
 复制为 ``local/record-cartesian.yaml``，保留机器人连接、home、限位、观测和源选项文件。
 确认其中 leader-options 等路径仍可访问。换输入源前删除复制配置中的 ``teleop_input`` 缓存，
 否则旧的源选项快照可能继续生效；使用 GELLO 会话配置作为下面两条命令的起点。普通 ``rwrl record`` 读取这份配置，
-不会像 teleop run 一样自动合并当前 station；核对 real_robot 的 task_frame、workspace。
+不会像 teleop run 一样自动合并当前 station；核对 real_robot 的 task_frame；限位 ``limits`` 在 robot 配置里，或随连接的 daemon 的 station 带来（环境首次 reset 时继承）。
 
 .. warning::
 

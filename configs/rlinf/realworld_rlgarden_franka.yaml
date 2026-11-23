@@ -61,7 +61,7 @@ override_cfg:
     image_size: [128, 128]  # required with remote + cameras
     action_mode: cartesian_delta
     control_hz: 10
-    # [xmin, ymin, zmin, xmax, ymax, zmax] in metres; placeholder, measure your workspace.
-    safety_box: [0.3, -0.2, 0.05, 0.7, 0.2, 0.5]
+    # Inherit the reviewed limits from the robot daemon.
+    limits: null
     # Placeholder Franka ready pose; replace with your task's home configuration.
     home_joints: [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]

@@ -118,7 +118,7 @@ How it runs
    * - ``set_control_mode(JOINT_SERVO)``
      - Builds a ``TrajectoryImpedanceMotion`` from the current ``joint_trajectory`` and calls ``robot.move(motion, asynchronous=True)``; the reference starts at the measured ``q``, at rest, so the spring term is 0 at tick 0
    * - ``servo_joints(q)``
-     - Passes the arm's safety layer first (at most ``max_delta_per_step.joint_rad`` from the measured joints, then clipped into ``joint_limits``), then ``motion.set_target(q)``; a target with a non-finite value is rejected and the arm raises ``joint target rejected (non-finite)``
+     - Passes the arm's safety layer first (at most ``max_delta_per_step.joint_rad`` from the measured joints, then clipped into ``limits.joints`` and stopped at the TCP box wall), then ``motion.set_target(q)``; a target with a non-finite value is rejected and the arm raises ``joint target rejected (non-finite)``
    * - ``update_joint_trajectory_params(partial)``
      - Merged and validated; with the controller running it takes effect on the next tick (see \ :ref:`live update <en-joint-controller-live-update>`\ )
    * - ``stop()``, leaving the mode
@@ -181,7 +181,7 @@ At 0.19 rad/s the lag stays within 0.02 rad. These numbers come from the README'
 Parameters
 --------------------------------------------------------------------------------
 
-The station's ``joint_trajectory:`` block holds this robot's overrides; omitted keys use the native defaults (``joint_controller.default_params(robot_model)``, with the limits of Panda or FR3 chosen by ``robot_model``, not the station's ``joint_limits``).
+The station's ``joint_trajectory:`` block holds this robot's overrides; omitted keys use the native defaults (``joint_controller.default_params(robot_model)``, with the limits of Panda or FR3 chosen by ``robot_model``, not the station's ``limits.joints``).
 The 12 keys follow; those marked (7) are vectors of length 7 (units per joint):
 
 .. list-table::

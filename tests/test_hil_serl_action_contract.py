@@ -1,6 +1,8 @@
 """hil_serl action contract: env exposure, teleop validation, obs offsets, demo/snapshot checks, deploy."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import dataclasses
 import json
 import pickle
@@ -75,12 +77,18 @@ class _Teleop:
 
 def _real_env(**overrides) -> RealRobotVectorEnv:
     config = RealRobotEnvConfig(robot={"type": "unused"}, **overrides)
-    return RealRobotVectorEnv(RealRobotEnv(config, robot=object()))
+    env = RealRobotEnv(config, robot=object())
+    from real_world_rl.devices.limits import ArmLimits
+    from real_world_rl.envs.real_robot.limits import merge_limits
+    station = ArmLimits(joints=[[-10., 10.]]*7, tcp=tcp_box([-10.]*3+[10.]*3))
+    env._effective_limits = merge_limits(station.to_dict(), config.limits)
+    env._joint_limits = env._effective_limits.joints
+    return RealRobotVectorEnv(env)
 
 
 def _cartesian_contract_env(backend, semantics):
     limits = dict(safety_box_rpy_low=[0, -1, -1], safety_box_rpy_high=[3, 1, 1])
-    return _real_env(cartesian_semantics=semantics, safety_box=[-1] * 3 + [1] * 3, **limits)
+    return _real_env(cartesian_semantics=semantics, limits=env_limits(bounds=[-1] * 3 + [1] * 3), **limits)
 
 
 @pytest.mark.parametrize("backend", ["real_robot"])
@@ -144,7 +152,7 @@ def test_serl_contract_rejects_missing_or_legacy_semantics(backend):
 
 @pytest.mark.parametrize("backend", ["real_robot"])
 @pytest.mark.parametrize("key,value", [
-    ("safety_box_low", [-0.5, -1, -1]),
+    ("tcp_low", [-0.5, -1, -1]),
     ("safety_box_rpy_low", [0.1, -1, -1]),
     ("safety_box_rpy_high", [2.9, 1, 1]),
     ("gripper_action_scale", 0.5), ("gripper_sleep_s", 0.7),
@@ -155,7 +163,10 @@ def test_serl_contract_compares_pose_limits_and_gripper_semantics(backend, key, 
 
     expected = demo_contract_of(_cartesian_contract_env(backend, "serl"))
     saved = copy.deepcopy(expected)
-    saved["experiment"]["serl"][key] = value
+    if key == "tcp_low":
+        saved["experiment"]["limits"]["tcp"]["low"] = value
+    else:
+        saved["experiment"]["serl"][key] = value
     with pytest.raises(ValueError, match="experiment"):
         validate_transitions_against_contract([], expected, source="different.pkl", saved=saved)
 
@@ -516,7 +527,7 @@ def test_learner_demo_dataset_paths_are_validated(tmp_path):
 
 # -- deploy contract -------------------------------------------------------------------
 
-FAKE_FRANKA = {"type": "franka", "arm_backend": "fake", "gripper": {"backend": "fake"}}
+FAKE_FRANKA = {"limits": station_limits(), "type": "franka", "arm_backend": "fake", "gripper": {"backend": "fake"}}
 
 
 @pytest.fixture
@@ -543,7 +554,7 @@ def test_deploy_cli_contract_conflict_with_training_raises_listing_both_sides():
     from real_world_rl.deploy.checkpoint import resolve_deploy_robot_config
 
     trained = RealRobotEnvConfig(remote="h:1", action_mode="joint_delta", num_joints=7)
-    args = _deploy_args(action_mode="joint_abs", joint_limits=[[-1.0, 1.0]] * 7)
+    args = _deploy_args(action_mode="joint_abs", limits=env_limits(joints=[[-1.0, 1.0]] * 7))
     with pytest.raises(ValueError) as error:
         resolve_deploy_robot_config(args, _training(trained))
     message = str(error.value)
@@ -592,7 +603,7 @@ def test_restore_training_args_reads_real_robot_and_rotvec_from_persisted_config
 
     trained = RealRobotEnvConfig(
         remote="h:1", token="t", action_mode="joint_delta", num_joints=6, image_size=(16, 16),
-        state_fields=("joint_pos", "tcp_pose"), joint_limits=[[-1.0, 1.0]] * 6,
+        state_fields=("joint_pos", "tcp_pose"), limits=env_limits(joints=[[-1.0, 1.0]] * 6),
     )
     persist_resolved_config(
         HilSerlArgs(env_backend="real_robot", real_robot=trained, convert_obs_rotation=True),
@@ -648,7 +659,7 @@ def test_deploy_env_replays_rotvec_so_observation_matches_training_agent(tmp_pat
 
 
 def _joint_abs_contract(**overrides):
-    config = dict(action_mode="joint_abs", joint_limits=[[-1.0, 1.0]] * 7)
+    config = dict(action_mode="joint_abs", limits=env_limits(joints=[[-1.0, 1.0]] * 7))
     config.update(overrides)
     return demo_contract_of(_real_env(**config))
 
@@ -671,7 +682,7 @@ def test_sidecar_from_real_env_contract_round_trips_without_warning(tmp_path):
 @pytest.mark.parametrize(
     "field, recorded, replayed",
     [
-        ("joint_limits", dict(joint_limits=[[-1.0, 1.0]] * 7), dict(joint_limits=[[-2.0, 2.0]] * 7)),
+        ("limits", dict(limits=env_limits(joints=[[-1.0, 1.0]] * 7)), dict(limits=env_limits(joints=[[-2.0, 2.0]] * 7))),
         ("joint_scale_rad", dict(joint_scale_rad=0.05), dict(joint_scale_rad=0.1)),
         ("xyz_scale_m", dict(xyz_scale_m=0.02), dict(xyz_scale_m=0.05)),
         (
@@ -775,9 +786,9 @@ def test_deploy_joint_abs_requires_device_joint_step_limit(_claim_dir, device_st
 
     robot = dict(FAKE_FRANKA)
     if device_step_limit:
-        robot["max_delta_per_step"] = {"joint_rad": 0.5}
+        robot["limits"] = {**robot["limits"], "max_delta_per_step": {"joint_rad": 0.5}}
     connection = dict(robot=robot, home_joints=[0.0] * 7, reset_settle_s=0.0)
-    trained = RealRobotEnvConfig(**connection, action_mode="joint_abs", joint_limits=[[-1.0, 1.0]] * 7)
+    trained = RealRobotEnvConfig(**connection, action_mode="joint_abs", limits=env_limits(joints=[[-1.0, 1.0]] * 7))
     training_args = RLPDArgs(num_envs=1, num_eval_envs=1, buffer_size=8, buffer_device="cpu")
     training_args.real_robot = trained
     args = DeployArgs(checkpoint="unused.pt", real_robot=RealRobotEnvConfig(**connection))
@@ -800,7 +811,7 @@ def test_deploy_main_reports_missing_joint_step_limit_as_device_error(_claim_dir
     connection = dict(robot=FAKE_FRANKA, home_joints=[0.0] * 7, reset_settle_s=0.0)
     training_args = RLPDArgs(num_envs=1, num_eval_envs=1, buffer_size=8, buffer_device="cpu")
     training_args.real_robot = RealRobotEnvConfig(
-        **connection, action_mode="joint_abs", joint_limits=[[-1.0, 1.0]] * 7
+        **connection, action_mode="joint_abs", limits=env_limits(joints=[[-1.0, 1.0]] * 7)
     )
     args = DeployArgs(checkpoint="unused.pt", real_robot=RealRobotEnvConfig(**connection), episodes=1)
     env = build_deploy_env(args, training_args)

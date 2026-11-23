@@ -22,9 +22,9 @@
    * - 字段
      - 配置位置
      - 说明
-   * - ``robot`` / ``remote`` / ``token``\ 、\ ``safety_box``\ 、\ ``joint_limits``\ 、\ ``home_joints``\ 、\ ``cameras``
+   * - ``robot`` / ``remote`` / ``token``\ 、\ ``limits``\ （仅能收紧的覆盖，见\ :ref:`限位 <devices-limits>`\ ）、\ ``home_joints``\ 、\ ``cameras``
      - 每臂独立
-     - ``cameras`` 名称跨臂唯一；\ ``joint_limits`` 必须两臂都设置或都不设置。
+     - ``cameras`` 名称跨臂唯一；\ ``limits.joints`` 必须两臂都设置或都不设置。
    * - ``action_mode``\ 、\ ``num_joints``\ 、\ ``control_hz``\ 、\ ``gripper_in_action``\ 、\ ``xyz_scale_m``\ 、\ ``rot_scale_rad``\ 、\ ``joint_scale_rad``\ 、\ ``state_fields``\ 、\ ``image_size``
      - 每臂配置，但两臂必须相同
      - 配置构建时不一致会抛出 ``ValueError``\ 。
@@ -38,7 +38,7 @@
 ``task`` 配置在双臂层（默认 ``task.name: none``），逐臂 task 必须保持 ``none``。
 ``max_episode_steps`` 默认 ``None``；共享 ``reset_settle_s`` 默认 0.5 秒，替换逐臂等待时间。
 
-与 ``real_robot`` 相同，\ ``joint_limits`` 等逐臂列表写在通过 ``--config`` 指定的 YAML 预设中：
+与 ``real_robot`` 相同，\ ``limits.joints`` 等逐臂列表写在通过 ``--config`` 指定的 YAML 预设中：
 
 .. code-block:: yaml
    :dedent: 0

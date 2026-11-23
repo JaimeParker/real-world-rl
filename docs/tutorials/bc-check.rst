@@ -95,7 +95,7 @@
 
 * 把预测理解成绝对 TCP 目标：重新查 action_mode，本例是相对当前状态的增量。
 * 误差很小但某个维度明显不对：先看 mask，该维度可能没有参与监督。
-* GELLO joint_abs 结果按米解释：用那次录制的 joint_limits 解码七个关节目标；不要套用本表。
+* GELLO joint_abs 结果按米解释：用那次录制的 ``limits.joints`` 解码七个关节目标；不要套用本表。
 
 3. 保存部署要核对的记录
 --------------------------------------------------------------------------------
@@ -120,9 +120,9 @@ cartesian_semantics 为 current、xyz_scale_m 为 0.05、rot_scale_rad 为 0.3�
 * 相机名称、实际视角、RGB／深度、图像尺寸、crop 等 preprocess、帧堆叠和旋转转换。
   同名 wrist 不代表换了安装位置以后图像分布仍相同。
 * state_fields 的顺序、字段维数、四元数 xyzw 约定、任务坐标系和单位。
-* action_mode、cartesian_semantics、动作维数、尺度、joint_limits、夹爪映射和控制频率。
-  动作约定还包括 experiment 中的空间约束与 teleop_control 来源。
-* 当前 ``local/station.yaml`` 的设备、home、工作区与控制设置，以及
+* action_mode、cartesian_semantics、动作维数、尺度、``limits``（关节范围、TCP 盒）、夹爪映射和控制频率。
+  动作约定还包括 experiment 中记录的 ``limits`` 与 teleop_control 来源。
+* 当前 ``local/station.yaml`` 的设备、home、限位（``limits``）与控制设置，以及
   ``local/task.yaml`` 与训练时配置的差异。保留原 session resolved-config 作为录制依据。
 
 **如果不对**：
@@ -151,7 +151,7 @@ temporal_agg_k 默认 0.01，state_dict_key 默认 ema_agent。介入后的块�
 宽度检查通过只是其中一项；ACT 不使用本章 BC 离线脚本。
 
 **如果不对**：joint_abs 与 joint_delta 可以同宽，提供器的宽度检查发现不了混用。
-必须另查 action_mode、joint_limits 和尺度；残差基础策略也必须输出当前运行所需的动作空间。
+必须另查 action_mode、``limits.joints`` 和尺度；残差基础策略也必须输出当前运行所需的动作空间。
 不能把同宽或裁剪后的有限值当成动作语义匹配。
 
 本章产物

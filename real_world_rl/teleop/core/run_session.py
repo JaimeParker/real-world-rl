@@ -49,8 +49,8 @@ def load_session_station(args, diagnose=None):
         raise CliError("teleop run starts its own supervisor; invoke it directly", code=USAGE_EXIT_CODE)
     station = station_document(args)
     if diagnose:
-        if station[4].config.workspace is None:
-            raise CliError("motion diagnostics require a reviewed station workspace", code=USAGE_EXIT_CODE)
+        if (station[4].config.limits or {}).get("tcp") is None:
+            raise CliError("motion diagnostics require a reviewed station TCP box", code=USAGE_EXIT_CODE)
         if not 0 < diagnose["gain"] <= 1 or not 0 < diagnose["duration_s"] <= 300:
             raise CliError("gain must be in (0,1] and duration in (0,300]", code=USAGE_EXIT_CODE)
     return station
@@ -80,7 +80,7 @@ def run_supervised_session(args, ctx, plan: SessionPlan) -> Result:
     env = dict(preset.env)
     for name in ("stop_trace_path", "diagnostics_path", "session_events_path"):
         env.pop(name, None)
-    env.update(task_frame=config.task_frame, workspace=config.workspace)
+    env.update(task_frame=config.task_frame)
     if selected.daemon_declared and not args.direct:
         env.update(robot=None, remote=client_address(selected.bind), token=selected.token)
     else:

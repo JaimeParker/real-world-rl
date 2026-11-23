@@ -7,7 +7,7 @@
 
 Steps: a guided per-joint sign check, the joint offsets from a known calibration pose, the
 gripper trigger's open and closed raw angles, and the wrap centres from the follower's
-``joint_limits``. The procedure follows GELLO (MIT license, Philipp Wu,
+``limits.joints``. The procedure follows GELLO (MIT license, Philipp Wu,
 https://github.com/wuphilipp/gello_software); the helpers below are pure functions over a
 reader callable so they run without hardware."""
 from __future__ import annotations
@@ -120,13 +120,15 @@ def wrap_centers_from_joint_limits(joint_limits: Sequence[Sequence[float]]) -> l
 
 
 def load_joint_limits(robot_yaml: str | Path) -> list[list[float]] | None:
-    """``joint_limits`` of a robot yaml (top level or under ``robot:``), None when unset."""
+    """``limits.joints`` of a robot YAML (top level or under ``robot:``)."""
     data = yaml.safe_load(Path(robot_yaml).read_text())
     if isinstance(data, Mapping) and "robot" in data:
         data = data["robot"]
     if not isinstance(data, Mapping):
         raise ValueError(f"{robot_yaml} is not a robot config mapping")
-    return data.get("joint_limits")
+    if "joint_limits" in data:
+        raise ValueError("joint_limits was removed; run rwrl limits migrate <yaml> and use limits.joints")
+    return (data.get("limits") or {}).get("joints")
 
 
 def _number(value: float) -> str:
@@ -210,7 +212,7 @@ def build_parser(parser=None):
         "pose 0 0 0 -pi/2 0 pi/2 0 for 7 joints",
     )
     parser.add_argument("--joint-signs", type=int, nargs="+", default=None, help="initial signs (default all +1)")
-    parser.add_argument("--joint-limits-yaml", default=None, help="robot yaml whose joint_limits give the wrap centres")
+    parser.add_argument("--joint-limits-yaml", default=None, help="robot yaml whose limits.joints give the wrap centres")
     parser.add_argument("--skip-sign-check", action="store_true", help="take --joint-signs as they are")
     return parser
 
@@ -293,7 +295,7 @@ def calibrate_gello(
     finally:
         bus.close()
     if joint_limits is None:
-        echo("warning: no joint_limits given (--joint-limits-yaml); wrap_centers_rad are zeros, which is "
+        echo("warning: no limits.joints given (--joint-limits-yaml); wrap_centers_rad are zeros, which is "
              "wrong for joints whose range is not centred on 0 (Panda joint 6 reaches past pi)")
         centers = [0.0] * num_joints
     else:

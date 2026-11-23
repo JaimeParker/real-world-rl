@@ -77,12 +77,11 @@ PANDA_JOINT_LIMITS = DATASHEET_JOINT_LIMITS["panda"]
 
 def datasheet_joint_limits(config: RobotConfig):
     return DATASHEET_JOINT_LIMITS.get(getattr(config, "robot_model", "panda"), PANDA_JOINT_LIMITS)
-# Offered per arm: [xmin, ymin, zmin, xmax, ymax, zmax] in m, base frame, a table-top workspace
-# in front of a Panda.
-SUGGESTED_SAFETY_BOX = (0.3, -0.3, 0.05, 0.7, 0.3, 0.6)
+# TCP offsets in metres along the table axes, relative to home.
+DEFAULT_TCP_LOW = (-0.20, -0.25, -0.15)
+DEFAULT_TCP_HIGH = (0.20, 0.25, 0.30)
 DEFAULT_MAX_DELTA_XYZ_M = 0.05
 DEFAULT_MAX_DELTA_JOINT_RAD = 0.04
-SAFETY_BOX_LENGTH = 6
 GELLO_OPTION_ORDER = (
     "port",
     "baudrate",
@@ -200,7 +199,9 @@ def _rounded(value: float) -> float:
 
 
 def gello_wrap_centers(config: RobotConfig) -> list[float]:
-    limits = config.joint_limits if config.joint_limits is not None else datasheet_joint_limits(config)
+    limits = (config.limits or {}).get("joints")
+    if limits is None:
+        limits = datasheet_joint_limits(config)
     return [_rounded(center) for center in wrap_centers_from_joint_limits(limits)]
 
 
@@ -223,7 +224,9 @@ class Answers:
     realtimes: list[str] | None = None
     home_joints: list[str] | None = None
     joint_limits: list[str] | None = None
-    safety_boxes: list[str] | None = None
+    tcp_box_low: list[str] | None = None
+    tcp_box_high: list[str] | None = None
+    tcp_origins: list[str] | None = None
     controls: list[str] | None = None
     max_delta_xyz_m: list[str] | None = None
     max_delta_joint_rad: list[str] | None = None
@@ -397,23 +400,23 @@ def _parse_positive(unit: str) -> Callable[[str], float]:
     return parse
 
 
-def _parse_safety_box(text: str) -> list[float]:
-    expected = f"give {SAFETY_BOX_LENGTH} numbers in m (xmin ymin zmin xmax ymax zmax)"
-    try:
-        box = _floats(text)
-    except ValueError:
-        raise ValueError(f"{expected}, e.g. {_float_list_text(SUGGESTED_SAFETY_BOX)}") from None
-    if len(box) != SAFETY_BOX_LENGTH:
-        raise ValueError(f"{expected}, got {len(box)}")
-    for axis, low, high in zip("xyz", box[:3], box[3:]):
-        if not low < high:
-            raise ValueError(f"{axis}min {low} must be below {axis}max {high}")
-    return box
+def _parse_xyz(text: str) -> list[float]:
+    values = _floats(text)
+    if len(values) != 3 or not all(math.isfinite(value) for value in values):
+        raise ValueError("give three finite numbers in m")
+    return values
 
 
-def _parse_joint_limits(text: str) -> list[list[float]]:
-    count = 2 * FRANKA_NUM_JOINTS
-    expected = f"give {count} numbers in rad (lo,hi for each of the {FRANKA_NUM_JOINTS} joints)"
+def _parse_tcp_bound(text: str, *, low: bool) -> list[float]:
+    values = _parse_xyz(text)
+    if any(value >= 0 if low else value <= 0 for value in values):
+        raise ValueError("TCP bounds require low < 0 < high on every axis")
+    return values
+
+
+def _parse_joint_limits(text: str, num_joints: int = FRANKA_NUM_JOINTS) -> list[list[float]]:
+    count = 2 * num_joints
+    expected = f"give {count} numbers in rad (lo,hi for each of the {num_joints} joints)"
     try:
         values = _floats(text)
     except ValueError:
@@ -422,8 +425,8 @@ def _parse_joint_limits(text: str) -> list[list[float]]:
         raise ValueError(f"{expected}, got {len(values)}")
     limits = [values[start:start + 2] for start in range(0, count, 2)]
     for joint, (low, high) in enumerate(limits, start=1):
-        if not low < high:
-            raise ValueError(f"joint {joint}: lo {low} must be below hi {high}")
+        if not math.isfinite(low) or not math.isfinite(high) or low > high:
+            raise ValueError(f"joint {joint}: require finite lo <= hi, got {low}, {high}")
     return limits
 
 
@@ -530,7 +533,9 @@ def _arm_draft(
 ) -> ArmDraft:
     prior = context.prior
     if prior is None:
-        config: RobotConfig = FrankaConfig(name=context.name, cameras=[], teleop=None)
+        config: RobotConfig = FrankaConfig(
+            name=context.name, cameras=[], teleop=None,
+            limits={"joints": [list(pair) for pair in PANDA_JOINT_LIMITS]})
     elif prior.key == context.name:
         config = prior.config
     else:
@@ -588,6 +593,8 @@ def _arm_draft(
 def _ask_robot(
     prompt: Prompter, answers: Answers, probe: StationProbe, context: _ArmContext, config: RobotConfig, taken: _Taken
 ) -> RobotConfig:
+    if config.TYPE != "franka":
+        return _ask_existing_arm_limits(prompt, answers, context, config)
     index, count, prior = context.index, context.count, context.prior
     reachable = [host.ip for host in probe.reachable_hosts]
     if reachable:
@@ -646,10 +653,10 @@ def _ask_robot(
     # Before the joint limits: their default is the robot model's datasheet table.
     config = _ask_controller(prompt, answers, probe, context, config)
 
-    # A previous station (--station) without limits (null) gets the wizard's defaults.
+    # A new station uses the selected model's datasheet; existing joints are preserved.
     joint_limits = prompt.unasked(
         "--joint-limits", answers.for_arm("joint_limits", "--joint-limits", index, count), _parse_joint_limits,
-        prior=None if config.joint_limits is None else _float_list_text(_flattened(config.joint_limits)),
+        prior=None if prior is None or (config.limits or {}).get("joints") is None else _float_list_text(_flattened((config.limits or {}).get("joints"))),
         default=_float_list_text(_flattened(datasheet_joint_limits(config))),
     )
 
@@ -663,7 +670,7 @@ def _ask_robot(
                 raise ValueError(f"give {FRANKA_NUM_JOINTS} numbers in rad, e.g. {_float_list_text(FRANKA_HOME_JOINTS)}") from None
             if len(values) == FRANKA_NUM_JOINTS:
                 _require_home_inside_limits(values, joint_limits)
-        dataclasses.replace(config, home_joints=values, joint_limits=joint_limits)  # RobotConfig's own checks
+        dataclasses.replace(config, home_joints=values, limits={"joints": joint_limits})  # RobotConfig's own checks
         return values
 
     home_joints = prompt.answer(
@@ -672,7 +679,33 @@ def _ask_robot(
         prior=None if prior is None else _float_list_text(config.home_joints),
         suggested=_float_list_text(FRANKA_HOME_JOINTS),
     )
-    config = dataclasses.replace(config, home_joints=home_joints, joint_limits=joint_limits)
+    config = dataclasses.replace(config, home_joints=home_joints, limits={**(config.limits or {}), "joints": joint_limits, "tcp": None})
+    if config.joint_controller == "trajectory_impedance" and config.joint_trajectory is None:
+        config = dataclasses.replace(config, joint_trajectory={})
+    return _ask_safety(prompt, answers, context, config)
+
+
+def _ask_existing_arm_limits(prompt, answers, context, config):
+    """Keep a non-Franka station's connection settings; configure its limits explicitly."""
+    index, count = context.index, context.count
+    prior_limits = config.limits or {}
+    given = answers.for_arm("joint_limits", "--joint-limits", index, count)
+    joints = prompt.unasked(
+        "--joint-limits", given,
+        lambda text: None if text == NONE else _parse_joint_limits(text, config.NUM_JOINTS),
+        prior=_float_list_text(_flattened(prior_limits['joints'])) if prior_limits.get('joints') else NONE,
+        default=NONE)
+
+    def parse_home(text):
+        values = None if text.strip().lower() == NONE else _floats(text)
+        dataclasses.replace(config, home_joints=values, limits={"joints": joints})
+        return values
+
+    home = prompt.answer(
+        "--home-joints", answers.for_arm("home_joints", "--home-joints", index, count),
+        f"home joints of '{context.name}' ({config.NUM_JOINTS} values in rad, or none)", parse_home,
+        prior=_float_list_text(config.home_joints))
+    config = dataclasses.replace(config, home_joints=home, limits={**prior_limits, "joints": joints, "tcp": None})
     return _ask_safety(prompt, answers, context, config)
 
 
@@ -749,8 +782,7 @@ def _ask_controller(
                         "(SERL's gains are serl:, its defaults when null)")
     return dataclasses.replace(config, robot_model=robot_model, cartesian_controller=controller,
                                realtime=realtime, control=control, joint_controller=joint_controller,
-                               joint_trajectory=(config.joint_trajectory or {})
-                               if joint_controller == "trajectory_impedance" else config.joint_trajectory)
+                               joint_trajectory=config.joint_trajectory)
 
 
 def _float_list_text(values: Sequence[float] | None) -> str:
@@ -775,22 +807,34 @@ def _require_home_inside_limits(home_joints: Sequence[float], joint_limits: Sequ
 
 
 def _ask_safety(prompt: Prompter, answers: Answers, context: _ArmContext, config: RobotConfig) -> RobotConfig:
-    """The safety box (asked) and the per-step servo cap (flags, else ``--station``, else the defaults)."""
+    """The TCP box (asked) and the per-step servo cap (flags, else ``--station``, else the defaults)."""
     index, count = context.index, context.count
-    suggested_box = _float_list_text(SUGGESTED_SAFETY_BOX)
-    prior_box = None if config.safety_box is None else _float_list_text(config.safety_box)
-    if prior_box is None and prompt.non_interactive:
-        prior_box = suggested_box  # --non-interactive takes the suggestion instead of failing
-    prompt.echo(
-        "safety box: the TCP position is kept inside it, in the robot base frame, in metres "
-        "(servo targets are clipped, moves outside are refused); it must contain the home pose"
-    )
-    safety_box = prompt.answer(
-        "--safety-box", answers.for_arm("safety_boxes", "--safety-box", index, count),
-        f"safety box of '{context.name}' (xmin, ymin, zmin, xmax, ymax, zmax in m)", _parse_safety_box,
-        prior=prior_box, suggested=suggested_box,
-    )
-    prior_max_delta = config.max_delta_per_step or {}
+    from real_world_rl.devices.workspace import task_transform
+    prior_tcp = ((context.prior.config.limits or {}).get("tcp") or {}) if context.prior else {}
+    prompt.echo("TCP box: centred on home with table axes (base axes if no task_frame), in metres.")
+    bounds = {}
+    for key, default in (("low", DEFAULT_TCP_LOW), ("high", DEFAULT_TCP_HIGH)):
+        flag = "--tcp-box-" + key
+        prior = _float_list_text(prior_tcp.get(key, default))
+        bounds[key] = prompt.answer(
+            flag, answers.for_arm("tcp_box_" + key, flag, index, count),
+            f"TCP box {key} of '{context.name}' (x,y,z relative to home)",
+            lambda text, key=key: _parse_tcp_bound(text, low=key == "low"),
+            prior=prior if context.prior or prompt.non_interactive else None, suggested=prior)
+    fk = config.kinematics()
+    if fk is not None and config.home_joints is not None:
+        if answers.for_arm("tcp_origins", "--tcp-origin", index, count) is not None:
+            raise WizardError("--tcp-origin applies only when home FK is unavailable; this arm uses origin: home")
+        origin = {"origin": "home", "origin_xyz": fk(config.home_joints).tolist()}
+    else:
+        xyz = prompt.answer("--tcp-origin", answers.for_arm("tcp_origins", "--tcp-origin", index, count),
+                            "explicit TCP box origin in base coordinates (x,y,z m)", _parse_xyz,
+                            prior=None if isinstance(prior_tcp.get("origin"), str) or not prior_tcp else
+                            _float_list_text(prior_tcp.get("origin")))
+        origin = {"origin": xyz}
+    tcp = {**origin, "axes_R": task_transform(config.task_frame)[:3, :3].tolist(), **bounds,
+           "measured_margin_m": prior_tcp.get("measured_margin_m", .003)}
+    prior_max_delta = (config.limits or {}).get("max_delta_per_step") or {}
     max_delta_xyz_m = prompt.unasked(
         "--max-delta-xyz-m", answers.for_arm("max_delta_xyz_m", "--max-delta-xyz-m", index, count),
         _parse_positive("m"), prior=_optional_text(prior_max_delta.get("xyz_m")),
@@ -807,8 +851,8 @@ def _ask_safety(prompt: Prompter, answers: Answers, context: _ArmContext, config
     )
     return dataclasses.replace(
         config,
-        safety_box=safety_box,
-        max_delta_per_step={"xyz_m": max_delta_xyz_m, "joint_rad": max_delta_joint_rad},
+        limits={**(config.limits or {}), "tcp": tcp,
+                "max_delta_per_step": {"xyz_m": max_delta_xyz_m, "joint_rad": max_delta_joint_rad}},
     )
 
 
@@ -1169,7 +1213,7 @@ def _calibrate(
                 baudrate=options["baudrate"],
                 calibration_pose=FRANKA_CALIBRATION_POSE,
                 joint_signs=options["joint_signs"],
-                joint_limits=config.joint_limits if config.joint_limits is not None else datasheet_joint_limits(config),
+                joint_limits=(config.limits or {}).get("joints") if (config.limits or {}).get("joints") is not None else datasheet_joint_limits(config),
                 ask=prompt.ask,
                 echo=prompt.echo,
                 bus=bus,

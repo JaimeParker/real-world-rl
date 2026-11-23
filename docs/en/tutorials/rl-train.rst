@@ -59,7 +59,7 @@ listening address, port, and token. If the watchdog repeatedly triggers, revisit
 **Optional direct connection**: if you decide to let the actor own hardware directly, stop the daemon first, then copy
 local/rl-task.yaml to local/rl-direct.yaml. Remove real_robot.remote
 and put the commissioned station's single-arm robot configuration mapping into real_robot.robot; do not use a station path or copy the daemon block.
-Choose exactly one of robot and remote. Both machines must use the same observation, action, home, workspace, and teleop configuration.
+Choose exactly one of robot and remote. Both machines must use the same observation, action, home, limits, and teleop configuration.
 The commands below first print configuration, then compare the station with doctor. doctor initializes devices, so ensure no other process owns them.
 
 .. literalinclude:: ../../examples/rl-train-alternatives.sh
@@ -69,7 +69,7 @@ The commands below first print configuration, then compare the station with doct
 
 **What you should see**: print-config contains a robot mapping and no remote; doctor's <arm name>.preset is PASS.
 If hardware fields differ, it lists <arm name>.preset:<field> WARN with both station/preset values,
-including IP, backends, gripper, cameras, home, joint limits, frames, and workspace.
+including IP, backends, gripper, cameras, home, limits (``limits``), and frames.
 
 **If it doesn't**: fix each item in the copy; do not remove warnings. Successful parsing does not mean hardware is available.
 Then change the configuration in both Step 3 commands to local/rl-direct.yaml and start the actor through the supervisor:

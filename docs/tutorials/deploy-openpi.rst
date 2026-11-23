@@ -161,7 +161,7 @@ GPU 上需要两个环境：openpi 环境加载权重，rwrl 环境执行部署�
 
 把监听地址写进已有 station，让设备检查、服务和 SSH 转发使用同一个端口。
 在 :doc:`station` 已填写并验证的 ``local/station.yaml`` 顶层加入下面的块，
-与 ``type``、``cameras`` 同级；不要用本章模板覆盖已经测好的 home 和工作区。
+与 ``type``、``cameras`` 同级；不要用本章模板覆盖已经测好的 home 和 ``limits``。
 
 .. literalinclude:: ../examples/deploy-openpi-station.yaml
    :language: yaml
@@ -325,7 +325,7 @@ dry-run 用零状态和黑图像，只需要策略服务，不创建机器人环
    :start-after: # start mapping
    :end-before: # end mapping
 
-**你应该看到**：实际相机名称、home、workspace 和单步限制。
+**你应该看到**：实际相机名称、home、``limits``（关节范围、TCP 盒和单步限制）。
 :doc:`station` 的 ``wrist`` 只是一台相机；本章服务示例默认需要
 ``wrist_1`` 和 ``wrist_2``。只有一台时先核对模型是否允许缺第二视角，
 不能把同一帧复制成两台相机来宣称匹配。
@@ -354,7 +354,7 @@ dry-run 用零状态和黑图像，只需要策略服务，不创建机器人环
 相对 TCP 的 xyzw 四元数。保持训练时的裁切、颜色与相机顺序。
 默认平移／旋转尺度是 0.02 m／0.1 rad；部署文档的 RLinf SFT 示例显式使用 1.0／1.0。
 **这些是示例，不是已确认的 Pick_Red 参数。** 应以已核实的训练配置为准，
-同时保留 station 的工作区、单步限制和安全 home。
+同时保留 station 的 ``limits``（含单步限制）和安全 home。
 
 ``generic`` 则按 ``--real-robot.state-fields`` 拼接原生单位的状态，默认 224 × 224、
 Pillow 双线性缩放、RGB；动作按环境配置解释。改 profile 会改变契约，不是修复维数错误的快捷方式。
@@ -549,7 +549,7 @@ DNS 查询仍返回假地址时先修本地解析；代理警告消失但 RTT �
    **本章哪些内容需要真机确认**
 
    实际 Pick_Red 权重的 WebSocket 加载与推理尚未验证；还要确认真实相机的视角、
-   裁切和颜色，状态／力矩与刚度坐标系，动作方向、尺度与夹爪阈值，home 与工作区，
+   裁切和颜色，状态／力矩与刚度坐标系，动作方向、尺度与夹爪阈值，home 与 ``limits``，
    推理和传输时序、watchdog 停止效果、断链后的人工确认及 reset。
    autossh、systemd 和 Clash 路由需要在两台现场主机验证；Clean Desk 还需双臂契约和同步验证。
    本章本地结果只覆盖 CLI、假策略协议和无服务时的诊断，不能作为真机验收。

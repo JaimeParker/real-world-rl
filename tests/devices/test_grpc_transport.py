@@ -117,10 +117,12 @@ def test_step(client):
 def test_servo_changes_observation(client):
     client.call("arm.set_control_mode", mode="joint_servo")
     assert client.call("arm.control_mode") == "joint_servo"
-    client.call("arm.servo_joints", q=np.ones(7, dtype=np.float32))
+    # Inside the Panda datasheet joint limits (joint 4 is negative), which the arm applies by default.
+    target = np.array([1, 1, 1, -1, 1, 1, 1], dtype=np.float32)
+    client.call("arm.servo_joints", q=target)
     for _ in range(10):
         observation = client.call("robot.get_observation")
-    np.testing.assert_allclose(observation["arm"]["joint_pos"], 1.0, atol=1e-2)
+    np.testing.assert_allclose(observation["arm"]["joint_pos"], target, atol=1e-2)
 
 
 def test_remote_device_error_keeps_type_and_hint(service, client):

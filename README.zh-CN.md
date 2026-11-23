@@ -135,14 +135,15 @@ Daemon 将超过 `--watchdog-s`（默认 0.5 秒）无动作的伺服臂置为�
 
 ### 环境配置
 
-相机与图像大小来自观测参数组，而非 `--real_robot.*`：`--obs.rgb wrist --obs.image-size 128 128`（远程机器人连接后才报告尺寸，有相机时须显式给 `--obs.image-size`）。`--real_robot.cameras` 从 `--obs.rgb` 填入，设为其他值抛 `ObservationContractError`。`--real_robot.joint_limits` 为 `[lo, hi]` 对列表，CLI 会展平而无法表达，应在 `--config` YAML 预设中给出；任意 `train_real_world.py` 运行均支持（`--print-config` 不接触机器人即可验证）。
+相机与图像大小来自观测参数组，而非 `--real_robot.*`：`--obs.rgb wrist --obs.image-size 128 128`（远程机器人连接后才报告尺寸，有相机时须显式给 `--obs.image-size`）。`--real_robot.cameras` 从 `--obs.rgb` 填入，设为其他值抛 `ObservationContractError`。`--real_robot.limits` 是嵌套映射（`joints` 为 `[lo, hi]` 对列表，`tcp` 给 `low` / `high`），CLI 无法表达，应在 `--config` YAML 预设中给出；任意 `train_real_world.py` 运行均支持（`--print-config` 不接触机器人即可验证）。
 
 单臂预设 [`examples/presets/hil_single_arm.yaml`](examples/presets/hil_single_arm.yaml) 使用 `joint_delta`、一台 128×128 `wrist` 相机、`127.0.0.1:50051` daemon。复制到 `hil.yaml`，编辑 `remote` 和 `obs.rgb`（[教程 10 附录](https://real-world-rl.readthedocs.io/zh-cn/latest/tutorials/rl-task.html)）。`joint_abs` 预设修改模式并加入限制：
 
 ```yaml
 real_robot:
   action_mode: joint_abs
-  joint_limits: [[-2.8, 2.8], [-1.7, 1.7], [-2.8, 2.8], [-3.0, -0.1], [-2.8, 2.8], [0.0, 3.7], [-2.8, 2.8]]
+  limits:
+    joints: [[-2.8, 2.8], [-1.7, 1.7], [-2.8, 2.8], [-3.0, -0.1], [-2.8, 2.8], [0.0, 3.7], [-2.8, 2.8]]
 ```
 
 <a id="action-contract"></a>
@@ -151,11 +152,11 @@ real_robot:
 
 `action_mode` 确定 [-1, 1] 归一化动作含义；`gripper_in_action` 为 true（默认）时末尾添加夹爪维度。
 
-| `action_mode` | 机械臂动作 | `joint_limits` | 要求 |
+| `action_mode` | 机械臂动作 | `limits.joints` | 要求 |
 |---|---|---|---|
 | `cartesian_delta` | 6 维 twist：xyz 乘 `xyz_scale_m`，旋转乘 `rot_scale_rad` | 可选 | 状态含 `tcp_pose` |
 | `joint_delta` | `num_joints` 个增量乘 `joint_scale_rad` | 可选（裁剪） | `joint_pos` |
-| `joint_abs` | `num_joints` 个值线性映射到 `joint_limits` | **必需**（构建时建立映射） | `joint_pos`，机器人须报告 `max_delta_per_step.joint_rad` |
+| `joint_abs` | `num_joints` 个值线性映射到 `limits.joints` | **必需**（构建时建立映射） | `joint_pos`，机器人须报告 `max_delta_per_step.joint_rad` |
 
 hil_serl（`--env-backend real_robot`）还在构建环境时通过 `TeleopInterventionWrapper` 对照此约定检查遥操作源：
 
@@ -169,9 +170,10 @@ hil_serl（`--env-backend real_robot`）还在构建环境时通过 `TeleopInter
 
 ### 安全限制
 
-机器人 PC 的 YAML 中配置 `safety_box`、`joint_limits`、`max_delta_per_step`，daemon 执行；环境只能**更严格**：
+机器人 PC 的 YAML 用一个 `limits:` 块配置全部限制（`joints`、以 home 为中心并沿桌面轴的 TCP 盒 `tcp`、`max_delta_per_step`），由设备层（即 daemon）执行；环境只能**更严格**（[参考](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/devices.html#devices-limits)）：
 
-- 连接后（首个 `reset()`），未设的 `safety_box` / `joint_limits` / `home_joints` 从机器人继承。环境限制更松会在首个 reset 抛 `DeviceFault`，需收紧环境或放宽 YAML。
+- 笛卡尔目标被裁剪进盒子（姿态不动）；关节模式（GELLO、`joint_delta`、`joint_abs`）停在盒壁；`reset()` 或 `move_to_*` 的目标在盒外或超出关节限位时以 `SafetyViolation` 拒绝；实测 TCP 超出盒子加 `measured_margin_m` 时停止机械臂并锁存故障。旧的顶层 `safety_box`、`workspace`、`joint_limits` 键现在是报错，运行 `rwrl limits migrate <yaml>` 迁移。
+- 连接后（首个 `reset()`），未设的 `real_robot.limits.joints` / `limits.tcp` / `home_joints` 从机器人继承。环境限制更松会在首个 reset 抛 `DeviceFault`，需收紧环境或放宽 YAML；环境只能覆盖 `joints` 和盒子的 `low` / `high`，原点和轴来自机器人。`safety_box_rpy_low` / `_high` 只作为 `cartesian_semantics: serl` 的 HIL-SERL 动作语义保留。
 - `joint_abs` 另要求机器人报告 `max_delta_per_step.joint_rad`，因为连续绝对动作可跨整个关节范围。所有入口（hil_serl、deploy）均要求；缺失时首个 reset 报 `DeviceFault: action_mode joint_abs needs the robot's per-step joint limit ...`。
 - `step()` 的 `info["safety_clips"]` 是设备裁剪伺服命令的累计数，每 10 步刷新（需 daemon 往返），机器人不能报告时为 `None`。持续增长表示策略不断请求越界目标。`reset()` 用 `move_to_joints` 归位，所以越界 `home_joints` 会在此抛 `SafetyViolation`。
 
@@ -187,7 +189,7 @@ HIL 方法（`hil_serl`、`residual_hil_serl`、`silri`）通过 `--teleop-devic
 
 hil_serl 可从机器人自身 teleop 部件介入（YAML `teleop:`：SpaceMouse、GELLO 主臂或 fake），由 daemon 提供。主臂（`--teleop-device leader_arm`/`gello`、起始策略、事件设备）见[主臂 GELLO](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/teleop.html#teleop-leader-arms-gello)。`--teleop-options-yaml PATH` 提供 CLI 无专用参数的选项（GELLO 串口/标定、SpaceMouse 索引、daemon 地址），`--teleop-event-device keyboard|stdin` 从第二设备获取介入切换/事件，均见 [遥操作](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/teleop.html)。`--teleop-device spacemouse` 则在 actor 本机经相同设备层 `SpaceMouseTeleop` 打开 SpaceMouse（无需 YAML `teleop:`）：按钮 0 接管/交还，按钮 1 切夹爪，操纵帽通过笛卡尔命令 tracker 输入速度，标记来自 `--teleop-event-device stdin`。设备表、接口约定、新增设备见 [遥操作](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/teleop.html)。对于 `--teleop-device robot`：
 
-- `cartesian_delta` 原样传递；`joint_abs` 归一化到 `joint_limits`；`joint_delta` 变为 `(q_leader - q_follower) / joint_scale_rad`（`state_fields` 需 `joint_pos`）。
+- `cartesian_delta` 原样传递；`joint_abs` 归一化到 `limits.joints`；`joint_delta` 变为 `(q_leader - q_follower) / joint_scale_rad`（`state_fields` 需 `joint_pos`）。
 - [0, 1] 夹爪 `g` 变为 `2g - 1`。无夹爪 teleop 保持环境最后夹爪动作（reset 后为打开 +1），接管机械臂不松开物体。
 - `episode_end` 以 `truncated` 结束回合，设置 `info["human_episode_end"]`；reset 归位期间按键丢弃。读取失败以 `DeviceFault` 停止 actor，不静默丢弃介入。
 - 远程机器人连接后才报告 teleop，因此先用 `--robot-teleop-action-mode {cartesian_delta,joint_abs,joint_delta}` 声明（无夹爪再加 `--no-robot-teleop-has-gripper`）。连接时与实际部件核对，不匹配抛 `DeviceFault`。
@@ -222,7 +224,7 @@ rwrl deploy --checkpoint runs/.../checkpoints/checkpoint_<step>.pt \
 
 （serl checkpoint 用 `--algo rlpd`，hil_serl 用 `rlpd_hybrid`，`real_world_bc` 运行用 `real_world_bc`，`residual_hil_serl` / `residual_hil_serl_hybrid` 与 `silri` 见下文；双臂加 `--env-backend real_robot_bimanual`，见 [将两条机械臂组合成一个环境（`real_robot_bimanual`）](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/bimanual.html#bimanual-deploy)。）训练目录的 `config.json`（`checkpoints/` 旁）是动作/观测约定的权威来源：
 
-- 部署环境从运行读取 `action_mode`、`gripper_in_action`、`num_joints`、`joint_limits`、`xyz_scale_m`、`rot_scale_rad`、`joint_scale_rad`、`state_fields`、`image_size`、`control_hz` 及任务/控制/预处理设置。工作站拥有的 reset 信息与回合上限可为部署调整。自动重建观测包装器：`obs.frame_stack`（堆叠 `classifier_image_keys`）、`convert_obs_rotation`。`--real_robot.*` 仅提供连接字段（`robot`、`remote`、`token`、`home_joints`、`safety_box`、`reset_settle_s` 等）。
+- 部署环境从运行读取 `action_mode`、`gripper_in_action`、`num_joints`、`limits`、`xyz_scale_m`、`rot_scale_rad`、`joint_scale_rad`、`state_fields`、`image_size`、`control_hz` 及任务/控制/预处理设置。工作站拥有的 reset 信息与回合上限可为部署调整。自动重建观测包装器：`obs.frame_stack`（堆叠 `classifier_image_keys`）、`convert_obs_rotation`。`--real_robot.*` 仅提供连接字段（`robot`、`remote`、`token`、`home_joints`、`safety_box`、`reset_settle_s` 等）。
 - CLI 约定字段不同于训练值会报 `ValueError: --real_robot.* contradicts the training run's real_robot config ...`。**限制：** 等于 dataclass 默认值的 CLI 值无法区分是否显式设置，因此对 `joint_abs` 运行传 `--real_robot.action_mode cartesian_delta` 会静默采用运行的 `joint_abs`。
 - 无 `real_robot` 配置的旧运行 会警告并回退 CLI，不验证约定。
 - `DeviceError`（daemon 不可达、watchdog、安全）输出消息/提示，以 1 退出。
@@ -248,7 +250,7 @@ rwrl deploy --checkpoint runs/.../checkpoints/checkpoint_<step>.pt \
 hil_serl learner 的回放和示范缓冲区快照每个 pkl 旁带 `<name>.contract.json`（`transitions_N.pkl` → `transitions_N.contract.json`）；`--demo-dataset-paths` 的 pkl 与此文件一起读取；示范数据集目录（`rwrl record --output-dir`）则把同样的约定放在 `dataset.json` 的 `action_contract` 里。它是一行排序 JSON：
 
 ```json
-{"action_mode": "joint_abs", "arm_action_dim": 7, "gripper_in_action": true, "joint_limits": [[-2.8, 2.8], ...], "joint_scale_rad": 0.05, "num_joints": 7, "rot_scale_rad": 0.1, "state_fields": ["joint_pos", "gripper_pos"], "xyz_scale_m": 0.02}
+{"action_mode": "joint_abs", "arm_action_dim": 7, "gripper_in_action": true, "joint_limits": [[-2.8, 2.8], ...], "limits": {"version": "station_limits_v1", ...}, "joint_scale_rad": 0.05, "num_joints": 7, "rot_scale_rad": 0.1, "state_fields": ["joint_pos", "gripper_pos"], "xyz_scale_m": 0.02}
 ```
 
 加载时与环境约定比较（浮点用 `allclose`）。不匹配抛 `ValueError: ... recorded action contract does not match the env's (differs in ['joint_limits']) ...`。早于缩放/限制字段的附属文件仅检查已有键并警告。无附属文件的 pkl 仅检查动作宽度并警告（`... has no action-contract metadata (<name>.contract.json missing) ...`）。
@@ -257,7 +259,7 @@ hil_serl learner 的回放和示范缓冲区快照每个 pkl 旁带 `<name>.cont
 
 ### fake 机器人端到端演练
 
-一台机器，无硬件（项目容器已验证；短训练且策略未训练完成）。机器人 PC 侧使用 `type: franka` 的 fake `robot.yaml`（`arm_backend: fake`、`gripper: {backend: fake}`、名为 `wrist` 的 fake 相机、示例工作站的关节限制及 `max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.1}`、上方 fake teleop）：
+一台机器，无硬件（项目容器已验证；短训练且策略未训练完成）。机器人 PC 侧使用 `type: franka` 的 fake `robot.yaml`（`arm_backend: fake`、`gripper: {backend: fake}`、名为 `wrist` 的 fake 相机、示例工作站的 `limits:` 块（含 `joints` 及 `max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.1}`）、上方 fake teleop）：
 
 ```bash
 rwrl daemon --station robot.yaml --bind 127.0.0.1:50061 --token T \

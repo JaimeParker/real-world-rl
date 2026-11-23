@@ -147,14 +147,14 @@ What happens:
 
 .. code-block:: text
 
-   arm: {"num_joints": 7, "supported_state_fields": ["tcp_pose", "tcp_vel", "joint_pos", "joint_vel", "tcp_force", "tcp_torque"], "control_mode": "idle", "safety": {"safety_box": [-0.5, -0.5, -0.5, 0.5, 0.5, 0.5], "joint_limits": [[-1.0, 1.0], ...], "max_delta_per_step": {"xyz_m": 0.05, "joint_rad": 0.1}}, "home_joints": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
+   arm: {"num_joints": 7, "supported_state_fields": ["tcp_pose", "tcp_vel", "joint_pos", "joint_vel", "tcp_force", "tcp_torque"], "control_mode": "idle", "safety": {"version": "station_limits_v1", "joints": [[-1.0, 1.0], ...], "tcp": {"origin_xyz": [0.0, 0.0, 0.0], "axes_R": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], "low": [-0.5, -0.5, -0.5], "high": [0.5, 0.5, 0.5], "measured_margin_m": 0.003}, "max_delta_per_step": {"xyz_m": 0.05, "joint_rad": 0.1}, "kinematics": null}, "home_joints": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
    image_encoding: {'jpeg': 80}
    camera cfg: {'name': 'wrist', 'serial': '', 'width': 64, 'height': 48, 'fps': 30, 'enable_depth': False, 'backend': 'fake'}
    teleop: {'name': 'teleop', 'backend': 'fake', 'action_space': 'joint_abs', 'has_gripper': True, 'hold_s': 0.0}
 
-``arm.safety`` is ``null`` when no limit is configured; ``arm.home_joints`` is the yaml's value (or ``null``).
-The description also includes ``arm.safety_capabilities``: ``task_workspace_v1`` for Cartesian
-workspace enforcement, ``accepted_cartesian_target_v1`` for accepted-target holding, and, on
+``arm.safety`` is ``null`` when no limit is configured; otherwise it carries ``"version": "station_limits_v1"`` (the ``limits`` block with the box centre and axes resolved to the base frame; see :ref:`Limits <en-devices-limits>`); ``arm.home_joints`` is the yaml's value (or ``null``).
+The description also includes ``arm.safety_capabilities``: ``station_limits_v1`` for the unified
+limits block enforced by the device layer, ``accepted_cartesian_target_v1`` for accepted-target holding, and, on
 Franky, ``stop_trace_v1``. Clients negotiate capabilities before using new behavior; older
 servers cannot certify support. Connected teleop descriptions carry ``device_identity`` (USB
 vendor/product and available serial/model); ``RemoteTeleop.device_identity`` exposes that same
@@ -241,7 +241,7 @@ Without ``import real_world_rl.server``, ``Robot.from_dict`` raises
    ``robot.arm.safety_limits`` (the dict under ``arm.safety`` above, or ``None``),
    ``robot.arm.home_joints`` (list or ``None``), ``robot.cameras["wrist"].image_encoding``, and
    ``robot.teleop`` (``None`` without a ``teleop:`` section). The client does not enforce limits
-   itself (``RemoteRobotConfig`` ignores ``safety_box``, ``joint_limits``, ``max_delta_per_step`` and
+   itself (``RemoteRobotConfig`` ignores ``limits`` and
    ``teleop``); the daemon does.
 
 -  A command outside the limits behaves as follows on the client (run it before ``robot.disconnect()``):
@@ -255,7 +255,7 @@ Without ``import real_world_rl.server``, ``Robot.from_dict`` raises
       robot.arm.servo_joints(np.full(7, 5.0))      # no error: clipped on the daemon, safety_clips += 1
       robot.arm.set_control_mode(ControlMode.IDLE)
       try:
-          robot.arm.move_to_joints(np.full(7, 5.0))   # outside joint_limits
+          robot.arm.move_to_joints(np.full(7, 5.0))   # outside limits.joints
       except SafetyViolation as error:
           print(error.message, error.hint)            # nothing was sent; the arm and its mode are unchanged
       print(robot.arm.health().safety_clips, robot.arm.health().safety_rejects)   # cumulative counters since the daemon started, e.g. 2 1
@@ -289,7 +289,7 @@ you can drive the device layer directly:
 
 This path has no watchdog and takes no device claim. Those are daemon features. The safety
 limits, however, are enforced here too: ``Robot.from_yaml`` builds the arm with the yaml's
-``safety_box``/``joint_limits``/``max_delta_per_step``, so ``robot.arm.safety_limits``,
+``limits`` block (joint ranges, TCP box, ``max_delta_per_step``), so ``robot.arm.safety_limits``,
 ``robot.arm.health().safety_clips`` and ``SafetyViolation`` behave exactly as through the daemon.
 
 .. _en-daemon-supervising-a-single-process-robot-run:

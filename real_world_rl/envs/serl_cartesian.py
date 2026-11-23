@@ -25,7 +25,7 @@ def validate_serl_config(
 ) -> None:
     """Require complete finite pose limits and valid SERL scales/timing."""
     for name, low, high in (
-        ("safety_box", xyz_low, xyz_high),
+        ("limits.tcp", xyz_low, xyz_high),
         ("safety_box_rpy", rpy_low, rpy_high),
     ):
         if low is None or high is None or len(low) != 3 or len(high) != 3:
@@ -99,8 +99,6 @@ def gripper_command(
 
 
 def semantics_contract(
-    xyz_low: Sequence[float],
-    xyz_high: Sequence[float],
     rpy_low: Sequence[float],
     rpy_high: Sequence[float],
     gripper_action_scale: float,
@@ -110,8 +108,6 @@ def semantics_contract(
     return {
         "cartesian_semantics": "serl",
         "serl": {
-            "safety_box_low": list(xyz_low),
-            "safety_box_high": list(xyz_high),
             "safety_box_rpy_low": list(rpy_low),
             "safety_box_rpy_high": list(rpy_high),
             "gripper_action_scale": gripper_action_scale,

@@ -93,7 +93,7 @@ These three facts determine the installation and configuration below. Write them
      - Franka Research 3
      - ``robot_model: fr3``
 
-This determines the default ``joint_limits`` from ``rwrl setup`` (the manual's Panda and FR3 limits differ greatly at joints 6 and 7),
+This determines the default ``limits.joints`` from ``rwrl setup`` (the manual's Panda and FR3 limits differ greatly at joints 6 and 7),
 and selects the limit table for SERL's joint reset.
 
 **robot server version**: the communication-protocol version on the controller-box side. It determines which libfranka versions work.
@@ -372,7 +372,7 @@ You can also let the wizard rewrite these fields. It preserves other station val
    :start-after: # start setup-switch
    :end-before: # end setup-switch
 
-The wizard asks for the model first and uses it for default ``joint_limits``. It suggests ``realtime: enforce`` for ``internal`` / ``serl``,
+The wizard asks for the model first and uses it for default ``limits.joints``. It suggests ``realtime: enforce`` for ``internal`` / ``serl``,
 warns if the kernel is not PREEMPT_RT, and removes impedance-only Cartesian gains from ``control:`` when switching to ``serl`` (keeping joint fields).
 Existing ``serl:`` parameters are preserved; if unset, SERL defaults apply. For manual editing, follow one of the three subsections below.
 
@@ -504,7 +504,7 @@ Set it only for items attached to the gripper that Desk has not registered, usin
 
 * ``cartesian_controller: serl needs arm_backend franky``: real control uses ``arm_backend: franky``. The configuration also permits ``fake`` for mock checks.
 * ``robot_model 'x' invalid``: only ``panda`` or ``fr3`` is allowed.
-* Existing ``joint_limits`` do not change automatically when you change ``robot_model``. For a new station, remove this field and rewrite with ``rwrl setup --station local/station.yaml``; the wizard supplies model-specific defaults.
+* Existing ``limits.joints`` do not change automatically when you change ``robot_model``. For a new station, remove ``limits.joints`` and rewrite with ``rwrl setup --station local/station.yaml``; the wizard supplies model-specific defaults.
 
 6. Run doctor
 --------------------------------------------------------------------------------
@@ -593,7 +593,7 @@ If the preset has its own home, it overrides the station. Check the source in ``
 
 * The log contains ``joint reset TIMEOUT``: the joints did not reach near home (about 0.01 rad per joint) within about 30 s. Reset still ends; check for obstructions or home near a limit.
 * A reflex such as ``communication_constraints_violation`` appears immediately: return to step 3 and confirm the realtime kernel.
-* ``outside joint_limits``: home lies outside the station's joint limits. Recheck the model and ``joint_limits`` in step 5.
+* ``home_joints outside limits.joints``: home lies outside the station's joint limits. Recheck the model and ``limits.joints`` in step 5.
 
 8. Next: first Cartesian motion and reflex recovery
 --------------------------------------------------------------------------------
@@ -687,7 +687,7 @@ All parameters, the timeout and the behaviour when a replan fails are in :doc:`.
 
 **For GELLO collection, raise control_hz to 15–30 Hz.** This advice follows from the planner's behaviour and is not a measured result: ``control_hz`` sets the interval between targets (100 ms at 10 Hz).
 The shorter the interval, the smaller each replan's displacement, the closer the follower is to continuous motion, and the shorter the delay from leader reading to execution.
-Per-step limits (``max_delta_per_step.joint_rad``, ``joint_scale_rad``) are **per step**, so after raising ``control_hz`` the same per-step values mean a higher speed;
+Per-step limits (``limits.max_delta_per_step.joint_rad``, ``joint_scale_rad``) are **per step**, so after raising ``control_hz`` the same per-step values mean a higher speed;
 the actual speed is also limited by ``max_velocity`` in ``joint_trajectory`` (default 0.6 / 0.75 rad/s).
 ``control_hz`` is part of the experiment contract: collection, training and deployment must use the same value (see :doc:`../reference/real-world-experiments`).
 

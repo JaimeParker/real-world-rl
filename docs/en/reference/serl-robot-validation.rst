@@ -7,7 +7,7 @@ root with the project environment active. Each step says what to look at and whe
 at the first step that fails, and keep its logs. Background: \ :doc:`SERL controller <serl-controller>`\ .
 
 Safety for every motion step: one person holds the external activation device and nobody else is
-in the cell. Use a free workspace well inside ``safety_box``, and start with the arm at home.
+in the cell. Use a free workspace well inside the station's ``limits.tcp`` box, and start with the arm at home.
 
 0. Bring the robot PC's working tree to this code
 --------------------------------------------------------------------------------------------------

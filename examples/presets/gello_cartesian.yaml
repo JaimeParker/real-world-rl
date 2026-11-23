@@ -6,7 +6,7 @@
 # The env scales must be at least the lead caps (0.05 m / 0.3 rad here).
 # Copy it (cp examples/presets/gello_cartesian.yaml gello.yaml) and edit the copy:
 # - real_robot.robot: this arm's FCI address; the actor runs on the machine wired to the arm;
-# - real_robot.safety_box: example values from the first session, re-check them on site;
+# - real_robot.robot.limits: example values from the first session, re-check them on site;
 # - gello_leader.yaml (teleop_options_yaml): the leader, one of
 #     robot_yaml: gello_station.yaml   # a local robot yaml with the GELLO teleop: section
 #     remote_address: HOST:PORT        # a robot daemon serving the GELLO as its teleop part
@@ -37,6 +37,14 @@ real_robot:
     robot_ip: 172.16.0.2       # this arm's FCI address
     realtime: ignore           # enforce needs a PREEMPT_RT kernel
     relative_dynamics_factor: 0.1
+    limits:
+      joints: [[-2.8973, 2.8973], [-1.7628, 1.7628], [-2.8973, 2.8973], [-3.0718, -0.0698], [-2.8973, 2.8973], [-0.0175, 3.7525], [-2.8973, 2.8973]]
+      tcp:
+        origin: home
+        origin_xyz: [0.3070195700516105, -7.841394128006894e-17, 0.4868695582766445]
+        axes_R: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+        low: [-0.05701957005161051, -0.39999999999999997, -0.3868695582766445]
+        high: [0.49298042994838953, 0.2000000000000001, 0.1631304417233555]
     cameras: []
     # gripper: omitted = the Franka Hand (franky, binary)
   num_joints: 7
@@ -47,5 +55,3 @@ real_robot:
   state_fields: [tcp_pose, tcp_vel, joint_pos, joint_vel]
   control_hz: 50
   max_episode_steps: 3000
-  # Example from the first session, re-check on site: x [0.25, 0.80], y [-0.40, 0.20], z [0.10, 0.65].
-  safety_box: [0.25, -0.40, 0.10, 0.80, 0.20, 0.65]

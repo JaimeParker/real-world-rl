@@ -39,7 +39,7 @@
       policy_action 仍随策略产生。夹爪有独立的实际控制标记，以记录为准。
 
       **如果不对**：推帽即接管时检查是否误用了 serl；按钮没反应时回查 HID 读取与编号；
-      WORKSPACE HOLD 时检查方向和工作区再重新接管，不扩大边界继续试。
+      TCP 在盒子边缘只沿墙面滑动、或报 ``measured TCP outside TCP box`` 停臂时，检查方向和限位再重新接管，不扩大盒子继续试。
       若选 SERL，必须使用 :doc:`spacemouse` 单独验证过的 SERL 配置和数据：它靠运动／按钮电平接管，
       松开交还，button_0 关爪、button_1 开爪；不能临时只改模式合并训练。
 

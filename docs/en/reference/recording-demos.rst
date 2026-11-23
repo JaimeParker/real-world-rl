@@ -25,7 +25,7 @@ takeover/hand-back inside a trajectory remains supported. Only steps in ACTIVE a
 and image stack histories are refilled from that frame. Training commands still default to ``auto``, and the single-operator ``hold`` must be selected explicitly.
 
 Use the \ :doc:`SpaceMouse acceptance checklist <testing/spacemouse-control-session>`\ 
-and its record template for direction, workspace, holding and normal-stop
+and its record template for direction, limits, holding and normal-stop
 verification in both modes. Successful demonstrations alone do not establish
 hardware acceptance or normal-stop stability.
 
@@ -44,10 +44,10 @@ keyboard for the buttons:
        --teleop-event-device keyboard --teleop-onset arm \
        --output-dir demos/task_20 --num-successes 20
 
-A ``joint_abs`` set (for a ``joint_abs`` pipeline) adds ``--real_robot.action_mode joint_abs --robot-teleop-action-mode joint_abs`` and needs ``joint_limits`` in the preset.
+A ``joint_abs`` set (for a ``joint_abs`` pipeline) adds ``--real_robot.action_mode joint_abs --robot-teleop-action-mode joint_abs`` and needs ``real_robot.limits.joints`` in the preset.
 
 ``hil.yaml`` is a copy of the training preset
-\ |reference-link-1|_\ ; ``joint_limits``
+\ |reference-link-1|_\ ; ``limits.joints``
 has to come from it because the command line cannot express a list of pairs. Keys of the preset that are
 not recorder fields (the algorithm's hyperparameters) are skipped.
 

@@ -2,6 +2,8 @@
 and deploy (contract resolution, restore, health over both arms)."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import dataclasses
 import types
 
@@ -171,11 +173,11 @@ def test_deploy_default_cli_adopts_each_arms_training_contract_and_keeps_connect
     left_limits, right_limits = [[-1.0, 1.0]] * 7, [[-0.5, 0.5]] * 7
     trained = BimanualRealRobotEnvConfig(
         left=RealRobotEnvConfig(
-            remote="left-pc:1", action_mode="joint_delta", control_hz=5.0, joint_limits=left_limits,
+            remote="left-pc:1", action_mode="joint_delta", control_hz=5.0, limits=env_limits(joints=left_limits),
             state_fields=("joint_pos", "tcp_pose"),
         ),
         right=RealRobotEnvConfig(
-            remote="right-pc:1", action_mode="joint_delta", control_hz=5.0, joint_limits=right_limits,
+            remote="right-pc:1", action_mode="joint_delta", control_hz=5.0, limits=env_limits(joints=right_limits),
             state_fields=("joint_pos", "tcp_pose"),
         ),
         arm_names=("a", "b"),
@@ -185,7 +187,7 @@ def test_deploy_default_cli_adopts_each_arms_training_contract_and_keeps_connect
     args = DeployArgs(checkpoint="unused.pt", env_backend=BIMANUAL, real_robot_bimanual=cli)
     resolved = resolve_deploy_bimanual_config(args, _training(trained))
     assert resolved.arm_names == ("a", "b") and resolved.max_episode_steps == 9
-    assert resolved.left.joint_limits == left_limits and resolved.right.joint_limits == right_limits
+    assert resolved.left.limits["joints"] == left_limits and resolved.right.limits["joints"] == right_limits
     for arm in ("left", "right"):
         arm_config = getattr(resolved, arm)
         assert arm_config.action_mode == "joint_delta" and arm_config.control_hz == 5.0

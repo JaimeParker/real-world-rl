@@ -103,12 +103,12 @@ Daemon 与客户端来自同一仓库；应 **先升级客户端，再升级 dae
 
 .. code-block:: text
 
-   arm: {"num_joints": 7, "supported_state_fields": ["tcp_pose", "tcp_vel", "joint_pos", "joint_vel", "tcp_force", "tcp_torque"], "control_mode": "idle", "safety": {"safety_box": [-0.5, -0.5, -0.5, 0.5, 0.5, 0.5], "joint_limits": [[-1.0, 1.0], ...], "max_delta_per_step": {"xyz_m": 0.05, "joint_rad": 0.1}}, "home_joints": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
+   arm: {"num_joints": 7, "supported_state_fields": ["tcp_pose", "tcp_vel", "joint_pos", "joint_vel", "tcp_force", "tcp_torque"], "control_mode": "idle", "safety": {"version": "station_limits_v1", "joints": [[-1.0, 1.0], ...], "tcp": {"origin_xyz": [0.0, 0.0, 0.0], "axes_R": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], "low": [-0.5, -0.5, -0.5], "high": [0.5, 0.5, 0.5], "measured_margin_m": 0.003}, "max_delta_per_step": {"xyz_m": 0.05, "joint_rad": 0.1}, "kinematics": null}, "home_joints": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
    image_encoding: {'jpeg': 80}
    camera cfg: {'name': 'wrist', 'serial': '', 'width': 64, 'height': 48, 'fps': 30, 'enable_depth': False, 'backend': 'fake'}
    teleop: {'name': 'teleop', 'backend': 'fake', 'action_space': 'joint_abs', 'has_gripper': True, 'hold_s': 0.0}
 
-无配置限制时 ``arm.safety`` 为 ``null``\ ；\ ``arm.home_joints`` 为 YAML 值（或 ``null``\ ）。描述还包括 ``arm.safety_capabilities``\ ：\ ``task_workspace_v1`` 表示笛卡尔工作空间约束，\ ``accepted_cartesian_target_v1`` 表示已接受目标保持，Franky 还支持 ``stop_trace_v1``\ 。客户端使用新行为前协商能力；旧服务器无法证明支持。已连接遥操作描述带 ``device_identity``\ （USB vendor/product，以及可用的序列号/型号）；\ ``RemoteTeleop.device_identity`` 暴露同一身份用于档案验证。连接前可能无法取得身份。
+无配置限制时 ``arm.safety`` 为 ``null``，否则 ``arm.safety`` 的 ``version`` 为 ``station_limits_v1``\ ；\ ``arm.home_joints`` 为 YAML 值（或 ``null``\ ）。描述还包括 ``arm.safety_capabilities``\ ：\ ``station_limits_v1`` 表示 ``arm.safety`` 使用 ``limits`` 块的格式（关节范围加 TCP 盒，盒的中心和轴已解析为基坐标，见\ :ref:`限位 <devices-limits>`\ ），由设备层统一执行，\ ``accepted_cartesian_target_v1`` 表示已接受目标保持，Franky 还支持 ``stop_trace_v1``\ 。客户端使用新行为前协商能力；旧服务器无法证明支持。已连接遥操作描述带 ``device_identity``\ （USB vendor/product，以及可用的序列号/型号）；\ ``RemoteTeleop.device_identity`` 暴露同一身份用于档案验证。连接前可能无法取得身份。
 
 四个 RPC 补充现有机械臂命令：\ ``arm.last_cartesian_target``\ 、\ ``arm.begin_stop_trace``\ 、\ ``arm.stop_with_trace``\ （\ ``post_stop_s=2.1``\ ）、\ ``arm.last_stop_trace``\ 。\ ``last_cartesian_target`` 是当前控制段中通过安全检查并交给后端的最新笛卡尔目标副本。任何 ``stop()``\ 、\ ``stop_with_trace()``\ 、控制模式切换或断开都会结束控制段，之后为 ``null``\ ，直到下一次成功的 ``servo_cartesian``\ 。它绝不是实测反馈。\ ``piper_sdk`` 和 ``pyagxarm`` 后端仍会转换目标（毫米或千分之一度舍入、四元数转 RPY），所以它不完全等同于机械臂收到的值。\ ``Arm.stop()`` 是模板方法：先清除目标，再调用后端 ``_stop()``\ 。后端实现 ``_stop()``\ ，不得实现 ``stop()``\ 。\ ``begin_stop_trace`` 在现有连接上启动有界采样；SDK 指纹/静态元数据在停止/服务锁之外收集，并按连接缓存。等待旧采样器线程结束也在停止锁外进行。
 
@@ -160,7 +160,7 @@ Daemon 与客户端来自同一仓库；应 **先升级客户端，再升级 dae
       service = RobotService(Robot.from_yaml("robot.yaml"), watchdog_s=0.5)
       robot = RemoteRobot.from_client(LocalClient(service))   # same API as above, incl. watchdog
 
--  Daemon 的设备侧事实镜像到客户端：\ ``robot.arm.safety_limits``\ （上方 ``arm.safety`` 字典或 ``None``\ ）、\ ``robot.arm.home_joints``\ （列表或 ``None``\ ）、\ ``robot.cameras["wrist"].image_encoding`` 和 ``robot.teleop``\ （无 ``teleop:`` 时为 ``None``\ ）。客户端不执行限制（\ ``RemoteRobotConfig`` 忽略 ``safety_box``\ 、\ ``joint_limits``\ 、\ ``max_delta_per_step`` 和 ``teleop``\ ），由 daemon 执行。
+-  Daemon 的设备侧事实镜像到客户端：\ ``robot.arm.safety_limits``\ （上方 ``arm.safety`` 字典或 ``None``\ ）、\ ``robot.arm.home_joints``\ （列表或 ``None``\ ）、\ ``robot.cameras["wrist"].image_encoding`` 和 ``robot.teleop``\ （无 ``teleop:`` 时为 ``None``\ ）。客户端不执行限制（\ ``RemoteRobotConfig`` 忽略 ``limits`` 和 ``teleop``\ ），由 daemon 执行。
 
 -  越界命令在客户端的行为如下（在 ``robot.disconnect()`` 前运行）：
 
@@ -173,7 +173,7 @@ Daemon 与客户端来自同一仓库；应 **先升级客户端，再升级 dae
       robot.arm.servo_joints(np.full(7, 5.0))      # no error: clipped on the daemon, safety_clips += 1
       robot.arm.set_control_mode(ControlMode.IDLE)
       try:
-          robot.arm.move_to_joints(np.full(7, 5.0))   # outside joint_limits
+          robot.arm.move_to_joints(np.full(7, 5.0))   # outside limits.joints
       except SafetyViolation as error:
           print(error.message, error.hint)            # nothing was sent; the arm and its mode are unchanged
       print(robot.arm.health().safety_clips, robot.arm.health().safety_rejects)   # cumulative counters since the daemon started, e.g. 2 1
@@ -202,7 +202,7 @@ Daemon 与客户端来自同一仓库；应 **先升级客户端，再升级 dae
    robot.arm.set_control_mode(ControlMode.IDLE)
    robot.disconnect()
 
-此路径没有 watchdog，也不获取设备 claim；它们属于 daemon 功能。但安全限制在此仍生效：\ ``Robot.from_yaml`` 用 YAML 的 ``safety_box``/``joint_limits``/``max_delta_per_step`` 构建机械臂，因此 ``robot.arm.safety_limits``\ 、\ ``robot.arm.health().safety_clips`` 和 ``SafetyViolation`` 的行为与通过 daemon 完全相同。
+此路径没有 watchdog，也不获取设备 claim；它们属于 daemon 功能。但安全限制在此仍生效：\ ``Robot.from_yaml`` 用 YAML 的 ``limits`` 块（关节范围、TCP 盒、``max_delta_per_step``）构建机械臂，因此 ``robot.arm.safety_limits``\ 、\ ``robot.arm.health().safety_clips`` 和 ``SafetyViolation`` 的行为与通过 daemon 完全相同。
 
 .. _daemon-supervising-a-single-process-robot-run:
 

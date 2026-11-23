@@ -2,6 +2,7 @@
 the training view selects, episode outcomes, the episode-start leader check, the dataset it
 writes (every episode, resume, interruption) and the example CLI."""
 from __future__ import annotations
+from _station_limits import station_limits
 
 import dataclasses
 import gc
@@ -421,11 +422,11 @@ def two_arm_joint_abs_env(tmp_path, monkeypatch):
     monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
     config = bimanual_config(
         shared={"action_mode": "joint_abs", "control_hz": 1000.0},
-        left={"joint_limits": LEFT_LIMITS},
-        right={"joint_limits": RIGHT_LIMITS},
+        left={"limits": {"joints": LEFT_LIMITS}},
+        right={"limits": {"joints": RIGHT_LIMITS}},
     )
     # joint_abs needs the device layer's per-step joint limit.
-    robots = {arm: fake_franka(arm, max_delta_per_step={"joint_rad": 10.0}) for arm in ("left", "right")}
+    robots = {arm: fake_franka(arm, limits=station_limits(steps={"joint_rad": 10.0})) for arm in ("left", "right")}
     env = BimanualRealRobotVectorEnv(BimanualRealRobotEnv(config, robots=robots))
     yield env
     env.close()
@@ -954,7 +955,7 @@ def test_record_and_reward_collectors_parse_shared_spacemouse_mode(tmp_path):
     preset = tmp_path / "serl.yaml"
     preset.write_text(
         "env_backend: real_robot\nteleop_device: spacemouse\nspacemouse_mode: serl\n"
-        "real_robot:\n  safety_box: [-1, -1, -1, 1, 1, 1]\n"
+        "real_robot:\n  limits: {tcp: {low: [-1, -1, -1], high: [1, 1, 1]}}\n"
         "  safety_box_rpy_low: [0, -1, -1]\n  safety_box_rpy_high: [3, 1, 1]\n"
     )
     for cls in (RecordDemosArgs, RealRobotCollectArgs):
@@ -990,7 +991,7 @@ def test_example_parses_the_hil_env_flags_over_a_training_preset(example, monkey
         "teleop_onset: ramp\n"
         "real_robot:\n"
         "  action_mode: joint_abs\n"
-        "  joint_limits: [[-1.0, 1.0], [-1.0, 1.0], [-1.0, 1.0], [-1.0, 1.0], [-1.0, 1.0], [-1.0, 1.0], [-1.0, 1.0]]\n",
+        "  limits:\n    joints: [[-1.0, 1.0], [-1.0, 1.0], [-1.0, 1.0], [-1.0, 1.0], [-1.0, 1.0], [-1.0, 1.0], [-1.0, 1.0]]\n",
         encoding="utf-8",
     )
     received = []
@@ -1013,7 +1014,7 @@ def test_example_parses_the_hil_env_flags_over_a_training_preset(example, monkey
     (args,) = received
     assert isinstance(args, RecordDemosArgs)
     assert (args.env_backend, args.real_robot.action_mode) == ("real_robot", "joint_abs")
-    assert args.real_robot.joint_limits == [[-1.0, 1.0]] * 7
+    assert args.real_robot.limits["joints"] == [[-1.0, 1.0]] * 7
     assert (args.teleop_device, args.teleop_event_device, args.teleop_onset) == ("gello", "keyboard", "arm")
     assert (args.output_dir, args.num_successes, args.max_episode_steps) == ("demos/task", 3, 40)
     assert args.max_episodes == 1
@@ -1030,10 +1031,10 @@ def test_example_parses_the_two_arm_flags_over_a_training_preset(example, monkey
         "real_robot_bimanual:\n"
         "  left:\n"
         "    action_mode: joint_abs\n"
-        f"    joint_limits: {limits}\n"
+        f"    limits:\n      joints: {limits}\n"
         "  right:\n"
         "    action_mode: joint_abs\n"
-        f"    joint_limits: {limits}\n",
+        f"    limits:\n      joints: {limits}\n",
         encoding="utf-8",
     )
     received = []
@@ -1062,7 +1063,7 @@ def test_example_parses_the_two_arm_flags_over_a_training_preset(example, monkey
     bimanual = args.real_robot_bimanual
     assert (bimanual.left.remote, bimanual.right.remote) == ("10.0.0.2:50051", "10.0.0.3:50052")
     assert bimanual.left.action_mode == bimanual.right.action_mode == "joint_abs"
-    assert bimanual.right.joint_limits == [[-1.0, 1.0]] * 7
+    assert bimanual.right.limits["joints"] == [[-1.0, 1.0]] * 7
     assert record._with_episode_step_cap(args).real_robot_bimanual.max_episode_steps == 40
     kwargs = env_building.teleop_wrapper_kwargs(args)
     assert kwargs["motion"] == "bimanual" and kwargs["motion_kwargs"]["device_per_arm"] == "leader_arm"

@@ -84,9 +84,9 @@ Check the following against offline-check.json. Do not compare action length alo
        Check experiment for rotation conversions.
    * - action_conventions, action_contract
      - Here, current / cartesian_delta, seven dimensions, position scale 0.05 m, rotation scale 0.3 rad, 10 Hz.
-       The gripper becomes an opening request through (a+1)/2. Also check the station's binary threshold, joint_limits, workspace, control and teleop provenance.
+       The gripper becomes an opening request through (a+1)/2. Also check the station's binary threshold, ``limits``, control and teleop provenance.
    * - station and the original session resolved-config
-     - Devices, home, workspace, per-step limits and control settings must match the reviewed configuration. Connection addresses can change; changing cameras or action semantics is not merely changing an address.
+     - Devices, home, limits (``limits``, including per-step limits) and control settings must match the reviewed configuration. Connection addresses can change; changing cameras or action semantics is not merely changing an address.
 
 Deployment restores training arguments from config.json and checkpoint metadata. Training observation / action conventions take precedence;
 the CLI supplies connection addresses. It does not automatically read the current local/task.yaml or local/station.yaml.

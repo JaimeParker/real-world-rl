@@ -1,6 +1,8 @@
 """Hardware-free `rwrl camera show|grab` coverage with scripted cameras and the fake backend."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 from contextlib import contextmanager
 import json
 import socket
@@ -296,7 +298,7 @@ def test_grab_requires_name_and_output(tmp_path, capsys, cameras):
 @pytest.fixture
 def camera_station(tmp_path):
     path = tmp_path / "station.yaml"
-    path.write_text(yaml.safe_dump({
+    path.write_text(yaml.safe_dump({"limits": station_limits(),
         "type": "franka", "name": "camera_fake", "arm_backend": "fake", "claim": False,
         "gripper": {"backend": "fake"}, "home_joints": [0.0] * 7,
         "cameras": [{"name": "wrist", "backend": "fake", "width": WIDTH, "height": HEIGHT, "fps": 30}],

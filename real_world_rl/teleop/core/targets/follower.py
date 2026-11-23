@@ -1,9 +1,9 @@
 """The follower side of a cartesian teleop source, read from the env it drives: the measured TCP
-pose and the env's per-step scales, the safety box, and the station workspace/task frame.
+pose and the env's per-step scales, the effective TCP box, and the station task frame.
 
 ``follower_kwargs_from_env`` fills the kwargs every ``TRACKS_CARTESIAN_TARGET`` source takes
 from its env (``env_contract``, ``follower_pose_getter``, ``pos_scale_m``/``rot_scale_rad``,
-``safety_box``), leaving the ones the caller passed.
+``limits``), leaving the ones the caller passed.
 """
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ __all__ = [
     "find_in_wrapper_chain",
     "follower_kwargs_from_env",
     "follower_pose_from_env",
-    "safety_box_from_env",
-    "workspace_from_env",
+    "limits_from_env",
+    "task_frame_from_env",
 ]
 
 _CARTESIAN_ACTION_MODE = "cartesian_delta"
@@ -58,17 +58,23 @@ def follower_pose_from_env(env: Any, contract: Optional[Mapping[str, Any]]) -> t
     )
 
 
-def safety_box_from_env(env: Any, contract: Optional[Mapping[str, Any]]) -> Optional[list]:
-    """``[xmin, ymin, zmin, xmax, ymax, zmax]`` the env clips commands to, if configured."""
-    experiment = (contract or {}).get("experiment") or {}
-    box = experiment.get("safety_box")
-    return None if box is None else list(box)
+def limits_from_env(env: Any, contract: Optional[Mapping[str, Any]]):
+    """Resolved effective TCP box, including inherited station geometry."""
+    from real_world_rl.devices.limits import ArmLimits
+    from real_world_rl.envs.real_robot.env import RealRobotEnv
+    backend = find_in_wrapper_chain(env, RealRobotEnv)
+    if backend is not None:
+        if backend.config.remote is not None:
+            backend._connect_and_validate()
+        return backend._effective_limits.tcp
+    value = (contract or {}).get("limits") or ((contract or {}).get("experiment") or {}).get("limits")
+    return None if value is None else ArmLimits.from_dict(value).tcp
 
 
 def follower_kwargs_from_env(env: Any, kwargs: dict) -> dict:
     """``kwargs`` with the follower side read from ``env`` where not given: ``env_contract`` (the
     env's action contract, the legacy one without), ``follower_pose_getter`` with the env's
-    ``pos_scale_m``/``rot_scale_rad``, and ``safety_box``. Updates and returns ``kwargs``."""
+    ``pos_scale_m``/``rot_scale_rad``, and ``limits``. Updates and returns ``kwargs``."""
     from real_world_rl.contracts.action import LEGACY_ACTION_CONTRACT, get_env_action_contract
 
     contract = get_env_action_contract(env)
@@ -78,12 +84,13 @@ def follower_kwargs_from_env(env: Any, kwargs: dict) -> dict:
         kwargs["follower_pose_getter"] = getter
         kwargs.setdefault("pos_scale_m", pos_scale_m)
         kwargs.setdefault("rot_scale_rad", rot_scale_rad)
-    kwargs.setdefault("safety_box", safety_box_from_env(env, contract))
+    if "limits" not in kwargs:
+        kwargs["limits"] = limits_from_env(env, contract)
     return kwargs
 
 
-def workspace_from_env(env: Any, kwargs: dict) -> dict:
-    """``kwargs`` with the station ``workspace`` and ``task_frame`` of the ``RealRobotEnv`` behind
+def task_frame_from_env(env: Any, kwargs: dict) -> dict:
+    """``kwargs`` with the station ``task_frame`` of the ``RealRobotEnv`` behind
     ``env`` (its config's, else its local robot yaml's) where not given; unchanged without a
     ``RealRobotEnv``. Updates and returns ``kwargs``."""
     from real_world_rl.envs.real_robot.env import RealRobotEnv
@@ -92,6 +99,5 @@ def workspace_from_env(env: Any, kwargs: dict) -> dict:
     if backend is not None:
         config = backend.config
         local = config.robot or {}
-        kwargs.setdefault("workspace", config.workspace if config.workspace is not None else local.get("workspace"))
         kwargs.setdefault("task_frame", config.task_frame if config.task_frame is not None else local.get("task_frame"))
     return kwargs

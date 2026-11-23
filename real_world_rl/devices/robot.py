@@ -15,10 +15,8 @@ from real_world_rl.devices.camera import Camera, CameraConfig
 from real_world_rl.devices.gripper import Gripper, GripperMode
 from real_world_rl.devices.teleop import Teleop, TeleopConfig
 
-_SAFETY_BOX_LENGTH = 6
 # The Franka Hand's maximum grasp force (HIL-SERL grasps with it).
 MAX_GRASP_FORCE_N = 130.0
-_MAX_DELTA_KEYS = ("xyz_m", "joint_rad")
 
 
 def _check_known_keys(config_cls: type, data: Mapping[str, Any], known: set[str]) -> None:
@@ -76,82 +74,44 @@ class RobotConfig:
     gripper: GripperConfig | None = field(default_factory=GripperConfig)
     cameras: list[CameraConfig] = field(default_factory=list)
     home_joints: list[float] | None = None
-    # Base frame, same definition as read_state()["tcp_pose"]: servo targets are clipped
-    # into it, move_to_* targets outside it are refused.
-    safety_box: list[float] | None = None
-    joint_limits: list[list[float]] | None = None  # (NUM_JOINTS, 2) [lo, hi] in rad
-    max_delta_per_step: dict | None = None  # {"xyz_m": float, "joint_rad": float}, servo only
+    limits: dict | None = None
     control: dict | None = None
     claim: bool = True
     teleop: TeleopConfig | None = None
     task_frame: dict | None = None
-    workspace: dict | None = None
 
     def __post_init__(self) -> None:
-        import math
         from real_world_rl.devices.control import ArmControlConfig
-        from real_world_rl.devices.workspace import Workspace, task_transform
+        from real_world_rl.devices.limits import ArmLimits, _array
+        from real_world_rl.devices.workspace import task_transform
         task_transform(self.task_frame)
-        if self.workspace is not None:
-            Workspace(self.workspace, self.task_frame)
-        values = [*(self.home_joints or []), *(self.safety_box or []),
-                  *(value for row in (self.joint_limits or []) for value in row)]
-        if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) for value in values):
-            raise ValueError("home_joints, safety_box and joint_limits must contain finite numbers")
+        if self.home_joints is not None:
+            _array(self.home_joints, (self.NUM_JOINTS,), "home_joints")
+        ArmLimits.from_config(self)
         if self.control is not None:
             self.control = ArmControlConfig.from_dict(self.control).to_dict()
-        if self.home_joints is not None and len(self.home_joints) != self.NUM_JOINTS:
-            raise ValueError(
-                f"home_joints must have {self.NUM_JOINTS} entries, got {len(self.home_joints)}"
-            )
-        if self.safety_box is not None and len(self.safety_box) != _SAFETY_BOX_LENGTH:
-            raise ValueError(
-                "safety_box must be [xmin, ymin, zmin, xmax, ymax, zmax], "
-                f"got {len(self.safety_box)} entries"
-            )
-        if self.safety_box is not None:
-            for axis, low, high in zip("xyz", self.safety_box[:3], self.safety_box[3:]):
-                if low > high:
-                    raise ValueError(f"safety_box {axis}min {low} > {axis}max {high}")
-        self._check_joint_limits()
-        self._check_max_delta_per_step()
         if self.gripper is not None:
             modes = [m.value for m in GripperMode]
             if self.gripper.mode not in modes:
                 raise ValueError(f"gripper mode '{self.gripper.mode}' invalid; choose from {modes}")
 
-    def _check_joint_limits(self) -> None:
-        if self.joint_limits is None:
-            return
-        rows = len(self.joint_limits)
-        if rows != self.NUM_JOINTS or any(len(row) != 2 for row in self.joint_limits):
-            raise ValueError(
-                f"joint_limits must be {self.NUM_JOINTS} [lo, hi] pairs, got {self.joint_limits}"
-            )
-        for i, (low, high) in enumerate(self.joint_limits):
-            if low > high:
-                raise ValueError(f"joint_limits[{i}] lo {low} > hi {high}")
-        if self.home_joints is not None:
-            for i, (value, (low, high)) in enumerate(zip(self.home_joints, self.joint_limits)):
-                if not low <= value <= high:
-                    raise ValueError(
-                        f"home_joints[{i}] = {value} is outside joint_limits[{i}] = [{low}, {high}]"
-                    )
+    @property
+    def joint_limits(self) -> list[list[float]] | None:
+        value = (self.limits or {}).get("joints")
+        return None if value is None else [list(row) for row in value]
 
-    def _check_max_delta_per_step(self) -> None:
-        import math
-        if self.max_delta_per_step is None:
-            return
-        for key, value in self.max_delta_per_step.items():
-            if key not in _MAX_DELTA_KEYS:
-                raise ValueError(
-                    f"unknown max_delta_per_step key '{key}'; known: {list(_MAX_DELTA_KEYS)}"
-                )
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not value > 0:
-                raise ValueError(f"max_delta_per_step.{key} must be a positive number, got {value!r}")
+    def kinematics(self):
+        return None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "RobotConfig":
+        for key in ("safety_box", "workspace", "joint_limits", "max_delta_per_step"):
+            if key in data:
+                raise ValueError(
+                    f"top-level {key} was removed; use limits: instead; run "
+                    "`rwrl limits migrate <yaml>`; see docs: "
+                    "https://real-world-rl.readthedocs.io/en/latest/en/reference/devices.html"
+                )
         values = {key: value for key, value in data.items() if key != "type"}
         _check_known_keys(cls, values, {f.name for f in dataclasses.fields(cls)})
         if "gripper" in values and values["gripper"] is not None:

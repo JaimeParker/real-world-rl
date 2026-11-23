@@ -187,7 +187,7 @@ Franka FCI 仅允许一个控制连接。直连时先结束录制器或 actor，
      - 离线评估保存的停止轨迹（\ :ref:`指南 <spacemouse-commissioning-live-input-calibration-and-diagnosis>`\ ）
      - 0 PASS / 3 FAIL / 4 BLOCKED
 
-**工作区、选择与归档**\ （除 ``workspace capture`` 外仅读站点文件）
+**限位、桌面坐标系、选择与归档**\ （除 ``workspace capture`` 外仅读站点文件）
 
 .. list-table::
    :header-rows: 1
@@ -196,16 +196,22 @@ Franka FCI 仅允许一个控制连接。直连时先结束录制器或 actor，
      - 效果
      - 退出码
    * - ``workspace show``
-     - 约束、\ ``joint_limits``\ 、\ ``max_delta_per_step``\ 、\ ``home_joints``\ 、\ ``home_within_limits``\ （缺 home 或限制为 ``null``\ ；逐关节 ``home_violations``\ ）
+     - ``task_frame``、解析后的 ``limits``\ （关节、TCP 盒、``max_delta_per_step``\ ）、\ ``home_joints``\ 、\ ``home_within_limits``\ （缺 home 或关节限位时为 ``null``\ ；逐关节 ``home_violations``\ ）
      - 0 / 1 / 2
    * - ``workspace capture --name N --output PTS --save``
      - 将当前 TCP 记录为命名点；无运动
      - 0 / 1 / 2
-   * - ``workspace set`` / ``validate``
-     - 提出或保存工作区；检查姿态（\ :ref:`指南 <spacemouse-commissioning-spacemouse-profiles-and-task-frame-workspace>`\ ）
+   * - ``workspace validate --pose X Y Z QX QY QZ QW``
+     - 检查一个基座系位姿的位置是否在 ``limits.tcp`` 盒内（姿态不检查；\ :ref:`限位 <devices-limits>`\ ）
      - 0 / 1 / 2；文本验证失败 5
    * - ``workspace frame show`` / ``frame set``
      - 站点 ``task_frame``\ （\ :ref:`详情 <cli-workspace-frame-set>`\ ）
+     - 0 / 1 / 2
+   * - ``limits show [STATION]``
+     - 每台机械臂解析后的限位：关节、TCP 盒的中心、轴、``low`` / ``high`` 和基座系下的八个角点（\ :ref:`详情 <cli-limits>`\ ）
+     - 0 / 1 / 2
+   * - ``limits migrate YAML [--write]`` / ``limits rebase YAML [--write]``
+     - 把旧的顶层 ``safety_box`` / ``workspace`` / ``joint_limits`` 转成 ``limits:``；或按当前 home 和 ``task_frame`` 重算冻结的 ``origin_xyz`` / ``axes_R``。不加 ``--write`` 只打印新块和差异（\ :ref:`详情 <cli-limits>`\ ）
      - 0 / 1 / 2
    * - ``use [station|preset] [PATH]`` / ``use --clear [KIND]``
      - 记住、显示或忘掉本目录的默认站点和预设（\ :ref:`详情 <cli-remembered-station-and-preset>`\ ）
@@ -259,12 +265,19 @@ teleop probe-hid
 
 记录已连接 3Dconnexion HID（或 Logitech 多轴控制器）的报告描述符及 ``--duration-s``\ （默认 10）秒原始输入，写入全新 ``<station dir>/teleop/probes/<vid>-<pid>/``\ （可用 ``--output DIR`` 替代；无站点时必需；已有目录为用法错误），包含 ``descriptor.hex``\ 、\ ``reports.jsonl``\ 、设备表草稿 ``candidate.yaml``\ 。\ ``--device VID:PID`` 从多设备中选择。不会写设备表，不记录序列号。
 
+.. _cli-limits:
+
+limits
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``limits show`` 读站点文件（位置参数或 ``--station``\ ，否则按\ :ref:`站点查找 <cli-station-lookup>`\ ），``--robot`` 选一台机器人，输出 JSON：每台机械臂的 ``version``\ （``station_limits_v1``\ ）、\ ``joints``\ 、\ ``tcp``\ （``origin_xyz``\ 、\ ``axes_R``\ 、\ ``low``\ 、\ ``high``\ 、\ ``measured_margin_m``\ 、\ ``corners_base_m``\ ）、\ ``max_delta_per_step`` 和 ``kinematics``\ 。\ ``limits migrate YAML`` 和 ``limits rebase YAML`` 以该文件为参数；默认只打印警告、新的 ``limits:`` 块和统一差异，加 ``--write`` 才审查后原子写入并保留备份。整个候选文件先完整验证，失败则不写。字段、迁移规则和越界行为见\ :ref:`限位（limits） <devices-limits>`\ 。
+
 .. _cli-workspace-frame-set:
 
 workspace frame set
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-``--name NAME`` 配合 ``--base-T-frame``\ （16 个行主序数字，米）或 ``--from-points PTS --origin A --x-axis B --y-axis C``\ （\ ``workspace capture --save`` 保存的点名；右手系，y 相对 x 正交化，拒绝退化点）。\ ``--source TEXT`` 记录来源；\ ``--save`` 审查差异后仅写 ``task_frame``\ 。站点工作区在另一个非 base 坐标系时拒绝；同名坐标系会重定位工作区并说明。候选结果（以及 ``workspace frame show``\ ）还给出 ``rpy_deg``\ ：坐标系绕基座 x、y、z 轴的 roll、pitch、yaw（\ ``base_R_frame = Rz(yaw) Ry(pitch) Rx(roll)``\ ），仅从点构建候选时还包含 ``axis_lengths_m`` 和 ``y_axis_angle_deg``\ 。\ ``frame show`` 则含 ``origin_base_m`` 与 ``axes_base``\ 。相对 ``--from-points`` 路径从站点目录解析。
+``--name NAME`` 配合 ``--base-T-frame``\ （16 个行主序数字，米）或 ``--from-points PTS --origin A --x-axis B --y-axis C``\ （\ ``workspace capture --save`` 保存的点名；右手系，y 相对 x 正交化，拒绝退化点）。\ ``--source TEXT`` 记录来源；\ ``--save`` 审查差异后仅写 ``task_frame``\ 。``task_frame`` 的旋转决定 ``limits.tcp`` 盒的轴，保存后输出提示运行 ``rwrl limits rebase <yaml>``\ 。候选结果（以及 ``workspace frame show``\ ）还给出 ``rpy_deg``\ ：坐标系绕基座 x、y、z 轴的 roll、pitch、yaw（\ ``base_R_frame = Rz(yaw) Ry(pitch) Rx(roll)``\ ），仅从点构建候选时还包含 ``axis_lengths_m`` 和 ``y_axis_angle_deg``\ 。\ ``frame show`` 则含 ``origin_base_m`` 与 ``axes_base``\ 。相对 ``--from-points`` 路径从站点目录解析。
 
 .. _cli-archive-inspect:
 

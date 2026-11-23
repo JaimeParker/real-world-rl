@@ -4,6 +4,8 @@ the anchored pose source over the cartesian command tracker (known-answer mappin
 and hand-back, the workspace hold, the gripper, episode end, failures, ownership of the part)."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import logging
 import subprocess
 import sys
@@ -78,7 +80,7 @@ def test_a_robot_yaml_teleop_section_builds_the_part_for_the_daemon():
     import real_world_rl.devices.robots  # noqa: F401  (registers robot types)
     from real_world_rl.devices import Robot
 
-    robot = Robot.from_dict({
+    robot = Robot.from_dict({"limits": station_limits(),
         "type": "franka", "arm_backend": "fake", "gripper": None,
         "teleop": {"backend": "pico", "hold_s": 0.2, "options": {"address": "tcp://pico:7777", "hand": "left"}},
     })
@@ -358,20 +360,18 @@ def test_a_second_bind_press_hands_back_and_holds():
     np.testing.assert_allclose(_poll(source, clock).action[:6], 0.0, atol=1e-9)
 
 
-def test_a_request_outside_the_workspace_holds_until_the_next_bind_press(caplog):
-    env = CartesianPoseEnv(safety_box=[0.4, -0.1, 0.3, 0.502, 0.1, 0.5])
+def test_outside_request_clips_without_reanchoring_hand(caplog):
+    env = CartesianPoseEnv(limits=tcp_box([.4, -.1, .3, .502, .1, .5]))
     source, part, clock = _source(env)
     _take_over(source, part, clock)
-    part.pose[:3] = [0.004, 0.0, 0.0]  # requests x = 0.504
-    with caplog.at_level(logging.WARNING):
-        reading = _poll(source, clock)
-    assert not reading.intervened and not source.cartesian_tracker.following
-    assert "WORKSPACE HOLD" in caplog.text
-    part.pose[:3] = [0.0, 0.0, 0.0]  # back inside: still handed back
-    assert not _poll(source, clock).intervened
-    _take_over(source, part, clock)
-    part.pose[:3] = [0.001, 0.0, 0.0]
+    part.pose[:3] = [.004, 0, 0]
     assert _poll(source, clock).intervened
+    assert source.cartesian_tracker.command[0] <= .502
+    assert source.cartesian_tracker.following
+    assert "WORKSPACE HOLD" not in caplog.text
+    part.pose[:3] = [0, 0, 0]
+    assert _poll(source, clock).intervened
+    assert source.cartesian_tracker.command[0] == pytest.approx(.5)
 
 
 def test_a_stalled_loop_holds_and_re_anchors(caplog):

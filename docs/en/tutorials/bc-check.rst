@@ -95,7 +95,7 @@ For real data, inspect multiple observations from independent complete episodes.
 
 * You interpret the prediction as an absolute TCP target: Recheck action_mode. This example uses increments relative to the current state.
 * Low error but an obviously wrong dimension: Check the mask first; that dimension may not have received supervision.
-* You interpret GELLO joint_abs results in meters: Decode the seven joint targets with that recording's joint_limits. Do not apply this table.
+* You interpret GELLO joint_abs results in meters: Decode the seven joint targets with that recording's ``limits.joints``. Do not apply this table.
 
 3. Save the record to check before deployment
 --------------------------------------------------------------------------------
@@ -120,9 +120,9 @@ Before deployment, check at least these groups of items:
 * Camera names, actual views, RGB / depth, image sizes, preprocess such as crop, frame stacking and rotation conversions.
   The same wrist name does not imply the same image distribution after moving the camera mount.
 * state_fields order, field dimensions, the xyzw quaternion convention, task frame and units.
-* action_mode, cartesian_semantics, action dimensions, scales, joint_limits, gripper mapping and control frequency.
+* action_mode, cartesian_semantics, action dimensions, scales, ``limits`` (joint ranges, TCP box), gripper mapping and control frequency.
   Action conventions also include spatial constraints and teleop_control provenance in experiment.
-* Devices, home, workspace and control settings in the current ``local/station.yaml``, and
+* Devices, home, limits (``limits``) and control settings in the current ``local/station.yaml``, and
   differences between ``local/task.yaml`` and the training configuration. Keep the original session resolved-config as the recording reference.
 
 **If it doesn't**:
@@ -151,7 +151,7 @@ temporal_agg_k defaults to 0.01 and state_dict_key to ema_agent. See :doc:`rl-in
 Passing width checks is only one part of this. ACT does not use this chapter's BC offline script.
 
 **If it doesn't**: joint_abs and joint_delta can have the same width, so the provider's width check cannot detect mixing them.
-Check action_mode, joint_limits and scales separately. A residual base policy must also output the action space required by the current run.
+Check action_mode, ``limits.joints`` and scales separately. A residual base policy must also output the action space required by the current run.
 Matching widths or finite values after clipping do not establish matching action semantics.
 
 Artifacts from this chapter

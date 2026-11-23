@@ -34,9 +34,9 @@ class BimanualRealRobotEnvConfig:
 
     ``left``/``right`` are the arms' own configs, named ``arm_names[0]``/``arm_names[1]`` in
     observation keys and the action contract. Their ``SHARED_ARM_FIELDS`` must agree; their
-    connection (``robot``/``remote``/``token``), ``safety_box``, ``joint_limits``,
+    connection (``robot``/``remote``/``token``), ``limits``,
     ``home_joints`` and ``cameras`` are per arm. Camera names must be unique across arms.
-    ``joint_limits`` is set on both arms or on neither (the action contract carries them per
+    ``limits.joints`` is set on both arms or on neither (the action contract carries them per
     arm). ``max_episode_steps`` and ``reset_settle_s`` here apply to both arms; the per-arm
     ``max_episode_steps`` must stay unset and the per-arm ``reset_settle_s`` is replaced.
     """
@@ -92,7 +92,7 @@ class BimanualRealRobotEnvConfig:
 
     def check_arms_consistent(self) -> None:
         """Raise ``ValueError`` unless the arms share ``SHARED_ARM_FIELDS``, have disjoint camera
-        names, both or neither set ``joint_limits`` and leave ``max_episode_steps`` unset."""
+        names, both or neither set ``limits.joints`` and leave ``max_episode_steps`` unset."""
         left_name, right_name = self.arm_names
         mismatched = [
             f"{name}: {left_name}={getattr(self.left, name)!r}, {right_name}={getattr(self.right, name)!r}"
@@ -109,9 +109,9 @@ class BimanualRealRobotEnvConfig:
             raise ValueError(
                 f"camera names must be unique across arms; both arms name {shared_cameras}"
             )
-        if (self.left.joint_limits is None) != (self.right.joint_limits is None):
+        if ((self.left.limits or {}).get("joints") is None) != ((self.right.limits or {}).get("joints") is None):
             raise ValueError(
-                "set joint_limits on both arms or on neither (the action contract carries them "
+                "set limits.joints on both arms or on neither (the action contract carries them "
                 "per arm)"
             )
         per_arm_caps = [

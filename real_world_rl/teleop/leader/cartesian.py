@@ -26,10 +26,7 @@ The take-over is the rising edge of the operator's intervention signal (the part
 falling edge (hand-back), an input or tracking failure and an episode end put the tracker in
 hold at the measured pose. A stalled control loop (more than ``max_dt_s`` between two intervened
 polls) counts as an input loss: the follower holds, a warning gives the gap, and the next poll
-re-anchors the leader as at a take-over. A request outside ``safety_box`` or the station's
-``workspace`` (in ``task_frame`` when configured) does too, logs
-``WORKSPACE HOLD: <axes>`` once, and reads as not intervened until the operator hands back and
-takes over again. The tracker (``cartesian_tracker``) is shared with the recorder's hold policy
+re-anchors the leader as at a take-over. Requested positions outside the TCP box are clipped without ending takeover. The tracker (``cartesian_tracker``) is shared with the recorder's hold policy
 (``real_world_rl.teleop.core.hold``), which keeps the follower on the hold pose while nobody drives.
 
 The gripper action comes from the leader's width target ``w`` in ``[0, 1]`` (1 = open): ``+1``
@@ -65,7 +62,7 @@ from real_world_rl.teleop.core.targets.follower import (
     PoseGetter,
     follower_kwargs_from_env,
     follower_pose_from_env,
-    workspace_from_env,
+    task_frame_from_env,
 )
 from real_world_rl.teleop.core.composite import ToggleableTeleopSource
 from real_world_rl.teleop.core.part import (
@@ -134,8 +131,7 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
         target_speed_m_s: float = 0.05,
         target_speed_rad_s: float = 0.3,
         max_dt_s: float = 0.3,
-        safety_box: Optional[Sequence[float]] = None,
-        workspace=None,
+        limits=None,
         task_frame=None,
         gripper_binarize_threshold: Optional[float] = 0.5,
         last_gripper_action_getter: Optional[Callable[[], Any]] = None,
@@ -159,7 +155,7 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
             max_dt_s=max_dt_s,
         )
         self._tracker = CartesianTargetTracker(
-            tracker_config, safety_box=safety_box, workspace=workspace, task_frame=task_frame,
+            tracker_config, limits=limits,
         )
         self._driver = CartesianTrackerDriver(
             self._tracker, source_name="leader_cartesian", follower_pose_getter=follower_pose_getter,
@@ -193,7 +189,7 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
             self._accept(resolved)
 
         self._previously_requested = False
-        # Set by a workspace rejection or an episode end: following again needs a new take-over.
+        # Set by an episode end: following again needs a new take-over.
         self._needs_new_takeover = False
         # Set by a stalled control loop: the next intervened poll re-anchors on its own.
         self._reanchor_pending = False
@@ -247,8 +243,8 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
         Unless passed, the follower pose, the scales and the safety box come from the env: a
         ``real_robot`` env in ``cartesian_delta`` mode found down the wrapper chain
         (``last_observation["state"]["tcp_pose"]``, ``xyz_scale_m``/``rot_scale_rad`` of its
-        action contract, the configured ``safety_box`` of its experiment). A ``real_robot``
-        env also supplies its station ``workspace`` and ``task_frame``, as for Pico.
+        action contract, the configured ``limits`` of its experiment). A ``real_robot``
+        env also supplies its station ``task_frame``, as for Pico.
         """
         candidates = {"leader": leader, "remote_address": remote_address, "robot_yaml": robot_yaml}
         given = [name for name, value in candidates.items() if value is not None]
@@ -259,7 +255,7 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
                 f"part) or robot_yaml=<path> (a local robot yaml with a teleop: section); got {given}"
             )
         follower_kwargs_from_env(env, kwargs)
-        workspace_from_env(env, kwargs)
+        task_frame_from_env(env, kwargs)
         if leader is not None:
             return cls(leader, **kwargs)
         if remote_address is not None:
@@ -407,14 +403,6 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
             return False, idle
         try:
             update = tracker.advance(self._requested_pose(q), measured, self._driver.elapsed_s())
-            if update.workspace_violations:
-                self._needs_new_takeover = True
-                logger.warning(
-                    "WORKSPACE HOLD: %s; the follower holds its pose and the leader handed back; "
-                    "toggle again to take over",
-                    ", ".join(update.workspace_violations),
-                )
-                return False, idle
             if update.missed_deadline_s is not None:
                 # Treated as an input loss: hold here, then re-anchor the leader as at a take-over.
                 self._reanchor_pending = True

@@ -101,8 +101,8 @@ def closed_port_url() -> str:
 def test_registry_and_from_config():
     assert Arm.backend("serl_http") is SerlHttpArm
     assert Gripper.backend("serl_http") is SerlHttpGripper
-    config = FrankaConfig(arm_backend="serl_http", bridge_url="http://10.0.0.5:5001")
-    assert FrankaConfig().bridge_url == "http://127.0.0.1:5000"
+    config = FrankaConfig(limits={"joints": [[-4., 4.]] * 7}, arm_backend="serl_http", bridge_url="http://10.0.0.5:5001")
+    assert FrankaConfig(limits={"joints": [[-4., 4.]] * 7}).bridge_url == "http://127.0.0.1:5000"
     arm = SerlHttpArm.from_config(config)
     assert arm._bridge_url == "http://10.0.0.5:5001"
     assert np.allclose(arm._home_joints, HOME)
@@ -310,6 +310,6 @@ def test_frozen_bridge_state_does_not_renew_feedback(arm, bridge):
 
 
 def test_gripper_from_config_rejects_borrowed_session(arm):
-    config = FrankaConfig(arm_backend="serl_http", bridge_url=arm._bridge_url)
+    config = FrankaConfig(limits={"joints": [[-4., 4.]] * 7}, arm_backend="serl_http", bridge_url=arm._bridge_url)
     with pytest.raises(ValueError, match="shares_arm_session: false"):
         SerlHttpGripper.from_config(config, owner=arm)

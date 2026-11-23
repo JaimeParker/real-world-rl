@@ -142,7 +142,7 @@ def test_default_collector_accepts_serl_mode(tmp_path, monkeypatch):
     preset = tmp_path / "preset.yaml"
     # serl semantics need the xyz and RPY safety boxes, as in any serl preset.
     preset.write_text(
-        "real_robot:\n  remote: robot:50051\n  safety_box: [-1, -1, -1, 1, 1, 1]\n"
+        "real_robot:\n  remote: robot:50051\n  limits: {tcp: {low: [-1, -1, -1], high: [1, 1, 1]}}\n"
         "  safety_box_rpy_low: [0, -1, -1]\n  safety_box_rpy_high: [3, 1, 1]\n",
         encoding="utf-8")
     argv = ["--config", str(preset), "--output-dir", str(tmp_path),

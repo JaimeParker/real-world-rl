@@ -1,6 +1,8 @@
 """Tests for the eval-only real-robot deploy entrypoint (real_world_rl/deploy/checkpoint.py)."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import gymnasium as gym
 import pytest
 import torch
@@ -24,7 +26,7 @@ from real_world_rl.deploy.checkpoint import (
 )
 from real_world_rl.envs.real_robot import RealRobotEnvConfig
 
-FAKE_FRANKA = {
+FAKE_FRANKA = {"limits": station_limits(),
     "type": "franka",
     "arm_backend": "fake",
     "gripper": {"backend": "fake"},
@@ -181,7 +183,7 @@ def test_deploy_inherits_or_overrides_serl_mode_before_env_construction(override
     trained = HilSerlArgs(env_backend="real_robot", teleop_device="spacemouse",
                          spacemouse_mode="serl")
     trained.real_robot = dataclasses.replace(
-        cli.real_robot, safety_box=[-1] * 3 + [1] * 3,
+        cli.real_robot, limits=env_limits(bounds=[-1] * 3 + [1] * 3),
         safety_box_rpy_low=[0, -1, -1], safety_box_rpy_high=[3, 1, 1],
     )
     training_env = build_hil_env(trained, role="learner", enable_teleop=False)
@@ -217,7 +219,7 @@ def test_serl_deploy_restores_all_safety_boxes(provided):
 
     cli = _deploy_args("unused", enable_teleop=False)
     boxes = {
-        "safety_box": [-1] * 3 + [1] * 3,
+        "limits": env_limits(bounds=[-1] * 3 + [1] * 3),
         "safety_box_rpy_low": [0, -1, -1],
         "safety_box_rpy_high": [3, 1, 1],
     }
@@ -231,7 +233,7 @@ def test_serl_deploy_restores_all_safety_boxes(provided):
 
 
 @pytest.mark.parametrize("field,value", [
-    ("safety_box", [-0.5, -1, -1, 1, 1, 1]),
+    ("limits", env_limits(bounds=[-0.5, -1, -1, 1, 1, 1])),
     ("safety_box_rpy_low", [0, -0.5, -1]),
     ("safety_box_rpy_high", [3, 0.5, 1]),
 ])
@@ -241,7 +243,7 @@ def test_serl_deploy_rejects_different_cli_safety_box(field, value):
 
     cli = _deploy_args("unused", enable_teleop=False)
     trained = dataclasses.replace(
-        cli.real_robot, cartesian_semantics="serl", safety_box=[-1] * 3 + [1] * 3,
+        cli.real_robot, cartesian_semantics="serl", limits=env_limits(bounds=[-1] * 3 + [1] * 3),
         safety_box_rpy_low=[0, -1, -1], safety_box_rpy_high=[3, 1, 1],
     )
     cli.real_robot = dataclasses.replace(cli.real_robot, **{field: value})
@@ -258,15 +260,17 @@ def test_current_deploy_keeps_cli_xyz_safety_box(cli_box):
 
     cli = _deploy_args("unused", enable_teleop=False)
     trained = dataclasses.replace(
-        cli.real_robot, safety_box=[-1] * 3 + [1] * 3,
+        cli.real_robot, limits=env_limits(bounds=[-1] * 3 + [1] * 3),
         safety_box_rpy_low=[0, -1, -1], safety_box_rpy_high=[3, 1, 1],
     )
-    cli.real_robot = dataclasses.replace(cli.real_robot, safety_box=cli_box)
-    resolved = resolve_deploy_robot_config(cli, SimpleNamespace(real_robot=trained))
-    assert resolved.cartesian_semantics == "current"
-    assert resolved.safety_box == cli_box
-    assert resolved.safety_box_rpy_low == trained.safety_box_rpy_low
-    assert resolved.safety_box_rpy_high == trained.safety_box_rpy_high
+    cli.real_robot = dataclasses.replace(cli.real_robot, limits=None if cli_box is None else env_limits(bounds=cli_box))
+    if cli_box is not None:
+        with pytest.raises(ValueError, match="limits"):
+            resolve_deploy_robot_config(cli, SimpleNamespace(real_robot=trained))
+    else:
+        resolved = resolve_deploy_robot_config(cli, SimpleNamespace(real_robot=trained))
+        assert resolved.limits == trained.limits
+        assert resolved.safety_box_rpy_low == trained.safety_box_rpy_low
 
 
 def test_saved_current_semantics_rejects_serl_override_before_construction(monkeypatch):
@@ -390,19 +394,15 @@ def test_deploy_interrupted_episode_is_reported_and_env_closed(capsys):
 
 
 @pytest.mark.parametrize('embedded', [False, True])
-def test_deploy_inherits_workspace_and_rejects_different_cli_geometry(embedded):
+def test_deploy_inherits_limits_and_rejects_different_cli_geometry(embedded):
     from types import SimpleNamespace
-    frame = {'name': 'table', 'base_T_frame': [[1, 0, 0, .4], [0, 1, 0, 0],
-                                               [0, 0, 1, .2], [0, 0, 0, 1]]}
-    workspace = {'frame': 'table', 'low': [-.1]*3, 'high': [.1]*3}
-    geometry = dict(task_frame=frame, workspace=workspace)
-    trained = RealRobotEnvConfig(**({'robot': {'type': 'franka', **geometry}} if embedded else geometry))
+    limits = env_limits(bounds=[-.1]*3+[.1]*3)
+    trained = RealRobotEnvConfig(limits=limits)
     args = DeployArgs(checkpoint='unused.pt', real_robot=RealRobotEnvConfig(remote='robot:50051'))
     resolved = resolve_deploy_robot_config(args, SimpleNamespace(real_robot=trained))
-    assert resolved.workspace == workspace and resolved.task_frame == frame
-    assert resolved.remote == 'robot:50051'
-    args.real_robot.workspace = {**workspace, 'high': [.2]*3}
-    with pytest.raises(ValueError, match='workspace'):
+    assert resolved.limits == limits and resolved.remote == 'robot:50051'
+    args.real_robot.limits = env_limits(bounds=[-.2]*3+[.2]*3)
+    with pytest.raises(ValueError, match='limits'):
         resolve_deploy_robot_config(args, SimpleNamespace(real_robot=trained))
 
 

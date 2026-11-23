@@ -24,7 +24,7 @@ The template is at ``docs/examples/bc-train.yaml``:
      - How to obtain the value
    * - ``env_backend``, ``env_id``, ``obs``, ``real_robot``
      - Copy these blocks in full from the session resolved-config located in the previous chapter. The preparation script below does this for you.
-       In particular, preserve robot / remote, task_frame, workspace, control, preprocess and action semantics.
+       In particular, preserve robot / remote, task_frame, limits, control, preprocess and action semantics.
        The template remote is only an address needed to construct the spaces offline; no service needs to run there.
    * - ``obs.rgb``, ``obs.image_size``, ``real_robot.state_fields``
      - Compare with the previous chapter's checking output and contract. The example rgb_wrist shape is [1,224,224,3],

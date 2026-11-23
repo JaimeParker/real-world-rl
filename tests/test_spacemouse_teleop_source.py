@@ -8,6 +8,8 @@ intervention wrapper over the real device layer. The last test covers ``spacemou
 old raw-twist source kept for the sim examples."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import dataclasses
 import logging
 import sys
@@ -372,20 +374,16 @@ def test_a_gripper_env_needs_the_last_gripper_action_getter():
 # -- holds and failures ----------------------------------------------------------------------
 
 
-def test_a_request_outside_the_safety_box_hands_back_until_the_next_press(caplog):
-    session = _Session(safety_box=[0.0, -1.0, 0.0, 0.512, 1.0, 1.0])  # x up to 12 mm ahead
+def test_outside_request_clips_and_keeps_takeover(caplog):
+    session = _Session(limits=tcp_box([0, -1, 0, .512, 1, 1]))
     session.take_over()
     session.part.twist = FORWARD_X
-    with caplog.at_level(logging.WARNING, logger="real_world_rl.teleop.spacemouse.source"):
-        readings = [session.poll() for _ in range(3)]
-    assert [reading.intervened for reading in readings] == [True, True, False]
-    assert "WORKSPACE HOLD: x=" in caplog.text
-    assert not session.tracker.following
-    np.testing.assert_allclose(session.tracker.hold_pose, session.follower.pose)
+    assert all(session.poll().intervened for _ in range(10))
+    assert session.tracker.following
+    assert session.tracker.command[0] == pytest.approx(.512)
+    assert "WORKSPACE HOLD" not in caplog.text
     session.part.twist = np.zeros(6)
-    assert not session.poll().intervened  # stays handed back
-    session.part.press(0)
-    assert session.poll().intervened  # one press takes over again
+    assert session.poll().intervened
 
 
 def test_a_stalled_control_loop_holds_and_the_next_poll_continues(caplog):
@@ -446,13 +444,13 @@ def test_rejects_a_part_that_is_not_a_cartesian_twist_and_scales_below_the_lead_
 
 def test_registered_as_spacemouse_and_built_from_a_real_robot_env():
     box = [-1.0, -1.0, -1.0, 1.0, 1.0, 1.5]
-    env = CartesianPoseEnv(safety_box=box)
+    env = CartesianPoseEnv(limits=tcp_box(box))
     part = _Part()
     source = make_teleop_source(
         "spacemouse", env, teleop=part, last_gripper_action_getter=lambda: OPEN, clock=_Clock()
     )
     assert isinstance(source, SpaceMouseTeleopSource)
-    assert source.cartesian_tracker.safety_box.tolist() == box
+    assert source.cartesian_tracker.limits.absolute_aabb().tolist() == box
     with pytest.raises(RuntimeError, match="before the env was reset"):
         source.poll()
     env.reset()
@@ -729,16 +727,14 @@ def test_spacemouse_twist_keeps_the_raw_twist_motion_intervention_and_old_button
     assert hid_sdk.devices[0].closed
 
 
-def test_task_workspace_hands_back_and_button_can_retake():
-    session = _Session(workspace={'frame': 'base', 'low': [0, -1, 0], 'high': [.512, 1, 1]})
+def test_box_face_does_not_end_takeover():
+    session = _Session(limits=tcp_box([0, -1, 0, .512, 1, 1]))
     session.take_over()
     session.part.twist = FORWARD_X
-    assert [session.poll().intervened for _ in range(3)] == [True, True, False]
-    np.testing.assert_allclose(session.tracker.hold_pose, session.follower.pose)
-    session.part.twist = np.zeros(6)
-    assert not session.poll().intervened
-    session.part.press(0)
+    assert all(session.poll().intervened for _ in range(10))
+    session.part.twist = -FORWARD_X
     assert session.poll().intervened
+    assert session.tracker.command[0] < .512
 
 
 # -- the local SpaceMouse device table ---------------------------------------------------
@@ -779,7 +775,7 @@ def test_teleop_input_keeps_the_device_table_path_out_of_source_options(isolated
 
     station = isolated_site / "local/station.yaml"
     station.parent.mkdir()
-    station.write_text(yaml.safe_dump({"type": "franka", "name": "arm", "arm_backend": "fake",
+    station.write_text(yaml.safe_dump({"limits": station_limits(), "type": "franka", "name": "arm", "arm_backend": "fake",
                                        "teleop": {"backend": "spacemouse", "options": {"device_index": 2}}}))
     table = station.parent / "spacemouse-devices.yaml"
     table.write_text(_WIRELESS_BT_TABLE, encoding="utf-8")
@@ -857,3 +853,9 @@ def test_the_tracker_block_records_a_task_frame_without_a_profile():
     with_profile = SpaceMouseTeleopSource.control_spec(
         tracker_options=tracker, source_options=lambda: {"task_frame_rotation": rotation, "input_rotation": rotation})
     assert "input_frame" not in with_profile
+
+
+@pytest.fixture(autouse=True)
+def isolated_device_claims(tmp_path, monkeypatch):
+    import real_world_rl.devices.claims as claims
+    monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")

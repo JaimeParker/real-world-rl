@@ -84,9 +84,9 @@ resolve_deploy_robot_config，不建立设备连接。
        核对 experiment 中是否有旋转转换。
    * - action_conventions、action_contract
      - 本例 current / cartesian_delta，七维，位置尺度 0.05 m、旋转尺度 0.3 rad、10 Hz。
-       夹爪经 (a+1)/2 变为开口请求；另核对 station 的二值阈值、joint_limits、workspace、control 和 teleop 来源。
+       夹爪经 (a+1)/2 变为开口请求；另核对 station 的二值阈值、``limits``、control 和 teleop 来源。
    * - station 与原 session resolved-config
-     - 设备、home、工作区、单步限制和控制设置须与已审阅配置一致。连接地址可以换，不能把换相机或动作语义当成换地址。
+     - 设备、home、限位（``limits``，含单步限制）和控制设置须与已审阅配置一致。连接地址可以换，不能把换相机或动作语义当成换地址。
 
 部署从 config.json 和 checkpoint 元数据恢复训练参数，训练的观测／动作约定优先；
 CLI 提供连接地址。它不会自动读取当前 local/task.yaml 或 local/station.yaml。

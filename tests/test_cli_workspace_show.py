@@ -20,35 +20,34 @@ def show(tmp_path, capsys, **fields):
 
 
 def test_show_reports_limits_step_caps_and_a_home_inside_the_limits(tmp_path, capsys):
-    result = show(tmp_path, capsys, home_joints=HOME, joint_limits=LIMITS, max_delta_per_step=MAX_DELTA)
-    assert result["joint_limits"] == LIMITS
-    assert result["max_delta_per_step"] == MAX_DELTA
+    result = show(tmp_path, capsys, home_joints=HOME, limits={"joints": LIMITS, "max_delta_per_step": MAX_DELTA})
+    assert result["limits"]["joints"] == LIMITS
+    assert result["limits"]["max_delta_per_step"] == MAX_DELTA
     assert result["home_joints"] == HOME
     assert result["home_within_limits"] is True
     assert "home_violations" not in result
 
 
-def test_show_without_joint_limits_cannot_judge_the_home(tmp_path, capsys):
-    result = show(tmp_path, capsys, home_joints=HOME)
-    assert result["joint_limits"] is None and result["max_delta_per_step"] is None
-    assert result["home_joints"] == HOME
-    assert result["home_within_limits"] is None
-    assert "home_violations" not in result
+def test_franka_without_joint_limits_uses_the_datasheet(tmp_path, capsys):
+    path = tmp_path / "station.yaml"
+    path.write_text("type: franka\n")
+    assert main(["--station", str(path), "workspace", "show"]) == 0
+    assert "requires limits.joints" not in capsys.readouterr().err
 
 
 def test_show_without_home_cannot_judge_it(tmp_path, capsys):
     # A Franka station defaults home_joints to the ready pose; an explicit null clears it.
-    result = show(tmp_path, capsys, joint_limits=LIMITS, home_joints=None)
+    result = show(tmp_path, capsys, limits={"joints": LIMITS}, home_joints=None)
     assert result["home_joints"] is None and result["home_within_limits"] is None
 
 
 def test_show_text_mode_prints_the_same_keys(tmp_path, capsys):
     path = tmp_path / "station.yaml"
     path.write_text(yaml.safe_dump({"type": "franka", "name": "arm", "robot_ip": "172.16.0.2",
-                                    "home_joints": HOME, "joint_limits": LIMITS}))
+                                    "home_joints": HOME, "limits": {"joints": LIMITS}}))
     assert main(["--station", str(path), "workspace", "show"]) == 0
     text = capsys.readouterr().out
-    assert '"home_within_limits": true' in text and '"joint_limits"' in text and '"max_delta_per_step"' in text
+    assert '"home_within_limits": true' in text and '"joints"' in text and '"max_delta_per_step"' in text
 
 
 def test_home_outside_the_limits_names_each_violating_joint():

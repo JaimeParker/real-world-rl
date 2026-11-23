@@ -51,8 +51,8 @@ vectors matching the arm’s joint count. ``max_delta_tau`` and
 ``gains_time_constant`` are passed to both tracker types.
 
 Experiment configuration can override station gains. It can only reduce a
-station's declared torque slew limit and error clips. Existing workspace and
-servo step caps remain enforced separately by ``ArmSafety``; a control profile does
+station's declared torque slew limit and error clips. Existing ``limits`` (TCP box, joint
+ranges) and servo step caps remain enforced separately by the device layer; a control profile does
 not replace them.
 
 Configure only while IDLE:

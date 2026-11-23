@@ -93,7 +93,7 @@
      - Franka Research 3
      - ``robot_model: fr3``
 
-它决定 ``rwrl setup`` 给 ``joint_limits`` 的默认值（Panda 和 FR3 的手册限位，第 6、7 关节差别很大），
+它决定 ``rwrl setup`` 给 ``limits.joints`` 的默认值（Panda 和 FR3 的手册限位，第 6、7 关节差别很大），
 也决定 SERL 关节复位用哪张限位表。
 
 **robot server version**：机器人控制柜里那一端通信协议的版本号，决定 libfranka 能用哪个版本。
@@ -372,7 +372,7 @@ Ubuntu 20.04 自带 3.8，需要先另装 3.10 并用它建环境。
    :start-after: # start setup-switch
    :end-before: # end setup-switch
 
-向导先问型号，再按型号写 ``joint_limits`` 的默认值；选 ``internal``／``serl`` 时建议 ``realtime: enforce``，
+向导先问型号，再按型号写 ``limits.joints`` 的默认值；选 ``internal``／``serl`` 时建议 ``realtime: enforce``，
 内核不是 PREEMPT_RT 时打印警告；改成 ``serl`` 时去掉 ``control:`` 里 impedance 专用的笛卡尔增益（关节项保留），
 已有的 ``serl:`` 参数保留；未设置时使用 SERL 默认值。手写时按下面三小节之一填写。
 
@@ -504,7 +504,7 @@ HIL-SERL 在每个 ``/pose`` 前调用 ``/clearerr``，所以操作员感觉不�
 
 * ``cartesian_controller: serl needs arm_backend franky``：真实控制使用 ``arm_backend: franky``；配置也允许 ``fake`` 做模拟检查。
 * ``robot_model 'x' invalid``：只能是 ``panda`` 或 ``fr3``。
-* 已有的 ``joint_limits`` 不会因为改了 ``robot_model`` 自动变化。是新 station 时，删掉这一行再用 ``rwrl setup --station local/station.yaml`` 重写，向导会按型号给默认值。
+* 已有的 ``limits.joints`` 不会因为改了 ``robot_model`` 自动变化。是新 station 时，删掉 ``limits.joints`` 再用 ``rwrl setup --station local/station.yaml`` 重写，向导会按型号给默认值。
 
 6. 让 doctor 检查
 --------------------------------------------------------------------------------
@@ -593,7 +593,7 @@ HIL-SERL 在每个 ``/pose`` 前调用 ``/clearerr``，所以操作员感觉不�
 
 * 日志有 ``joint reset TIMEOUT``：约 30 s 内关节没到 home 附近（每关节约 0.01 rad），复位仍会结束；检查是否被挡住、home 是否在限位边上。
 * 一启动就报 ``communication_constraints_violation`` 一类反射：回第 3 步确认实时内核。
-* ``outside joint_limits``：home 不在 station 的关节限位内，回查第 5 步的型号和 ``joint_limits``。
+* ``home_joints outside limits.joints``：home 不在 station 的关节限位内，回查第 5 步的型号和 ``limits.joints``。
 
 8. 接下来：第一次笛卡尔运动与反射恢复
 --------------------------------------------------------------------------------
@@ -687,7 +687,7 @@ HIL-SERL 在每个 ``/pose`` 前调用 ``/clearerr``，所以操作员感觉不�
 
 **GELLO 采集建议把 control_hz 提到 15–30 Hz。** 这是依据规划器行为的建议，不是实测结论：``control_hz`` 决定目标之间的间隔（10 Hz 是 100 ms），
 间隔越短，每次重规划的位移越小，从臂越接近连续运动，主臂读数到执行的延迟也越小。
-每步的上限（``max_delta_per_step.joint_rad``、``joint_scale_rad``）是按\ **每步**\ 计的，``control_hz`` 提高后同样的每步值对应更快的速度，
+每步的上限（``limits.max_delta_per_step.joint_rad``、``joint_scale_rad``）是按\ **每步**\ 计的，``control_hz`` 提高后同样的每步值对应更快的速度，
 实际速度还受 ``joint_trajectory`` 的 ``max_velocity`` （默认 0.6／0.75 rad/s）限制。
 ``control_hz`` 属于实验约定：采集、训练和部署必须用同一个值（见 :doc:`../reference/real-world-experiments`）。
 

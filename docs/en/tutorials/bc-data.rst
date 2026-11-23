@@ -92,7 +92,7 @@ If you completed the joint-space extension in :doc:`gello`, inspect that separat
    :end-before: # end gello
 
 **What you should see**: The joint-space extension has ``action_mode: joint_abs``, seven arm dimensions plus one gripper dimension,
-and seven pairs of ``joint_limits``. A normalized action a corresponds to the joint target
+and seven pairs of ``limits.joints``. A normalized action a corresponds to the joint target
 ``low + (a + 1) / 2 * (high - low)``, not directly to a value in radians.
 With joint_delta instead, the target is the current joint angle plus ``a * joint_scale_rad``.
 

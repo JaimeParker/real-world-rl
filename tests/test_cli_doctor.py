@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import dataclasses
 import json
 import os
@@ -358,7 +360,7 @@ def test_station_device_table_reaches_the_host_udev_rules(isolated_site, report,
     site = isolated_site / "site"
     site.mkdir()
     station = site / "left-station.yaml"
-    station.write_text(yaml.safe_dump({"type": "franka", "name": "left", "arm_backend": "fake",
+    station.write_text(yaml.safe_dump({"limits": station_limits(), "type": "franka", "name": "left", "arm_backend": "fake",
                                        "teleop": {"backend": "spacemouse"}}))
     (site / "spacemouse-devices.yaml").write_text(WIRELESS_BT_TABLE)
     created = []
@@ -384,8 +386,8 @@ def test_teleop_table_inputs_follow_the_selected_robot(isolated_site, monkeypatc
     monkeypatch.delenv("RWRL_STATION", raising=False)
     station = isolated_site / "station.yaml"
     station.write_text(yaml.safe_dump({"robots": {
-        "left": {"type": "franka", "arm_backend": "fake", "teleop": {"backend": "fake"}},
-        "right": {"type": "franka", "arm_backend": "fake",
+        "left": {"limits": station_limits(), "type": "franka", "arm_backend": "fake", "teleop": {"backend": "fake"}},
+        "right": {"limits": station_limits(), "type": "franka", "arm_backend": "fake",
                   "teleop": {"backend": "spacemouse", "options": {"device_table": "tables/sm.yaml"}}},
     }}))
     args = SimpleNamespace(config=str(station), robot=None, preset=None)
@@ -682,7 +684,7 @@ def test_install_sdk_refuses_the_official_wheel_for_a_serl_station(host, monkeyp
     would replace that franky, so the doctor blocks instead of proposing it."""
     from real_world_rl.devices.robots.franka import FrankaConfig
 
-    config = FrankaConfig(name="left", arm_backend="fake", gripper=None, cartesian_controller="serl")
+    config = FrankaConfig(limits=station_limits(), name="left", arm_backend="fake", gripper=None, cartesian_controller="serl")
     monkeypatch.setattr(doctor, "load_targets", lambda args: ([("left", config, "unused", False, "")], set()))
     monkeypatch.setattr(host, "inspect_system", lambda **kw: None)
     rows = [{"name": "handshake", "ok": False, "message": "libfranka mismatch",
@@ -820,7 +822,7 @@ def test_probe_preserves_franka_fields_and_forces_read_only_claim(monkeypatch, c
 
     monkeypatch.setattr(checks, "run_doctor", run)
     request = {
-        "config": {
+        "config": {"limits": station_limits(),
             "type": "franka",
             "name": "test",
             "arm_backend": "fake",
@@ -890,7 +892,7 @@ def test_registered_doctor_json_is_single_line(report, monkeypatch, capsys):
 
 def test_global_and_trailing_station_are_equivalent(report, tmp_path, monkeypatch, capsys):
     path = tmp_path / "station.yaml"
-    path.write_text("type: franka\nname: sample\narm_backend: fake\ngripper: null\n")
+    path.write_text(yaml.safe_dump({"type": "franka", "name": "sample", "arm_backend": "fake", "gripper": None, "limits": station_limits()}))
     targets = []
 
     def inspect(args, host):
@@ -985,7 +987,7 @@ def test_registered_doctor_text_summary_is_unchanged(report, monkeypatch, capsys
     assert captured.err == ""
 
 
-PRESET_STATION = {
+PRESET_STATION = {"limits": station_limits(),
     "type": "franka", "name": "arm", "robot_ip": "172.16.0.2", "arm_backend": "fake", "gripper": None,
     "home_joints": [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785],
     "cameras": [{"name": "wrist", "serial": "123", "fps": 30}],

@@ -20,6 +20,7 @@ class PiperConfig(RobotConfig):
             backend="pyagxarm", max_width_m=0.07, mode="continuous", shares_arm_session=True
         )
     )
+    # No FK model: limits.tcp must use an explicit base-frame origin.
     home_joints: list[float] | None = field(default_factory=lambda: [0.0] * 6)
 
 

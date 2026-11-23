@@ -112,7 +112,7 @@ SpaceMouse 标定档案与任务坐标系工作空间
      --from-points frame-points.yaml --origin frame-origin --x-axis frame-x --y-axis frame-y
    rwrl --station local/station.yaml workspace frame show
 
-坐标系为右手系：X 从原点指向 X 点，Z 为三点平面的法向，Y 为将 Y 点方向对 X 正交化后的方向。候选报告两条实测轴长度，以及实测 Y 与最终 Y 的夹角；X 点距原点不足 1 mm 或三点共线会拒绝。也可用 ``--base-T-frame`` 后跟 16 个行优先数值（米）提供已知变换。默认 ``source`` 来源为 ``points:<file> origin=A x=B y=C``\ ，\ ``--source TEXT`` 可另设。加 ``--save``\ ，在审阅差异并确认后仅写入 ``task_frame``\ 。工作站 workspace 若定义在其他非基坐标系会被拒绝；复用其坐标系名称会重新定义 workspace 基准，须重跑 ``workspace validate`` 并审阅边界。旧坐标系保存的点文件须重新采集。\ ``workspace frame show`` 输出 ``task_frame`` 及其在基坐标系中的原点与单位轴。
+坐标系为右手系：X 从原点指向 X 点，Z 为三点平面的法向，Y 为将 Y 点方向对 X 正交化后的方向。候选报告两条实测轴长度，以及实测 Y 与最终 Y 的夹角；X 点距原点不足 1 mm 或三点共线会拒绝。也可用 ``--base-T-frame`` 后跟 16 个行优先数值（米）提供已知变换。默认 ``source`` 来源为 ``points:<file> origin=A x=B y=C``\ ，\ ``--source TEXT`` 可另设。加 ``--save``\ ，在审阅差异并确认后仅写入 ``task_frame``\ 。``task_frame`` 同时决定 ``limits.tcp`` 盒的坐标轴，保存后须运行 ``rwrl limits rebase <yaml> --write``\ （命令会打印此提示）；在此之前工作站加载会报 ``task_frame changed since limits were frozen``\ 。旧坐标系保存的点文件须重新采集。\ ``workspace frame show`` 输出 ``task_frame`` 及其在基坐标系中的原点与单位轴。
 
 ``teleop_profiles`` 是 real_world_rl 工作站段，不是 ``RobotConfig`` 字段。\ ``real_world_rl.discovery.autoconfig`` 的设备层加载器在未传 sections 时严格解析；遇到未知 ``teleop_profiles`` 键会报错并指向 ``real_world_rl.station.load_station``\ 。所有 ``rwrl`` 命令（包括 daemon、setup、discover、doctor）与 Python 调用者均使用 ``real_world_rl.station.load_station``\ （或 ``load_station_with_env``\ ）注册验证器。现有工作站 YAML 无需迁移；\ ``rwrl teleop calibrate --use`` 继续在机器人映射中写入此段。
 
@@ -144,29 +144,31 @@ SpaceMouse 标定档案与任务坐标系工作空间
 
 录制/训练时将工作站作为 ``--teleop-options-yaml``\ ，选择 ``--teleop-device spacemouse``\ ，可选覆盖 ``--teleop-profile``\ 、\ ``--teleop-robot``\ 。解析后的输入旋转、档案名/文件及 yaw 在保存配置前冻结，保存在不参与比较的 ``teleop_input`` 来源信息中。恢复运行复用这些数值选项；重标定操作员方向不会改变已记录基坐标动作含义。旧 ``teleop.options.input_rotation`` 不能与命名档案或工作站 ``task_frame`` 组合。应将安装方向部分迁到任务坐标系，选档案描述操作员 yaw。不含新字段的旧配置保留原输入旋转行为。
 
-``workspace set --frame table --low X Y Z --high X Y Z`` 预览任务坐标系位置框；\ ``--save`` 确认后应用。已有基坐标 ``safety_box`` 仍生效。设备层拒绝任务工作空间外目标，包括被基坐标裁剪移到其外的目标。训练环境先在任务坐标裁剪策略目标，将过大姿态投影到参考锥。SERL 模式先执行原 XYZ/RPY 安全框裁剪。可选 ``--orientation-xyzw X Y Z W --max-angle-rad A`` 定义姿态参考和 SO(3) 角半径，避免欧拉角分支切割。
+``task_frame`` 有两个作用。它是操作员输入坐标系：SpaceMouse 和 Pico 的推动沿它的轴读取（见上文档案）。它也决定 ``limits.tcp`` 盒的轴（盒轴是 ``task_frame`` 的旋转，不使用 ``task_frame`` 原点；没有 ``task_frame`` 时盒与基坐标轴对齐）。盒本身是工作站 YAML 里每臂一个块，以 home 的 TCP 位置为中心，没有姿态限制；字段见\ :ref:`限位（limits） <devices-limits>`\ 。旧的 ``workspace set`` 命令、顶层 ``safety_box``/``workspace`` 键和姿态锥都已移除；用 ``rwrl limits migrate <yaml>`` 转换旧文件。
 
-``workspace capture`` 读取当前 TCP，报告基坐标位姿和任务坐标位置，不移动机器人。采集点是测量，不代表已接受边界。\ ``workspace validate --pose X Y Z QX QY QZ QW`` 对照 workspace 和基坐标安全框验证基坐标目标。越界结果包含 ``valid: false`` 与违规细节：JSON 模式退出 ``0``\ ，文本模式退出 ``5``\ 。错误配置或输入仍报错。
+夹进盒内并沿壁滑动，而不是停住。设备层把每个笛卡尔伺服目标（SpaceMouse、Pico、笛卡尔主端、\ ``cartesian_delta``\ ）夹进盒内，所以顶着盒壁推时 TCP 沿壁滑动。tracker 对请求位置和自己的命令姿态做同样的夹取，命令不会在壁后越积越远。原来的 ``WORKSPACE HOLD`` 提示和 hold 之后的重新锚定不再存在。关节模式（GELLO、\ ``joint_delta``\ 、\ ``joint_abs``\ ）同样遵守盒：设备用 Franka 正运动学在盒壁处停住机械臂。\ ``move_to_pose``\ 、\ ``move_to_joints`` 和环境 reset 的目标越出盒（或关节范围）时，以 ``SafetyViolation`` 拒绝。
 
-``workspace show`` 包含米/弧度/xyzw 单位、工作站和标定来源、基坐标安全框，以及有向工作空间八个顶点在自身和基坐标系中的位置。还报告 ``joint_limits``\ 、\ ``max_delta_per_step``\ 、\ ``home_joints``\ 、\ ``home_within_limits``\ （未配置 home 或限制时为 ``null``\ ；\ ``home_violations`` 列出各越界关节）。两种约束取交集。顶点仅用于检查，不替换为更大的轴对齐包围框，也不证明空间无碰撞。此命令展示配置，不代表 daemon 实时执行或物理标定已验收。
+``workspace capture`` 读取当前 TCP，报告基坐标位姿和任务坐标位置，不移动机器人。采集点是测量，不代表已接受边界。\ ``workspace validate --pose X Y Z QX QY QZ QW`` 对照 ``limits.tcp`` 检查基坐标目标的位置（不检查姿态，因为没有姿态限制）。越界结果包含 ``valid: false`` 与违规细节：JSON 模式退出 ``0``\ ，文本模式退出 ``5``\ 。错误配置或输入，或站点没有 ``limits.tcp``\ ，仍报错。
 
-在机器人主机仓库中激活项目环境，保存命名测量并预览其极值如下（工作站须已定义 ``table``\ ，如上文 ``workspace frame set``\ ）：
+``workspace show`` 输出 ``task_frame``\ 、解析后的 ``limits``\ （内容与 ``rwrl limits show`` 相同：\ ``joints``\ 、含 ``origin_xyz``\ 、\ ``axes_R``\ 、\ ``low``\ 、\ ``high``\ 、\ ``measured_margin_m`` 和基坐标系下八个盒角 ``corners_base_m`` 的 ``tcp``\ 、\ ``max_delta_per_step``\ ）、\ ``home_joints`` 和 ``home_within_limits``\ （未配置 home 或关节范围时为 ``null``\ ；\ ``home_violations`` 列出各越界关节）。盒角仅用于检查，不证明空间无碰撞。此命令展示配置，不代表 daemon 实时执行或物理标定已验收。
+
+确定盒的偏移量时，先测量 TCP 实际需要到达的位置，再把 ``limits.tcp.low``/``high``\ （沿桌面轴相对 home 的偏移，米）写入工作站 YAML，并用 ``rwrl limits show`` 检查。在机器人主机仓库中激活项目环境，保存命名测量如下（工作站须已定义 ``table``\ ，如上文 ``workspace frame set``\ ）：
 
 .. code-block:: bash
    :dedent: 0
 
    rwrl --station local/station.yaml workspace capture --name near --output points.yaml --save
    rwrl --station local/station.yaml workspace capture --name far --output points.yaml --save
-   rwrl --station local/station.yaml workspace set --frame table --from-points points.yaml
+   rwrl --station local/station.yaml limits show
 
-每个点仅在操作员安全定位机械臂后采集；命令绝不移动机器人。点路径相对工作站目录。测量存储基坐标位姿、时间戳、米单位和完整坐标变换。复用名称需要同样的保存审阅，并备份旧文件。坐标系改变须重采。点须覆盖三轴，不自动添加边距。仅凭极值不能证明包围体积安全。重复 ``workspace set`` 并加 ``--save`` 前审阅候选；数值 ``--low/--high`` 不能与 ``--from-points`` 组合。
+每个点仅在操作员安全定位机械臂后采集；命令绝不移动机器人。点路径相对工作站目录。测量存储基坐标位姿、时间戳、米单位和完整坐标变换。复用名称需要同样的保存审阅，并备份旧文件。坐标系改变须重采。仅凭极值不能证明包围体积安全；移动机械臂前先审阅盒角。
 
 .. _spacemouse-commissioning-supervised-recording-sessions:
 
 受监督的录制会话
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``rwrl teleop run`` 在 ``rwrl supervise`` 下使用现有示范录制器。提供已选择 SpaceMouse 档案的工作站和包含 home/workspace 的任务预设。Reset 可移动机械臂、操作夹爪；命令预览会话并执行正常运动确认。
+``rwrl teleop run`` 在 ``rwrl supervise`` 下使用现有示范录制器。提供已选择 SpaceMouse 档案的工作站和包含 home 和任务设置的任务预设。Reset 可移动机械臂、操作夹爪；命令预览会话并执行正常运动确认。
 
 .. code-block:: bash
    :dedent: 0
@@ -233,7 +235,7 @@ tracker 模式每次读数只保留一组轴（默认 ``axis_lock: dominant``\ �
 
    rwrl --json teleop inspect-stop --trace local/teleop/stop-trace.json
 
-schema-1 JSON 轨迹含主机单调时钟上的 ``stop_start_s``\ 、\ ``stop_end_s`` 和 ``samples`` 列表。每样本提供 ``monotonic_s``\ 、\ ``device_time_s``\ （秒，递增 SDK 时间）、\ ``tcp_pose``\ （基坐标 XYZ 米与 xyzw 四元数）、\ ``joint_vel``\ （rad/s，全部七个 Franka 关节）、\ ``robot_mode``\ （SDK 名称）、\ ``errors``\ （列表）。停止起始边界记录 ``control_mode``\ 、\ ``tracker_active``\ 。已空闲/未激活的机械臂得到 BLOCKED，原因 ``no active motion at stop``\ ；仅静止样本不能证明主动控制停止。未知/缺失机器人模式阻止验收，故障模式导致失败。\ ``inspect-stop`` 的退出码为 PASS ``0``\ 、FAIL ``3``\ 、BLOCKED ``4``\ ；一般错误沿用既有退出码。\ ``joint_count`` 可声明其他机械臂关节数。按工作站配置 schema 提供已确认 ``workspace`` 和可选 ``task_frame``\ ；缺少 workspace 证据不能通过。停止失败时保留 ``stop_error``\ 。
+schema-1 JSON 轨迹含主机单调时钟上的 ``stop_start_s``\ 、\ ``stop_end_s`` 和 ``samples`` 列表。每样本提供 ``monotonic_s``\ 、\ ``device_time_s``\ （秒，递增 SDK 时间）、\ ``tcp_pose``\ （基坐标 XYZ 米与 xyzw 四元数）、\ ``joint_vel``\ （rad/s，全部七个 Franka 关节）、\ ``robot_mode``\ （SDK 名称）、\ ``errors``\ （列表）。停止起始边界记录 ``control_mode``\ 、\ ``tracker_active``\ 。已空闲/未激活的机械臂得到 BLOCKED，原因 ``no active motion at stop``\ ；仅静止样本不能证明主动控制停止。未知/缺失机器人模式阻止验收，故障模式导致失败。\ ``inspect-stop`` 的退出码为 PASS ``0``\ 、FAIL ``3``\ 、BLOCKED ``4``\ ；一般错误沿用既有退出码。\ ``joint_count`` 可声明其他机械臂关节数。提供已确认的 ``tcp`` 盒（\ ``station_limits_v1`` 字段 ``origin_xyz``\ 、\ ``axes_R``\ 、\ ``low``\ 、\ ``high``\ 、\ ``measured_margin_m``\ ）和可选 ``task_frame``\ ；缺少 TCP 盒证据不能通过（BLOCKED ``no confirmed TCP box supplied``\ ），样本越出盒则失败（``measured TCP outside limits.tcp``\ ）。停止失败时保留 ``stop_error``\ 。
 
 评估包含基坐标 XYZ 位移带符号最小值、最大值和最终值。提供 ``task_frame`` 时，还报告任务坐标分量、最大向下/向上 Z 位移及最大水平位移。以停止前最后样本为参考，包含中间峰值，而非仅最终位姿。仅当操作员验证坐标标定后，任务 Z 才代表物理竖直方向。无任务坐标系时这些指标明确不可用，绝不假定基坐标 Z 为竖直方向。分量指标不替代完整 3D 验收阈值。
 
@@ -245,11 +247,11 @@ HIL-SERL、残差 HIL-SERL、SiLRI 训练 actor 也可用 ``--episode-end-behavi
 
 实时标定记录 USB vendor/product 标识，以及设备提供的序列号。Tracker 和 SERL 源在打开输入、回合 reset 前检查身份。不匹配会拒绝运行并释放源拥有的输入；不关闭调用者拥有的输入。无序列号时，vendor/product 匹配只能证明型号，不能证明个体。更换此类设备后需重验方向映射。无设备身份的离线档案仍明确不绑定身份，绝不从设备索引猜测身份。
 
-配置任务几何后，它属于实验约定。存在 workspace 时记录数值变换、有向边界、可选 SO(3) 姿态限制及反馈裕量。单独 task frame 仅用于显示/采样，不增加空间语义。坐标名称与来源文本不改变数值约定。无 workspace 的旧配置保留原约定。Deploy 从训练配置恢复 task frame/workspace，拒绝冲突的 CLI 几何参数。
+实际生效的限位属于实验约定（``limits``\ ，版本 ``station_limits_v1``\ ：关节范围、盒中心、轴和偏移、裕量以及步长上限）。checkpoint 旁的 sidecar 记录它们；带旧 ``safety_box``/``workspace`` 键的 checkpoint 在只含基坐标位置边界时加载会自动换算，含姿态锥或非基坐标系的会被拒绝，须重新训练。单独的 task frame 仅用于显示和操作员输入，不增加空间语义；坐标名称与来源文本不改变数值约定。Deploy 从训练配置恢复 task frame 和限位，拒绝冲突的 CLI 几何参数。
 
-远程训练须提供与 daemon 工作站几何一致的 ``real_robot.workspace``\ 、\ ``real_robot.task_frame``\ 。\ ``rwrl teleop run`` 从所选工作站填入。Reset 前环境要求 daemon 声明 ``task_workspace_v1``\ ，并核对实际执行几何与预期 workspace。能力缺失或几何不匹配会拒绝 reset，客户端不会静默改用较弱安全框。本地机器人字典直接提供预期几何。已有基坐标安全限制仍生效。
+远程训练的几何来自 daemon：\ ``real_robot.limits`` 只是可选的、只能收紧的覆盖（\ ``joints``\ 、\ ``tcp.low``/``tcp.high``\ ），\ ``rwrl teleop run`` 从所选工作站填入 ``task_frame``\ 。首次 ``reset()`` 时环境要求 daemon 声明 ``station_limits_v1``\ ，并把覆盖与工作站解析后的限位合并。能力缺失，或覆盖比工作站更宽，会以 ``DeviceFault`` 拒绝 reset，客户端不会静默改用较弱的盒。本地机器人字典直接提供几何。
 
-对于新任务工作空间，环境在 reset 运动前、每个笛卡尔步前、取得观测后以及会话保持期间检查实测 TCP 反馈。逐步检查复用最后的原始观测，不额外发机械臂状态 RPC。反馈检查允许 ``measured_margin_m``\ （默认 ``0.003 m``\ ）、\ ``measured_margin_rad``\ （默认 ``0.03 rad``\ ）；目标检查保留 ``1e-9`` 容差。超出裕量的实测违规会锁存故障并尝试停止，拒绝此环境实例后续 step 和自动 reset；开始新会话前检查机器人和反馈。不会驱动 TCP 回到安全框。关节动作环境拒绝任务工作空间，因为这些边界无法证明关节轨迹的 TCP 路径始终在内。采样 TCP 检查不是整臂碰撞检查。未配置任务工作空间时，原基坐标框裁剪语义不变。
+环境在 reset 运动前、每个笛卡尔步前、取得观测后以及会话保持期间，对照盒检查实测 TCP 反馈。逐步检查复用最后的原始观测，不额外发机械臂状态 RPC。反馈检查允许 ``measured_margin_m``\ （默认 ``0.003 m``\ ）；目标一侧不需要裕量，因为目标由设备夹取或拒绝。超出裕量的实测违规会停止机械臂并锁存故障（\ ``SafetyViolation: measured TCP outside TCP box``\ ），拒绝此环境实例后续 step 和自动 reset；开始新会话前检查机器人和反馈。不会驱动 TCP 回到盒内。关节动作环境同样受保护：设备用正运动学让关节目标停在盒壁，没有运动学模型的机器人只有关节范围和步长上限。采样 TCP 检查不是整臂碰撞检查。
 
 ``rwrl teleop run`` 通过仅运行时注入的 ``RWRL_STOP_TRACE_PATH`` 启用正常停止证据。\ ``RWRL_DIAGNOSTICS_PATH``\ 、\ ``RWRL_SESSION_EVENTS_PATH`` 指定其他运行时证据路径，默认均关闭。这些路径不在 ``RealRobotEnvConfig`` 或持久配置中。Python 调用者向 ``RealRobotEnv(..., report_paths=...)`` 单独传入 ``RuntimeReportPaths(stop_trace=..., diagnostics=..., session_events=...)``\ 。省略 ``report_paths`` 时，环境通过 ``RuntimeReportPaths.from_environ()`` 读取变量。后端须在 reset 前声明 ``stop_trace_v1``\ （目前为 Franky 和更新后的 Franka daemon）。控制期间使用同一连接采样，保留滚动停止前窗口。显式正常退出会采集停止，观察 2.1 秒后释放连接。会话报告目录写入 ``stop-trace-<timestamp>-<id>.json`` 和配套 ``.assessment.json``\ ，\ ``summary.json`` 含评估。已知验收失败会在导出证据后令子进程失败退出；证据不足保留 BLOCKED。
 
@@ -257,7 +259,7 @@ CLI 会话还写入独立于轨迹 transition 的私有 ``session-events-<timest
 
 故障与中断立即清理，跳过正常观察等待。Daemon 停止观察允许 stop/read，拒绝新控制写入。原 SDK 停止规律不变。报告质量/质心及 SDK/服务器元数据是观测，不是已验证负载标定。停止元数据还以 SHA-256 指纹记录 SDK facade、实现及父类模块文件（含 Python 包装背后的原生模块）。缺失文件记录不可用。这是磁盘指纹，不证明已加载内存或链接系统库。模型证据包含可取得的质量、质心、惯量、法兰到末端和末端到刚度坐标系变换；SDK 缺失字段保留 null。环境导出轨迹包含 ``metadata.session_exit``\ ：已知退出原因、回合索引、环境配置 SHA-256。活动轨迹或保持中显式 q 记录 ``operator_quit``\ ，其他正常关闭为 ``normal_close``\ 。上下文本身不证明停止成功。Python 调用者可在同一已连接 Franky/remote arm 先 ``begin_stop_trace()`` 再 ``stop_with_trace()``\ ；停止抛错后仍可读 ``last_stop_trace``\ 。成功带轨迹停止后，后端在停止后观察前进入 IDLE，所以 daemon 动作期限到期不会再次停止。观察期间拒绝新运动或进入伺服模式，普通 stop 仍可用。之后恢复需显式选择控制模式。停止失败不会错误标记为空闲，也不会禁用 watchdog 故障回退。
 
-调试机器人运动时，在 NUC 仓库激活项目环境，使用已审阅的工作站 workspace 和任务预设：
+调试机器人运动时，在 NUC 仓库激活项目环境，使用已审阅的工作站（\ ``limits`` 和 ``task_frame``\ ）和任务预设：
 
 .. code-block:: bash
    :dedent: 0

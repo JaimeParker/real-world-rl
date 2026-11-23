@@ -19,14 +19,14 @@ every button press latched until the next read. This source gives them their mea
   take-over; translation ``twist[:3] * target_speed_m_s * dt`` in the base frame, rotation vector
   ``twist[3:] * target_speed_rad_s * dt`` left-multiplied, as the env's own step). The tracker
   then limits the step to the target speed, keeps the command within ``lead_cap_m``/
-  ``lead_cap_rad`` of the measured pose (the excess is dropped), rejects a requested position
-  outside the safety box, and the action is ``(command - measured)`` in the env's units. The
+  ``lead_cap_rad`` of the measured pose (the excess is dropped), clips a requested position
+  into the TCP box, and the action is ``(command - measured)`` in the env's units. The
   request starts from the command, not from the previous request, so a lagging robot never lets
   it run ahead: once the puck is released (every axis within ``deadzone``) the command stays
   where it is, at most one lead cap ahead of the measured pose, and the robot stops there.
 - **Hand-back** puts the tracker in hold at the measured pose (``hold_at``); the recorder's hold
-  policy (``real_world_rl.teleop.core.hold``) shares the tracker and keeps the follower there. A
-  workspace rejection (``WORKSPACE HOLD: <axes>``, logged) or an input or tracking failure hands
+  policy (``real_world_rl.teleop.core.hold``) shares the tracker and keeps the follower there. An
+  input or tracking failure hands
   back too: the next button-0 press takes over again. A stalled control loop (more than
   ``max_dt_s`` between two intervened polls) holds at the measured pose and the next poll takes
   over again from there.
@@ -172,8 +172,7 @@ class SpaceMouseTeleopSource(SpaceMouseOptions, ToggleableTeleopSource):
         target_speed_m_s: float = 0.05,
         target_speed_rad_s: float = 0.3,
         max_dt_s: float = 0.3,
-        safety_box: Optional[Sequence[float]] = None,
-        workspace=None,
+        limits=None,
         task_frame=None,
         read_timeout_s: float = DEFAULT_READ_TIMEOUT_S,
         clock: Callable[[], float] = time.monotonic,
@@ -201,8 +200,7 @@ class SpaceMouseTeleopSource(SpaceMouseOptions, ToggleableTeleopSource):
                 "sent gripper action, so it needs last_gripper_action_getter (the intervention "
                 "wrapper passes it)"
             )
-        self._tracker = CartesianTargetTracker(tracker_config, safety_box=safety_box,
-                                               workspace=workspace, task_frame=task_frame)
+        self._tracker = CartesianTargetTracker(tracker_config, limits=limits)
         self._driver = CartesianTrackerDriver(
             self._tracker, source_name="spacemouse", follower_pose_getter=follower_pose_getter,
             pos_scale_m=pos_scale_m, rot_scale_rad=rot_scale_rad, clock=clock,
@@ -282,11 +280,11 @@ class SpaceMouseTeleopSource(SpaceMouseOptions, ToggleableTeleopSource):
             raise ValueError("spacemouse mode must be 'tracker' or 'serl'")
         from real_world_rl.teleop.core.targets.follower import (
             follower_kwargs_from_env,
-            workspace_from_env,
+            task_frame_from_env,
         )
 
         follower_kwargs_from_env(env, kwargs)
-        workspace_from_env(env, kwargs)
+        task_frame_from_env(env, kwargs)
         return cls(**kwargs)
 
     # -- source protocol -----------------------------------------------------------
@@ -400,14 +398,6 @@ class SpaceMouseTeleopSource(SpaceMouseOptions, ToggleableTeleopSource):
         try:
             dt = self._driver.elapsed_s()
             update = tracker.advance(self._requested_pose(twist, dt), measured, dt)
-            if update.workspace_violations:
-                self._driving = False
-                logger.warning(
-                    "WORKSPACE HOLD: %s; the follower holds its pose and the SpaceMouse handed "
-                    "back, press button 0 to take over again",
-                    ", ".join(update.workspace_violations),
-                )
-                return False, idle
             if update.missed_deadline_s is not None:
                 logger.warning(
                     "control loop stalled: %.3f s between two SpaceMouse commands (max %.3f s); "

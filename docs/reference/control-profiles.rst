@@ -31,7 +31,7 @@
 
 ``real_world_rl.devices.control.ArmControlConfig`` 无需导入 torch 即可验证有限数值和向量大小。省略字段默认为 ``None``（SDK 默认值）。刚度和阻尼须非负；误差裁剪、\ ``max_delta_tau`` 和 ``gains_time_constant`` 须为正数；拒绝布尔值和未知键。笛卡尔增益使用 tracker 的标量平移/旋转刚度参数、六轴阻尼向量和三轴误差裁剪。关节控制具有独立 ``joint_stiffness``\ 、\ ``joint_damping`` 向量，长度与机械臂关节数一致。\ ``max_delta_tau`` 和 ``gains_time_constant`` 传给两类 tracker。
 
-实验配置可覆盖工作站增益，但只能减小已声明的扭矩变化速率限制与误差裁剪。现有工作空间和伺服步长上限继续由 ``ArmSafety`` 独立执行，控制配置与这些限制共同生效。
+实验配置可覆盖工作站增益，但只能减小已声明的扭矩变化速率限制与误差裁剪。现有 ``limits``（TCP 盒、关节范围）和伺服步长上限继续由设备层独立执行，控制配置与这些限制共同生效。
 
 仅在 IDLE 状态配置：
 

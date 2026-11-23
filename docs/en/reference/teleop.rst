@@ -143,7 +143,7 @@ them) are not the env's in the env's order.
      - ``TeleopPartSource``
      - the teleop part of the robot behind a ``real_robot`` env (robot yaml ``teleop:`` section, local or daemon-served)
      - cartesian_delta, joint_abs or joint_delta, mapped into the env space
-     - kwargs: ``teleop_contract``, ``joint_limits``, ``joint_scale_rad``, ``read_timeout_s`` (hil_serl: ``--robot-teleop-action-mode``, ``--no-robot-teleop-has-gripper``). The robot owns the part, so ``close()`` leaves it connected.
+     - kwargs: ``teleop_contract``, ``joint_limits`` (the arm's ``limits.joints``), ``joint_scale_rad``, ``read_timeout_s`` (hil_serl: ``--robot-teleop-action-mode``, ``--no-robot-teleop-has-gripper``). The robot owns the part, so ``close()`` leaves it connected.
    * - ``fake``
      - ``ScriptedTeleopSource``
      - scripted readings (tests; with no ``readings`` an operator who never intervenes)
@@ -215,7 +215,7 @@ or use ``tracker`` when there is no training configuration.
      - Hold button 0 to close: a fresh uniform sample in ``[-1, -0.9)`` each step. Otherwise hold button 1 to open: ``uniform(0.9, 1)``. Both held: button 0 wins. Neither held: neutral ``0.0``. Buttons cause takeover only when the env has a gripper action.
    * - Arm target
      - Persistent command with target-speed and measured-pose lead limits.
-     - Latest measured pose + raw action × env scale each step; rotation left-multiplies the measured quaternion. Clip to both xyz and RPY safety boxes (roll clipped by magnitude, preserving sign). No time-step rescaling or tracker target.
+     - Latest measured pose + raw action × env scale each step; rotation left-multiplies the measured quaternion. Clip to the station ``limits.tcp`` box (xyz) and ``safety_box_rpy_*`` (RPY) (roll clipped by magnitude, preserving sign). No time-step rescaling or tracker target.
    * - Gripper execution
      - Existing env behavior.
      - Scaled action ``<= -0.5`` closes only when measured normalized width ``> 0.85``; ``>= 0.5`` opens only when width ``< 0.85``. Commands require elapsed time strictly greater than ``gripper_sleep_s`` (default ``0.6 s``), then sleep for that interval. Zero is neutral.
@@ -237,22 +237,19 @@ applied. The resolved matrix and profile name/file/yaw are saved in non-compared
 ``teleop_input`` provenance before resolved configuration is persisted. Restoring a run uses
 those numeric input options without rereading a changed profile. Recorded actions are in
 base coordinates, so operator recalibration does not invalidate old demos or resume contracts.
-Legacy safety boxes remain in the robot base frame. An optional station
-``task_frame`` and ``workspace`` add a tabletop constraint intersected with those
-limits; input rotation alone does not move any safety boundary. Neither changes
+The station ``limits.tcp`` box lives in the robot base frame (its axes are the rotation of the
+station ``task_frame``, see :ref:`Limits <en-devices-limits>`); input rotation alone does not move any
+safety boundary. Neither changes
 the robot's mounting/gravity configuration or payload model.
 
-The SpaceMouse tracker checks the task workspace before sending a requested
-target and again after speed/lead limiting. A rejected candidate hands control
-back and anchors the recorder's hold at the measured pose; button 0 can take
-over again. In training, hand-back resumes the policy through the same device
-constraints. Policy targets are clipped componentwise in the task frame; rotations beyond
-``max_angle_rad`` are projected onto its SO(3) cone by scaling the reference-relative rotvec.
-SERL applies its original XYZ/RPY box clipping first, then this workspace projection.
-Measured TCP feedback outside the workspace plus its feedback margins is a latched fault.
-The margins default to ``measured_margin_m: 0.003`` and ``measured_margin_rad: 0.03``;
-accepted targets still use ``1e-9`` tolerance. Device and environment constraints remain authoritative
-for both teleoperation modes and policy actions.
+The SpaceMouse tracker clips the requested position into the station's ``limits.tcp`` box before it
+limits speed and lead, and again on its command pose, so the command slides along a wall
+instead of stopping; nothing is handed back and ``WORKSPACE HOLD`` is no longer logged. The
+orientation is not limited. In training, policy targets go through the same device clip. SERL
+applies its original XYZ/RPY clipping first (``safety_box_rpy_*``), then the device clip.
+Measured TCP feedback outside the box plus ``measured_margin_m`` (default ``0.003``) is a latched
+fault. Device and environment constraints remain authoritative for both teleoperation modes and
+policy actions; joint modes (GELLO) stop at the wall in the device using forward kinematics.
 
 For a named operator profile, use the \ :ref:`CLI calibration workflow <en-spacemouse-commissioning-spacemouse-profiles-and-task-frame-workspace>`\ .
 The composed input rotation is ``base_R_task @ Rz(operator_yaw)`` for both
@@ -262,10 +259,11 @@ already calibrated ``base_R_task``. Absolute positions use the full task transfo
 including its origin; feedback observations and policy actions retain their
 existing base-frame contract.
 
-For SERL, configure the station's **xyz and RPY safety boxes** first. Missing
-either box is a construction error. On ``real_robot``, these are ``safety_box``
-(``[xmin, ymin, zmin, xmax, ymax, zmax]``), ``safety_box_rpy_low`` and
-``safety_box_rpy_high``; scales remain ``xyz_scale_m``/``rot_scale_rad``.
+For SERL, configure the station's ``limits.tcp`` box and the RPY range first. Missing
+either one is a construction error. The XYZ box is the station ``limits.tcp`` (optionally tightened by
+``real_robot.limits.tcp``); the RPY range is the training option ``safety_box_rpy_low`` and
+``safety_box_rpy_high`` on ``real_robot``, which belongs to the HIL-SERL action semantics and not to the
+station limits; scales remain ``xyz_scale_m``/``rot_scale_rad``.
 The mode selects ``cartesian_semantics: serl`` before env construction even on a
 learner that opens no teleop device. An explicitly configured ``current`` conflicts
 with this mode; an unset programmatic dataclass default is promoted to ``serl``.
@@ -390,7 +388,7 @@ operator's labels on the terminal (the SpaceMouse Compact has two buttons, both 
        --output-dir demos/task_20 --num-successes 20
 
 The HIL actor takes the same two flags. Add ``--spacemouse-mode serl`` to select
-the native behavior in the table above, after configuring both safety boxes.
+the native behavior in the table above, after configuring the ``limits.tcp`` box and the RPY range.
 The following description is the default **tracker** mode. ``SpaceMouseTeleopSource``
 (``real_world_rl/teleop/spacemouse/source.py``) opens the device with the device layer's
 ``SpaceMouseTeleop`` (``TeleopConfig(backend="spacemouse")``, a poll thread feeding ``read()``; the
@@ -428,9 +426,8 @@ twist is in ``[-1, 1]`` with axis map ``[-y, x, z, -roll, -pitch, -yaw]`` of the
    (``--real-robot.xyz-scale-m 0.05 --real-robot.rot-scale-rad 0.3``; the ``real_robot`` defaults
    0.02/0.1 are rejected when the source is built).
 -  **Hand-back** holds the measured pose; the recorder's hold policy shares the tracker and keeps
-   the arm on that pose (not a zero twist) until the next take-over. A requested position outside
-   the safety box (``WORKSPACE HOLD: <axes>`` in the log), an input or tracking failure hand back as
-   well: press button 0 to take over again. A stalled control loop (more than 0.3 s between two
+   the arm on that pose (not a zero twist) until the next take-over. An input or tracking failure hands back as
+   well (a requested position outside the ``limits.tcp`` box does not: it is clipped and the command slides along the wall): press button 0 to take over again. A stalled control loop (more than 0.3 s between two
    intervened steps) holds the measured pose and the next step continues from there.
 -  **Gripper.** At each take-over the gripper action starts as the gripper's last command (the
    intervention wrapper's ``last_gripper_action_getter``, kept as is, so taking over never opens a
@@ -482,7 +479,7 @@ with the setup wizard, BC, ACT and deployment is the
 
 A leader arm reports absolute leader joint positions. ``LeaderArmPartSource``
 (``real_world_rl/teleop/leader/joint.py``) maps them into the env's joint action mode like
-``TeleopPartSource`` (``joint_abs``: normalized onto ``joint_limits``; ``joint_delta``:
+``TeleopPartSource`` (``joint_abs``: normalized onto ``limits.joints``; ``joint_delta``:
 ``(q_leader - q_follower) / joint_scale_rad``, saturating at one ``joint_scale_rad`` per step) and
 adds an onset policy for the moment the operator takes over. Two ways to read a GELLO:
 
@@ -677,21 +674,18 @@ The source needs exactly one leader:
    actor's machine), connected by ``start()``;
 -  ``leader=<part or resolver>``: a teleop part the caller owns (tests, custom setups).
 
-The follower pose, the per-step scales and the safety box come from the env:
+The follower pose, the per-step scales and the ``limits.tcp`` box come from the env:
 on a ``real_robot`` cartesian env, ``last_observation["state"]["tcp_pose"]``, the action
-contract's ``xyz_scale_m``/``rot_scale_rad`` and the configured ``safety_box`` (``None``: no legacy box
-check in the source). Pass ``follower_pose_getter=``,
-``pos_scale_m=``, ``rot_scale_rad=`` and ``safety_box=`` to override them. The scales must be at least
+contract's ``xyz_scale_m``/``rot_scale_rad`` and the effective ``limits.tcp`` box (``None``: the source does not clip). Pass ``follower_pose_getter=``,
+``pos_scale_m=``, ``rot_scale_rad=`` and ``limits=`` (a ``TcpBox``) to override them. The scales must be at least
 the lead caps (``xyz_scale_m >= lead_cap_m``, ``rot_scale_rad >= lead_cap_rad``), else the source
 refuses to build: the default scales (0.02 m / 0.1 rad) need either larger ones
 (``--real-robot.xyz-scale-m 0.05 --real-robot.rot-scale-rad 0.3`` as in the preset) or lower caps.
 
-On ``real_robot``, the station ``workspace`` and ``task_frame`` are read from the env config,
-falling back to its local robot YAML, as for Pico. Explicit source kwargs override them.
-The task frame defines the workspace's position axes and optional orientation constraint.
-Both ``workspace`` and the base-frame ``safety_box`` apply. A request outside either limit
-hands back and holds the follower's measured pose; returning inside does not resume following.
-The log reads ``WORKSPACE HOLD: <axes>; the follower holds its pose and the leader handed back; toggle again to take over``. Release the take-over request, then request again to re-anchor.
+On ``real_robot``, the ``task_frame`` is read from the env config, falling back to its local robot
+YAML, as for Pico; the box comes from the env's effective limits. Explicit source kwargs override
+them. A request outside the ``limits.tcp`` box is clipped into it, so the command slides along the
+wall; there is no hand-back, no ``WORKSPACE HOLD`` log and no re-anchor.
 
 .. code-block:: python
    :dedent: 0
@@ -840,9 +834,8 @@ raises (``CommandOutOfRange``) rather than clip one that would. A hand-back, an 
 failure and an episode end put the tracker in hold at the measured pose. A stalled control loop
 (more than 0.3 s between two intervened polls) counts as an input loss: the follower holds, a
 warning gives the gap, and the next poll re-anchors the leader as at a take-over (a clock going
-backwards raises ``MissedControlDeadline``). A requested position outside the safety
-box does too: the source logs ``WORKSPACE HOLD: <axes>`` and reads as not intervened until the
-operator hands back and takes over again.
+backwards raises ``MissedControlDeadline``). A requested position outside the ``limits.tcp``
+box is not a hold: it is clipped into the box and the command slides along the wall.
 
 The recorder's hold policy (``real_world_rl/teleop/core/hold.py``, ``CartesianHold``) shares the source's
 tracker: while nobody drives it sends the action back onto the fixed hold pose (not a zero twist),
@@ -912,7 +905,7 @@ Verify the DH table on the robot
 ``(0.088, 0, 0.926)``, z down; flange at the ready pose ``[0, -pi/4, 0, -3pi/4, 0, pi/2, pi/4]``:
 about ``(0.307, 0, 0.590)``), but has not been compared with a real robot yet. Before relying on
 ``mapping="absolute"``, compare it with the bridge's own pose at a few joint configurations
-(the ready pose, and two or three poses spread over the workspace with the wrist rotated):
+(the ready pose, and two or three poses spread over the work area with the wrist rotated):
 
 .. code-block:: python
    :dedent: 0
@@ -1289,8 +1282,8 @@ Take-over and the anchored mapping
      - ``+1`` (open) when ``1 - trigger > gripper_binarize_threshold`` (0.5), else ``-1``; ``gripper_binarize_threshold: null`` emits the continuous ``2w - 1``. At a take-over a trigger that disagrees with the gripper's last command is ignored until it agrees, so taking over never drops a grasped object.
    * - episode-end press
      - ends the episode and hands back
-   * - request outside the safety box or station workspace
-     - logs ``WORKSPACE HOLD: <axes>``, holds at the measured pose and hands back; the next bind press takes over again
+   * - request outside the ``limits.tcp`` box
+     - clipped into the box; the command slides along the wall, no hold and no hand-back
    * - control loop stall (> ``max_dt_s``)
      - holds at the measured pose; the next poll re-anchors the hand there
    * - read failure

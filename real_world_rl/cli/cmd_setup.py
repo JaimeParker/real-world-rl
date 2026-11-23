@@ -61,9 +61,12 @@ def build_parser(parser=None) -> argparse.ArgumentParser:
     questions.add_argument("--joint-limits", nargs="+", default=None,
                            help=f"per arm: {2 * FRANKA_NUM_JOINTS} comma-separated rad values, lo,hi per joint "
                                 "(default: the --robot-model datasheet table; write --joint-limits=-2.9,2.9,... as the first is negative)")
-    questions.add_argument("--safety-box", nargs="+", default=None,
-                           help="per arm: xmin,ymin,zmin,xmax,ymax,zmax in m, base frame "
-                                f"(suggested: {','.join(map(str, SUGGESTED_SAFETY_BOX))})")
+    for side in ("low", "high"):
+        questions.add_argument("--tcp-box-" + side, nargs="+", default=None,
+                               help="per arm: bracketed x,y,z offsets from home along table axes, m "
+                                    "(e.g. '[-0.2,-0.25,-0.15]'); low < 0 < high")
+    questions.add_argument("--tcp-origin", nargs="+", default=None,
+                           help="per arm: explicit base-frame x,y,z in m when home FK is unavailable")
     questions.add_argument("--max-delta-xyz-m", nargs="+", default=None,
                            help=f"per arm: servo step cap of the TCP position, m (default {DEFAULT_MAX_DELTA_XYZ_M})")
     questions.add_argument("--max-delta-joint-rad", nargs="+", default=None,

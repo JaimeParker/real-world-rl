@@ -1,6 +1,8 @@
 """`rwrl teleop read`: hardware-free; the direct route opens only the teleop part."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import json
 import socket
 import sys
@@ -42,7 +44,7 @@ def leader(monkeypatch):
 
 def write_station(tmp_path, teleop):
     path = tmp_path / "station.yaml"
-    data = {"type": "franka", "name": "cli_fake", "arm_backend": "fake", "claim": False,
+    data = {"limits": station_limits(), "type": "franka", "name": "cli_fake", "arm_backend": "fake", "claim": False,
             "gripper": {"backend": "fake"}}
     if teleop is not None:
         data["teleop"] = teleop

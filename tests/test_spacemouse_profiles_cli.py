@@ -1,3 +1,5 @@
+
+from _station_limits import station_limits, env_limits, tcp_box
 import json
 from types import SimpleNamespace
 
@@ -14,7 +16,7 @@ from real_world_rl.station import load_station
 def station(tmp_path):
     profile = {"frame": "table", "yaw_rad": .4, "axis_mapping_version": AXIS_MAPPING_VERSION}
     (tmp_path / 'profiles.yaml').write_text(yaml.safe_dump({"schema_version": 1, "profiles": {"rear": profile}}))
-    config = {"type": "franka", "name": "left", "robot_ip": "172.16.0.2",
+    config = {"limits": station_limits(), "type": "franka", "name": "left", "robot_ip": "172.16.0.2",
               "task_frame": {"name": "table", "base_T_frame": np.eye(4).tolist()},
               "teleop": {"backend": "spacemouse"},
               "teleop_profiles": {"file": "profiles.yaml", "default": "rear"}}
@@ -33,18 +35,13 @@ def test_profile_relative_path_and_training_resolution(tmp_path):
         resolve_profile(path, selected, "unknown")
 
 
-def test_cli_profile_and_workspace_roundtrip(tmp_path, capsys):
+def test_cli_profile_and_limits_show(tmp_path, capsys):
     path = station(tmp_path)
     prefix = ["--station", str(path), "--json", "--yes"]
     assert main(prefix + ["teleop", "profiles", "show", "--profile", "rear"]) == 0
     assert json.loads(capsys.readouterr().out)["name"] == "rear"
-    assert main(prefix + ["workspace", "set", "--frame", "table", "--low", "0", "0", "0",
-                          "--high", "1", "1", "1", "--save"]) == 0
-    saved = json.loads(capsys.readouterr().out)
-    assert saved["saved"]["backup"]
-    assert load_station(path).select().config.workspace["high"] == [1, 1, 1]
-    assert main(prefix + ["workspace", "validate", "--pose", ".5", ".5", ".5", "0", "0", "0", "1"]) == 0
-    assert json.loads(capsys.readouterr().out)["valid"]
+    assert main(prefix + ["limits", "show"]) == 0
+    assert json.loads(capsys.readouterr().out)["arms"]["left"]["version"] == "station_limits_v1"
 
 
 def test_legacy_rotation_conflict(tmp_path):
@@ -140,7 +137,7 @@ def test_wrong_device_fails_without_disconnecting_borrowed_input(owned):
 def test_motion_diagnostic_launches_supervised_limited_session(tmp_path, capsys, monkeypatch, axes, gain):
     path = station(tmp_path)
     data = yaml.safe_load(path.read_text())
-    data['workspace'] = {'frame': 'table', 'low': [-1]*3, 'high': [1]*3}
+    data['limits'] = station_limits(bounds=[-1]*3+[1]*3)
     path.write_text(yaml.safe_dump(data))
     preset = tmp_path / 'preset.yaml'
     preset.write_text(yaml.safe_dump({'real_robot': {'home_joints': [0]*7, 'gripper_in_action': False}}))
@@ -169,28 +166,18 @@ def test_motion_diagnostic_launches_supervised_limited_session(tmp_path, capsys,
     assert calls[0][1:5] == ['-m', 'real_world_rl.cli', 'supervise', '--']
 
 
-def test_workspace_saved_points_candidate_and_stale_frame(tmp_path, capsys, monkeypatch):
-    from contextlib import contextmanager
-    path = station(tmp_path)
-    poses = iter([[0, 0, 0, 0, 0, 0, 1], [1, 2, 3, 0, 0, 0, 1]])
-    @contextmanager
-    def connect(args):
-        yield SimpleNamespace(arm=SimpleNamespace(read_state=lambda: {'tcp_pose': np.array(next(poses))}))
-    monkeypatch.setattr('real_world_rl.cli.connect.open_robot', connect)
-    prefix = ['--station', str(path), '--json', '--yes']
-    for name in ('near', 'far'):
-        assert main(prefix + ['workspace', 'capture', '--name', name, '--output', 'points.yaml', '--save']) == 0
-        assert json.loads(capsys.readouterr().out)['saved']
-    original = path.read_bytes()
-    assert main(prefix + ['workspace', 'set', '--frame', 'table', '--from-points', 'points.yaml']) == 0
-    result = json.loads(capsys.readouterr().out)
-    assert result['candidate']['high'] == [1, 2, 3]
-    assert path.read_bytes() == original
-    data = yaml.safe_load(path.read_text())
-    data['task_frame']['base_T_frame'][0][3] = .1
-    path.write_text(yaml.safe_dump(data))
-    assert main(prefix + ['workspace', 'set', '--frame', 'table', '--from-points', 'points.yaml']) == 1
-    assert 'frame changed' in capsys.readouterr().out
+def test_saved_points_candidate_rejects_stale_input_frame(tmp_path):
+    from real_world_rl.teleop.core.workspace_points import candidate_bounds
+    frame = {"name": "table", "base_T_frame": np.eye(4).tolist()}
+    document = {"schema_version": 1, "frame": "table", "units": "m",
+                "base_T_frame": np.eye(4).tolist(),
+                "points": {"near": {"base_pose": [0, 0, 0, 0, 0, 0, 1]},
+                           "far": {"base_pose": [1, 2, 3, 0, 0, 0, 1]}}}
+    result = candidate_bounds(document, frame)
+    assert result['high'] == [1, 2, 3]
+    frame['base_T_frame'][0][3] = .1
+    with pytest.raises(ValueError, match='frame changed'):
+        candidate_bounds(document, frame)
 
 
 def test_workspace_points_reject_degenerate_and_invalid_measurements():
@@ -351,7 +338,8 @@ def test_agent_capture_reports_only_missing_save_fields(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)['required_fields'] == ['--output']
 
 
-def test_workspace_show_reports_units_source_and_oriented_corners(tmp_path, capsys):
+def test_limits_show_reports_oriented_corners(tmp_path, capsys):
+    from itertools import product
     path = station(tmp_path)
     data = yaml.safe_load(path.read_text())
     transform = np.eye(4)
@@ -359,18 +347,14 @@ def test_workspace_show_reports_units_source_and_oriented_corners(tmp_path, caps
     transform[:2, :2] = [[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]]
     transform[:3, 3] = [.2, .3, .4]
     data['task_frame']['base_T_frame'] = transform.tolist()
-    data['task_frame']['source'] = 'measured fixture'
-    data['workspace'] = {'frame': 'table', 'low': [0, 0, 0], 'high': [1, 2, 3]}
+    data['limits'] = station_limits(bounds=[-1]*3+[1]*3)
+    data['limits']['tcp']['axes_R'] = transform[:3, :3].tolist()
     path.write_text(yaml.safe_dump(data))
-    assert main(['--station', str(path), '--json', 'workspace', 'show']) == 0
-    result = json.loads(capsys.readouterr().out)
-    assert result['units']['position'] == 'm'
-    assert result['source']['frame_calibration'] == 'measured fixture'
-    corners = np.array(result['workspace_corners_base_m'])
-    recovered = (corners - transform[:3, 3]) @ transform[:3, :3]
-    np.testing.assert_allclose(recovered, result['workspace_corners_frame_m'], atol=1e-12)
-    assert corners.shape == (8, 3)
-    assert 'no live daemon' in result['scope']
+    assert main(['--station', str(path), '--json', 'limits', 'show']) == 0
+    result = json.loads(capsys.readouterr().out)['arms']['left']['tcp']
+    corners = np.array(result['corners_base_m'])
+    recovered = (corners - result['origin_xyz']) @ np.asarray(result['axes_R'])
+    np.testing.assert_allclose(recovered, list(product([-1, 1], repeat=3)), atol=1e-12)
 
 
 @pytest.mark.parametrize('mode', ['tracker', 'serl'])
@@ -422,7 +406,7 @@ def test_record_and_training_normalization_freeze_profile_before_serialization(t
 
     path = station(tmp_path)
     # The preset dumps the whole config, so its cartesian_semantics is explicit and must match the mode.
-    config = RealRobotEnvConfig(remote='robot:50051', safety_box=[-1]*3+[1]*3,
+    config = RealRobotEnvConfig(remote='robot:50051', limits=env_limits(bounds=[-1]*3+[1]*3),
                                 safety_box_rpy_low=[0, -1, -1], safety_box_rpy_high=[3, 1, 1],
                                 cartesian_semantics='serl' if mode == 'serl' else 'current')
     options = dict(env_backend='real_robot', teleop_device='spacemouse', spacemouse_mode=mode,
@@ -480,7 +464,7 @@ def test_remote_teleop_identity_verifies_like_local(tmp_path, monkeypatch):
     identity = {'vendor_id': 0x256f, 'product_id': 0xc635, 'serial_number': 'unit-a'}
     monkeypatch.setattr('real_world_rl.devices.claims._DEFAULT_LOCK_DIR', tmp_path / 'claims')
     monkeypatch.setattr(FakeTeleop, 'device_identity', property(lambda self: dict(identity)), raising=False)
-    robot = FrankaRobot(FrankaConfig(arm_backend='fake', gripper=None,
+    robot = FrankaRobot(FrankaConfig(limits=station_limits(), arm_backend='fake', gripper=None,
                                     teleop=TeleopConfig(backend='fake')))
     service = RobotService(robot, watchdog_s=30.)
     remote = RemoteRobot.from_client(LocalClient(service))
@@ -507,19 +491,7 @@ def test_calibration_frame_rejected_before_input_collection(tmp_path, monkeypatc
     assert 'frame must match' in capsys.readouterr().out
 
 
-def test_workspace_invalid_is_a_validation_result(tmp_path, capsys):
-    from real_world_rl.cli.errors import WORKSPACE_INVALID_EXIT_CODE
-    path = station(tmp_path)
-    data = yaml.safe_load(path.read_text())
-    data['workspace'] = {'low': [-1]*3, 'high': [1]*3}
-    path.write_text(yaml.safe_dump(data))
-    command = ['--station', str(path), 'workspace', 'validate', '--pose', '2', '0', '0', '0', '0', '0', '1']
-    assert main(['--json', *command]) == 0
-    result = json.loads(capsys.readouterr().out)
-    assert result['valid'] is False
-    assert result['violations']
-    assert main(command) == WORKSPACE_INVALID_EXIT_CODE
-    assert 'false' in capsys.readouterr().out
+
 
 
 def test_legacy_sidecar_input_rotation_is_not_a_compared_semantic():
@@ -533,14 +505,14 @@ def test_legacy_sidecar_input_rotation_is_not_a_compared_semantic():
     assert compared_experiment({'teleop_control': legacy}) == compared_experiment({'teleop_control': control})
 
 
-@pytest.mark.parametrize('action', ['profiles', 'workspace', 'calibrate'])
+@pytest.mark.parametrize('action', ['profiles', 'calibrate'])
 def test_cli_edits_preserve_station_and_profile_text(tmp_path, capsys, monkeypatch, action):
     from test_spacemouse_calibration import samples
     from test_yaml_edit import assert_only_key_changed
 
     path = station(tmp_path)
     data = yaml.safe_load(path.read_bytes())
-    data['workspace'] = {'frame': 'table', 'low': [-1, -1, -1], 'high': [2, 2, 2]}
+    data['limits'] = station_limits(bounds=[-1]*3+[2]*3)
     # Deliberately unsorted, quoted, and spaced like a hand-maintained station.
     before = '# Station notes\n' + yaml.safe_dump({'robot': data}, sort_keys=False)
     before = before.replace('  name: left\n', '  name:  "left"  # operator label\n\n')
@@ -558,9 +530,6 @@ def test_cli_edits_preserve_station_and_profile_text(tmp_path, capsys, monkeypat
     prefix = ['--station', str(path), '--yes', '--json']
     if action == 'profiles':
         command = ['teleop', 'profiles', 'use', '--profile', 'front']
-    elif action == 'workspace':
-        command = ['workspace', 'set', '--frame', 'table', '--low', '0', '0', '0',
-                   '--high', '1', '1', '1', '--save']
     else:
         sample_file = tmp_path / 'samples.json'
         sample_data = samples(0)
@@ -575,7 +544,7 @@ def test_cli_edits_preserve_station_and_profile_text(tmp_path, capsys, monkeypat
                    '--capture-label', '+x', '--use']
     assert main(prefix + command) == 0
     capsys.readouterr()
-    key = 'workspace' if action == 'workspace' else 'teleop_profiles'
+    key = 'teleop_profiles'
     assert_only_key_changed(before, path.read_text(), ('robot', key))
     assert '  name:  "left"  # operator label\n\n' in path.read_text()
     assert path.read_text().endswith('\n# End of station\n')
@@ -737,7 +706,7 @@ def test_diagnose_is_input_only(tmp_path, monkeypatch, capsys):
 
 
 @pytest.mark.parametrize('workspace,gain,duration,message', [
-    (False, '.2', '5', 'reviewed station workspace'),
+    (False, '.2', '5', 'reviewed station TCP box'),
     (True, '0', '5', 'gain must be'), (True, '1.1', '5', 'gain must be'),
     (True, '.2', '0', 'duration'), (True, '.2', '301', 'duration'),
 ])
@@ -745,7 +714,7 @@ def test_diagnostic_run_preflight_before_child(tmp_path, monkeypatch, capsys, wo
     path = station(tmp_path)
     if workspace:
         data = yaml.safe_load(path.read_text())
-        data['workspace'] = {'frame': 'table', 'low': [-1]*3, 'high': [1]*3}
+        data['limits'] = station_limits(bounds=[-1]*3+[1]*3)
         path.write_text(yaml.safe_dump(data))
     monkeypatch.delenv('RWRL_HEARTBEAT_FD', raising=False)
     monkeypatch.setattr('subprocess.run', lambda *a, **kw: pytest.fail('invalid diagnostics must not start'))

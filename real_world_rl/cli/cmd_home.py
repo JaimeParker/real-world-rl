@@ -40,13 +40,14 @@ def delta_to(home: list[float], current: list[float]) -> tuple[list[float], floa
 def home_command(args, connection, preset, ctx: Context) -> tuple[dict, str]:
     current = current_joints(connection)
     if args.action == "set":
-        limits = [("station joint_limits", connection.station_config.joint_limits)]
+        limits = [("station limits.joints", (connection.station_config.limits or {}).get("joints"))]
         arm_limits = connection.arm.safety_limits
         if arm_limits:
-            limits.append(("arm joint_limits", arm_limits.get("joint_limits")))
+            limits.append(("arm limits.joints", arm_limits.get("joints")))
         result = preset.save_home(current, limits, num_joints=connection.arm.num_joints)
+        result["hint"] = "After changing station home_joints, run `rwrl limits rebase <yaml>`."
         return result, (f"task.reset.home_joints: {result['old']} -> {numbers(result['home_joints'])}\n"
-                        f"Previous file kept as {result['backup']}")
+                        f"Previous file kept as {result['backup']}\n{result['hint']}")
     home, source = resolve_home(preset, connection)
     delta, largest = delta_to(home, current)
     if args.action == "go":

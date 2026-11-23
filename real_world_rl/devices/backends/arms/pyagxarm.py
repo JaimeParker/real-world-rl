@@ -16,7 +16,7 @@ import numpy as np
 from real_world_rl.devices.arm import Arm, ArmHealth, ControlMode
 from real_world_rl.devices.backends.arms._rotations import quat_xyzw_to_rpy, rpy_to_quat_xyzw
 from real_world_rl.devices.errors import DeviceFault, DeviceNotFound, SdkMissing
-from real_world_rl.devices.safety import ArmSafety
+from real_world_rl.devices.limits import ArmLimits
 
 if TYPE_CHECKING:
     from real_world_rl.devices.robot import RobotConfig
@@ -87,7 +87,7 @@ class AgxArm(Arm):
         firmware_profile: str | None = None,
         home_joints: list[float] | None = None,
         with_gripper: bool = False,
-        safety: ArmSafety | None = None,
+        safety: ArmLimits | None = None,
     ) -> None:
         if firmware_profile is not None and firmware_profile not in FIRMWARE_PROFILES:
             raise ValueError(
@@ -117,7 +117,7 @@ class AgxArm(Arm):
             firmware_profile=config.firmware_profile,
             home_joints=config.home_joints,
             with_gripper=gripper is not None and gripper.shares_arm_session,
-            safety=ArmSafety.from_config(config),
+            safety=ArmLimits.from_config(config),
         )
 
     @property

@@ -6,8 +6,7 @@ action therefore re-anchors the equilibrium wherever the arm drifted, and a twis
 from the measured pose every step never holds still. ``CartesianTargetTracker`` keeps the
 target instead, per arm, independent of any device or env:
 
-- a hold pose, sampled once (``reset`` at the env reset, ``hold_at`` at a hand-back, a workspace
-  rejection, an input loss or an episode end) and then fixed while the operator does not drive;
+- a hold pose, sampled once (``reset`` at the env reset, ``hold_at`` at a hand-back, an input loss or an episode end) and then fixed while the operator does not drive;
 - a command pose that, while the operator drives (``take_over``), moves towards the requested
   pose at most ``speed_m_s``/``speed_rad_s`` and never leads the measured pose by more than
   ``lead_cap_m``/``lead_cap_rad`` (the excess is dropped, not queued);
@@ -29,7 +28,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Optional
 
 import numpy as np
 
@@ -40,12 +39,10 @@ __all__ = [
     "CommandOutOfRange",
     "MissedControlDeadline",
     "TrackerUpdate",
-    "workspace_violations",
 ]
 
 TRACKER_VERSION = "cartesian_tracker_v1"
 _POSE_DIM = 7
-_SAFETY_BOX_LENGTH = 6
 # Slack for floating-point error on an action the lead cap already bounds by 1.
 _ACTION_TOLERANCE = 1e-6
 # Slack on the inclusive max_dt_s bound: a difference of two clock readings carries rounding
@@ -94,56 +91,32 @@ class CartesianTrackerConfig:
 
 @dataclass(frozen=True)
 class TrackerUpdate:
-    """Result of ``advance``: the new command; the axes of the requested pose outside the
-    workspace (empty unless the request was rejected); the gap since the previous advance when it
-    exceeded ``max_dt_s`` (None otherwise). On a rejection or a missed deadline the tracker went
-    to hold at the measured pose."""
+    """New command and any missed deadline that put the tracker into hold."""
 
     command: np.ndarray
-    workspace_violations: tuple[str, ...] = ()
     missed_deadline_s: Optional[float] = None
 
     @property
     def held(self) -> bool:
         """Whether this advance put the tracker in hold instead of following."""
-        return bool(self.workspace_violations) or self.missed_deadline_s is not None
-
-
-def workspace_violations(pose: np.ndarray, safety_box: Optional[Sequence[float]]) -> tuple[str, ...]:
-    """The position axes of ``pose`` outside ``safety_box`` (``[xmin, ymin, zmin, xmax, ymax, zmax]``)."""
-    if safety_box is None:
-        return ()
-    box = np.asarray(safety_box, dtype=np.float64)
-    return tuple(
-        f"{axis}={value:.4f} outside [{low:.4f}, {high:.4f}] m"
-        for axis, value, low, high in zip("xyz", pose[:3], box[:3], box[3:])
-        if value < low or value > high
-    )
+        return self.missed_deadline_s is not None
 
 
 class CartesianTargetTracker:
-    """Hold pose and command pose of one arm (module docstring). ``safety_box`` bounds the
+    """Hold pose and command pose of one arm (module docstring). ``limits`` bounds the
     requested position; ``None`` leaves the workspace to the env and device layer."""
 
     def __init__(
         self,
         config: Optional[CartesianTrackerConfig] = None,
         *,
-        safety_box: Optional[Sequence[float]] = None,
-        workspace=None,
-        task_frame=None,
+        limits=None,
     ) -> None:
+        from real_world_rl.devices.limits import TcpBox
         self.config = CartesianTrackerConfig() if config is None else config
-        if safety_box is not None:
-            box = np.asarray(safety_box, dtype=np.float64)
-            if box.shape != (_SAFETY_BOX_LENGTH,) or not np.all(np.isfinite(box)) or np.any(box[:3] > box[3:]):
-                raise ValueError(
-                    f"safety_box must be finite [xmin, ymin, zmin, xmax, ymax, zmax] with low <= high, got {safety_box}"
-                )
-            safety_box = box
-        self.safety_box = safety_box
-        from real_world_rl.devices.workspace import Workspace
-        self.workspace = Workspace(workspace, task_frame) if workspace is not None else None
+        if limits is not None and not isinstance(limits, TcpBox):
+            raise ValueError("limits must be a TcpBox")
+        self.limits = limits
         self._hold_pose: Optional[np.ndarray] = None
         self._command: Optional[np.ndarray] = None
         self._following = False
@@ -180,6 +153,7 @@ class CartesianTargetTracker:
     def hold_at(self, measured: np.ndarray) -> None:
         """Stops following: hold and command become ``measured`` and stay there."""
         pose = _as_pose(measured)
+        self._check_measured(pose)
         self._hold_pose = pose.copy()
         self._command = pose.copy()
         self._following = False
@@ -190,39 +164,25 @@ class CartesianTargetTracker:
         self._following = True
 
     def advance(self, requested: np.ndarray, measured: np.ndarray, dt: float) -> TrackerUpdate:
-        """Moves the command towards ``requested`` by at most ``speed * dt``, then pulls it back
-        to within the lead cap of ``measured``. A ``requested`` position outside the safety box,
-        or ``dt`` above ``max_dt_s``, puts the tracker in hold at ``measured`` and is reported in
-        the result; ``take_over`` is needed to follow again. A negative or non-finite ``dt``
-        raises ``MissedControlDeadline``."""
+        """Clip the request, bound speed and lead, and hold on a missed deadline."""
         if not self._following:
             raise RuntimeError("CartesianTargetTracker.advance needs take_over() first")
         if not (math.isfinite(dt) and dt >= 0.0):
             raise MissedControlDeadline(f"invalid time since the previous command: {dt} s (clock error)")
         requested, measured = _as_pose(requested), _as_pose(measured)
-        if self.workspace is not None:
-            measured_violations = self.workspace.violations(measured, measured=True)
-            if measured_violations:
-                from real_world_rl.devices.errors import SafetyViolation
-                raise SafetyViolation("measured TCP outside workspace: " + "; ".join(measured_violations))
+        self._check_measured(measured)
         if dt > self.config.max_dt_s + _DEADLINE_SLACK_S:
             self.hold_at(measured)
             return TrackerUpdate(self.command, missed_deadline_s=float(dt))
-        violations = workspace_violations(requested, self.safety_box)
-        if self.workspace is not None:
-            violations += tuple(self.workspace.violations(requested))
-        if violations:
-            self.hold_at(measured)
-            return TrackerUpdate(self.command, violations)
+        if self.limits is not None:
+            requested = requested.copy()
+            requested[:3] = self.limits.clip(requested[:3])
         config = self.config
         advanced = _limited_towards(self._command, requested, config.speed_m_s * dt, config.speed_rad_s * dt)
         # The lead cap: the advanced command, pulled back to within reach of the measured pose.
         candidate = _limited_towards(measured, advanced, config.lead_cap_m, config.lead_cap_rad)
-        if self.workspace is not None:
-            violations = workspace_violations(candidate, self.safety_box) + tuple(self.workspace.violations(candidate))
-            if violations:
-                self.hold_at(measured)
-                return TrackerUpdate(self.command, violations)
+        if self.limits is not None:
+            candidate[:3] = self.limits.clip(candidate[:3])
         self._command = candidate
         return TrackerUpdate(self.command)
 
@@ -231,6 +191,7 @@ class CartesianTargetTracker:
         ``measured`` (the hold pose itself when it is within reach). Returns the command."""
         if self._following:
             raise RuntimeError("CartesianTargetTracker.reach_for_hold is for the hold, not while following")
+        self._check_measured(_as_pose(measured))
         hold = self._require_initialized(self._hold_pose)
         self._command = _limited_towards(_as_pose(measured), hold, self.config.lead_cap_m, self.config.lead_cap_rad)
         return self.command
@@ -252,6 +213,13 @@ class CartesianTargetTracker:
                 f"(xyz_scale_m={xyz_scale_m}, rot_scale_rad={rot_scale_rad}); refusing to clip"
             )
         return np.clip(action, -1.0, 1.0)
+
+    def _check_measured(self, measured):
+        if self.limits is not None:
+            violations = self.limits.violations(measured[:3], self.limits.measured_margin_m)
+            if violations:
+                from real_world_rl.devices.errors import SafetyViolation
+                raise SafetyViolation("measured TCP outside TCP box: " + "; ".join(violations))
 
     @staticmethod
     def _require_initialized(pose: Optional[np.ndarray]) -> np.ndarray:

@@ -1,4 +1,6 @@
 """Shared operator frame math and device behavior, without hardware."""
+
+from _station_limits import station_limits, env_limits, tcp_box
 import logging
 
 import numpy as np
@@ -159,7 +161,7 @@ def test_pico_from_env_uses_workspace_task_frame():
     # No reset/connect: exercise the actual env config -> workspace kwargs path.
     env = RealRobotEnv(
         RealRobotEnvConfig(
-            robot={"type": "franka"}, task_frame=task_frame(),
+            robot={"limits": station_limits(), "type": "franka"}, task_frame=task_frame(),
             action_mode="cartesian_delta",
         ),
         robot=object(),
@@ -167,7 +169,7 @@ def test_pico_from_env_uses_workspace_task_frame():
     part, clock = _PicoPart(), PicoClock()
     source = PicoTeleopSource.from_env(
         env, teleop=part, clock=clock, follower_pose_getter=lambda: HOME_TCP.copy(),
-        safety_box=None,
+        limits=None,
     )
     assert source.input_frame == "task_frame"
     source.reset()

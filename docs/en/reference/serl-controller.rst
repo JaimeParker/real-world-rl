@@ -77,14 +77,14 @@ Station fields
    serl: null                         # SERL compliance parameters; null = the .cfg defaults (table below)
    serl_auto_recover: null            # null = {enabled: true, max_per_episode: 5}; see Auto-recovery
    load: null                         # optional payload, every mode (see devices.md)
-   joint_limits: [...]                # still refuse move_to_joints targets outside them
+   limits: {joints: [...]}            # still refuse move_to_joints targets outside them
 
 -  ``robot_model`` (``panda`` \| ``fr3``, default ``panda``) picks franka_description's joint limits for
    the soft-limit stage of SERL's joint reset. The setup wizard also offers that model's datasheet
-   ``joint_limits`` as the default: Panda
+   joint ranges (written to ``limits.joints``) as the default: Panda
    ``[[-2.8973, 2.8973], [-1.7628, 1.7628], [-2.8973, 2.8973], [-3.0718, -0.0698], [-2.8973, 2.8973], [-0.0175, 3.7525], [-2.8973, 2.8973]]``,
    FR3 ``[[-2.9007, 2.9007], [-1.8361, 1.8361], [-2.9007, 2.9007], [-3.0770, -0.1169], [-2.8763, 2.8763], [0.4398, 4.6216], [-3.0508, 3.0508]]``.
-   An existing station keeps its own ``joint_limits``.
+   An existing station keeps its own ``limits.joints``.
 -  ``serl`` holds SERL's parameters (see \ :ref:`Parameters <en-serl-controller-parameters>`\  below). ``control:``'s Cartesian
    tracker keys do nothing in this mode. The joint keys, ``max_delta_tau`` and
    ``gains_time_constant`` still set the joint servo tracker.
@@ -366,7 +366,7 @@ slows down exponentially (k_position 100 /s) as it nears a limit and stops at it
 starts beyond a limit is pulled back. The port is ported line by line and golden-tested against
 the original ros_control header (see the native README). The station's ``robot_model`` picks the
 table (``panda``, the default, as franka_control's ``robot:=panda``, or ``fr3``; see
-\ :ref:`robot_model <en-serl-controller-robot_model-panda-or-fr3>`\ ). Station ``joint_limits`` still refuse targets outside
+\ :ref:`robot_model <en-serl-controller-robot_model-panda-or-fr3>`\ ). Station ``limits.joints`` still refuse targets outside
 them before the motion starts.
 
 A reflex that ends the Cartesian controller is cleared and the controller restarted on the next

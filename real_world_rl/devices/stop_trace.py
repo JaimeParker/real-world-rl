@@ -10,7 +10,8 @@ import math
 
 import numpy as np
 
-from .workspace import Workspace, quaternion_matrix, task_transform
+from .limits import TcpBox
+from .workspace import quaternion_matrix, task_transform
 
 
 @dataclass(frozen=True)
@@ -35,7 +36,7 @@ def evaluate_stop_trace(document, thresholds=None):
     monotonic clock. Every sample must carry ``monotonic_s``, ``device_time_s``,
     ``tcp_pose`` (7), ``joint_vel`` (all joints), ``robot_mode`` and ``errors`` (list).
     The start boundary also records ``control_mode`` and ``tracker_active``. Optional
-    workspace/task_frame use the ordinary robot configuration schema. A failed
+    tcp uses the station_limits_v1 wire geometry; task_frame is the operator frame. A failed
     stop or any measured limit violation yields FAIL even if coverage is missing;
     missing evidence alone yields BLOCKED. Raw samples remain the caller's record.
     """
@@ -59,12 +60,12 @@ def evaluate_stop_trace(document, thresholds=None):
         blocked.append('sampling reported errors: ' + '; '.join(map(str, document['sampling_errors'])))
     if document.get('stop_error'):
         failed.append('stop reported an error')
-    workspace = document.get('workspace')
+    tcp = document.get('tcp')
     frame = document.get('task_frame')
     transform = task_transform(frame) if frame is not None else None
-    geometry = Workspace(workspace, document.get('task_frame')) if workspace else None
+    geometry = TcpBox(**tcp) if tcp is not None else None
     if geometry is None:
-        blocked.append('no confirmed workspace supplied')
+        blocked.append('no confirmed TCP box supplied')
     if not samples:
         blocked.append('no samples')
         result['status'] = 'FAIL' if failed else 'BLOCKED'
@@ -94,8 +95,8 @@ def evaluate_stop_trace(document, thresholds=None):
             blocked.append('sample robot_mode unavailable')
         elif mode in ('Reflex', 'UserStopped', 'Guiding', 'AutomaticErrorRecovery') and 'robot mode fault in samples' not in failed:
             failed.append('robot mode fault in samples')
-        if geometry and geometry.violations(pose, measured=True) and 'measured TCP outside workspace' not in failed:
-            failed.append('measured TCP outside workspace')
+        if geometry and geometry.violations(pose[:3], geometry.measured_margin_m) and 'measured TCP outside limits.tcp' not in failed:
+            failed.append('measured TCP outside limits.tcp')
         times.append(host)
         poses.append(pose)
         speeds.append(float(np.max(np.abs(dq))))

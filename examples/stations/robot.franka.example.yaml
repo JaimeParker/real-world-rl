@@ -9,17 +9,17 @@ realtime: ignore              # ignore (default) | enforce: enforce needs a PREE
 relative_dynamics_factor: 0.2 # franky velocity/acc/jerk scale for move_to_* (default 0.2)
 home_joints: [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]  # 7 values (default shown)
 # Safety limits, enforced by the arm (and so by the daemon): servo targets are clipped,
-# move_to_* targets outside them are refused with SafetyViolation. Omit a key for no limit.
-# safety_box: [0.3, -0.3, 0.05, 0.7, 0.3, 0.6]  # [xmin, ymin, zmin, xmax, ymax, zmax] m, base frame (tcp_pose = O_T_EE)
-# joint_limits:                 # 7 [lo, hi] pairs, rad; home_joints must lie inside
-#   - [-2.8, 2.8]
-#   - [-1.7, 1.7]
-#   - [-2.8, 2.8]
-#   - [-3.0, -0.1]
-#   - [-2.8, 2.8]
-#   - [0.0, 3.7]
-#   - [-2.8, 2.8]
-# max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.1}  # servo step cap from the measured state
+# move_to_* targets outside them are refused with SafetyViolation. Franka requires limits.joints.
+limits:
+  joints: [[-2.8973, 2.8973], [-1.7628, 1.7628], [-2.8973, 2.8973], [-3.0718, -0.0698], [-2.8973, 2.8973], [-0.0175, 3.7525], [-2.8973, 2.8973]]
+  # tcp:  # optional, centred on home with table axes
+  #   origin: home
+  #   origin_xyz: [0.3070195700516105, -7.841394128006894e-17, 0.4868695582766445]
+  #   axes_R: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+  #   low: [-0.2, -0.25, -0.15]
+  #   high: [0.2, 0.25, 0.3]
+  #   measured_margin_m: 0.003
+  # max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.1}
 claim: true                   # daemon takes an exclusive per-host lock on this robot (default true)
 gripper:                      # null for no gripper
   backend: franky             # franky (default) | serl_http | fake
@@ -66,7 +66,7 @@ cameras:                      # default: no cameras
 #     joint_ids: [1, 2, 3, 4, 5, 6, 7]                                   # required, servo ids of the arm joints
 #     joint_offsets_rad: [0.0, 0.0, 3.1416, 3.1416, 3.1416, 4.7124, 0.0]  # required, from the calibration CLI
 #     joint_signs: [1, -1, 1, -1, 1, 1, 1]                               # required, +1/-1, verify per unit
-#     wrap_centers_rad: [0.0, 0.0, 0.0, -1.5708, 0.0, 1.8675, 0.0]        # default zeros; midpoints of joint_limits
+#     wrap_centers_rad: [0.0, 0.0, 0.0, -1.5708, 0.0, 1.8675, 0.0]        # default zeros; midpoints of limits.joints
 #     gripper_id: 8             # default null = no gripper channel
 #     gripper_open_rad: 3.22    # required with gripper_id: raw trigger angle when open (width 1)
 #     gripper_closed_rad: 2.0   # required with gripper_id: raw trigger angle when closed (width 0)

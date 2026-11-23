@@ -21,7 +21,7 @@ class StopTraceRecorder:
     """
 
     def __init__(self, read_sample, *, period_s=.01, max_samples=10000,
-                 workspace=None, task_frame=None, metadata=None, pre_window_s=None):
+                 tcp=None, task_frame=None, metadata=None, pre_window_s=None):
         if not math.isfinite(period_s) or period_s <= 0:
             raise ValueError('period_s must be finite and positive')
         if type(max_samples) is not int or max_samples < 2:
@@ -36,7 +36,7 @@ class StopTraceRecorder:
         self._lock = threading.Lock()
         self._thread = None
         self._document = {'schema_version': 1, 'samples': [], 'sampling_errors': [],
-                          'workspace': copy.deepcopy(workspace),
+                          'tcp': copy.deepcopy(tcp),
                           'task_frame': copy.deepcopy(task_frame),
                           'metadata': copy.deepcopy(metadata or {}),
                           'requested_period_s': period_s}

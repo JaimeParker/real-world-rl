@@ -147,10 +147,10 @@ the delay; the next poll re-anchors the GELLO, avoiding a jump across the pause.
 This tracker behavior is separate from an env StepWatchdog trip, which stops the
 arm and requires reset, and from the external supervisor's heartbeat escalation.
 
-A requested position outside the safety box logs ``WORKSPACE HOLD: <axes>``,
-hands back and holds the measured pose. Clear the leader request and use ``h``
-then ``t`` to resume GELLO with a new anchor; on SpaceMouse press button 0 to take
-over again. Do not widen the workspace simply to clear a HOLD.
+A requested position outside the station's ``limits.tcp`` box is clipped into the box by the
+tracker: the command slides along the wall instead of stopping, and ``WORKSPACE HOLD`` is no longer
+logged. In joint modes (GELLO joint following) the device layer stops the arm at the wall. Do not
+widen the box just to let the command go further; see :ref:`Limits <en-devices-limits>`.
 
 The four ``--teleop-lead-cap-m``, ``--teleop-lead-cap-rad``,
 ``--teleop-target-speed-m-s``, ``--teleop-target-speed-rad-s`` values enter

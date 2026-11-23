@@ -45,7 +45,7 @@ rwrl 中的设备命令
 
 示例在机器人 PC 上运行，工作目录为仓库根目录，已激活项目环境。
 
-机器人配置是带 ``type`` 键的 YAML 映射，也可嵌套在顶层 ``robot:`` 下。未知键会被拒绝，并列出有效键。省略的键采用 dataclass 默认值；下方 YAML 也包含示意安全限制。\ ``safety_box``\ 、\ ``joint_limits`` 和 ``max_delta_per_step`` 均默认为 ``null``\ 。完整注释示例见 \ |reference-link-1|_\  和 \ |reference-link-2|_\ 。\ :doc:`配置向导 <../tutorials/station>`\ 会为 Franka 工作站生成此文件。
+机器人配置是带 ``type`` 键的 YAML 映射，也可嵌套在顶层 ``robot:`` 下。未知键会被拒绝，并列出有效键。省略的键采用 dataclass 默认值；下方 YAML 也包含示意安全限制，全部放在一个 ``limits:`` 块里（Franka 未写 ``limits.joints`` 时取其 ``robot_model`` 的手册限位，其余默认为 ``null``\ ）。完整注释示例见 \ |reference-link-1|_\  和 \ |reference-link-2|_\ 。\ :doc:`配置向导 <../tutorials/station>`\ 会为 Franka 工作站生成此文件。
 
 多机器人工作站（如双 Franka 双臂工作站）在 ``robots:`` 下按名称列出各机器人的映射；省略 ``name`` 时使用映射键。每台机器人可带 ``daemon:`` 块（单机器人文件也支持），守护进程在解析机器人配置前读取并移除此块：
 
@@ -85,16 +85,23 @@ rwrl 中的设备命令
    serl_auto_recover: null       # cartesian_controller: serl: {enabled, max_per_episode}; null = {true, 5}
    load: null                    # 可选负载 {mass_kg, center_of_mass_m: [x, y, z], inertia: 3x3}，连接后设置
    home_joints: [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]  # 7 values (default shown)
-   safety_box: [0.3, -0.3, 0.05, 0.7, 0.3, 0.6]  # [xmin, ymin, zmin, xmax, ymax, zmax] m, base frame of tcp_pose (O_T_EE)
-   joint_limits:                 # 7 [lo, hi] pairs in rad; home_joints must lie inside
-     - [-2.8, 2.8]
-     - [-1.7, 1.7]
-     - [-2.8, 2.8]
-     - [-3.0, -0.1]
-     - [-2.8, 2.8]
-     - [0.0, 3.7]
-     - [-2.8, 2.8]
-   max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.1}  # servo step cap from the measured state
+   limits:                       # 见下文「限位（limits）」；Franka 未写时 limits.joints 取手册值
+     joints:                     # 7 [lo, hi] pairs in rad (wizard default: the robot_model datasheet); home_joints must lie inside
+       - [-2.8973, 2.8973]
+       - [-1.7628, 1.7628]
+       - [-2.8973, 2.8973]
+       - [-3.0718, -0.0698]
+       - [-2.8973, 2.8973]
+       - [-0.0175, 3.7525]
+       - [-2.8973, 2.8973]
+     tcp:                        # optional TCP box centred on home, along the table axes (task_frame rotation)
+       origin: home
+       origin_xyz: [0.3070195700516105, -7.841394128006894e-17, 0.4868695582766445]  # frozen FK(home_joints); written by rwrl setup / rwrl limits rebase
+       axes_R: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]   # frozen task_frame rotation (identity without task_frame)
+       low: [-0.20, -0.25, -0.15]   # m, along the axes_R columns, each < 0
+       high: [0.20, 0.25, 0.30]     # m, each > 0
+       measured_margin_m: 0.003     # default 0.003
+     max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.1}  # servo step cap from the measured state
    claim: true                   # daemon takes a per-host exclusive lock while connected
    gripper:                      # null = no gripper
      backend: franky             # franky (default) | serl_http | fake
@@ -127,9 +134,14 @@ rwrl 中的设备命令
    bitrate: 1000000              # must match the interface (default 1000000)
    firmware_profile: null        # pyagxarm only: default | v183 | v188 | v189; null probes the arm
    home_joints: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # 6 values, rad
-   safety_box: [0.1, -0.3, 0.1, 0.5, 0.3, 0.5]   # m, base frame; tcp_pose is the FLANGE pose (no tool offset)
-   joint_limits: [[-2.6, 2.6], [0.0, 3.1], [-2.9, 0.0], [-1.7, 1.7], [-1.2, 1.2], [-2.0, 2.0]]  # rad
-   max_delta_per_step: {xyz_m: 0.02, joint_rad: 0.05}
+   limits:
+     joints: [[-2.6, 2.6], [0.0, 3.1], [-2.9, 0.0], [-1.7, 1.7], [-1.2, 1.2], [-2.0, 2.0]]  # rad
+     tcp:                        # no FK model: explicit base-frame origin (the tcp_pose is the FLANGE pose, no tool offset)
+       origin: [0.3, 0.0, 0.3]
+       axes_R: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+       low: [-0.2, -0.25, -0.15]
+       high: [0.2, 0.25, 0.3]
+     max_delta_per_step: {xyz_m: 0.02, joint_rad: 0.05}
    claim: true
    gripper:
      backend: pyagxarm           # must match the arm backend: pyagxarm | piper_sdk
@@ -139,11 +151,11 @@ rwrl 中的设备命令
      shares_arm_session: true    # required: the Piper gripper borrows the arm's CAN session
    cameras: []
 
-安全限制与遥操作（均可选，三个限制键均从机器人 PC 的 YAML 读取）：
+安全限制与遥操作（均可选；限制全部写在机器人 PC 的 YAML 的 ``limits:`` 块里，字段含义见下文\ :ref:`限位（limits） <devices-limits>`\ ）：
 
--  ``safety_box``\ ：\ ``[xmin, ymin, zmin, xmax, ymax, zmax]``\ ，单位米，使用 ``read_state()["tcp_pose"]`` 坐标系（Franka 为 ``O_T_EE``\ ，Piper 为\ **法兰**\ ，不是夹爪尖端）。仅限制位置，不改变姿态。
--  ``joint_limits``\ ：每个关节一对 ``[lo, hi]``\ ，单位弧度。\ ``home_joints`` 必须在范围内。
--  ``max_delta_per_step``\ ：\ ``xyz_m`` 和/或 ``joint_rad``\ ，限制伺服目标与实测状态的最大距离。仅用于伺服，\ ``move_to_*`` 不受步长限制。
+-  ``limits.joints``\ ：每个关节一对 ``[lo, hi]``\ ，单位弧度。\ ``home_joints`` 必须在范围内。
+-  ``limits.tcp``\ ：以 home 的 TCP 位置为中心、沿桌面轴的末端活动盒，位置单位米，使用 ``read_state()["tcp_pose"]`` 坐标系（Franka 为 ``O_T_EE``\ ，Piper 为\ **法兰**\ ，不是夹爪尖端）。不限制姿态。
+-  ``limits.max_delta_per_step``\ ：\ ``xyz_m`` 和/或 ``joint_rad``\ ，限制伺服目标与实测状态的最大距离。仅用于伺服，\ ``move_to_*`` 不受步长限制。
 -  机器人 PC 上的 YAML 是权威配置。越界的 ``servo_*`` 目标会被\ **裁剪**\ 并计数（\ ``safety_clips``\ ）；越界的 ``move_to_*`` 目标会以 ``SafetyViolation`` **拒绝**\ ，不发送命令（\ ``safety_rejects``\ ）。守护进程、\ ``send_action`` 和本地 API 均如此，见\ :ref:`安全规则 <devices-safety-rules>`\ 。
 -  ``teleop:`` 将操作员输入设备作为机器人部件加入（见\ :ref:`步骤 7 <devices-add-a-teleop-device>`\ ）。
 
@@ -166,6 +178,128 @@ rwrl 中的设备命令
 
 -  ``impedance``\ （默认）：franky 的 ``JointImpedanceTracker`` 直接跟踪每个目标，增益来自 ``control:``\ 。
 -  ``trajectory_impedance``\ ：原生包 ``joint_controller`` 在 franky 的 1 kHz 循环里运行：每个新目标经五次多项式规划器变成连续的参考轨迹（受每关节速度、加速度和关节限位约束），用 GELLO 的关节阻抗律跟踪；超时没有目标时受控停下。\ ``joint_trajectory:`` 覆盖原生默认值（12 个键，只检查键名，数值由原生包在连接时校验）；\ ``arm.joint_trajectory_params`` 和 ``arm.update_joint_trajectory_params`` 读取和在线更新（经 daemon 也可用）。需要 ``arm_backend: franky``\ ，以及同一次构建的 franky、``serl_controller`` 和 ``joint_controller``\ ；建议 ``realtime: enforce``\ 。见 \ :doc:`关节控制器 <joint-controller>`\ 。
+
+.. _devices-limits:
+
+限位（limits）
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+每台机械臂的全部安全限制写在机器人 YAML 的一个 ``limits:`` 块里（嵌套在 ``robots:`` 下时，每台机器人各写一块）：
+
+.. code-block:: yaml
+
+   limits:
+     joints: [[-2.8973, 2.8973], [-1.7628, 1.7628], [-2.8973, 2.8973], [-3.0718, -0.0698], [-2.8973, 2.8973], [-0.0175, 3.7525], [-2.8973, 2.8973]]
+     tcp:
+       origin: home                     # home，或基座系 [x, y, z]（米）
+       origin_xyz: [0.307, 0.0, 0.487]  # 冻结值：home_joints 的正运动学位置
+       axes_R: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]  # 冻结值：task_frame 的旋转（无 task_frame 时为单位阵）
+       low:  [-0.20, -0.25, -0.15]      # 米，沿 axes_R 的三根轴，每项 < 0
+       high: [ 0.20,  0.25,  0.30]      # 米，每项 > 0
+       measured_margin_m: 0.003         # 实测越界的容差，默认 0.003，须 >= 0
+     max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.1}   # 可选，语义同前
+
+.. list-table::
+   :header-rows: 1
+
+   * - 字段
+     - 含义
+   * - ``joints``
+     - 每个关节一对 ``[lo, hi]``，单位 rad，行数等于关节数，须 ``lo <= hi``，``home_joints`` 须在范围内。Franka 必填（``rwrl setup`` 按 ``robot_model`` 写入手册值）。
+   * - ``tcp.low`` / ``tcp.high``
+     - 末端 TCP 位置盒的两个角，是相对盒中心的偏移，单位 m；必须 ``low < 0 < high``，所以 home 一定严格在盒内部。
+   * - ``tcp.origin`` / ``origin_xyz``
+     - 盒中心。``origin: home`` 时中心是 ``home_joints`` 的正运动学 TCP 位置，写入 ``origin_xyz`` 冻结；没有运动学模型的机器人（Piper 等）改写显式的 ``origin: [x, y, z]``。
+   * - ``tcp.axes_R``
+     - 盒的三根轴（基座系下的 3×3 旋转）。必须等于 ``task_frame`` 的旋转；没有 ``task_frame`` 时为单位阵（盒与基座轴对齐）。``task_frame`` 的\ **原点**\ 不参与。
+   * - ``tcp.measured_margin_m``
+     - 实测 TCP 超出盒子多少米以上才算越界（见下表最后一行），默认 0.003。
+   * - ``max_delta_per_step``
+     - 伺服目标与实测状态之间的单步上限（``xyz_m``、``joint_rad``）。只用于伺服，``move_to_*`` 不受限。
+
+**为什么盒子以 home 为中心、跟着桌面轴。** 机械臂常常侧装或倾斜安装，基座轴和桌面并不对齐。
+盒子沿 ``task_frame``（用 ``rwrl workspace`` 在桌面上取三点标定的桌面坐标系）的轴，
+所以“前后左右上下”的边就是桌面的边，不会随安装角斜着切进桌面。盒子以 home 为中心，
+所以 home 永远在盒内，不需要再去抄角点坐标。**盒内没有姿态限制**：站内不再限制末端朝向。
+
+**冻结与重新对齐。** ``origin_xyz`` 和 ``axes_R`` 是写进文件的冻结值。加载时会用当前 ``home_joints`` 的正运动学和当前
+``task_frame`` 复核（位置差超过 1 mm、旋转不等于 ``axes_R`` 即报错），于是改了 home 或重新标定了桌面坐标系，
+不会悄悄让盒子漂移，而是明确提示：
+
+.. code-block:: text
+
+   home_joints changed since limits were frozen; run `rwrl limits rebase`
+   task_frame changed since limits were frozen; run `rwrl limits rebase`
+
+此时运行 ``rwrl limits rebase <yaml> --write``：它按当前 home 和 ``task_frame`` 重算 ``origin_xyz``、``axes_R``，保持 ``low`` / ``high`` 不变。
+YAML 里也可以只写 ``origin: home``、``low``、``high``，让 ``rebase`` 补全两个冻结值。
+
+**越界时发生什么。** 同一块限制由设备层（``Arm``）执行，所以本地 ``Robot``、守护进程、GELLO、SpaceMouse、Pico 和训练环境走同一套规则，
+遥操作和环境不再各自重复实现：
+
+.. list-table::
+   :header-rows: 1
+
+   * - 指令类型
+     - 越界时
+     - 计数
+   * - ``servo_cartesian``（``cartesian_delta`` 环境步、SpaceMouse、Pico、Cartesian 主臂）
+     - 先按 ``max_delta_per_step`` 缩短，再把位置\ **裁剪**\ 进盒子；姿态不动。目标贴着盒壁继续滑动，不会停住也不会重新锚定。
+     - ``safety_clips``
+   * - ``servo_joints``（GELLO、``joint_delta``、``joint_abs``）
+     - 先裁剪进 ``joints`` 并按步长缩短；若正运动学预测 TCP 会出盒，就沿关节步长二分，\ **停在盒壁**\ （取仍在盒内的最大步长）。
+       若当前位置本来就在盒外（例如手动引导后），只接受比当前更靠近盒子的目标，否则原地保持。
+     - ``safety_clips``
+   * - ``move_to_pose``
+     - 目标位置在盒外：\ **拒绝**\ ，抛 ``SafetyViolation``，不发送命令。
+     - ``safety_rejects``
+   * - ``move_to_joints`` 和环境 reset
+     - 目标超出 ``joints``，或其正运动学 TCP 在盒外：\ **拒绝**\ ，抛 ``SafetyViolation``。
+     - ``safety_rejects``
+   * - 实测 TCP 超出盒子 + ``measured_margin_m``
+     - 环境停下机械臂并\ **锁存故障**\（``SafetyViolation: measured TCP outside TCP box``）；环境不会自动命令回到盒内。
+     - 环境故障
+
+没有正运动学模型的机器人（Piper、AGX、``serl_http``）没有关节伺服的盒内投影：关节模式只受 ``joints`` 和步长限制，
+盒子只约束 Cartesian 目标、``move_to_pose`` 和实测反馈。Franka 的正运动学是 Franka 手册的 Craig 改进 DH 参数加 ``flange_T_ee``
+（默认 Franka Hand）；``franky`` 后端每次连接时把它与 ``state.F_T_EE`` 比较，不一致就抛 ``DeviceFault``；
+``rwrl doctor`` 也会检查 FK 与实测 ``O_T_EE`` 的差（小于 1 mm）。SERL 原生关节复位的软限位是 C++ 控制器里的手册值，不受 ``limits`` 影响。
+
+**环境层只能更严。** 训练/部署配置里的 ``real_robot.limits`` 是可选的覆盖项，形状是 ``limits`` 的子集：
+
+.. code-block:: yaml
+
+   real_robot:
+     limits:
+       joints: [[...], ...]       # 可选：比机器人更窄的关节范围
+       tcp: {low: [-0.1, -0.1, -0.1], high: [0.1, 0.1, 0.2]}   # 可选：只给 low / high，原点和轴来自机器人
+
+环境连接后（首个 ``reset()``）与机器人的限制合并：没写的从机器人继承，比机器人更松就以 ``DeviceFault`` 拒绝。
+环境层不能改变盒子的原点和轴。旧的环境键 ``safety_box``、``joint_limits``、``workspace`` 已删除，传入会直接报错。
+``cartesian_semantics: serl`` 另有 ``safety_box_rpy_low`` / ``safety_box_rpy_high``：这是 HIL-SERL 动作语义的一部分（限制目标姿态的 roll/pitch/yaw），
+不是站内安全限制；该模式要求站里配置了 ``limits.tcp``\ ，并要求这两个姿态范围。
+
+**命令。**
+
+.. list-table::
+   :header-rows: 1
+
+   * - 命令
+     - 作用
+   * - ``rwrl limits show [STATION] [--station STATION]``
+     - 打印每台机械臂解析后的限制：关节、盒子的中心、轴、``low`` / ``high``、基座系下的八个角点 ``corners_base_m``。
+   * - ``rwrl limits migrate <yaml> [--write]``
+     - 把旧的顶层 ``safety_box`` / ``workspace`` / ``joint_limits`` / ``max_delta_per_step`` 转成 ``limits:``，打印新块和差异；加 ``--write`` 才改文件（原文件留 ``.bak``）。
+   * - ``rwrl limits rebase <yaml> [--write]``
+     - 按当前 ``home_joints`` 和 ``task_frame`` 重算 ``origin_xyz`` 和 ``axes_R``，保持 ``low`` / ``high``。
+   * - ``rwrl workspace show`` / ``validate --pose X Y Z QX QY QZ QW``
+     - 显示当前 ``task_frame``、解析后的限制和 ``home_within_limits``；检查一个基座系位姿的位置是否在盒内（姿态不检查）。
+
+**迁移。** 旧站点文件顶层的 ``safety_box``、``workspace``、``joint_limits``、``max_delta_per_step`` 现在是加载错误，
+信息会指向 ``rwrl limits migrate``。迁移规则：``origin_xyz`` 取 ``home_joints`` 的正运动学位置；没有 ``task_frame`` 时旧位置盒被精确表示为相对 home 的偏移；
+有倾斜的 ``task_frame`` 时旧盒无法精确表示成桌面轴的盒子，改写为以 home 为中心、放得进旧盒的最大桌面轴盒子，并打印警告请你核对；
+同时存在 ``safety_box`` 和 ``workspace`` 时取交集；``workspace`` 里的姿态限制被丢弃并给出警告。旧检查点里记录的限制会在加载时按同样的规则翻译；
+翻译不了的（例如姿态限制）要求重新训练。
 
 SERL 控制器（\ ``cartesian_controller: serl``\ ）
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -198,7 +332,7 @@ SERL 自己的笛卡尔阻抗控制器和关节复位，由 ``serl_controller`` 
 
 impedance 控制器的新 franky 机械臂获得近似 SERL 的 ``control:`` 增益（\ ``FRANKY_SETUP_CONTROL``\ ）；选 serl 时向导写 ``serl: null``\ （SERL ``.cfg`` 默认值），不写 impedance 的笛卡尔增益（把工作站改成 serl 时从 ``control:`` 删除这些键，保留关节键）。
 
-每条机械臂都获得设备侧限制：其 ``robot_model`` 数据表的 ``joint_limits``\ （型号先于限位询问，所以 FR3 得到 FR3 的表；\ ``--joint-limits``\ ）、伺服步长上限 ``max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}``\ （\ ``--max-delta-xyz-m``\ 、\ ``--max-delta-joint-rad``\ ），以及交互询问的 ``safety_box``\ （基坐标系，单位米，建议 ``[0.3, -0.3, 0.05, 0.7, 0.3, 0.6]``\ ，\ ``--safety-box``\ ），安全框必须包含 home 位姿。
+每条机械臂都获得设备侧限制，写成一个 ``limits:`` 块：其 ``robot_model`` 数据表的 ``limits.joints``\ （型号先于限位询问，所以 FR3 得到 FR3 的表；\ ``--joint-limits``\ ）、以 home 为中心的 TCP 盒（交互询问相对 home 的 ``low`` / ``high``\ ，默认 ``[-0.20, -0.25, -0.15]`` 和 ``[0.20, 0.25, 0.30]``\ 米，\ ``--tcp-box-low``\ 、\ ``--tcp-box-high``\ ；盒子沿 ``task_frame`` 的轴，没有 ``task_frame`` 时沿基座轴）和伺服步长上限 ``max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}``\ （\ ``--max-delta-xyz-m``\ 、\ ``--max-delta-joint-rad``\ ）。向导用 home 的正运动学写入冻结的 ``origin_xyz`` 和 ``axes_R``\ ；没有运动学模型的机器人（Piper 等）用 ``--tcp-origin X,Y,Z`` 给显式的基座系原点。详见\ :ref:`限位（limits） <devices-limits>`\ 。
 
 在机器人 PC 的仓库根目录中，激活项目环境后操作。命令见\ :doc:`配置教程 <../tutorials/station>`\ 。
 
@@ -306,7 +440,7 @@ daemon、doctor 和 discovery 无需 ``--station`` 也可查找工作站 YAML，
 
 ``backend: spacemouse``\ （扩展 ``spacemouse``\ ；选项 ``device_index`` 默认 0、\ ``deadzone`` 默认 1e-3、\ ``invert_axes``\ 、\ ``poll_interval_s`` 默认 0.005）是带夹爪的 ``cartesian_delta`` 设备：操纵帽给出 twist ``[-y, x, z, -roll, -pitch, -yaw]``\ ，每次按键被锁存为 ``button_0``/``button_1`` 事件（两次读取之间按下也不丢失），按钮 0 切换保持的夹爪目标（连接时 1.0，即打开）。两个按钮都不产生 ``episode_end``\ 。应用层按钮映射见\ :ref:`遥操作指南 <teleop-spacemouse>`\ 。需要 ``/dev/hidraw*`` 读写权限；\ ``rwrl doctor`` 以 ``os:hid`` 检查并输出 udev 规则安装命令。见\ :ref:`已知限制 <devices-known-limitations-and-needs-hardware-verification>`\ 。
 
-``backend: gello``\ （扩展 ``gello``\ ，使用 ``event_device`` 还需 ``gello-events``\ ）是 GELLO 主臂（通过 U2D2 或 OpenRB-150 连接的被动 Dynamixel 舵机，Protocol 2.0）：\ ``joint_abs`` 设备，每个 ``joint_ids`` 条目对应一个关节，设置 ``gripper_id`` 后具有夹爪通道。每次轮询执行一次同步读取；关节 ``i`` 将 ``wrap((raw_rad - joint_offsets_rad[i]) * joint_signs[i])`` 包裹到 ``[wrap_centers_rad[i] - pi, wrap_centers_rad[i] + pi)``\ ，连接时无需起始位姿（中心应设为 ``joint_limits`` 中点；Panda 第 6 关节超过 pi，需要正的中心值）。夹爪为 ``clip((raw - gripper_closed_rad) / (gripper_open_rad - gripper_closed_rad), 0, 1)``\ ，1 为打开，可用 ``gripper_binarize_threshold`` 二值化。\ ``intervention: always``\ （默认）每次轮询都报告 ``intervening``\ ；\ ``toggle`` 跟随 ``evdev`` 从 ``event_device``\ （机器人 PC 的脚踏或键盘）读取的切换键，其余键产生 ``episode_end``/``success``/``failure``/``rerecord``\ （\ ``event_keys``\ ）。连接和断开时均关闭扭矩；舵机缺失或同步读取失败会使轮询失败，不返回陈旧样本。完整选项及默认值见 \ |reference-link-4|_\ 。每套设备标定一次（关闭扭矩，手动移动主臂）；\ :doc:`配置向导 <../tutorials/station>`\ 内联执行这些步骤并将结果写入工作站 YAML。单独执行 CLI 时会输出可粘贴的配置块：
+``backend: gello``\ （扩展 ``gello``\ ，使用 ``event_device`` 还需 ``gello-events``\ ）是 GELLO 主臂（通过 U2D2 或 OpenRB-150 连接的被动 Dynamixel 舵机，Protocol 2.0）：\ ``joint_abs`` 设备，每个 ``joint_ids`` 条目对应一个关节，设置 ``gripper_id`` 后具有夹爪通道。每次轮询执行一次同步读取；关节 ``i`` 将 ``wrap((raw_rad - joint_offsets_rad[i]) * joint_signs[i])`` 包裹到 ``[wrap_centers_rad[i] - pi, wrap_centers_rad[i] + pi)``\ ，连接时无需起始位姿（中心应设为 ``limits.joints`` 中点；Panda 第 6 关节超过 pi，需要正的中心值）。夹爪为 ``clip((raw - gripper_closed_rad) / (gripper_open_rad - gripper_closed_rad), 0, 1)``\ ，1 为打开，可用 ``gripper_binarize_threshold`` 二值化。\ ``intervention: always``\ （默认）每次轮询都报告 ``intervening``\ ；\ ``toggle`` 跟随 ``evdev`` 从 ``event_device``\ （机器人 PC 的脚踏或键盘）读取的切换键，其余键产生 ``episode_end``/``success``/``failure``/``rerecord``\ （\ ``event_keys``\ ）。连接和断开时均关闭扭矩；舵机缺失或同步读取失败会使轮询失败，不返回陈旧样本。完整选项及默认值见 \ |reference-link-4|_\ 。每套设备标定一次（关闭扭矩，手动移动主臂）；\ :doc:`配置向导 <../tutorials/station>`\ 内联执行这些步骤并将结果写入工作站 YAML。单独执行 CLI 时会输出可粘贴的配置块：
 
 .. code-block:: bash
 
@@ -315,7 +449,7 @@ daemon、doctor 和 discovery 无需 ``--station`` 也可查找工作站 YAML，
        --joint-ids 1 2 3 4 5 6 7 --gripper-id 8 \
        --calibration-pose 0 0 0 -1.57 0 1.57 0 --joint-limits-yaml robot.yaml
 
-标定会检查每个关节的符号（按提示沿机器人正方向移动一个关节），根据标定位姿在四分之一转网格上求偏移，采集扳机开闭角度，并从 YAML 的 ``joint_limits`` 获取包裹中心。串口需要读写权限（\ ``dialout`` 组）；doctor 通过 ``os:serial`` 和 ``os:groups`` 检查，并警告 CH340 适配器上的 brltty（\ ``os:brltty``\ ）及过慢的 FTDI ``latency_timer``\ （\ ``os:latency_timer``\ ）。程序绝不写入舵机波特率：请用 Dynamixel Wizard 一次性修改（8 个舵机在 1000000 时约 130 Hz，在 57600 时约 25 Hz）。
+标定会检查每个关节的符号（按提示沿机器人正方向移动一个关节），根据标定位姿在四分之一转网格上求偏移，采集扳机开闭角度，并从 YAML 的 ``limits.joints`` 获取包裹中心。串口需要读写权限（\ ``dialout`` 组）；doctor 通过 ``os:serial`` 和 ``os:groups`` 检查，并警告 CH340 适配器上的 brltty（\ ``os:brltty``\ ）及过慢的 FTDI ``latency_timer``\ （\ ``os:latency_timer``\ ）。程序绝不写入舵机波特率：请用 Dynamixel Wizard 一次性修改（8 个舵机在 1000000 时约 130 Hz，在 57600 时约 25 Hz）。
 
 \ ``backend: pico``\  使用 \ ``pico``\  扩展（\ ``pyzmq``\ ）。选项为 \ ``address``\ （默认 \ ``tcp://localhost:7777``\ ）、\ ``topic``\ （\ ``""``\ ）、\ ``hand``\ （\ ``right``\  或 \ ``left``\ ，默认 \ ``right``\ ）、\ ``bind_button``\ （\ ``bind``\  或 \ ``episode_end``\ ，默认 \ ``bind``\ ）、\ ``poll_interval_s``\ （0.005）。它产生 \ ``cartesian_delta``\  样本，含 \ ``diagnostics.hand_pose``\ （xyz + xyzw 四元数）、由扳机决定的夹爪宽度以及 bind/episode-end 按键事件。网络发布器不会被本地发现。
 
@@ -437,7 +571,7 @@ daemon、doctor 和 discovery 无需 ``--station`` 也可查找工作站 YAML，
      - \-
      - 脚本样本、\ ``push()`` 注入、\ ``fail_after``\ ；测试与 ``--mock``
 
-\ ``Arm``\  **是模板方法类。**\  公共方法 ``servo_cartesian``\ 、\ ``servo_joints``\ 、\ ``move_to_pose`` 和 ``move_to_joints`` 先清理输入（形状、有限数值、单位四元数），应用安全限制，再调用后端钩子 ``_servo_cartesian``\ 、\ ``_servo_joints``\ 、\ ``_move_to_pose`` 和 ``_move_to_joints``\ 。公共 ``stop()`` 同样先清除 ``last_cartesian_target``\ ，再调用后端 ``_stop``\ 。后端实现这些钩子（以及 ``read_state``\ 、\ ``recover``\ 、\ ``_enter_control_mode``\ ），绝不覆盖公共方法，因此任何通向电机的路径都经过防护。后端 ``read_state()`` 必须通过 ``self._remember_state(state)`` 返回结果：步长限制复用该缓存状态（最长 ``MAX_DELTA_STATE_AGE_S`` = 0.5 秒，否则重读），避免每次伺服调用都查询机器人。\ ``Arm.from_config(config)`` 用 ``ArmSafety.from_config(config)`` 构建后端。第三方后端省略 ``_remember_state`` 仍可工作，但每次受步长限制的伺服调用会多一次 ``read_state()``\ 。
+\ ``Arm``\  **是模板方法类。**\  公共方法 ``servo_cartesian``\ 、\ ``servo_joints``\ 、\ ``move_to_pose`` 和 ``move_to_joints`` 先清理输入（形状、有限数值、单位四元数），应用安全限制，再调用后端钩子 ``_servo_cartesian``\ 、\ ``_servo_joints``\ 、\ ``_move_to_pose`` 和 ``_move_to_joints``\ 。公共 ``stop()`` 同样先清除 ``last_cartesian_target``\ ，再调用后端 ``_stop``\ 。后端实现这些钩子（以及 ``read_state``\ 、\ ``recover``\ 、\ ``_enter_control_mode``\ ），绝不覆盖公共方法，因此任何通向电机的路径都经过防护。后端 ``read_state()`` 必须通过 ``self._remember_state(state)`` 返回结果：步长限制复用该缓存状态（最长 ``MAX_DELTA_STATE_AGE_S`` = 0.5 秒，否则重读），避免每次伺服调用都查询机器人。\ ``Arm.from_config(config)`` 用 ``ArmLimits.from_config(config)`` 构建后端。第三方后端省略 ``_remember_state`` 仍可工作，但每次受步长限制的伺服调用会多一次 ``read_state()``\ 。
 
 .. _devices-safety-rules:
 
@@ -449,14 +583,15 @@ daemon、doctor 和 discovery 无需 ``--station`` 也可查找工作站 YAML，
 -  \ ``disconnect()``\  **从不切断电源。**\  释放机械臂只关闭 SDK 会话。Piper 后端从不调用 ``disable()``/``reset()``/``DisableArm``/``ResetPiper``\ ，因为失电的 Piper 会下落。\ ``stop()`` 停止运动，保持电源与制动器原状。
 -  **机械臂未就绪时拒绝伺服命令。** 所有后端均拒绝匹配伺服模式之外的伺服命令。franky、pyagxarm 和 piper_sdk 在故障状态也会拒绝（先调用 ``recover()``\ ）。Piper 后端还会拒绝陈旧反馈：pyagxarm 超过 0.5 秒、piper_sdk 超过 1.0 秒无新关节帧。硬件后端的 ``move_to_*`` 要求 ``IDLE``\ 。动作会检查形状与有限性，\ ``tcp_pose`` 四元数会检查单位范数。
 -  **连接会使能电机。** 连接 Piper（直接连接、doctor 或客户端通过 daemon 连接）会使能电机，\ ``disconnect()`` 后仍保持使能。运行 doctor 前清空工作区。
--  **安全限制。** 机器人主机 YAML 中的 ``safety_box``\ 、\ ``joint_limits``\ 、\ ``max_delta_per_step`` 是权威配置。\ ``Arm`` 在公共命令方法执行这些限制，覆盖本地 ``Robot``\ 、守护进程（\ ``arm.servo_*``\ 、\ ``arm.move_to_*``\ 、\ ``robot.send_action``\ 、\ ``robot.step``\ ）及 ``send_action`` 等所有路径。\ ``RemoteArm`` 没有自己的防护，而是转发给 daemon。
+-  **安全限制。** 机器人主机 YAML 中的 ``limits:``\ （``joints``\ 、\ ``tcp``\ 、\ ``max_delta_per_step``\ ）是权威配置，字段含义见\ :ref:`限位（limits） <devices-limits>`\ 。\ ``Arm`` 在公共命令方法执行这些限制，覆盖本地 ``Robot``\ 、守护进程（\ ``arm.servo_*``\ 、\ ``arm.move_to_*``\ 、\ ``robot.send_action``\ 、\ ``robot.step``\ ）及 ``send_action`` 等所有路径。\ ``RemoteArm`` 没有自己的防护，而是转发给 daemon。
 
-   -  ``servo_*``\ ：先以实测状态为基准将目标缩短到 ``max_delta_per_step``\ ，再裁剪进基坐标安全框/关节限制。任何被接受的修改都计一次 ``safety_clips``\ 。配置 ``workspace`` 时，笛卡尔目标在基坐标框裁剪前后都须满足其有向位置框和可选 SO(3) 姿态半径。工作空间拒绝会抛出 ``SafetyViolation``\ 、递增 ``safety_rejects``\ ，不发送命令。
-   -  ``move_to_*``\ ：目标超出安全框/关节限制时抛出 ``SafetyViolation``\ ，计一次 ``safety_rejects``\ ，不发送命令。\ ``move_to_*`` 不受步长限制。
+   -  ``servo_cartesian``\ ：先以实测状态为基准将目标缩短到 ``max_delta_per_step``\ ，再把位置裁剪进 TCP 盒（姿态不动）。
+   -  ``servo_joints``\ ：先缩短到步长、裁剪进 ``joints``\ ；若正运动学预测 TCP 会出盒，沿关节步长二分，停在盒壁。当前位置已在盒外时，只接受更靠近盒子的目标，否则原地保持。没有正运动学模型的后端不做盒内投影。任何被接受的修改都计一次 ``safety_clips``\ 。
+   -  ``move_to_*``\ ：目标位置在盒外，或超出 ``joints``\ （关节目标还要看其正运动学 TCP），抛出 ``SafetyViolation``\ ，计一次 ``safety_rejects``\ ，不发送命令。\ ``move_to_*`` 不受步长限制。
    -  ``SafetyViolation`` 不是设备故障：在接触后端前抛出，不会锁存故障，无需 ``recover()``\ ，保持控制模式，通过 daemon 时也不刷新 watchdog。客户端看到同一异常类。
-   -  ``arm.health()`` 报告 ``safety_clips`` / ``safety_rejects``\ ；\ ``robot.describe`` 以 ``arm.safety`` 暴露限制。构建时验证：\ ``home_joints`` 须在 ``joint_limits`` 内，安全框须满足 min <= max。
-   -  ``safety_box`` 和笛卡尔步长上限只限制位置。工作空间还可通过 ``orientation_xyzw``\ （在其坐标系中）及 ``max_angle_rad``\ （SO(3) 测地半径，避免欧拉角分支切割）限制姿态。设备侧没有姿态步长上限。关节命令不检查笛卡尔工作空间边界：这些限制不能保证关节轨迹、整臂间隙或无碰撞运动。
-   -  目标检查使用 ``1e-9`` 数值容差。反馈检查使用工作空间键 ``measured_margin_m``\ （默认 ``0.003 m``\ ）及 ``measured_margin_rad``\ （默认 ``0.03 rad``\ ），均须为非负有限值。环境和遥操作 tracker 使用这些反馈裕量，但不放宽目标准入。无 workspace 的 ``task_frame`` 仅用于显示/采样，不增加空间约定。配置 workspace 后，两种几何信息都会在 reset 前与 daemon 核对。
+   -  ``arm.health()`` 报告 ``safety_clips`` / ``safety_rejects``\ ；\ ``robot.describe`` 以 ``arm.safety`` 暴露限制，线上格式为 ``station_limits_v1``\ （``arm.safety_capabilities`` 同名声明）。构建时验证：\ ``home_joints`` 须在 ``joints`` 内，``tcp.low < 0 < tcp.high``\ ，冻结的 ``origin_xyz`` / ``axes_R`` 须与当前 home 和 ``task_frame`` 一致。
+   -  盒子只限制位置，不限制姿态；设备侧也没有姿态步长上限。限制不能保证整臂间隙或无碰撞运动。
+   -  目标检查使用 ``1e-9`` 数值容差。反馈检查使用 ``tcp.measured_margin_m``\ （默认 ``0.003 m``\ ，须为非负有限值）：实测 TCP 超出盒子加该裕量，环境停下机械臂并锁存故障，不放宽目标准入。\ ``task_frame`` 同时是 SpaceMouse／Pico 的操作员输入坐标系；它的旋转决定盒子的轴，改动后须运行 ``rwrl limits rebase``\ 。
 
 -  **Watchdog。** 客户端停止发送时，daemon 将正在伺服的机械臂置为空闲（见步骤 4）。
 -  \ ``DeviceClaim``\ **。**\  ``$XDG_CACHE_HOME/rwrl/claims/``\ （默认 ``~/.cache/rwrl/claims/``\ ）中的节点本地建议性文件锁，键为 ``<type>:<robot_ip | can_interface | name>``\ 。客户端连接期间由 daemon 持有，同一机器人的第二个 daemon 会收到 ``DeviceBusy``\ 。它不能防止其他主机或不获取锁的代码访问。\ ``claim: false`` 可退出。兼容一个发布周期：同时检查 ``~/.cache/robot_infra/claims/`` 中已有的同名锁；已被持有的旧锁会抛出 ``DeviceBusy``\ ，提示包含路径；未被持有的旧锁会与新锁一同持有直到释放。兼容机制不会创建旧目录。SpaceMouse 读取器默认也锁定 HID 端点，作为机器人遥操作部件构建时遵循相同的 ``RobotConfig.claim``\ 。其内置设备表与 PySpaceMouse 1.0.3 一致，站点本地设备表可新增或覆盖型号。
@@ -495,7 +630,7 @@ daemon、doctor 和 discovery 无需 ``--station`` 也可查找工作站 YAML，
      - libfranka 与机器人服务器版本不匹配；误装不含 trezor ``hid.device()`` API 的 ``hid`` 发行包
    * - ``safety_violation``
      - ``SafetyViolation``
-     - 笛卡尔伺服/移动目标超出 ``workspace``\ （位置或姿态），或 ``move_to_*`` 目标超出 ``safety_box`` / ``joint_limits``\ ；发送前拒绝，以 ``safety_rejects`` 计数
+     - ``move_to_*`` 目标超出 ``limits.tcp``（位置）或 ``limits.joints``\ ；发送前拒绝，以 ``safety_rejects`` 计数
    * - ``transport``
      - ``TransportError``\ （一种 ``DeviceFault``\ ）
      - daemon 不可达、超时、令牌不匹配
@@ -689,7 +824,7 @@ SpaceMouse 设备身份
 -  **SpaceMouse wheel 与时序。** 仓库内读取器使用 ``set_nonblocking(1)``\ ，每隔 ``poll_interval_s``（默认 0.005 秒，即 200 Hz）最多读取 64 份排队报告，保留最新轴值并锁存全部按键上升沿。排队延迟、拆分报告时序、设备方向和断连行为尚未上机验证。\ ``hidapi==0.14.0.post4`` wheel 在全新 Ubuntu 22.04 / CPython 3.10 / x86_64 上的 ELF/系统库依赖仍待验证。
 -  **机械臂主臂。** ``arm_leader`` 通过所选后端读取另一机械臂，不发送运动命令；它不会将 Piper 固件切换为 master/teach 模式，也不会关闭电机。是否适合实际硬件仍须验证。\ ``joint_delta`` 仅通过 fake 验证。
 -  **GELLO 真机。** ``gello`` 后端及标定 CLI 只对 fake ``dynamixel_sdk`` 和 fake ``evdev`` 运行过。未验证项：\ ``discover()`` 匹配的 U2D2/OpenRB-150 by-id 名称、各波特率下同步读取时序、FTDI 延迟计时器（默认 16 ms；1 ms 是常见 Dynamixel 建议，后端不设置），以及关节跨整圈边界时当前位置是否连续。
--  **姿态步长。** 工作空间可相对参考约束姿态；\ ``safety_box`` 和 ``max_delta_per_step`` 仍只限制位置（\ ``xyz_m``\ ）和关节（\ ``joint_rad``\ ）。设备侧无姿态步长上限。gym 环境以 ``rot_scale_rad`` 限制自身旋转增量，并将策略目标投影到配置的工作空间。
+-  **姿态步长。** ``limits`` 不限制姿态，``max_delta_per_step`` 只限制位置（\ ``xyz_m``\ ）和关节（\ ``joint_rad``\ ）。设备侧无姿态步长上限。gym 环境以 ``rot_scale_rad`` 限制自身旋转增量。
 -  **步长上限基准。** 上限相对于最近一次读取的状态（最多旧 0.5 s），而非前一个目标。它限制的是目标与该样本的距离，不保证样本老化期间目标与机器人真实当前位置的距离。
 -  **绕过防护。** 旧 ROS1 桥接（\ ``serl_http``\ ）是 HTTP 服务，直接访问 ``bridge_url`` 的客户端不经过 ``Arm``\ ，上述限制均不生效。第三方后端须实现 ``_servo_*``/``_move_*`` 钩子，不得覆盖公共方法。
 -  **已配置的遥操作设备必须存在。** 设备缺失会使 ``connect()`` 失败并回滚整个机器人，部署也如此。部署时可使用不含 ``teleop:`` 的 YAML。

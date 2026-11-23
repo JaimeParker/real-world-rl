@@ -12,7 +12,7 @@ from real_world_rl.devices.robots.piper import PiperRobot
 
 
 def franka_config(**kwargs) -> FrankaConfig:
-    return FrankaConfig(
+    return FrankaConfig(limits={"joints": [[-4., 4.]] * 7},
         arm_backend="fake",
         gripper=GripperConfig(backend="fake"),
         cameras=[CameraConfig(name="wrist", backend="fake", fps=60)],
@@ -81,18 +81,18 @@ def test_unknown_and_missing_type():
 
 def test_unknown_arm_backend_lists_registered():
     with pytest.raises(ValueError, match=r"'nonexistent'.*registered: \[.*'fake'.*\]"):
-        FrankaRobot(FrankaConfig(arm_backend="nonexistent", gripper=None))
+        FrankaRobot(FrankaConfig(limits={"joints": [[-4., 4.]] * 7}, arm_backend="nonexistent", gripper=None))
 
 
 def test_config_validation():
     with pytest.raises(ValueError, match="home_joints"):
-        FrankaConfig(home_joints=[0.0] * 3)
+        FrankaConfig(limits={"joints": [[-4., 4.]] * 7}, home_joints=[0.0] * 3)
     with pytest.raises(ValueError, match="safety_box"):
-        FrankaConfig(safety_box=[0.0] * 5)
+        FrankaConfig.from_dict({"safety_box": [0.0] * 5})
     with pytest.raises(ValueError, match="sideways"):
-        FrankaConfig(gripper=GripperConfig(mode="sideways"))
+        FrankaConfig(limits={"joints": [[-4., 4.]] * 7}, gripper=GripperConfig(mode="sideways"))
     with pytest.raises(ValueError, match="realtime"):
-        FrankaConfig(realtime="maybe")
+        FrankaConfig(limits={"joints": [[-4., 4.]] * 7}, realtime="maybe")
     with pytest.raises(ValueError, match="bogus.*FrankaConfig"):
         Robot.from_dict({"type": "franka", "bogus": 1})
 

@@ -271,7 +271,7 @@ A ``teleop:`` section affects dependency layer 0 and adds rows to layers 1, 2 an
      - ``deps``
      - the extras this robot needs: one per backend, plus ``grpc`` with a ``daemon:`` block; without one a missing ``grpc`` is only a ``WARN``
    * - 1 sdk
-     - ``sdk:arm``, ``sdk:gripper``, ``sdk:camera:<name>``, ``sdk:teleop:<backend>``; with ``cartesian_controller: serl`` also ``sdk:serl_controller``, ``config:serl_control``; with ``joint_controller: trajectory_impedance`` also ``sdk:joint_controller``
+     - ``config:limits`` (validates the ``limits`` block and its frozen origin/axes; on failure the later layers do not run), ``sdk:arm``, ``sdk:gripper``, ``sdk:camera:<name>``, ``sdk:teleop:<backend>``; with ``cartesian_controller: serl`` also ``sdk:serl_controller``, ``config:serl_control``; with ``joint_controller: trajectory_impedance`` also ``sdk:joint_controller``
      - each backend resolves and its SDK imports; an unknown backend skips layers 3-5; the serl rows are in \ :ref:`SERL controller: doctor checks <en-serl-controller-doctor-checks>`\ and the joint controller rows in \ :ref:`joint controller checks <en-doctor-joint-controller-checks>`\
    * - 2 os
      - ``os:ping``, ``os:tcp``, ``os:camera:<name>``, ``os:teleop:<name>``, ``os:hid``, ``os:serial``, ``os:groups``, ``os:brltty``, ``os:latency_timer``, ``os:can_*``
@@ -280,7 +280,7 @@ A ``teleop:`` section affects dependency layer 0 and adds rows to layers 1, 2 an
      - ``handshake``
      - takes the robot's device claim (unless ``claim: false``), then ``connect()``; a failure skips layers 4-5
    * - 4 feedback
-     - ``feedback:arm``, ``feedback:gripper``, ``feedback:camera:<name>``, ``feedback:teleop:<name>``
+     - ``feedback:arm``, ``feedback:kinematics`` (Franka with the franky backend only: forward-kinematics TCP against the measured ``O_T_EE`` within 1 mm, and ``flange_T_ee`` equal to ``F_T_EE``; ``SKIPPED`` for other robots), ``feedback:gripper``, ``feedback:camera:<name>``, ``feedback:teleop:<name>``
      - each device returns data; a camera must deliver a frame within 2 s
    * - 5 mode
      - ``mode:robot_mode``, ``mode:libfranka_version``, ``mode:realtime_kernel``, ``mode:robot_model``, ``mode:internal_realtime`` (``cartesian_controller: internal``), ``mode:serl_realtime`` (``cartesian_controller: serl``), ``mode:joint_trajectory_realtime`` (``joint_controller: trajectory_impedance``), or ``mode:none``
@@ -302,7 +302,7 @@ Only processes that hold a hardware connection count as owners: the daemon, the 
 actor and deploy entrypoints, ``setup``, the connecting primitives (``status``, ``q``, ``tcp``, ``home``,
 ``gripper``, ``camera``, ``stop``, ``recover``), ``teleop run/read/calibrate/diagnose/probe-hid``,
 ``workspace capture`` and the learning commands. Offline commands (``--help``,
-``workspace show/set/validate/frame``, ``teleop profiles``, ``teleop inspect-stop``,
+``workspace show/validate/frame``, ``limits show/migrate/rebase``, ``teleop profiles``, ``teleop inspect-stop``,
 ``archive inspect``) do not make the doctor report ``BLOCKED``.
 
 ``--mock``
@@ -320,8 +320,7 @@ Comparing a preset with the station
 With a station and ``--preset``, the doctor compares the preset's robot (the inline
 ``real_robot.robot`` or bare ``robot`` mapping, or the station file it names) with the station
 robot: ``robot_ip``, ``arm_backend``, ``gripper``, cameras by name (``serial``, ``width``, ``height``,
-``fps``, ``enable_depth``), ``home_joints``, ``joint_limits``, ``safety_box``, ``task_frame`` and
-``workspace``. Matching fields give one ``PASS`` row ``<robot>.preset``
+``fps``, ``enable_depth``), ``home_joints``, ``limits`` and ``task_frame``. Matching fields give one ``PASS`` row ``<robot>.preset``
 (``preset hardware fields match the station``). Each differing field is a ``WARN``
 ``<robot>.preset:<field>``, for example
 ``arm.preset:robot_ip: station="172.16.0.2"; preset="172.16.0.3"`` or

@@ -13,7 +13,7 @@ from real_world_rl.server.service import METHODS, RobotService
 
 
 def franka_robot(**kwargs) -> FrankaRobot:
-    config = FrankaConfig(
+    config = FrankaConfig(limits={"joints": [[-4., 4.]] * 7},
         arm_backend="fake",
         gripper=GripperConfig(backend="fake"),
         cameras=[CameraConfig(name="wrist", backend="fake", fps=60, width=32, height=24)],
@@ -63,6 +63,9 @@ def test_describe(services):
     control_metadata = description["arm"].pop("control_metadata")
     assert control_metadata["backend"] == "FakeArm"
     assert "max_delta_tau" in control_metadata["capabilities"]
+    safety = description["arm"].pop("safety")
+    assert safety["version"] == "station_limits_v1"
+    assert safety["joints"] == [[-4., 4.]] * 7
     assert description["arm"] == {
         "num_joints": 7,
         "supported_state_fields": [
@@ -74,8 +77,7 @@ def test_describe(services):
             "tcp_torque",
         ],
         "control_mode": "idle",
-        "safety": None,
-        "safety_capabilities": ["task_workspace_v1", "accepted_cartesian_target_v1"],
+        "safety_capabilities": ["station_limits_v1", "accepted_cartesian_target_v1"],
         "home_joints": [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785],
     }
     assert description["gripper"] == {"max_width_m": 0.08, "mode": "binary", "binary_threshold": 0.5}
@@ -161,7 +163,7 @@ def test_gripper_methods(connected):
 
 
 def test_gripperless_robot_raises_device_not_found(services):
-    robot = FrankaRobot(FrankaConfig(arm_backend="fake", gripper=None))
+    robot = FrankaRobot(FrankaConfig(limits={"joints": [[-4., 4.]] * 7}, arm_backend="fake", gripper=None))
     service = services(robot)
     assert service.dispatch("robot.describe", {})["gripper"] is None
     with pytest.raises(DeviceNotFound) as info:

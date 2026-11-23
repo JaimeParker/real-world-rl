@@ -27,8 +27,8 @@ _CALIBRATE_FLAGS = (
                                      "the Franka pose 0 0 0 -pi/2 0 pi/2 0 for 7 joints")),
     ("--joint-signs", dict(type=int, nargs="+",
                            help="initial signs; default: station teleop.options.joint_signs, else all +1")),
-    ("--joint-limits-yaml", dict(help="robot yaml whose joint_limits give the wrap centres; "
-                                      "default: the station joint_limits")),
+    ("--joint-limits-yaml", dict(help="robot yaml whose limits.joints give the wrap centres; "
+                                      "default: the station limits.joints")),
     ("--skip-sign-check", dict(action="store_true", help="take the joint signs as they are")),
 )
 
@@ -111,7 +111,9 @@ def run_session(args, ctx):
 
     def prepare_report(report, settings, files):
         stub = report / "leader-robot.yaml"
-        stub.write_text("type: franka\nname: gello-leader\narm_backend: fake\ngripper: null\ncameras: []\n" + teleop_yaml)
+        from real_world_rl.devices.robots.franka import DATASHEET_JOINT_LIMITS
+        limits_yaml = yaml.safe_dump({"limits": {"joints": [list(pair) for pair in DATASHEET_JOINT_LIMITS["panda"]]}}, sort_keys=False)
+        stub.write_text("type: franka\nname: gello-leader\narm_backend: fake\ngripper: null\ncameras: []\n" + limits_yaml + teleop_yaml)
         options = report / "leader-options.yaml"
         options.write_text(yaml.safe_dump({"robot_yaml": str(stub)}, sort_keys=False))
         for path in (stub, options):
@@ -166,9 +168,9 @@ def calibrate(args, ctx):
         joint_limits = gello_calibrate.load_joint_limits(args.joint_limits_yaml)
         source = args.joint_limits_yaml
     else:
-        joint_limits, source = config.joint_limits, "the station joint_limits"
+        joint_limits, source = config.joint_limits, "the station limits.joints"
     if joint_limits is not None and len(joint_limits) != len(joint_ids):
-        raise CliError(f"{source} has {len(joint_limits)} joint_limits rows for {len(joint_ids)} leader joints",
+        raise CliError(f"{source} has {len(joint_limits)} limits.joints rows for {len(joint_ids)} leader joints",
                        code=USAGE_EXIT_CODE, hint="pass --joint-limits-yaml for the follower arm")
     if not sys.stdin.isatty():
         raise CliError("GELLO calibration prompts the operator at every step and needs a terminal",

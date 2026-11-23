@@ -26,7 +26,7 @@ def options(**changes):
 def test_registry_contract_and_parser_commands():
     names = [command.name for command in COMMANDS]
     assert names == ["status", "q", "tcp", "stop", "recover", "home", "gripper", "camera",
-                     "doctor", "setup", "daemon", "supervise", "discover", "teleop", "workspace",
+                     "doctor", "setup", "daemon", "supervise", "discover", "teleop", "workspace", "limits",
                      "use", "archive", "dataset", "train", "record", "deploy", "deploy-act", "deploy-openpi", "collect-reward"]
     assert len(names) == len(set(names))
     parser = build_parser()
@@ -259,21 +259,23 @@ def test_save_confirmation_uses_context_without_rebinding(monkeypatch, capsys, t
     original = station_edit.confirm_write
     calls = []
     station = tmp_path / "station.yaml"
-    station.write_text("type: franka\nworkspace: null\n")
-
-    def confirm(self, question, *, detail, saving=False):
-        calls.append((question, detail, saving))
+    from real_world_rl.devices.robots.franka import DATASHEET_JOINT_LIMITS
+    import yaml
+    before = yaml.safe_dump({'type': 'franka', 'limits': {'joints': [list(p) for p in DATASHEET_JOINT_LIMITS['panda']]}})
+    station.write_text(before)
+    def confirm(self, prompt, *, detail, saving=False):
+        calls.append((prompt, detail, saving))
         raise CliError("cancelled", code=USAGE_EXIT_CODE)
 
-    monkeypatch.setattr(Context, "confirm", confirm)
-    assert main(["--json", "--station", str(station), "workspace", "set", "--frame", "base",
-                 "--low", "0", "0", "0", "--high", "1", "1", "1", "--save"]) == USAGE_EXIT_CODE
+    monkeypatch.setattr(Context, 'confirm', confirm)
+    assert main(['--json', '--station', str(station), 'workspace', 'frame', 'set', '--name', 'table',
+                 '--base-T-frame', '1', '0', '0', '0', '0', '1', '0', '0', '0', '0', '1', '0', '0', '0', '0', '1',
+                 '--save']) == USAGE_EXIT_CODE
     assert station_edit.confirm_write is original
     assert calls[0][0] == "Save? [y/N] "
-    assert "-workspace: null" in calls[0][1] and "+workspace:" in calls[0][1]
-    assert calls[0][2]
-    assert json.loads(capsys.readouterr().out)["error"] == "cancelled"
-    assert station.read_text() == "type: franka\nworkspace: null\n"
+    assert '+task_frame:' in calls[0][1] and calls[0][2]
+    assert json.loads(capsys.readouterr().out)['error'] == 'cancelled'
+    assert station.read_text() == before
 
 
 def test_device_commands_are_shared_and_rwrl_owns_the_doctor():

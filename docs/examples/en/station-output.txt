@@ -7,6 +7,7 @@ cameras:
 Example: excerpt of passing doctor row formats for real devices, not hardware measurements.
 PASS           franka.handshake: robot connected
 PASS           franka.feedback:arm: arm feedback received
+SKIPPED        franka.feedback:kinematics: requires a connected Franka SDK arm
 PASS           franka.feedback:camera:wrist: frames arriving
 # end doctor
 # start home
@@ -16,26 +17,33 @@ Example: rwrl tcp output format, illustrated independently; not the forward-kine
 tcp xyz (m): [0.5000, 0.0000, 0.3000]; quat (xyzw): [1.0000, 0.0000, 0.0000, 0.0000]
 # end home
 # start corners
-Example: rwrl tcp run at eight corners already confirmed safe, excerpted in reading order.
-These are worked format examples, not site boundaries ready for use.
-tcp xyz (m): [0.3000, -0.3000, 0.0500]; quat (xyzw): [1.0000, 0.0000, 0.0000, 0.0000]
-tcp xyz (m): [0.3000, -0.3000, 0.6000]; quat (xyzw): [1.0000, 0.0000, 0.0000, 0.0000]
-tcp xyz (m): [0.3000, 0.3000, 0.0500]; quat (xyzw): [1.0000, 0.0000, 0.0000, 0.0000]
-tcp xyz (m): [0.3000, 0.3000, 0.6000]; quat (xyzw): [1.0000, 0.0000, 0.0000, 0.0000]
-tcp xyz (m): [0.7000, -0.3000, 0.0500]; quat (xyzw): [1.0000, 0.0000, 0.0000, 0.0000]
-tcp xyz (m): [0.7000, -0.3000, 0.6000]; quat (xyzw): [1.0000, 0.0000, 0.0000, 0.0000]
-tcp xyz (m): [0.7000, 0.3000, 0.0500]; quat (xyzw): [1.0000, 0.0000, 0.0000, 0.0000]
-tcp xyz (m): [0.7000, 0.3000, 0.6000]; quat (xyzw): [1.0000, 0.0000, 0.0000, 0.0000]
+Example: the eight corners in tcp.corners_base_m of the limits show output (base frame, m, rounded to four decimals; excerpt).
+These are a format example for home at [0.307, 0.000, 0.487] with this chapter's numbers, not usable site boundaries.
+[0.1070, -0.2500, 0.3369]
+[0.1070, -0.2500, 0.7869]
+[0.1070, 0.2500, 0.3369]
+[0.1070, 0.2500, 0.7869]
+[0.5070, -0.2500, 0.3369]
+[0.5070, -0.2500, 0.7869]
+[0.5070, 0.2500, 0.3369]
+[0.5070, 0.2500, 0.7869]
 # end corners
 # start workspace
-Example: excerpt of workspace show output fields, corresponding to this chapter's worked example.
-"workspace": {
-  "frame": "base",
-  "low": [0.3, -0.3, 0.05],
-  "high": [0.7, 0.3, 0.6]
+Example: excerpt of the workspace show output fields for this chapter's numbers (task_frame is null, so the box axes are the base axes).
+"task_frame": null,
+"limits": {
+  "version": "station_limits_v1",
+  "tcp": {
+    "origin_xyz": [0.3070195700516105, -7.841394128006894e-17, 0.4868695582766445],
+    "axes_R": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+    "low": [-0.2, -0.25, -0.15],
+    "high": [0.2, 0.25, 0.3],
+    "measured_margin_m": 0.003
+  },
+  "max_delta_per_step": {"xyz_m": 0.05, "joint_rad": 0.1}
 },
-"base_safety_box": [0.3, -0.3, 0.05, 0.7, 0.3, 0.6],
-"home_joints": [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]
+"home_joints": [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785],
+"home_within_limits": true
 # end workspace
 # start gripper
 Example: gripper show output format; use actual site width and grasped values.
@@ -50,6 +58,7 @@ wrist: 640x480@30 fps (measured 29.8), age 0.010 s, color (480, 640, 3) uint8, d
 PASS           host.platform: <platform>
 PASS           host.python: <python>
 PASS           franka.deps: no extras needed (fake or SDK-free backends)
+PASS           franka.config:limits: station limits and frozen origin/axes validate
 PASS           franka.sdk:arm: no SDK needed
 PASS           franka.sdk:gripper: no SDK needed
 PASS           franka.sdk:camera:wrist: no SDK needed
@@ -58,6 +67,7 @@ SKIPPED        franka.os:tcp: skipped (--mock)
 SKIPPED        franka.os:camera:wrist: skipped (--mock)
 PASS           franka.handshake: robot connected
 PASS           franka.feedback:arm: arm feedback received
+SKIPPED        franka.feedback:kinematics: requires a connected Franka SDK arm
 PASS           franka.feedback:gripper: gripper width 0.0800 m (1.00 of max_width_m 0.080), grasped=unknown, source FakeGripper
 PASS           franka.feedback:camera:wrist: frames arriving
 PASS           franka.mode:none: backend declares no mode checks

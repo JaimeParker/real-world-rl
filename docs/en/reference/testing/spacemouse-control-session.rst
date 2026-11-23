@@ -17,7 +17,7 @@ A supervising operator must confirm arm identity, clear workspace, physical stop
 home/reset path, attachment mass/COM, TCP and installation settings before motion.
 Use reviewed ``local/station.yaml`` and ``local/task.yaml``; no example IP, home,
 workspace or model value is an accepted physical calibration. SERL also requires
-its existing XYZ/RPY safety boxes. Do not alter NIC routes, payload or firmware
+the station ``limits.tcp`` box and the RPY range (``safety_box_rpy_*``). Do not alter NIC routes, payload or firmware
 as a shortcut when diagnostics fail. Input yaw calibration does not calibrate gravity.
 
 The ``table`` task frame used below is the station's ``task_frame``; ``teleop run``
@@ -106,7 +106,7 @@ B1/B2 pass only with independently verified arm identity, fresh feedback, correc
 frame origin/orientation (``workspace frame show`` gives the origin and unit axes
 in the base frame; compare them with the table and the ``frame-points.yaml`` points
 used to create the frame), home inside the joint limits (``home_within_limits`` in
-``workspace show``), reviewed base/task constraint intersection and actual
+``workspace show``), the reviewed ``limits.tcp`` box (centred on home, axes of ``task_frame``; ``rwrl limits rebase`` run after any change of home or ``task_frame``) and actual
 installation/payload/TCP evidence. Doctor or an SDK-reported mass alone cannot
 verify the physical model. Missing measurements mean BLOCKED. Named captured
 points can propose bounds, but do not prove the whole enclosed volume is safe.
@@ -130,7 +130,7 @@ supervisor. Reset can home the arm. At the nominal step budget it holds until q;
 
 Repeat with ``--mode serl`` and new output paths. PASS requires intended positive
 and negative directions, fixed tabletop axes at different TCP orientations,
-usable combined control, and no measured workspace breach or fault. Compare
+usable combined control, and no measured box breach or fault. Compare
 raw input, requested/limited/accepted targets and measured base/task pose in
 ``diagnostics-<timestamp>-<id>.jsonl``; report clipping separately from mapping errors. Small hand
 coupling and tracking lag do not by themselves fail direction acceptance. Stop
@@ -160,8 +160,9 @@ only after n and stable neutral input. Defaults are six-axis max magnitude ≤0.
 buttons released for 0.2 seconds; record any override. At the episode quota, n
 must remain disabled while q exits. Repeat in SERL mode with a fresh output.
 
-D3: verify a candidate tracker boundary rejection hands back without sending the
-out-of-bounds target; button 0 can retake. Do not intentionally push the measured
+D3: verify that pushing against a ``limits.tcp`` wall makes the tracker clip the target into the box and the
+TCP slide along the wall, without sending an out-of-bounds target (the ``WORKSPACE HOLD`` hand-back of earlier
+records has been replaced by ``limits``). Do not intentionally push the measured
 TCP outside the safe volume to test a fault. Device enforcement must remain
 active for policy and teleoperation alike. Fault/disconnect/watchdog checks need
 a separately reviewed supervised protocol or hardware-free tests; never unplug
@@ -184,8 +185,8 @@ of post-stop observation, advancing device timestamps and no coverage gap over
 0.1 seconds. Maximum sampled 3D displacement from the last pre-stop pose must be
 ≤10 mm, SO(3) angle ≤5 degrees, and every joint \|dq\| ≤0.02 rad/s throughout the
 final 0.5 seconds. The arm must be in active tracker control when stop starts; an already
-IDLE arm is BLOCKED, even with stationary samples. No control fault or measured workspace
-breach beyond ``measured_margin_m`` / ``measured_margin_rad`` (defaults ``0.003 m`` / ``0.03 rad``)
+IDLE arm is BLOCKED, even with stationary samples. No control fault or measured box
+breach beyond ``measured_margin_m`` (default ``0.003 m``)
 is allowed. Target limits remain strict.
 Report task-frame downward displacement separately; it does not replace 3D error.
 Keep raw samples, SDK fingerprints/model fields, assessment and video. Missing

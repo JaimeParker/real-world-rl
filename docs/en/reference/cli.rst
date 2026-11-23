@@ -231,7 +231,7 @@ the child.
      - evaluate a saved stop trace offline (\ :ref:`guide <en-spacemouse-commissioning-live-input-calibration-and-diagnosis>`\ )
      - 0 PASS / 3 FAIL / 4 BLOCKED
 
-**Workspace, selections and archives** (these read the station file only, except ``workspace capture``)
+**Limits, the table frame, selections and archives** (these read the station file only, except ``workspace capture``)
 
 .. list-table::
    :header-rows: 1
@@ -240,16 +240,22 @@ the child.
      - Effect
      - Exit codes
    * - ``workspace show``
-     - constraints, ``joint_limits``, ``max_delta_per_step``, ``home_joints``, ``home_within_limits`` (``null`` without home or limits; ``home_violations`` per joint)
+     - ``task_frame``, the resolved ``limits`` (joints, TCP box, ``max_delta_per_step``), ``home_joints``, ``home_within_limits`` (``null`` without home or joint limits; ``home_violations`` per joint)
      - 0 / 1 / 2
    * - ``workspace capture --name N --output PTS --save``
      - record the current TCP as a named point; no motion
      - 0 / 1 / 2
-   * - ``workspace set`` / ``validate``
-     - propose or save a workspace; check a pose (\ :ref:`guide <en-spacemouse-commissioning-spacemouse-profiles-and-task-frame-workspace>`\ )
+   * - ``workspace validate --pose X Y Z QX QY QZ QW``
+     - check whether the position of a base-frame pose is inside the ``limits.tcp`` box (the orientation is not checked; \ :ref:`Limits <en-devices-limits>`\ )
      - 0 / 1 / 2; text validation failure 5
    * - ``workspace frame show`` / ``frame set``
      - the station ``task_frame`` (\ :ref:`details <en-cli-workspace-frame-set>`\ )
+     - 0 / 1 / 2
+   * - ``limits show [STATION]``
+     - the resolved limits of each arm: joints, TCP box centre, axes, ``low`` / ``high`` and the eight base-frame corners (\ :ref:`details <en-cli-limits>`\ )
+     - 0 / 1 / 2
+   * - ``limits migrate YAML [--write]`` / ``limits rebase YAML [--write]``
+     - convert old top-level ``safety_box`` / ``workspace`` / ``joint_limits`` into ``limits:``; or recompute the frozen ``origin_xyz`` / ``axes_R`` from the current home and ``task_frame``. Without ``--write`` only the new block and the diff are printed (\ :ref:`details <en-cli-limits>`\ )
      - 0 / 1 / 2
    * - ``use [station|preset] [PATH]`` / ``use --clear [KIND]``
      - remember, show or forget the default station and preset for this directory (\ :ref:`details <en-cli-remembered-station-and-preset>`\ )
@@ -328,6 +334,13 @@ an existing directory is a usage error) holding ``descriptor.hex``, ``reports.js
 ``candidate.yaml``, a draft device-table entry. ``--device VID:PID`` picks one of several devices.
 It never writes the device table and never records the serial number.
 
+.. _en-cli-limits:
+
+limits
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``limits show`` reads the station file (positional argument or ``--station``, otherwise the \ :ref:`station lookup <en-cli-station-lookup>`\ ), ``--robot`` selects one robot, and prints JSON: per arm the ``version`` (``station_limits_v1``), ``joints``, ``tcp`` (``origin_xyz``, ``axes_R``, ``low``, ``high``, ``measured_margin_m``, ``corners_base_m``), ``max_delta_per_step`` and ``kinematics``. ``limits migrate YAML`` and ``limits rebase YAML`` take that file as an argument; by default they only print warnings, the new ``limits:`` block and a unified diff, and ``--write`` saves it atomically with a backup. The whole candidate file is validated first and nothing is written if that fails. Fields, migration rules and breach behaviour are under \ :ref:`Limits <en-devices-limits>`\ .
+
 .. _en-cli-workspace-frame-set:
 
 workspace frame set
@@ -336,9 +349,8 @@ workspace frame set
 ``--name NAME`` with either ``--base-T-frame`` (16 row-major numbers, metres) or
 ``--from-points PTS --origin A --x-axis B --y-axis C`` (point names saved by
 ``workspace capture --save``; right-handed, y orthogonalised to x, degenerate points refused).
-``--source TEXT`` records provenance; ``--save`` writes only ``task_frame`` after a reviewed diff. It
-is refused when the station workspace is in another non-base frame; the same frame name rebases that
-workspace and says so. The candidate (and ``workspace frame show``) also reports ``rpy_deg``, the frame's roll,
+``--source TEXT`` records provenance; ``--save`` writes only ``task_frame`` after a reviewed diff. The rotation of ``task_frame`` sets the axes of the ``limits.tcp`` box, so after saving the output tells you to run
+``rwrl limits rebase <yaml>``. The candidate (and ``workspace frame show``) also reports ``rpy_deg``, the frame's roll,
 pitch and yaw about the base x, y, z axes (``base_R_frame = Rz(yaw) Ry(pitch) Rx(roll)``), with ``axis_lengths_m`` and ``y_axis_angle_deg`` added only for a candidate
 built from points. ``frame show`` instead includes ``origin_base_m`` and
 ``axes_base``. Relative ``--from-points`` paths resolve from the station directory.

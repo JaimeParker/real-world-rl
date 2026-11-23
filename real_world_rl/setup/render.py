@@ -38,7 +38,7 @@ _ROBOT_INDENT = "    "
 # instead of silently dropping it.
 _ROBOT_FIELDS = {
     "name", "arm_backend", "robot_ip", "bridge_url", "realtime", "relative_dynamics_factor", "cartesian_controller", "joint_controller", "joint_trajectory", "serl", "robot_model", "serl_auto_recover", "load", "home_joints",
-    "task_frame", "workspace", "safety_box", "joint_limits", "max_delta_per_step", "control", "claim", "gripper", "cameras", "teleop",
+    "task_frame", "limits", "flange_T_ee", "control", "claim", "gripper", "cameras", "teleop",
 }
 _GRIPPER_FIELDS = {"backend", "max_width_m", "mode", "binary_threshold", "shares_arm_session",
                    "speed_m_s", "grasp_force_n", "close_width_m", "open_width_m"}
@@ -180,10 +180,14 @@ def _teleop_text(teleop: TeleopConfig | None, gello_calibrated: bool, sections: 
 def _robot_text(arm: ArmDraft, sections: dict[str, list[str]], *, with_daemon: bool) -> str:
     config = arm.config
     if not isinstance(config, FrankaConfig):
-        raise ValueError(f"the station template renders Franka robots, '{arm.key}' is a {config.TYPE}")
+        document = config.to_dict()
+        if with_daemon:
+            document["daemon"] = {"bind": arm.bind, "token": arm.token}
+        return yaml.safe_dump(document, sort_keys=False).rstrip()
     _check_fields(config, _ROBOT_FIELDS)
     scalars = _ROBOT_FIELDS - {"gripper", "cameras", "teleop"}
     values = {name: yaml_value(getattr(config, name)) for name in scalars}
+    values["limits_block"] = yaml.safe_dump({"limits": config.limits}, sort_keys=False).rstrip()
     values["gripper"] = _gripper_text(config.gripper, sections)
     values["cameras"] = _cameras_text(config.cameras, sections)
     values["teleop"] = _teleop_text(config.teleop, arm.gello_calibrated, sections)

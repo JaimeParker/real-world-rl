@@ -22,7 +22,7 @@
 
    * - 必须改的字段
      - 怎么得到这个值
-   * - ``obs``、``real_robot`` 的动作、状态、尺度、工作区字段
+   * - ``obs``、``real_robot`` 的动作、状态、尺度、限位（``limits``）字段
      - 从上一章实际使用的 session/resolved-config.yaml 复制；下面的脚本整块保留。
        inspect 输出 rgb_wrist 为 [1,224,224,3] 时，对应 rgb: [wrist]、image_size: [224,224]。
    * - ``real_robot.remote``、必要时 ``token``
@@ -89,7 +89,7 @@ bundle 会把两份 replay 的已分配存储复制到主机并写盘，不能�
 
 **你应该看到**：脚本打印 config 路径、remote、action_mode 和 teleop_device。
 应为 cartesian_delta，且与你选择的输入设备一致。用文本编辑器检查 real_robot 中不再有直接 robot 配置，
-home／workspace／控制设置仍来自原会话或同一个 daemon station。
+home／限位／控制设置仍来自原会话或同一个 daemon station。
 
 **如果不对**：FileExistsError 时检查已有 local/rl-task.yaml，不覆盖正在运行的实验；
 脚本拒绝 joint 动作时选回前章笛卡尔 session；GELLO 引用文件丢失时复制完整 session；

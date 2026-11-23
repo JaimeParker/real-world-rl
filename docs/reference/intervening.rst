@@ -94,7 +94,7 @@ SpaceMouse 使用相同 tracker。控制帽最大偏转请求配置速度，松�
 
 介入轮询间隔超过 **0.3 s** 时保持从臂并记录延迟；下一次轮询重新锚定 GELLO，避免跨暂停跳变。此 tracker 行为与停止机械臂且需 reset 的环境 StepWatchdog 触发、以及外部监督器心跳升级分别独立。
 
-请求位置越出安全盒时记录 ``WORKSPACE HOLD: <axes>``\ ，交还并保持实测姿态。清除主臂请求，\ ``h`` 后 ``t`` 以新锚点恢复 GELLO；SpaceMouse 按按钮 0 重新接管。不要仅为解除 HOLD 扩大工作区。
+请求位置越出站点 ``limits.tcp`` 盒时，tracker 把请求位置夹进盒内，命令沿盒壁滑动，不再停住，也不再记录 ``WORKSPACE HOLD``\ 。关节模式（GELLO 关节跟随）则由设备层在壁前停住机械臂。不要仅为让命令走得更远而放宽盒；见 \ :ref:`限位 <devices-limits>`\ 。
 
 四个 ``--teleop-lead-cap-m``\ 、\ ``--teleop-lead-cap-rad``\ 、\ ``--teleop-target-speed-m-s``\ 、\ ``--teleop-target-speed-rad-s`` 值进入 ``experiment.teleop_control``\ 。本教程录制、训练、部署保持这些值和选定设备一致。当前 HEAD 比较 tracker 值以及 SpaceMouse 专属 ``axis_lock`` 和适用的输入坐标系/诊断设置，而非物理设备身份；见 \ :doc:`08 兼容性说明 <../tutorials/record>`\ 。
 

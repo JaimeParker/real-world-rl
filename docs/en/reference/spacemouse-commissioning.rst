@@ -179,9 +179,10 @@ origin, or three collinear points, is refused. A known transform can be given
 instead as ``--base-T-frame`` followed by 16 row-major numbers (metres). The default
 ``source`` provenance is ``points:<file> origin=A x=B y=C``; ``--source TEXT`` sets
 another. Add ``--save`` to write only ``task_frame`` after the reviewed diff and
-confirmation. A station workspace defined in another non-base frame is refused; reusing
-its frame name rebases that workspace, so rerun ``workspace validate`` and review
-the bounds. Points files saved in the old frame must be recaptured.
+confirmation. ``task_frame`` also fixes the axes of the ``limits.tcp`` box, so after saving it run
+``rwrl limits rebase <yaml> --write`` (the command prints this hint); until then the station
+fails to load with ``task_frame changed since limits were frozen``. Points files saved in the old
+frame must be recaptured.
 ``workspace frame show`` prints ``task_frame`` with its origin and unit axes in the
 base frame.
 
@@ -266,51 +267,59 @@ with a named profile or station ``task_frame``. Migrate its mounting component t
 the task frame and select a profile for operator yaw. A legacy configuration
 without either new field retains its previous input-rotation behavior.
 
-``workspace set --frame table --low X Y Z --high X Y Z`` previews a task-frame
-position box; ``--save`` applies it after confirmation. Existing base-frame
-``safety_box`` constraints remain active. Targets outside the task-frame workspace
-are rejected by the device layer, including targets moved outside it by base-frame clipping.
-The training environment first clips policy targets in task coordinates and projects excessive
-orientation onto the reference cone. In SERL mode, the original XYZ/RPY safety-box clipping
-runs first.
-Optional ``--orientation-xyzw X Y Z W --max-angle-rad A`` defines an orientation
-reference and an SO(3) angular radius, avoiding Euler branch cuts.
+``task_frame`` has two jobs. It is the operator input frame: SpaceMouse and Pico pushes are
+read along its axes (see the profiles above). It also sets the axes of the ``limits.tcp`` box
+(the box axes are the rotation of ``task_frame``; the ``task_frame`` origin is not used, and
+without a ``task_frame`` the box is aligned with the base axes). The box itself is one block per arm
+in the station yaml, centred on the home TCP position, and has no orientation limit; its fields
+are explained under \ :ref:`Limits <en-devices-limits>`\ . The old ``workspace set`` command, the
+top-level ``safety_box`` and ``workspace`` keys and the orientation cone are gone; run
+``rwrl limits migrate <yaml>`` to convert an old file.
+
+Clip and slide, not hold. The device layer clips every Cartesian servo target (SpaceMouse, Pico,
+Cartesian leader, ``cartesian_delta``) into the box, so pushing against a wall slides the TCP
+along it. The tracker applies the same clip to the requested position and to its command pose, so
+the command does not wind up behind the wall. The earlier ``WORKSPACE HOLD`` message and the
+re-anchor after a hold no longer exist. Joint modes (GELLO, ``joint_delta``, ``joint_abs``) respect
+the box too: the device stops the arm at the wall using Franka forward kinematics.
+``move_to_pose``, ``move_to_joints`` and env reset targets outside the box (or the joint limits)
+are rejected with ``SafetyViolation``.
 
 ``workspace capture`` reads the current TCP and reports base pose and task-frame
 position without moving the robot. A captured point is a measurement, not an
-accepted boundary. ``workspace validate --pose X Y Z QX QY QZ QW`` checks a
-base-frame target against the configured workspace and base safety box. Out-of-bounds
+accepted boundary. ``workspace validate --pose X Y Z QX QY QZ QW`` checks the
+position of a base-frame target against ``limits.tcp`` (the orientation is not checked, there is no
+orientation limit). Out-of-bounds
 validation is a result with ``valid: false`` and violation details: JSON mode exits ``0``, text mode
-exits ``5``. Malformed configuration or input still reports an error.
+exits ``5``. Malformed configuration or input, or a station without ``limits.tcp``, still reports an error.
 
-``workspace show`` includes metre/radian/xyzw units, station and calibration source,
-the base safety box and the eight oriented-workspace vertices in both its own
-frame and the base frame. It also reports ``joint_limits``, ``max_delta_per_step``,
-``home_joints`` and ``home_within_limits`` (``null`` when home or limits are not
-configured; ``home_violations`` lists each joint outside its limits). Both constraints apply as an intersection. The vertices
-are for inspection; they are not replaced by a larger axis-aligned bounding box
-and do not certify collision-free space. This command displays configuration,
+``workspace show`` prints ``task_frame``, the resolved ``limits`` (the same content as
+``rwrl limits show``: ``joints``, ``tcp`` with ``origin_xyz``, ``axes_R``, ``low``, ``high``,
+``measured_margin_m`` and the eight box corners in the base frame as ``corners_base_m``,
+``max_delta_per_step``), ``home_joints`` and ``home_within_limits`` (``null`` when home or joint
+limits are not configured; ``home_violations`` lists each joint outside its limits). The corners are
+for inspection and do not certify collision-free space. This command displays configuration,
 not live daemon enforcement or physical calibration acceptance.
 
-On the robot host, from the repository with its project environment active,
-save named measurements and preview their extrema as follows (the station must
-already define the ``table`` frame, for example with ``workspace frame set`` above):
+To choose the box offsets, measure where the TCP actually needs to go, then write
+``limits.tcp.low`` / ``high`` (offsets from home along the table axes, metres) into the station
+yaml and check them with ``rwrl limits show``. On the robot host, from the repository with its
+project environment active, save named measurements (the station must already define the ``table``
+frame, for example with ``workspace frame set`` above):
 
 .. code-block:: bash
    :dedent: 0
 
    rwrl --station local/station.yaml workspace capture --name near --output points.yaml --save
    rwrl --station local/station.yaml workspace capture --name far --output points.yaml --save
-   rwrl --station local/station.yaml workspace set --frame table --from-points points.yaml
+   rwrl --station local/station.yaml limits show
 
 Capture each point only after an operator has positioned the arm safely; these
 commands never move it. Point paths are relative to the station directory.
 Measurements store base poses, timestamps, metre units and the complete frame
 transform. Reusing a name requires the same save review and preserves the old
-file in a backup. A changed frame requires recapture. Points must span all three
-axes; no padding is invented. Extrema alone do not establish that the enclosed
-volume is safe. Review the candidate before repeating ``workspace set`` with
-``--save``; numeric ``--low/--high`` cannot be combined with ``--from-points``.
+file in a backup. A changed frame requires recapture. Extrema alone do not establish that the
+enclosed volume is safe; review the corners before moving the arm.
 
 .. _en-spacemouse-commissioning-supervised-recording-sessions:
 
@@ -319,7 +328,7 @@ Supervised recording sessions
 
 ``rwrl teleop run`` uses the existing demo recorder under ``rwrl supervise``.
 Supply a station with a selected SpaceMouse profile and a task preset containing
-home and workspace settings. The reset can move the arm and operate the gripper;
+home and task settings. The reset can move the arm and operate the gripper;
 the command previews the session and uses the normal motion confirmation.
 
 .. code-block:: bash
@@ -470,8 +479,10 @@ alone cannot establish an active-control stop. Unknown/missing robot modes block
 fault modes fail it. ``inspect-stop`` exits ``0`` for PASS, ``3`` for FAIL and ``4`` for BLOCKED;
 general errors retain their existing codes.
 ``joint_count`` can declare another arm's joint count. Include the confirmed
-``workspace`` and optional ``task_frame`` using the station configuration schema;
-missing workspace evidence cannot pass. Preserve ``stop_error`` if stopping failed.
+``tcp`` box (the ``station_limits_v1`` fields ``origin_xyz``, ``axes_R``, ``low``, ``high``,
+``measured_margin_m``) and optional ``task_frame``; missing TCP box evidence cannot pass
+(BLOCKED ``no confirmed TCP box supplied``), and a sample outside the box fails with
+``measured TCP outside limits.tcp``. Preserve ``stop_error`` if stopping failed.
 
 The assessment includes signed minimum, maximum and final XYZ displacement in
 the base frame. When the trace supplies ``task_frame``, it also reports task-frame
@@ -517,33 +528,34 @@ only the model, not the individual unit. Revalidate direction mapping after
 replacing such a device. Offline profiles without device identity retain their
 explicitly unbound behavior; identity is never guessed from a device index.
 
-Task geometry is part of the experiment contract when configured. Its numeric
-transform, oriented bounds, optional SO(3) orientation limit and feedback margins are recorded
-when a workspace exists. A task frame alone is for display/sampling and adds no spatial
-semantics. Frame labels and provenance text do not change the numeric contract. Legacy
-configurations without a workspace retain their previous contract. Deploy restores task frame
-and workspace from training configuration and rejects conflicting CLI geometry.
+The effective limits are part of the experiment contract (``limits``, version ``station_limits_v1``:
+joint ranges, the box centre, axes and offsets, the margin, and the step caps). A checkpoint's
+sidecar records them, and a checkpoint with the old ``safety_box`` / ``workspace`` keys is
+translated on load if it only used position bounds in the base frame; one with an orientation cone
+or a non-base frame is refused and must be retrained. A task frame alone is for display and
+operator input and adds no spatial semantics; frame labels and provenance text do not change the
+numeric contract. Deploy restores the task frame and limits from the training configuration and
+rejects conflicting CLI geometry.
 
-For remote training, supply ``real_robot.workspace`` and ``real_robot.task_frame``
-matching the daemon's station geometry. ``rwrl teleop run`` fills these from the
-selected station. Before reset, the environment requires the daemon to advertise
-``task_workspace_v1`` and checks its enforced geometry against the expected
-workspace. Missing capability or mismatching geometry refuses reset; no client
-silently substitutes a weaker box. Local robot dictionaries supply the expected
-geometry directly. Existing base-frame safety limits continue to apply as well.
+For remote training the geometry comes from the daemon: ``real_robot.limits`` is only an optional
+tighter-only override (``joints``, ``tcp.low`` / ``tcp.high``), and ``rwrl teleop run`` fills
+``task_frame`` from the selected station. On the first ``reset()`` the environment requires the
+daemon to advertise ``station_limits_v1`` and merges the override with the station's resolved
+limits. A missing capability, or an override looser than the station, refuses reset with a
+``DeviceFault``; no client silently substitutes a weaker box. Local robot dictionaries supply the
+geometry directly.
 
-For the new task workspace, the environment checks measured TCP feedback before
-reset motion, before each Cartesian step and after observations, as well as during
-session holding. The per-step check reuses the last raw observation rather than issuing an
-extra arm-state RPC. Feedback checks allow ``measured_margin_m`` (default ``0.003 m``) and
-``measured_margin_rad`` (default ``0.03 rad``); target checks retain ``1e-9`` tolerance.
-A measured violation beyond these margins latches a fault and attempts to stop. It
-refuses further steps and automatic resets on that environment instance; inspect
-the robot and feedback before starting a new session. It does not drive the TCP
-back into the box. Joint-action environments reject the task workspace because
-these bounds cannot establish containment of a joint trajectory's TCP path.
-These sampled TCP checks are not whole-arm collision checking. Existing base-box
-clipping semantics are unchanged when no task workspace is configured.
+The environment checks measured TCP feedback against the box before reset motion, before each
+Cartesian step, after observations and during session holding. The per-step check reuses the last
+raw observation rather than issuing an extra arm-state RPC. Feedback checks allow
+``measured_margin_m`` (default ``0.003 m``); the target side needs no margin because targets are
+clipped or rejected by the device. A measured violation beyond the margin stops the arm, latches a
+fault (``SafetyViolation: measured TCP outside TCP box``) and refuses further steps and
+automatic resets on that environment instance; inspect the robot and feedback before starting a
+new session. It does not drive the TCP back into the box. Joint-action environments are covered
+too: the device stops joint targets at the box wall using forward kinematics, and robots without
+a kinematics model only get the joint-range and step-cap limits. These sampled TCP checks are not
+whole-arm collision checking.
 
 ``rwrl teleop run`` enables normal-stop evidence through
 runtime-only ``RWRL_STOP_TRACE_PATH`` injection. ``RWRL_DIAGNOSTICS_PATH`` and
@@ -593,7 +605,7 @@ Resuming later requires an explicit control-mode selection. A failed stop does
 not falsely mark the backend idle or disable the watchdog's fault fallback.
 
 To commission robot motion, use the NUC repository with its project environment
-active, an already reviewed station workspace and a task preset:
+active, an already reviewed station (``limits`` and ``task_frame``) and a task preset:
 
 .. code-block:: bash
    :dedent: 0

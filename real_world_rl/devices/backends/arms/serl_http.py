@@ -12,7 +12,7 @@ import numpy as np
 
 from real_world_rl.devices.arm import Arm, ControlMode
 from real_world_rl.devices.errors import DeviceFault, DeviceNotFound
-from real_world_rl.devices.safety import ArmSafety
+from real_world_rl.devices.limits import ArmLimits
 
 if TYPE_CHECKING:
     from real_world_rl.devices.robot import RobotConfig
@@ -122,7 +122,7 @@ class SerlHttpArm(Arm):
         bridge_url: str,
         timeout_s: float = 5.0,
         home_joints: list[float] | None = None,
-        safety: ArmSafety | None = None,
+        safety: ArmLimits | None = None,
     ) -> None:
         super().__init__(name, num_joints=7, safety=safety)
         self._bridge_url = bridge_url
@@ -139,7 +139,7 @@ class SerlHttpArm(Arm):
             name,
             bridge_url=config.bridge_url,
             home_joints=config.home_joints,
-            safety=ArmSafety.from_config(config),
+            safety=ArmLimits.from_config(config),
         )
 
     def _open(self) -> _BridgeHandle:

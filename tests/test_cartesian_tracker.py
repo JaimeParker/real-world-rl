@@ -2,6 +2,8 @@
 capped to lead the measured pose, and the cartesian_delta action that lands the arm on it."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import math
 
 import numpy as np
@@ -147,22 +149,18 @@ def test_excess_is_dropped_so_a_returning_leader_causes_no_overshoot():
     assert furthest <= 0.05 + 1e-12
 
 
-def test_workspace_rejection_locks_the_hold_at_the_measured_pose():
-    tracker = CartesianTargetTracker(safety_box=[0.25, -0.4, 0.1, 0.8, 0.2, 0.65])
-    tracker.reset(_pose(START))
+def test_outside_request_clips_without_hold_or_reanchor():
+    box = tcp_box([0.25, -0.4, 0.1, 0.8, 0.2, 0.65])
+    tracker = CartesianTargetTracker(CartesianTrackerConfig(speed_m_s=10, lead_cap_m=2), limits=box)
+    measured = _pose(START)
+    tracker.reset(measured)
     tracker.take_over()
-    measured = _pose(START + [0.01, 0.0, 0.0])
-    update = tracker.advance(_pose([0.9, 0.3, 0.4]), measured, DT_50_HZ)
-    assert len(update.workspace_violations) == 2
-    assert update.workspace_violations[0].startswith("x=0.9000 outside [0.2500, 0.8000]")
-    assert update.workspace_violations[1].startswith("y=0.3000")
-    assert not tracker.following
+    update = tracker.advance(_pose([0.9, 0.3, 0.4]), measured, .1)
+    assert not update.held and tracker.following
+    np.testing.assert_allclose(update.command[:3], [.8, .2, .4])
     np.testing.assert_array_equal(tracker.hold_pose, measured)
-    with pytest.raises(RuntimeError, match="take_over"):
-        tracker.advance(_pose(START), measured, DT_50_HZ)
-    pushed = _pose(START + [0.03, 0.0, 0.0])
-    target = _env_update(pushed, tracker.action_for(pushed, XYZ_SCALE_M, ROT_SCALE_RAD))
-    np.testing.assert_allclose(target[:3], measured[:3], atol=1e-12)
+    tracker.advance(measured, measured, .1)
+    assert tracker.following
 
 
 @pytest.mark.parametrize("dt", [-0.01, math.inf, math.nan])
@@ -177,7 +175,6 @@ def test_a_missed_deadline_holds_at_the_measured_pose():
     measured = _pose(START + [0.01, 0.0, 0.0])
     update = tracker.advance(_pose(START + [0.3, 0.0, 0.0]), measured, 0.31)
     assert update.missed_deadline_s == pytest.approx(0.31) and update.held
-    assert not update.workspace_violations
     assert not tracker.following
     np.testing.assert_array_equal(tracker.hold_pose, measured)
     np.testing.assert_array_equal(update.command, measured)
@@ -274,32 +271,28 @@ def test_config_defaults_and_contract_block():
 
 @pytest.mark.parametrize("box", [[0.0] * 5, [0.5, 0.0, 0.0, 0.4, 1.0, 1.0], [0.0, 0.0, 0.0, math.nan, 1.0, 1.0]])
 def test_safety_box_is_validated(box):
-    with pytest.raises(ValueError, match="safety_box"):
-        CartesianTargetTracker(safety_box=box)
+    with pytest.raises(ValueError):
+        CartesianTargetTracker(limits=tcp_box(box))
 
 
-def test_task_workspace_rejection_holds_measured_and_requires_takeover():
-    transform = np.eye(4)
-    transform[:3, :3] = Rotation.from_euler('x', 40, degrees=True).as_matrix()
-    transform[:3, 3] = [.5, 0, .3]
-    tracker = CartesianTargetTracker(workspace={'frame': 'table', 'low': [-.1]*3, 'high': [.1]*3},
-        task_frame={'name': 'table', 'base_T_frame': transform.tolist()})
-    measured = np.r_[transform[:3, 3], [0, 0, 0, 1]]
+def test_rotated_tcp_box_clips_without_takeover():
+    from real_world_rl.devices.limits import TcpBox
+    axes = Rotation.from_euler('x', 40, degrees=True).as_matrix()
+    box = TcpBox([.5, 0, .3], axes, [-.1]*3, [.1]*3)
+    tracker = CartesianTargetTracker(CartesianTrackerConfig(speed_m_s=10, lead_cap_m=2), limits=box)
+    measured = np.r_[box.origin_xyz, [0, 0, 0, 1]]
     tracker.reset(measured)
     tracker.take_over()
     requested = measured.copy()
-    requested[:3] += transform[:3, :3] @ [0, 0, .11]
+    requested[:3] += axes @ [0, 0, .11]
     result = tracker.advance(requested, measured, .02)
-    assert result.workspace_violations
-    assert not tracker.following
-    np.testing.assert_array_equal(tracker.command, measured)
-    tracker.take_over()
-    assert not tracker.advance(measured, measured, .02).workspace_violations
+    assert not result.held and tracker.following
+    np.testing.assert_allclose(box.to_box(result.command[:3]), [0, 0, .1], atol=1e-12)
 
 
 def test_task_workspace_measured_violation_is_fault_not_recovery():
     from real_world_rl.devices.errors import SafetyViolation
-    tracker = CartesianTargetTracker(workspace={'frame': 'base', 'low': [-1]*3, 'high': [1]*3})
+    tracker = CartesianTargetTracker(limits=tcp_box([-1]*3 + [1]*3))
     pose = np.array([0, 0, 0, 0, 0, 0, 1.])
     tracker.reset(pose)
     tracker.take_over()
@@ -314,7 +307,7 @@ def test_base_box_only_does_not_reject_lead_capped_candidate_below_face():
     """B2: HEAD checks requested against the base box, not the candidate."""
     from real_world_rl.teleop.core.targets.cartesian_tracker import _limited_towards
     tracker = CartesianTargetTracker(CartesianTrackerConfig(speed_m_s=1.),
-                                     safety_box=[-1, -1, 0, 1, 1, 1])
+                                     limits=tcp_box([-1, -1, 0, 1, 1, 1]))
     start = np.array([0, 0, 0, 0, 0, 0, 1.])
     measured = start.copy()
     measured[2] = -.0005
@@ -328,13 +321,14 @@ def test_base_box_only_does_not_reject_lead_capped_candidate_below_face():
     update = tracker.advance(requested, measured, .1)
     assert not update.held
     assert tracker.following
+    expected[:3] = tracker.limits.clip(expected[:3])
     np.testing.assert_array_equal(update.command, expected)
 
 
 @pytest.mark.parametrize('outside,raises', [(.001, False), (.004, True)])
 def test_tracker_measured_workspace_margin(outside, raises):
     from real_world_rl.devices.errors import SafetyViolation
-    tracker = CartesianTargetTracker(workspace={'low': [-1, -1, 0], 'high': [1]*3})
+    tracker = CartesianTargetTracker(limits=tcp_box([-1, -1, 0, 1, 1, 1]))
     pose = np.array([0, 0, 0, 0, 0, 0, 1.])
     tracker.reset(pose)
     tracker.take_over()

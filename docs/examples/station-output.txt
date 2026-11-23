@@ -7,6 +7,7 @@ cameras:
 示例：真实设备 doctor 的通过行格式节选，不是真机实测记录。
 PASS           franka.handshake: robot connected
 PASS           franka.feedback:arm: arm feedback received
+SKIPPED        franka.feedback:kinematics: requires a connected Franka SDK arm
 PASS           franka.feedback:camera:wrist: frames arriving
 # end doctor
 # start home
@@ -16,26 +17,33 @@ q (rad): [0.0000, -0.7850, 0.0000, -2.3560, 0.0000, 1.5710, 0.7850]
 tcp xyz (m): [0.5000, 0.0000, 0.3000]; quat (xyzw): [1.0000, 0.0000, 0.0000, 0.0000]
 # end home
 # start corners
-示例：在八个已确认安全的角点分别运行 rwrl tcp，按读取顺序摘录。
-这些是格式算例，不是可直接使用的现场边界。
-tcp xyz (m): [0.3000, -0.3000, 0.0500]; quat (xyzw): [1.0000, 0.0000, 0.0000, 0.0000]
-tcp xyz (m): [0.3000, -0.3000, 0.6000]; quat (xyzw): [1.0000, 0.0000, 0.0000, 0.0000]
-tcp xyz (m): [0.3000, 0.3000, 0.0500]; quat (xyzw): [1.0000, 0.0000, 0.0000, 0.0000]
-tcp xyz (m): [0.3000, 0.3000, 0.6000]; quat (xyzw): [1.0000, 0.0000, 0.0000, 0.0000]
-tcp xyz (m): [0.7000, -0.3000, 0.0500]; quat (xyzw): [1.0000, 0.0000, 0.0000, 0.0000]
-tcp xyz (m): [0.7000, -0.3000, 0.6000]; quat (xyzw): [1.0000, 0.0000, 0.0000, 0.0000]
-tcp xyz (m): [0.7000, 0.3000, 0.0500]; quat (xyzw): [1.0000, 0.0000, 0.0000, 0.0000]
-tcp xyz (m): [0.7000, 0.3000, 0.6000]; quat (xyzw): [1.0000, 0.0000, 0.0000, 0.0000]
+示例：limits show 输出里 tcp.corners_base_m 的八个角点（基座系，m，取四位小数；节选）。
+这些是 home 在 [0.307, 0.000, 0.487] 时按本章算例得到的格式算例，不是可直接使用的现场边界。
+[0.1070, -0.2500, 0.3369]
+[0.1070, -0.2500, 0.7869]
+[0.1070, 0.2500, 0.3369]
+[0.1070, 0.2500, 0.7869]
+[0.5070, -0.2500, 0.3369]
+[0.5070, -0.2500, 0.7869]
+[0.5070, 0.2500, 0.3369]
+[0.5070, 0.2500, 0.7869]
 # end corners
 # start workspace
-示例：workspace show 输出中的字段节选，对应本章算例。
-"workspace": {
-  "frame": "base",
-  "low": [0.3, -0.3, 0.05],
-  "high": [0.7, 0.3, 0.6]
+示例：workspace show 输出中的字段节选，对应本章算例（task_frame 为 null，所以盒子轴是基座轴）。
+"task_frame": null,
+"limits": {
+  "version": "station_limits_v1",
+  "tcp": {
+    "origin_xyz": [0.3070195700516105, -7.841394128006894e-17, 0.4868695582766445],
+    "axes_R": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+    "low": [-0.2, -0.25, -0.15],
+    "high": [0.2, 0.25, 0.3],
+    "measured_margin_m": 0.003
+  },
+  "max_delta_per_step": {"xyz_m": 0.05, "joint_rad": 0.1}
 },
-"base_safety_box": [0.3, -0.3, 0.05, 0.7, 0.3, 0.6],
-"home_joints": [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]
+"home_joints": [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785],
+"home_within_limits": true
 # end workspace
 # start gripper
 示例：gripper show 输出格式；实际宽度和 grasped 以现场为准。
@@ -50,6 +58,7 @@ wrist: 640x480@30 fps (measured 29.8), age 0.010 s, color (480, 640, 3) uint8, d
 PASS           host.platform: <platform>
 PASS           host.python: <python>
 PASS           franka.deps: no extras needed (fake or SDK-free backends)
+PASS           franka.config:limits: station limits and frozen origin/axes validate
 PASS           franka.sdk:arm: no SDK needed
 PASS           franka.sdk:gripper: no SDK needed
 PASS           franka.sdk:camera:wrist: no SDK needed
@@ -58,6 +67,7 @@ SKIPPED        franka.os:tcp: skipped (--mock)
 SKIPPED        franka.os:camera:wrist: skipped (--mock)
 PASS           franka.handshake: robot connected
 PASS           franka.feedback:arm: arm feedback received
+SKIPPED        franka.feedback:kinematics: requires a connected Franka SDK arm
 PASS           franka.feedback:gripper: gripper width 0.0800 m (1.00 of max_width_m 0.080), grasped=unknown, source FakeGripper
 PASS           franka.feedback:camera:wrist: frames arriving
 PASS           franka.mode:none: backend declares no mode checks

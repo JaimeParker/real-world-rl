@@ -73,9 +73,6 @@ Run an openpi policy against a remote rwrl daemon (eval only).
 │ --real-robot.task-frame {None}|{[STR STR [STR STR ...]]}                     │
 │       Expected daemon geometry; local robots inherit these from their robot  │
 │       dict. (default: None)                                                  │
-│ --real-robot.workspace {None}|{[STR STR [STR STR ...]]}                      │
-│       Expected daemon geometry; local robots inherit these from their robot  │
-│       dict. (default: None)                                                  │
 │ --real-robot.num-joints INT                                                  │
 │       Expected daemon geometry; local robots inherit these from their robot  │
 │       dict. (default: 7)                                                     │
@@ -152,18 +149,8 @@ Run an openpi policy against a remote rwrl daemon (eval only).
 │       arm.update_serl_params); keys it omits keep their previous values.     │
 │       Out-of-range values are clamped like SERL's dynamic_reconfigure.       │
 │       (default: 0.05)                                                        │
-│ --real-robot.safety-box {None}|{[FLOAT [FLOAT ...]]}                         │
-│       The source of truth for limits is the robot yaml on the robot PC       │
-│       (enforced by the device layer). The three fields below are optional    │
-│       and may only be tighter than it: unset ones are inherited after        │
-│       connect, looser ones fail the first reset.                             │
-│       [xmin, ymin, zmin, xmax, ymax, zmax]; clips the cartesian target       │
-│       position. (default: None)                                              │
-│ --real-robot.joint-limits {None}|{[[FLOAT [FLOAT ...]] [[FLOAT [FLOAT ...]]  │
-│ ...]]}                                                                       │
-│       One [low, high] pair per joint; clips joint targets. joint_abs still   │
-│       needs it set here because the action mapping is built at construction, │
-│       before any connection. (default: None)                                 │
+│ --real-robot.limits {None}|{[STR STR [STR STR ...]]}                         │
+│       Tighter-only overrides in the device TCP box frame. (default: None)    │
 │ --real-robot.home-joints {None}|{[FLOAT [FLOAT ...]]}                        │
 │       Reset pose; falls back to the robot's own home_joints when unset.      │
 │       (default: None)                                                        │

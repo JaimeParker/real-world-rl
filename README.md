@@ -171,8 +171,8 @@ Cameras and image size come from the observation group, not from `--real_robot.*
 `--obs.rgb wrist --obs.image-size 128 128` (a remote robot only reports its camera sizes after
 connecting, so `--obs.image-size` is required with cameras). `--real_robot.cameras` is filled
 in from `--obs.rgb`; setting it to something else raises `ObservationContractError`.
-`--real_robot.joint_limits` is a list of `[lo, hi]` pairs, which the command line cannot
-express (it flattens them); give it in a YAML preset passed with `--config`, which any
+`--real_robot.limits` is a nested mapping (`joints` is a list of `[lo, hi]` pairs, `tcp` takes
+`low` / `high`), which the command line cannot express; give it in a YAML preset passed with `--config`, which any
 `train_real_world.py` run accepts (`--print-config` validates it without touching the robot).
 
 The single-arm preset is
@@ -184,7 +184,8 @@ The single-arm preset is
 ```yaml
 real_robot:
   action_mode: joint_abs
-  joint_limits: [[-2.8, 2.8], [-1.7, 1.7], [-2.8, 2.8], [-3.0, -0.1], [-2.8, 2.8], [0.0, 3.7], [-2.8, 2.8]]
+  limits:
+    joints: [[-2.8, 2.8], [-1.7, 1.7], [-2.8, 2.8], [-3.0, -0.1], [-2.8, 2.8], [0.0, 3.7], [-2.8, 2.8]]
 ```
 
 ### Action contract
@@ -192,11 +193,11 @@ real_robot:
 `action_mode` fixes what a normalized action in [-1, 1] means; a trailing gripper dimension is
 added when `gripper_in_action` is true (the default).
 
-| `action_mode` | arm action | `joint_limits` | needs |
+| `action_mode` | arm action | `limits.joints` | needs |
 |---|---|---|---|
 | `cartesian_delta` | 6-D twist: xyz scaled by `xyz_scale_m`, rotation by `rot_scale_rad` | optional | `tcp_pose` in the state |
 | `joint_delta` | `num_joints` deltas scaled by `joint_scale_rad` | optional (clips) | `joint_pos` |
-| `joint_abs` | `num_joints` values mapped linearly onto `joint_limits` | **required** (the mapping is built at construction) | `joint_pos`, and the robot must report `max_delta_per_step.joint_rad` |
+| `joint_abs` | `num_joints` values mapped linearly onto `limits.joints` | **required** (the mapping is built at construction) | `joint_pos`, and the robot must report `max_delta_per_step.joint_rad` |
 
 hil_serl (`--env-backend real_robot`) also checks the teleop source against this contract when
 the env is built (`TeleopInterventionWrapper`):
@@ -209,12 +210,22 @@ the env is built (`TeleopInterventionWrapper`):
 
 ### Safety limits
 
-The limits live in the robot yaml on the robot PC (`safety_box`, `joint_limits`,
-`max_delta_per_step`) and are enforced by the daemon; the env can only be **tighter**:
+The limits live in one `limits:` block of the robot yaml on the robot PC (`joints`, a TCP box
+`tcp` centred on home along the table axes, and `max_delta_per_step`) and are enforced by the
+device layer, so by the daemon; the env can only be **tighter**
+([reference](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/devices.html#en-devices-limits)):
 
-- After connecting (at the first `reset()`), an unset `safety_box` / `joint_limits` /
+- Cartesian targets are clipped into the box (orientation untouched); joint modes (GELLO,
+  `joint_delta`, `joint_abs`) stop at the box wall; a `reset()` or `move_to_*` target outside the
+  box or the joint limits is refused with `SafetyViolation`; a measured TCP outside the box plus
+  `measured_margin_m` stops the arm and latches a fault. The old top-level `safety_box`,
+  `workspace` and `joint_limits` keys are errors: run `rwrl limits migrate <yaml>`.
+- After connecting (at the first `reset()`), an unset `real_robot.limits.joints` / `limits.tcp` /
   `home_joints` is inherited from the robot. An env limit looser than the robot's raises
-  `DeviceFault` on that first reset; tighten the env value or loosen the yaml.
+  `DeviceFault` on that first reset; tighten the env value or loosen the yaml. The env can only
+  override `joints` and the box `low` / `high`; origin and axes come from the robot.
+  `safety_box_rpy_low` / `_high` remain only as the HIL-SERL action semantics of
+  `cartesian_semantics: serl`.
 - A `joint_abs` env additionally requires the robot to report `max_delta_per_step.joint_rad`,
   because consecutive `joint_abs` actions can jump across the whole joint range. This holds for
   every entry point (hil_serl, deploy). A robot without it fails the first reset with
@@ -256,7 +267,7 @@ table, the `TeleopSource` contract and how to add a device are in [Teleoperation
 For `--teleop-device robot`:
 
 - `cartesian_delta` actions pass through as they are; `joint_abs` is normalized onto
-  `joint_limits`; `joint_delta` becomes `(q_leader - q_follower) / joint_scale_rad` (needs
+  `limits.joints`; `joint_delta` becomes `(q_leader - q_follower) / joint_scale_rad` (needs
   `joint_pos` in `state_fields`).
 - A teleop gripper `g` in [0, 1] becomes `2g - 1`. A teleop without a gripper holds the gripper
   action last sent to the env (open, +1, right after a reset), so taking over the arm does not
@@ -305,13 +316,13 @@ sections below; `--env-backend real_robot_bimanual` for a two-arm run, see
 `config.json` (next to `checkpoints/`) is the source of truth for the action/observation
 contract:
 
-- The deploy env takes `action_mode`, `gripper_in_action`, `num_joints`, `joint_limits`,
+- The deploy env takes `action_mode`, `gripper_in_action`, `num_joints`, `limits`,
   `xyz_scale_m`, `rot_scale_rad`, `joint_scale_rad`, `state_fields`, `image_size`, `control_hz`
   and task/control/preprocessing settings from the run. Station-owned reset facts and episode caps
   can be adjusted for deployment. It re-applies the run's observation wrappers by itself:
   `obs.frame_stack` (stacking the run's `classifier_image_keys`) and `convert_obs_rotation`.
   `--real_robot.*` only supplies connection fields (`robot`, `remote`, `token`, `home_joints`,
-  `safety_box`, `reset_settle_s`, ...).
+  `reset_settle_s`, ...).
 - A contract field given on the CLI that differs from the run's is an error (exit with a
   `ValueError`: `--real_robot.* contradicts the training run's real_robot config ...`).
   **Limitation:** a CLI value equal to the dataclass default cannot be told apart from an unset
@@ -359,7 +370,7 @@ are read together with their sidecar; a demo dataset directory (`rwrl record --o
 `action_contract` in its `dataset.json` instead. One line of sorted JSON:
 
 ```json
-{"action_mode": "joint_abs", "arm_action_dim": 7, "gripper_in_action": true, "joint_limits": [[-2.8, 2.8], ...], "joint_scale_rad": 0.05, "num_joints": 7, "rot_scale_rad": 0.1, "state_fields": ["joint_pos", "gripper_pos"], "xyz_scale_m": 0.02}
+{"action_mode": "joint_abs", "arm_action_dim": 7, "gripper_in_action": true, "joint_limits": [[-2.8, 2.8], ...], "limits": {"version": "station_limits_v1", ...}, "joint_scale_rad": 0.05, "num_joints": 7, "rot_scale_rad": 0.1, "state_fields": ["joint_pos", "gripper_pos"], "xyz_scale_m": 0.02}
 ```
 
 On load the sidecar is compared with the env's contract (floats with `allclose`). A mismatch
@@ -372,8 +383,8 @@ a warning (`... has no action-contract metadata (<name>.contract.json missing) .
 
 One machine, no hardware (verified in the project container; the training runs are short and
 the policy is untrained). Robot PC side, with a fake-backend `robot.yaml` of type `franka`
-(`arm_backend: fake`, `gripper: {backend: fake}`, a fake camera named `wrist`, joint limits and
-`max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.1}` as in the example station yamls, and the
+(`arm_backend: fake`, `gripper: {backend: fake}`, a fake camera named `wrist`, a `limits:` block with
+`joints` and `max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.1}` as in the example station yamls, and the
 fake teleop above):
 
 ```bash

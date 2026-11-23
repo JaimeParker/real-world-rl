@@ -1,6 +1,8 @@
 """Run the deployment loop with a local websocket server and simulated robot."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import asyncio
 import socket
 from concurrent.futures import Future
@@ -336,9 +338,10 @@ def test_rlinf_env_sends_gripper_thresholds_and_daemon_limits_the_arm(tmp_path, 
     monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
     robot = FrankaRobot(FrankaConfig(
         arm_backend="fake", gripper=GripperConfig(backend="fake"),
-        home_joints=[0] * 7, safety_box=[-0.04] * 3 + [0.04] * 3,
-        max_delta_per_step={"xyz_m": 0.01},
+        home_joints=[0] * 7, limits=station_limits(bounds=[-0.04] * 3 + [0.04] * 3, steps={"xyz_m": 0.01}),
+
     ))
+    robot.arm._kinematics = lambda q: np.zeros(3)  # isolate Cartesian daemon limiting
     service = RobotService(robot, watchdog_s=5.0)
     env = RealRobotEnv(
         RealRobotEnvConfig(
@@ -541,7 +544,7 @@ def test_changed_daemon_instance_renegotiates_capabilities(tmp_path, monkeypatch
     from real_world_rl.server.transport import LocalClient
 
     monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
-    old, new = [RobotService(FrankaRobot(FrankaConfig(
+    old, new = [RobotService(FrankaRobot(FrankaConfig(limits=station_limits(),
         arm_backend="fake", gripper=None, home_joints=[home] * 7,
     ))) for home in (0.0, 0.1)]
     class ReconnectingClient(LocalClient):

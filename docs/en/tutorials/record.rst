@@ -294,7 +294,7 @@ Use this extension only when you need to manage source and environment options i
 to ``local/record-cartesian.yaml``, keeping the robot connection, home, limits, observations and source option files.
 Confirm that paths such as leader-options remain accessible. Before changing input sources, remove the ``teleop_input`` cache from the copied configuration;
 otherwise the old source option snapshot may remain effective. Use a GELLO session configuration as the starting point for the two commands below. Ordinary ``rwrl record`` reads this configuration;
-it does not automatically merge the current station as teleop run does. Check task_frame and workspace in real_robot.
+it does not automatically merge the current station as teleop run does. Check task_frame in real_robot; limits (``limits``) are in the robot configuration or come with the connected daemon's station (the environment inherits them on the first reset).
 
 .. warning::
 

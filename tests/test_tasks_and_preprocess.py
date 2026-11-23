@@ -1,5 +1,7 @@
 """Hardware-free task/reset, source arbitration and observation contract regressions."""
 from __future__ import annotations
+
+from _station_limits import station_limits, env_limits, tcp_box
 import dataclasses
 import types
 import numpy as np
@@ -25,8 +27,8 @@ def isolated_claims(tmp_path, monkeypatch):
 
 
 def single(task=None, **kwargs):
-    robot = fake_franka("single")
-    config = RealRobotEnvConfig(robot={"type": "franka", "arm_backend": "fake"},
+    robot = fake_franka("single", limits=station_limits(bounds=[-10.]*3+[10.]*3))
+    config = RealRobotEnvConfig(robot={"limits": station_limits(), "type": "franka", "arm_backend": "fake"},
         cameras=[], home_joints=[0.0]*7, reset_settle_s=0, control_hz=10000,
         task=task or TaskConfig(), **kwargs)
     return RealRobotEnv(config, robot=robot)
@@ -83,7 +85,7 @@ def test_invalid_right_arm_action_rejected_before_either_arm_command(monkeypatch
 def test_invalid_right_station_boundaries_prevent_both_connections(monkeypatch):
     from real_world_rl.devices import Robot
     config = bimanual_config()
-    config.right.robot["safety_box"] = [0, 0, 0, float("nan"), 1, 1]
+    config.right.robot["limits"]["tcp"] = {"origin": [0, 0, 0], "axes_R": np.eye(3).tolist(), "low": [-1]*3, "high": [float("nan"), 1, 1]}
     connections = []
     monkeypatch.setattr(Robot, "connect", lambda self: connections.append(self))
     with pytest.raises(ValueError, match="finite"):
@@ -100,7 +102,7 @@ def test_wizard_profile_reaches_real_fake_backend_reset():
     from real_world_rl.setup.wizard import ArmDraft, StationDraft, run_wizard
     from real_world_rl.setup.render import render_station_yaml
     from real_world_rl.discovery.autoconfig import parse_station
-    prior = StationDraft([ArmDraft("arm", FrankaConfig(name="arm", arm_backend="fake",
+    prior = StationDraft([ArmDraft("arm", FrankaConfig(limits=station_limits(), name="arm", arm_backend="fake",
                          gripper=GripperConfig(backend="fake"), claim=False, cameras=[], teleop=None))])
     parsed = build_parser().parse_args(["--non-interactive", "--only", "daemon",
                                        "--control", "{max_delta_tau: 0.4}"])
@@ -151,12 +153,12 @@ def test_reset_random_sequence_reproducible_without_reseeding(monkeypatch):
 def test_invalid_later_waypoint_prevents_all_reset_motion(monkeypatch):
     task = TaskConfig(name="pick_and_place", reset=ResetConfig(
         waypoints=[[0.4, 0, 0.3, 0, 0, 0, 1], [5, 0, 0.3, 0, 0, 0, 1]]))
-    env = single(task, safety_box=[0,-1,0,1,1,1])
+    env = single(task, limits=env_limits(bounds=[-1]*3+[1]*3))
     moves = []
     monkeypatch.setattr(env.robot.arm, "move_to_joints", lambda *a, **k: moves.append("home"))
     monkeypatch.setattr(env.robot.arm, "move_to_pose", lambda *a, **k: moves.append("pose"))
     try:
-        with pytest.raises(ValueError, match="outside safety_box"): env.reset(seed=1)
+        with pytest.raises(ValueError, match="outside limits.tcp"): env.reset(seed=1)
         assert moves == []
     finally: env.close()
 
@@ -314,7 +316,7 @@ def test_train_record_deploy_rgb_depth_contract_roundtrip_and_early_rejection(tm
     from real_world_rl.contracts.action import json_normalize
     from real_world_rl.dataset import Dataset
     from real_world_rl.demos.record import open_dataset
-    robot = {"type":"franka", "arm_backend":"fake", "claim":False,
+    robot = {"limits": station_limits(), "type":"franka", "arm_backend":"fake", "claim":False,
              "gripper":{"backend":"fake"}, "cameras":[{"name":"wrist","backend":"fake",
              "height":24,"width":32,"fps":120,"enable_depth":True}]}
     config = RealRobotEnvConfig(robot=robot,cameras=["wrist"],depth_cameras=["wrist"],
@@ -382,8 +384,8 @@ def test_tcp_proxy_is_not_object_task_success_in_real_metric_chain():
 
 def test_bimanual_depth_only_camera_name_collisions_are_rejected():
     from real_world_rl.envs.bimanual.config import BimanualRealRobotEnvConfig
-    left = RealRobotEnvConfig(robot={"type":"franka"},cameras=[],depth_cameras=["depth_only"])
-    right = RealRobotEnvConfig(robot={"type":"franka"},cameras=["depth_only"])
+    left = RealRobotEnvConfig(robot={"limits": station_limits(), "type":"franka"},cameras=[],depth_cameras=["depth_only"])
+    right = RealRobotEnvConfig(robot={"limits": station_limits(), "type":"franka"},cameras=["depth_only"])
     with pytest.raises(ValueError,match="unique"):
         BimanualRealRobotEnvConfig(left=left,right=right)
 
@@ -475,7 +477,7 @@ def test_station_facts_are_provenance_but_rate_and_image_size_are_compared():
         config = trained.env.env.config
         # Deploy/eval CLI values: the station's, not the policy's.
         config.home_joints = [0.1] * 7
-        config.safety_box = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0]
+        config.limits = env_limits(bounds=[-1.]*3+[1.]*3)
         config.reset_settle_s = 2.0
         config.max_episode_steps = 50
         validate_experiment(trained, saved)
@@ -514,7 +516,7 @@ def test_deploy_accepts_a_relocated_or_retrained_arm_classifier_before_connectio
     original.write_bytes(b"same classifier")
     moved.write_bytes(original.read_bytes())
     names = ("left", "right") if bimanual else ("arm",)
-    robot = {"type": "franka", "arm_backend": "fake", "claim": False,
+    robot = {"limits": station_limits(), "type": "franka", "arm_backend": "fake", "claim": False,
              "gripper": {"backend": "fake"}}
     arm = RealRobotEnvConfig(robot=robot, home_joints=[0.] * 7, reset_settle_s=0)
     task = TaskConfig(name="parallel_pick_and_place" if bimanual else "pick_and_place",

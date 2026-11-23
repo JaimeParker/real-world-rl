@@ -6,6 +6,8 @@ the experiment-contract block, and the leader served by a stub-robot daemon (Rem
 LocalClient)."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import dataclasses
 import logging
 import math
@@ -382,23 +384,19 @@ def test_a_request_outside_the_safety_box_holds_until_a_new_take_over(caplog):
     follower_pose = _ee_pose(q)
     box = [*(follower_pose[:3] - 0.01), *(follower_pose[:3] + 0.01)]
     leader = _Leader(q)
-    source = _source(leader, _Follower(follower_pose), safety_box=box)
+    source = _source(leader, _Follower(follower_pose), limits=tcp_box(box))
     tracker = source.cartesian_tracker
     assert source.poll().intervened  # take-over
 
     leader.q = q + np.array([0.0, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)  # several cm out
     with caplog.at_level(logging.WARNING, logger="real_world_rl.teleop.leader.cartesian"):
         reading = source.poll()
-    assert not reading.intervened and "WORKSPACE HOLD" in caplog.text
-    assert not tracker.following
+    assert reading.intervened and "WORKSPACE HOLD" not in caplog.text
+    assert tracker.following
+    assert tracker.limits.contains(tracker.command[:3])
     np.testing.assert_allclose(tracker.hold_pose, follower_pose, atol=1e-12)
-
-    leader.q = q  # back inside: still held, the operator hands back and takes over again
-    assert not source.poll().intervened
-    leader.intervening = False
-    source.poll()
-    leader.intervening = True
-    assert source.poll().intervened and tracker.following
+    leader.q = q
+    assert source.poll().intervened
 
 
 def test_a_stalled_control_loop_holds_and_re_anchors_at_the_next_poll(caplog):
@@ -633,7 +631,10 @@ def test_gello_cartesian_preset():
     assert robot.action_mode == "cartesian_delta" and robot.control_hz == 50
     assert (robot.xyz_scale_m, robot.rot_scale_rad) == (0.05, 0.3) and robot.gripper_in_action
     assert tuple(robot.state_fields) == ("tcp_pose", "tcp_vel", "joint_pos", "joint_vel")
-    assert list(robot.safety_box) == [0.25, -0.40, 0.10, 0.80, 0.20, 0.65]
+    from real_world_rl.devices.robots.franka import FrankaConfig
+    from real_world_rl.devices.limits import ArmLimits
+    np.testing.assert_allclose(ArmLimits.from_config(FrankaConfig.from_dict(robot.robot)).tcp.absolute_aabb(),
+                               [.25, -.4, .1, .8, .2, .65])
     assert robot.robot["realtime"] == "ignore" and robot.robot["relative_dynamics_factor"] == 0.1
     assert args.obs.state and tuple(args.obs.rgb) == () and tuple(args.obs.depth) == ()
     assert env_building.teleop_control_spec(args) == _BLOCK
@@ -765,10 +766,10 @@ def test_real_robot_pose_scales_and_box_found_through_the_wrapper_chain_and_foll
     robot.arm._alpha = 1.0
     robot.arm._tcp_pose = _offset_pose(q, [0.06, -0.004, 0.05], [0.0, 0.0, 0.2])
     cfg = RealRobotEnvConfig(
-        robot={"type": "franka", "arm_backend": "fake"},
+        robot={"limits": station_limits(), "type": "franka", "arm_backend": "fake"},
         xyz_scale_m=SCALE_M, rot_scale_rad=SCALE_RAD,
         home_joints=[0.0] * 7, reset_settle_s=0.0, control_hz=1000.0,
-        max_episode_steps=1000, safety_box=[-10.0] * 3 + [10.0] * 3,
+        max_episode_steps=1000, limits=env_limits(bounds=[-10.0] * 3 + [10.0] * 3),
     )
     env = TeleopInterventionWrapper(
         RewardScaleBiasWrapper(RealRobotVectorEnv(RealRobotEnv(cfg, robot=robot)), 2.0, 0.0),
@@ -776,7 +777,7 @@ def test_real_robot_pose_scales_and_box_found_through_the_wrapper_chain_and_foll
         mapping="absolute", clock=_Clock(),
     )
     try:
-        assert env.source.cartesian_tracker.safety_box.tolist() == [-10.0] * 3 + [10.0] * 3
+        assert env.source.cartesian_tracker.limits.absolute_aabb().tolist() == [-10.0] * 3 + [10.0] * 3
         env.reset()
         _, _, _, _, info = env.step(torch.zeros(1, 7))
         np.testing.assert_allclose(info["intervene_action"][0, :6].numpy(), 0.0, atol=1e-6)
@@ -800,7 +801,7 @@ class _CartesianRealEnv(ContractEnv):
     def __init__(self, tcp_pose):
         super().__init__()
         self.action_contract.update(xyz_scale_m=SCALE_M, rot_scale_rad=SCALE_RAD,
-                                    experiment={"safety_box": list(_ENV_BOX)})
+                                    limits=__import__("real_world_rl.devices.limits", fromlist=["ArmLimits"]).ArmLimits(tcp=tcp_box(_ENV_BOX)).to_dict())
         self._tcp_pose = np.asarray(tcp_pose, dtype=np.float32)
         self._observation = None
 
@@ -817,7 +818,7 @@ def test_real_robot_cartesian_env_pose_and_box_come_from_the_last_observation_an
     q = np.asarray(READY_Q, dtype=np.float32)
     env = _CartesianRealEnv(_offset_pose(q, [0.004, 0.0, 0.0], [0.0, 0.0, 0.0]))
     source = LeaderArmCartesianSource.from_env(env, leader=_Leader(q), mapping="absolute", clock=_Clock())
-    assert source.cartesian_tracker.safety_box.tolist() == _ENV_BOX
+    assert source.cartesian_tracker.limits.absolute_aabb().tolist() == _ENV_BOX
     with pytest.raises(RuntimeError, match="before the env was reset"):
         source.poll()
     env.reset()
@@ -878,7 +879,7 @@ def _leader_teleop_config(script) -> TeleopConfig:
 
 def _gello_station(script) -> FrankaRobot:
     return FrankaRobot(
-        FrankaConfig(
+        FrankaConfig(limits=station_limits(),
             name="gello_station",
             arm_backend="fake",
             gripper=None,
@@ -926,7 +927,7 @@ def test_remote_stub_robot_leader_is_connected_by_start_and_released_by_close():
 
 def test_start_releases_the_leader_robot_when_its_teleop_part_is_not_a_leader_arm():
     station = FrankaRobot(
-        FrankaConfig(
+        FrankaConfig(limits=station_limits(),
             name="gello_station",
             arm_backend="fake",
             gripper=None,
@@ -962,7 +963,7 @@ def test_from_env_with_robot_yaml_builds_and_owns_a_local_robot(tmp_path):
     teleop = _leader_teleop_config([{"action": READY_Q, "gripper": 1.0, "active": True}])
     robot_yaml.write_text(
         yaml.safe_dump(
-            {
+            {"limits": station_limits(),
                 "type": "franka",
                 "name": "gello_station",
                 "arm_backend": "fake",
@@ -1106,53 +1107,38 @@ def test_explicit_kinematics_is_provenance_and_defaults_keep_legacy_snapshots(tm
 
 
 @pytest.mark.parametrize("local_geometry", [False, True])
-def test_from_env_inherits_station_workspace_and_frame_with_explicit_overrides(local_geometry):
-    from real_world_rl.envs.real_robot.config import RealRobotEnvConfig
-    from real_world_rl.envs.real_robot.env import RealRobotEnv
-
+def test_from_env_inherits_box_and_task_frame_with_explicit_overrides(local_geometry):
+    from real_world_rl.envs.real_robot import RealRobotEnv, RealRobotEnvConfig
     transform = np.eye(4)
-    transform[:3, 3] = [0.1, 0.2, 0.3]
+    transform[:3, 3] = [.1, .2, .3]
     frame = {"name": "table", "base_T_frame": transform.tolist()}
-    workspace = {"frame": "table", "low": [-1.0] * 3, "high": [1.0] * 3}
-    geometry = {"workspace": workspace, "task_frame": frame}
     config = RealRobotEnvConfig(
         robot={"type": "franka", "arm_backend": "fake", "gripper": None, "cameras": [],
-               **(geometry if local_geometry else {})},
+               "limits": station_limits(bounds=[-1.]*3+[1.]*3),
+               **({"task_frame": frame} if local_geometry else {})},
+        task_frame=None if local_geometry else frame,
         xyz_scale_m=SCALE_M, rot_scale_rad=SCALE_RAD,
-        **({} if local_geometry else geometry),
     )
     env = RealRobotEnv(config)
     source = LeaderArmCartesianSource.from_env(env, leader=_Leader())
-    np.testing.assert_array_equal(source.cartesian_tracker.workspace.origin, transform[:3, 3])
-    override = {"low": [-2.0] * 3, "high": [2.0] * 3}
-    source = LeaderArmCartesianSource.from_env(env, leader=_Leader(), workspace=override, task_frame=None)
-    np.testing.assert_array_equal(source.cartesian_tracker.workspace.low, [-2.0] * 3)
-    np.testing.assert_array_equal(source.cartesian_tracker.workspace.origin, [0.0] * 3)
+    np.testing.assert_array_equal(source.cartesian_tracker.limits.origin_xyz, [0, 0, 0])
+    override = tcp_box([-2.]*3+[2.]*3)
+    source = LeaderArmCartesianSource.from_env(env, leader=_Leader(), limits=override, task_frame=None)
+    assert source.cartesian_tracker.limits is override
 
 
-@pytest.mark.parametrize("limit", ["workspace", "safety_box"])
-def test_station_workspace_and_safety_box_both_hand_back_until_another_toggle(limit, caplog):
+def test_box_boundary_keeps_leader_takeover(caplog):
     leader = _Leader()
     follower = _Follower(_ee_pose(READY_Q))
-    workspace = {"low": [-10.0] * 3, "high": [10.0] * 3}
-    box = [-10.0] * 3 + [10.0] * 3
-    if limit == "workspace":
-        workspace["high"][0] = follower.pose[0] + 0.001
-    else:
-        box[3] = follower.pose[0] + 0.001
-    source = _source(leader, follower, workspace=workspace, safety_box=box)
+    box = [-10.]*3+[10.]*3
+    box[3] = follower.pose[0] + .001
+    source = _source(leader, follower, limits=tcp_box(box))
     assert source.poll().intervened
-    leader.q[1] += 0.1  # moves the requested TCP beyond the selected x boundary
-    with caplog.at_level(logging.WARNING):
-        reading = source.poll()
-    assert not reading.intervened and not source.cartesian_tracker.following
-    assert "WORKSPACE HOLD:" in caplog.text
-    assert "the leader handed back; toggle again to take over" in caplog.text
+    leader.q[1] += .1
+    assert source.poll().intervened and source.cartesian_tracker.following
+    assert source.cartesian_tracker.limits.contains(source.cartesian_tracker.command[:3])
+    assert "WORKSPACE HOLD" not in caplog.text
     leader.q = np.asarray(READY_Q, dtype=np.float32)
-    assert not source.poll().intervened
-    leader.intervening = False
-    source.poll()
-    leader.intervening = True
     assert source.poll().intervened
 
 

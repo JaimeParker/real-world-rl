@@ -21,11 +21,17 @@ STATE_FIELDS = (
     "tcp_force",
     "tcp_torque",
 )
-_SAFETY_BOX_LENGTH = 6
+class _ConfigMeta(type):
+    def __call__(cls, *args, **kwargs):
+        for key in ("safety_box", "joint_limits", "workspace"):
+            if key in kwargs:
+                raise ValueError(f"{key} was removed; migrate to real_robot.limits (joints, tcp.low/high); run rwrl limits migrate for station YAML")
+        return super().__call__(*args, **kwargs)
+
 
 
 @dataclass
-class RealRobotEnvConfig:
+class RealRobotEnvConfig(metaclass=_ConfigMeta):
     # Exactly one of: a local device-layer RobotConfig dict (must carry "type"),
     # or the address of a robot daemon. Checked by ``require_robot_source``
     # when the env is built, so the default-constructed config (CLI group) stays valid.
@@ -34,7 +40,6 @@ class RealRobotEnvConfig:
     token: Optional[str] = None
     # Expected daemon geometry; local robots inherit these from their robot dict.
     task_frame: Optional[dict] = None
-    workspace: Optional[dict] = None
     num_joints: int = 7
     # Concatenated in this order into the flat backend ``state`` vector.
     state_fields: tuple[str, ...] = STATE_FIELDS
@@ -56,14 +61,8 @@ class RealRobotEnvConfig:
     xyz_scale_m: float = 0.02
     rot_scale_rad: float = 0.1
     joint_scale_rad: float = 0.05
-    # The source of truth for limits is the robot yaml on the robot PC (enforced by the
-    # device layer). The three fields below are optional and may only be tighter than it:
-    # unset ones are inherited after connect, looser ones fail the first reset.
-    # [xmin, ymin, zmin, xmax, ymax, zmax]; clips the cartesian target position.
-    safety_box: Optional[list[float]] = None
-    # One [low, high] pair per joint; clips joint targets. joint_abs still needs it set here
-    # because the action mapping is built at construction, before any connection.
-    joint_limits: Optional[list[list[float]]] = None
+    # Tighter-only overrides in the device TCP box frame.
+    limits: Optional[dict] = None
     # Reset pose; falls back to the robot's own home_joints when unset.
     home_joints: Optional[list[float]] = None
     gripper_in_action: bool = True
@@ -91,8 +90,8 @@ class RealRobotEnvConfig:
             if self.action_mode != "cartesian_delta":
                 raise ValueError("serl cartesian_semantics requires action_mode='cartesian_delta'")
             validate_serl_config(
-                self.safety_box[:3] if self.safety_box is not None else None,
-                self.safety_box[3:] if self.safety_box is not None else None,
+                [-1., -1., -1.],
+                [1., 1., 1.],
                 self.safety_box_rpy_low, self.safety_box_rpy_high,
                 gripper_action_scale=self.gripper_action_scale,
                 gripper_sleep_s=self.gripper_sleep_s, control_hz=self.control_hz,
@@ -134,32 +133,11 @@ class RealRobotEnvConfig:
             )
         if type(self.num_joints) is not int or self.num_joints <= 0:
             raise ValueError(f"num_joints must be positive, got {self.num_joints}")
-        if self.joint_limits is not None:
-            for pair in self.joint_limits:
-                finite(pair, "joint_limits")
-            shape_ok = len(self.joint_limits) == self.num_joints and all(
-                len(pair) == 2 for pair in self.joint_limits
-            )
-            if not shape_ok:
-                raise ValueError(
-                    f"joint_limits must have shape ({self.num_joints}, 2) "
-                    "([[low, high], ...] per joint)"
-                )
-            if any(low > high for low, high in self.joint_limits):
-                raise ValueError("joint_limits entries must satisfy low <= high")
-        if self.action_mode == "joint_abs" and self.joint_limits is None:
-            raise ValueError(
-                "action_mode 'joint_abs' maps [-1, 1] onto joint_limits; set joint_limits"
-            )
-        if self.safety_box is not None and len(self.safety_box) != _SAFETY_BOX_LENGTH:
-            raise ValueError(
-                "safety_box must be [xmin, ymin, zmin, xmax, ymax, zmax], "
-                f"got {len(self.safety_box)} entries"
-            )
-        if self.safety_box is not None:
-            finite(self.safety_box, "safety_box")
-            if any(low > high for low, high in zip(self.safety_box[:3], self.safety_box[3:])):
-                raise ValueError("safety_box entries must satisfy low <= high")
+        if self.limits is not None:
+            from real_world_rl.envs.real_robot.limits import validate_overrides
+            validate_overrides(self.limits, self.num_joints)
+        if self.action_mode == "joint_abs" and (self.limits or {}).get("joints") is None:
+            raise ValueError("action_mode 'joint_abs' requires limits.joints")
         unknown = [f for f in self.state_fields if f not in STATE_FIELDS]
         if unknown:
             raise ValueError(f"unknown state_fields {unknown}; choose from {list(STATE_FIELDS)}")

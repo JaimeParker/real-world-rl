@@ -2,6 +2,8 @@
 refusal of an unimplemented operation, help grouped by backend, lazily imported slices."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import argparse
 import json
 import subprocess
@@ -22,7 +24,7 @@ HANDLERS = {"spacemouse": ("calibrate", "diagnose", "run_session", "profiles", "
 
 
 def station(tmp_path, backend):
-    config = {"type": "franka", "name": "left", "arm_backend": "fake"}
+    config = {"limits": station_limits(), "type": "franka", "name": "left", "arm_backend": "fake"}
     if backend is not None:
         config["teleop"] = {"backend": backend}
     path = tmp_path / "station.yaml"

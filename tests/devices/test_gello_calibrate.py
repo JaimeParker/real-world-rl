@@ -2,6 +2,8 @@
 over a scripted bus (no hardware)."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import numpy as np
 import pytest
 import yaml
@@ -119,11 +121,11 @@ def test_wrap_centers_from_joint_limits():
 def test_load_joint_limits_top_level_nested_and_unset(tmp_path):
     limits = [[-1.0, 1.0], [0.0, 2.0]]
     top = tmp_path / "top.yaml"
-    top.write_text(yaml.safe_dump({"type": "franka", "joint_limits": limits}))
+    top.write_text(yaml.safe_dump({"type": "franka", "limits": {"joints": limits}}))
     nested = tmp_path / "nested.yaml"
-    nested.write_text(yaml.safe_dump({"robot": {"type": "franka", "joint_limits": limits}}))
+    nested.write_text(yaml.safe_dump({"robot": {"type": "franka", "limits": {"joints": limits}}}))
     unset = tmp_path / "unset.yaml"
-    unset.write_text(yaml.safe_dump({"type": "franka"}))
+    unset.write_text(yaml.safe_dump({"type": "piper"}))
     assert calibrate.load_joint_limits(top) == limits
     assert calibrate.load_joint_limits(nested) == limits
     assert calibrate.load_joint_limits(unset) is None
@@ -219,7 +221,7 @@ def test_main_prints_a_calibrated_block(scripted_bus, tmp_path):
     ]
     robot_yaml = tmp_path / "robot.yaml"
     limits = [[-2.9, 2.9], [-1.76, 1.76], [-2.9, 2.9], [-3.07, -0.07], [-2.9, 2.9], [-0.02, 3.75], [-2.9, 2.9]]
-    robot_yaml.write_text(yaml.safe_dump({"robot": {"type": "franka", "joint_limits": limits}}))
+    robot_yaml.write_text(yaml.safe_dump({"robot": {"type": "franka", "limits": {"joints": limits}}}))
     printed = []
     argv = [
         "--port", "/dev/ttyUSB0", "--joint-ids", "1", "2", "3", "4", "5", "6", "7", "--gripper-id", "8",
@@ -282,7 +284,7 @@ def test_calibrate_gello_returns_the_options_main_prints(scripted_bus, tmp_path)
     assert (options["gripper_open_rad"], options["gripper_closed_rad"]) == (3.2, 2.1)
     assert scripted_bus.instances[-1].servo_ids == [1, 2, 3, 4, 5, 6, 7, 8]
 
-    robot_yaml_limits = {"robot": {"type": "franka", "joint_limits": limits}}
+    robot_yaml_limits = {"robot": {"type": "franka", "limits": {"joints": limits}}}
     scripted_bus.readings = list(readings)
     printed = []
     argv = [

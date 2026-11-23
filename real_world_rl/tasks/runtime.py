@@ -38,9 +38,9 @@ class TaskRuntime:
             elif kind == "pose":
                 if target.shape != (7,) or not np.isfinite(target).all() or abs(np.linalg.norm(target[3:])-1)>0.001:
                     raise ValueError("reset pose must be finite xyz + unit quaternion")
-                box = env._effective_safety_box
-                if box is not None and (np.any(target[:3] < box[:3]) or np.any(target[:3] > box[3:])):
-                    raise ValueError("task reset waypoint outside safety_box")
+                box = env._effective_limits.tcp
+                if box is not None and not box.contains(target[:3]):
+                    raise ValueError("task reset waypoint outside limits.tcp")
         return plan
 
     @staticmethod

@@ -130,7 +130,7 @@ After confirmation, ``--use`` saves the profile and writes the station's ``teleo
 **What you should see**: results include ``candidate``, ``frame``, ``yaw_rad``,
 ``horizontal_validated``, ``rotation_validated`` and the save path.
 After sampling both signs of all six axes, check that both validated fields are true.
-``profiles show`` should select operator-base. ``workspace show`` should still display the base boundaries reviewed in the previous chapter.
+``profiles show`` should select operator-base. ``workspace show`` should still display the ``limits`` (joint ranges and TCP box) reviewed in the previous chapter.
 Sampling only the four horizontal directions can fit yaw, but does not prove that rotation directions were verified.
 
 For a robot with ``task_frame`` (such as a 45° side mounting), calibrate in the table frame. Set ``--frame`` to the ``name`` of ``task_frame``:
@@ -141,7 +141,7 @@ For a robot with ``task_frame`` (such as a 45° side mounting), calibrate in the
    :end-before: # end calibrate-table
 
 Prompt directions now refer to the table (forward, left and up are all table directions). Profile yaw combines with ``base_R_table`` into the final rotation.
-Establish ``task_frame`` before calibrating the profile. If you change ``task_frame`` later, recalibrate the profile. Orientation profiles do not change workspace geometry.
+Establish ``task_frame`` before calibrating the profile. If you change ``task_frame`` later, recalibrate the profile. Orientation profiles do not change the ``limits.tcp`` box.
 
 **If it doesn't**:
 
@@ -266,7 +266,7 @@ Repeat for forward, left and up. Inspect the three rotations visually: twist abo
 If pushing “up” makes the TCP move diagonally, ``task_frame`` is missing or its angle is wrong. Return to step 11 of :doc:`station`.
 
 To restrict diagnostic input, add ``--diagnose translation``,
-``rotation`` or ``all`` to the ``teleop run`` above. This session moves the robot and requires an already reviewed workspace in the station.
+``rotation`` or ``all`` to the ``teleop run`` above. This session moves the robot and requires an already reviewed ``limits.tcp`` in the station.
 Here ``--gain`` defaults to 0.2, range (0, 1]; ``--duration-s`` defaults to 5 s, range (0, 300],
 and is converted to an episode step cap. Unless explicitly specified, both the success quota and episode budget are 1. The episode still enters POST_EPISODE when it ends, and once the budget is used up, ``n`` or ``q`` ends the session.
 Without ``--diagnose``, gain and duration-s have no effect. Input-filter settings are written into the control contract.
@@ -279,7 +279,8 @@ also set ``teleop_lead_cap_m: 0.02`` at the preset's top level (the default angu
 **If it doesn't**:
 
 * Stuck at READY: the episode starts when you press space in the terminal that runs ``rwrl``; the puck and buttons do not start it. The profile's neutral_threshold (default 0.05) is used only in ``hold`` mode.
-* ``WORKSPACE HOLD: <axes>``: the request is out of bounds. Recheck workspace and safety_box, hand back and take over again. Do not enlarge boundaries to bypass the check.
+* The TCP stops advancing at the edge of the box and only slides along the wall: this is ``limits.tcp`` at work (the target is clipped into the box), not a fault. Check that the box ``low`` / ``high`` fit the site; do not enlarge the box just to keep pushing.
+* ``measured TCP outside TCP box``: the measured TCP is beyond the box plus ``measured_margin_m``; the environment stopped the arm and latched a ``SafetyViolation`` fault. Inspect feedback and robot state and restart the session only after a manual check; there is no automatic return.
 * Direction or magnitude differs: exit the session, recheck the orientation profile, task frame and preset action scales, then repeat single-axis practice.
 
 5. Decide whether to use SERL mode
@@ -287,8 +288,8 @@ also set ``teleop_lead_cap_m: 0.02`` at the preset's top level (the default angu
 
 Start a separate SERL session and recheck the action convention only if you want immediate take-over through puck motion.
 First remove the station's ``teleop.options.deadzone`` and any explicitly set ``axis_lock`` (the device layer still uses its default deadzone);
-the SERL source rejects tracker-only options. Then copy the preset. SERL requires both XYZ and RPY bounds at the environment layer;
-the previous chapter's task template lacks these fields.
+the SERL source rejects tracker-only options. Then copy the preset. SERL requires the station's ``limits.tcp`` (the XYZ box) and the preset's ``real_robot.safety_box_rpy_low`` / ``safety_box_rpy_high`` (RPY bounds);
+the previous chapter's task template lacks the RPY fields.
 
 .. tutorial-test: skip
 .. literalinclude:: ../../examples/spacemouse.sh
@@ -306,7 +307,7 @@ the previous chapter's task template lacks these fields.
 
 Read the TCP at a pose independently confirmed safe, and use the same conversion program to convert xyzw to radians.
 If manual guiding is needed, follow the station chapter's stop-control and on-site supervision procedure. Reading here does not itself move the robot.
-Merge the following snippet into the new file's real_robot block and replace every placeholder with reviewed values:
+Merge the following snippet into the new file's real_robot block and replace every placeholder with reviewed values (the XYZ box is not written here; it comes from the station's ``limits.tcp``):
 
 .. literalinclude:: ../../examples/spacemouse-config.txt
    :language: yaml
@@ -318,8 +319,8 @@ Merge the following snippet into the new file's real_robot block and replace eve
 
    * - Field to change
      - How to obtain the value
-   * - ``real_robot.safety_box``
-     - Copy the reviewed base_safety_box from workspace show, preserving the order xmin, ymin, zmin, xmax, ymax, zmax.
+   * - ``real_robot.limits`` (optional)
+     - If omitted, the station's ``limits`` apply. Write ``limits.tcp.low`` / ``high`` only to make this preset narrower than the station; it can only tighten. See :ref:`Limits <en-devices-limits>`.
    * - ``safety_box_rpy_low`` / ``safety_box_rpy_high``
      - Derive lower and upper bounds from this step's converted TCP readings and allowed orientations. Use absolute roll; keep pitch / yaw signs. Units are rad.
 
@@ -399,7 +400,8 @@ Do not merge data from the two modes for training under the same contract. Termi
 
 **If it doesn't**:
 
-* ``serl requires complete safety_box`` or ``safety_box_rpy``: complete the new preset's environment-layer bounds. Position bounds only in the station are insufficient.
+* ``serl requires a TCP box``: the station has no ``limits.tcp``; add it as in step 5 of :doc:`station`.
+* ``serl requires complete safety_box_rpy low/high limits``: complete the new preset's RPY bounds; the station's ``limits.tcp`` covers position only, not orientation.
 * You expected a short press to keep control: SERL uses current input and button levels. Switch back to tracker for latched take-over.
 * Changing tracker speed has no effect: SERL does not use those options. Review environment scales and position / orientation bounds instead.
 * Direction differs from tracker mode: serl mode does not add profile yaw by default. If the SpaceMouse is not aligned as shown above, directions rotate by an angle; this is expected. Align it or set ``use_profile_rotation: true``.

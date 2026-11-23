@@ -17,7 +17,7 @@ from real_world_rl.server.transport import LocalClient, LocalTransport, Transpor
 def service(tmp_path, monkeypatch):
     monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
     robot = FrankaRobot(
-        FrankaConfig(
+        FrankaConfig(limits={"joints": [[-4., 4.]] * 7},
             arm_backend="fake",
             gripper=GripperConfig(backend="fake"),
             cameras=[CameraConfig(name="wrist", backend="fake", fps=60, width=32, height=24)],

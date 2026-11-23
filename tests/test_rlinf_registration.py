@@ -3,6 +3,8 @@ builds it (``gym.make(id, override_cfg=..., worker_info=..., robot_info=..., env
 env_cfg=...)``), over device-layer fake devices."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import copy
 import importlib
 from pathlib import Path
@@ -35,7 +37,7 @@ def _override_cfg(**overrides) -> dict:
         "main_image_key": "wrist",
         "reward": "none",
         "real_robot": {
-            "robot": {
+            "robot": {"limits": station_limits(),
                 "type": "franka",
                 "arm_backend": "fake",
                 "gripper": {"backend": "fake"},

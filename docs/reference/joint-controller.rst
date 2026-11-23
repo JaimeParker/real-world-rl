@@ -118,7 +118,7 @@ franky 自带的关节运动把每个目标当作阶跃；这个运动把一串�
    * - ``set_control_mode(JOINT_SERVO)``
      - 用当前 ``joint_trajectory`` 新建 ``TrajectoryImpedanceMotion``\ ，``robot.move(motion, asynchronous=True)``\ ；参考从测得的 ``q`` 开始，静止，第 0 个 tick 的弹簧项为 0
    * - ``servo_joints(q)``
-     - 先经 arm 的安全层（每步从实测起不超过 ``max_delta_per_step.joint_rad``\ ，再夹进 ``joint_limits``\ ），再 ``motion.set_target(q)``\ ；目标含非有限值时被拒绝，arm 报 ``joint target rejected (non-finite)``
+     - 先经 arm 的安全层（每步从实测起不超过 ``max_delta_per_step.joint_rad``\ ，再夹进 ``limits.joints``\ ，并在 TCP 盒壁前停住），再 ``motion.set_target(q)``\ ；目标含非有限值时被拒绝，arm 报 ``joint target rejected (non-finite)``
    * - ``update_joint_trajectory_params(partial)``
      - 部分合并并校验；控制器运行时下一个 tick 生效（见\ :ref:`在线更新 <joint-controller-live-update>`\ ）
    * - ``stop()``\ 、离开该模式
@@ -181,7 +181,7 @@ README 记录的模拟结果：在抖动目标加大跳变的 300 000 tick 测�
 参数
 --------------------------------------------------------------------------------
 
-station 的 ``joint_trajectory:`` 块是这台机器人的覆盖值；省略的键使用原生默认值（``joint_controller.default_params(robot_model)``\ ，限位按 ``robot_model`` 取 Panda 或 FR3，不使用 station 的 ``joint_limits``\ ）。
+station 的 ``joint_trajectory:`` 块是这台机器人的覆盖值；省略的键使用原生默认值（``joint_controller.default_params(robot_model)``\ ，限位按 ``robot_model`` 取 Panda 或 FR3，不使用 station 的 ``limits.joints``\ ）。
 12 个键如下，带 (7) 的是长度为 7 的向量（单位逐关节）：
 
 .. list-table::

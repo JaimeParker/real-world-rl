@@ -1,6 +1,8 @@
 """The host doctor reads its teleop SDK, USB and serial facts from the teleop backend classes."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -191,7 +193,7 @@ def test_os_checks_use_custom_hid_and_serial_declarations(monkeypatch):
     monkeypatch.setitem(Teleop._BACKENDS, 'custom-pad', CustomPad)
     seen = []
     monkeypatch.setattr(checks, '_group_membership_result', lambda groups: seen.append(groups) or checks.CheckResult(2, 'os:groups', True, 'ok'))
-    config = FrankaConfig(arm_backend='fake', gripper=None, teleop=TeleopConfig(
+    config = FrankaConfig(limits=station_limits(), arm_backend='fake', gripper=None, teleop=TeleopConfig(
         backend='custom-pad', options={'port': '/unused/tty', 'buttons': '/unused/event'}))
     named = dict(checks._os_checks(config))
     assert {'os:hid', 'os:serial', 'os:groups', 'os:brltty', 'os:latency_timer'} <= named.keys()
@@ -211,7 +213,7 @@ def test_dependencies_follow_late_registered_backend_declarations(monkeypatch):
         OPTIONAL_SDKS = {'pad-buttons': OptionalSdk('buttons', 'pad_events', ('pad-events',))}
 
     monkeypatch.setitem(Teleop._BACKENDS, 'custom-pad', CustomPad)
-    config = FrankaConfig(arm_backend='fake', gripper=None, teleop=TeleopConfig(backend='custom-pad'))
+    config = FrankaConfig(limits=station_limits(), arm_backend='fake', gripper=None, teleop=TeleopConfig(backend='custom-pad'))
     assert deps.required_extras(config) == ['custom-pad']
     config.teleop.options['buttons'] = '/unused/event'
     assert deps.required_extras(config, serves_daemon=True) == ['custom-pad', 'pad-buttons', 'grpc']

@@ -76,7 +76,7 @@ def main() -> None:
             cameras=list(training.obs.rgb),
             action_conventions={key: getattr(training.real_robot, key) for key in (
                 "action_mode", "cartesian_semantics", "xyz_scale_m", "rot_scale_rad",
-                "joint_scale_rad", "joint_limits", "gripper_in_action", "control_hz")},
+                "joint_scale_rad", "limits", "gripper_in_action", "control_hz")},
             action_contract=contract,
             training_experiment=metadata,
             demo_action=target.tolist(), predicted_action=predicted.tolist(),

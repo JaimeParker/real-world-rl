@@ -17,7 +17,7 @@ import numpy as np
 from real_world_rl.devices.arm import Arm, ArmHealth, ControlMode
 from real_world_rl.devices.backends.arms._rotations import quat_xyzw_to_rpy, rpy_to_quat_xyzw
 from real_world_rl.devices.errors import DeviceFault, DeviceNotFound
-from real_world_rl.devices.safety import ArmSafety
+from real_world_rl.devices.limits import ArmLimits
 from real_world_rl.discovery.enumerate import list_can_interfaces
 
 if TYPE_CHECKING:
@@ -89,7 +89,7 @@ class PiperSdkArm(Arm):
         bitrate: int = 1_000_000,
         home_joints: list[float] | None = None,
         move_speed_percent: int = 30,
-        safety: ArmSafety | None = None,
+        safety: ArmLimits | None = None,
     ) -> None:
         super().__init__(name, num_joints=NUM_JOINTS, safety=safety)
         self._can_interface = can_interface
@@ -107,7 +107,7 @@ class PiperSdkArm(Arm):
             can_interface=config.can_interface,
             bitrate=config.bitrate,
             home_joints=config.home_joints,
-            safety=ArmSafety.from_config(config),
+            safety=ArmLimits.from_config(config),
         )
 
     # -- lifecycle -------------------------------------------------------------------

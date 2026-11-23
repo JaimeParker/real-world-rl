@@ -4,6 +4,8 @@ class selection (including the FWBW dual-agent case) -- without actually
 running a robot or a training loop."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import gymnasium as gym
 import pytest
 import torch
@@ -564,7 +566,7 @@ def _fake_robot_claims(tmp_path, monkeypatch):
 def _fake_robot_args(*, frame_stack=1, teleop=None, **overrides) -> HilSerlArgs:
     from real_world_rl.envs.real_robot import RealRobotEnvConfig
 
-    robot = {
+    robot = {"limits": station_limits(),
         "type": "franka",
         "arm_backend": "fake",
         "gripper": {"backend": "fake"},

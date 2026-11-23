@@ -29,7 +29,6 @@ from real_world_rl.tasks import build_task
 
 _CARTESIAN_ACTION_DIM = 6
 _GRIPPER_OPEN_COMMAND = 1.0
-_SAFETY_TOLERANCE = 1e-9
 # Reading safety_clips costs a daemon round trip on a RemoteRobot, so it is refreshed sparsely.
 _SAFETY_CLIPS_REFRESH_STEPS = 10
 
@@ -74,10 +73,9 @@ class RealRobotEnv(gym.Env):
         self.task_runtime = build_task(config.task, ("arm",))
         self.task_description: str = "" if config.task.name == "none" else config.task.name
         self._expected_control_metadata = None
+        self._expected_checkpoint_limits = None
         self._control_metadata = {}
-        self._spatial_contract = self._requested_spatial_contract()
-        self._measured_workspace = None
-        self._workspace_fault = None
+        self._limits_fault = None
         self._diagnostic_stream = None
         self._output_paths = {}
         self._closed = False
@@ -86,8 +84,6 @@ class RealRobotEnv(gym.Env):
         self._session_stop_reason = None
         self._pending_teleop_diagnostics = None
         self._diagnostic_reset_index = -1
-        if "workspace" in self._spatial_contract and config.action_mode != "cartesian_delta":
-            raise ValueError("task workspace requires cartesian_delta; joint trajectories lack TCP path enforcement")
         self.render_mode = "rgb_array"
 
         self._frame_sizes = {cam: self._frame_size(cam) for cam in config.capture_cameras}
@@ -170,13 +166,6 @@ class RealRobotEnv(gym.Env):
                     }
                     for name, size in self._frame_sizes.items()
                 }
-
-    def _requested_spatial_contract(self):
-        from real_world_rl.devices.workspace import spatial_contract
-        local = self.config.robot or {}
-        frame = self.config.task_frame if self.config.task_frame is not None else local.get("task_frame")
-        workspace = self.config.workspace if self.config.workspace is not None else local.get("workspace")
-        return spatial_contract(workspace, frame)
 
     # -- connection ----------------------------------------------------------------
 
@@ -279,71 +268,40 @@ class RealRobotEnv(gym.Env):
             )
 
     def _reset_device_safety(self) -> None:
-        config = self.config
-        self._joint_limits = (
-            np.asarray(config.joint_limits, dtype=np.float64)
-            if config.joint_limits is not None
-            else None
-        )
-        # Effective limits: the env config, tightened/inherited from the device layer on connect.
-        self._effective_safety_box = (
-            np.asarray(config.safety_box, dtype=np.float64) if config.safety_box is not None else None
-        )
+        from real_world_rl.devices.limits import ArmLimits
+        self._effective_limits = ArmLimits(joints=(self.config.limits or {}).get("joints"))
+        self._joint_limits = self._effective_limits.joints
         self._device_max_delta = None
+        # Local station limits are available before connecting; remote limits resolve on connect.
+        local = getattr(self.robot, "config", None)
+        if local is not None and hasattr(local, "limits"):
+            from real_world_rl.envs.real_robot.limits import merge_limits
+            device = ArmLimits.from_config(local)
+            try:
+                self._effective_limits = merge_limits(None if device is None else device.to_dict(), self.config.limits)
+            except ValueError:
+                # Report incompatible overrides as a DeviceFault at connect, before motion.
+                self._effective_limits = device or self._effective_limits
+            self._joint_limits = self._effective_limits.joints
 
     def _merge_device_safety(self, arm, fault) -> None:
-        """Inherit the device layer's box/joint limits; an env limit looser than it is a fault."""
-        self._reset_device_safety()
-        device = getattr(arm, "safety_limits", None)  # None: no limits, or a daemon predating them
-        from real_world_rl.devices.workspace import spatial_contract
-        actual = spatial_contract((device or {}).get("workspace"), (device or {}).get("task_frame"))
-        expected_workspace = self._spatial_contract.get("workspace")
-        if expected_workspace is not None:
-            if "task_workspace_v1" not in getattr(arm, "safety_capabilities", ()):
-                raise fault("robot does not advertise task_workspace_v1 enforcement",
-                            "upgrade the daemon before using a task workspace")
-        if actual != self._spatial_contract:
-            raise fault("configured workspace differs from the robot's enforced workspace",
-                        "set real_robot.workspace/task_frame to match the station; do not weaken limits")
-        if actual.get("workspace") is not None:
-            from real_world_rl.devices.workspace import Workspace
-            self._measured_workspace = Workspace(device["workspace"], device.get("task_frame"))
-        if device is None:
-            return
-        self._device_max_delta = device.get("max_delta_per_step")
-        hint = (
-            "tighten the env safety_box/joint_limits, or loosen the robot yaml on the robot PC"
-        )
-
-        device_box = device.get("safety_box")
-        if device_box is not None:
-            device_box = np.asarray(device_box, dtype=np.float64)
-            env_box = self._effective_safety_box
-            if env_box is None:
-                self._effective_safety_box = device_box
-            elif np.any(env_box[:3] < device_box[:3] - _SAFETY_TOLERANCE) or np.any(
-                env_box[3:] > device_box[3:] + _SAFETY_TOLERANCE
-            ):
-                raise fault(
-                    f"env safety_box {env_box.tolist()} is looser than the robot's "
-                    f"{device_box.tolist()}",
-                    hint,
-                )
-
-        device_limits = device.get("joint_limits")
-        if device_limits is not None:
-            device_limits = np.asarray(device_limits, dtype=np.float64)
-            env_limits = self._joint_limits
-            if env_limits is None:
-                self._joint_limits = device_limits
-            elif np.any(env_limits[:, 0] < device_limits[:, 0] - _SAFETY_TOLERANCE) or np.any(
-                env_limits[:, 1] > device_limits[:, 1] + _SAFETY_TOLERANCE
-            ):
-                raise fault(
-                    f"env joint_limits {env_limits.tolist()} are looser than the robot's "
-                    f"{device_limits.tolist()}",
-                    hint,
-                )
+        from real_world_rl.envs.real_robot.limits import merge_limits
+        device = getattr(arm, "safety_limits", None)
+        configured = self.config.limits or (self.config.robot or {}).get("limits") or device
+        if configured and "station_limits_v1" not in getattr(arm, "safety_capabilities", ()):
+            raise fault("robot does not advertise station_limits_v1", "upgrade the robot daemon")
+        try:
+            self._effective_limits = merge_limits(device, self.config.limits)
+        except ValueError as error:
+            raise fault(str(error), "tighten real_robot.limits to the station limits") from error
+        if self._expected_checkpoint_limits is not None:
+            from real_world_rl.contracts.limits import legacy_limits_match
+            if not legacy_limits_match(self._expected_checkpoint_limits, self._effective_limits.to_dict()):
+                raise fault("checkpoint limits are incompatible with station limits", "retrain with matching station limits")
+        self._joint_limits = self._effective_limits.joints
+        self._device_max_delta = (device or {}).get("max_delta_per_step")
+        if self.config.cartesian_semantics == "serl" and self._effective_limits.tcp is None:
+            raise fault("serl requires a TCP box", "configure station limits.tcp")
 
     def _home_joints(self) -> np.ndarray:
         from real_world_rl.devices.errors import DeviceFault
@@ -359,7 +317,9 @@ class RealRobotEnv(gym.Env):
                 hint="set home_joints in the env config or the robot yaml",
                 device=self.robot.name,
             )
-        return np.asarray(home, dtype=np.float64)
+        home = np.asarray(home, dtype=np.float64)
+        self._effective_limits.require_joints_inside(home, device=self.robot.name)
+        return home
 
     def _send_and_observe(self, action: dict) -> dict:
         """One command + observation; a single round trip on a ``RemoteRobot``."""
@@ -401,30 +361,30 @@ class RealRobotEnv(gym.Env):
             self._step_watchdog.close()
             self._step_watchdog = None
 
-    def _check_workspace_feedback(self, pose=None):
+    def _check_limits_feedback(self, pose=None):
         """Latch measured violations and stop; never command a return to the box."""
         from real_world_rl.devices.errors import SafetyViolation
-        if self._workspace_fault is not None:
-            raise self._workspace_fault
-        if self._measured_workspace is None:
+        if self._limits_fault is not None:
+            raise self._limits_fault
+        if self._effective_limits.tcp is None:
             return
         if pose is None:
             pose = self.robot.arm.read_state()["tcp_pose"]
         try:
-            violations = self._measured_workspace.violations(pose, measured=True)
+            violations = self._effective_limits.measured_violations(np.asarray(pose)[:3])
         except ValueError as error:
             violations = [str(error)]
         if not violations:
             return
-        fault = SafetyViolation("measured TCP outside workspace or invalid: " + "; ".join(violations),
+        fault = SafetyViolation("measured TCP outside TCP box or invalid: " + "; ".join(violations),
                                 device=self.robot.name,
                                 hint="inspect feedback and robot state; no automatic return/reset is allowed")
-        self._workspace_fault = fault
+        self._limits_fault = fault
         self._deactivate_step_watchdog()
         try:
             self.robot.arm.stop()
         except Exception:
-            logger.exception("arm stop also failed after measured workspace violation")
+            logger.exception("arm stop also failed after measured TCP box violation")
         raise fault
 
     def _reset_begin(self):
@@ -432,13 +392,12 @@ class RealRobotEnv(gym.Env):
         from real_world_rl.devices.arm import ControlMode
         self._deactivate_step_watchdog()
         self._connect_and_validate()
-        self._check_workspace_feedback()
+        self._check_limits_feedback()
         self.robot.arm.set_control_mode(ControlMode.IDLE)
         self.robot.arm.configure_control(self.config.control or {})
         from real_world_rl.contracts.action import json_normalize
         self._control_metadata = json_normalize({**dict(getattr(self.robot.arm, "control_metadata", {})),
-            "resolved_robot": {"home_joints": self.config.home_joints or getattr(self.robot.arm, "home_joints", None) or getattr(self.robot.config, "home_joints", None), "safety_box": self._effective_safety_box,
-                               "joint_limits": self._joint_limits, "max_delta_per_step": self._device_max_delta}})
+            "resolved_robot": {"home_joints": self.config.home_joints or getattr(self.robot.arm, "home_joints", None) or getattr(self.robot.config, "home_joints", None), "limits": self._effective_limits.to_dict()}})
         if self._expected_control_metadata is not None and self._control_metadata != self._expected_control_metadata:
             raise ValueError("effective control/SDK metadata differs from the saved experiment")
         if self.config.preprocess or self.config.depth_cameras:
@@ -477,7 +436,7 @@ class RealRobotEnv(gym.Env):
 
     def step(self, action):
         if self._last_raw is not None:
-            self._check_workspace_feedback(self._last_raw["arm"].get("tcp_pose"))
+            self._check_limits_feedback(self._last_raw["arm"].get("tcp_pose"))
         if self.config.cartesian_semantics == "serl":
             return self._step_serl(action)
         if self._last_raw is None:
@@ -573,11 +532,13 @@ class RealRobotEnv(gym.Env):
                 self._last_gripper_act = time.monotonic()
                 time.sleep(config.gripper_sleep_s)
         requested_pose = pose.copy()
-        box = self._effective_safety_box
-        pose = clip_safety_box(pose, box[:3], box[3:],
+        box = self._effective_limits.tcp
+        bounds = box.absolute_aabb()
+        if bounds is None:
+            pose[:3] = box.clip(pose[:3])
+            bounds = np.concatenate([pose[:3], pose[:3]])
+        pose = clip_safety_box(pose, bounds[:3], bounds[3:],
                                config.safety_box_rpy_low, config.safety_box_rpy_high)
-        if self._measured_workspace is not None:
-            pose = self._measured_workspace.clip_pose(pose)
         # Keep the device's own pose box and per-step safety caps in the send path.
         try:
             self.robot.send_action({"arm": {"tcp_pose": pose}})
@@ -695,11 +656,8 @@ class RealRobotEnv(gym.Env):
                 )
                 target = np.concatenate([xyz, rotation.as_quat()])
             self._diagnostic_requested_pose = target.copy()
-            if self._effective_safety_box is not None:
-                box = self._effective_safety_box
-                target[:3] = np.clip(target[:3], box[:3], box[3:])
-            if self._measured_workspace is not None:
-                target = self._measured_workspace.clip_pose(target)
+            if self._effective_limits.tcp is not None:
+                target[:3] = self._effective_limits.tcp.clip(target[:3])
             return {"tcp_pose": target}
 
         num_joints = config.num_joints
@@ -715,8 +673,8 @@ class RealRobotEnv(gym.Env):
         return {"joint_pos": q}
 
     def _observe(self, raw: dict) -> dict:
-        if self._measured_workspace is not None:
-            self._check_workspace_feedback(raw["arm"]["tcp_pose"])
+        if self._effective_limits.tcp is not None:
+            self._check_limits_feedback(raw["arm"]["tcp_pose"])
         self._last_raw = raw
         state = {}
         for field in self.config.state_fields:
@@ -794,15 +752,13 @@ class RealRobotEnv(gym.Env):
     def requested_experiment(self):
         import dataclasses
         return {"task": dataclasses.asdict(self.config.task), "control": self.config.control,
-                "control_hz": self.config.control_hz, "safety_box": self.config.safety_box,
-                "joint_limits": self.config.joint_limits, "home_joints": self.config.home_joints,
+                "control_hz": self.config.control_hz, "limits": self._effective_limits.contract_dict(), "home_joints": self.config.home_joints,
                 "max_episode_steps": self.config.max_episode_steps, "reset_settle_s": self.config.reset_settle_s,
                 "cameras": self.config.cameras, "depth_cameras": self.config.depth_cameras,
                 "image_size": self.config.image_size,
                 "preprocess": {name: value.as_options() for name, value in self.config.preprocess.items()},
                 **self._serl_experiment(),
-                **({"serl_profiles": self.config.serl_profiles} if self.config.serl_profiles else {}),
-                **({"spatial_constraints": self._spatial_contract} if self._spatial_contract else {})}
+                **({"serl_profiles": self.config.serl_profiles} if self.config.serl_profiles else {})}
 
     def _serl_experiment(self) -> dict:
         if self.config.cartesian_semantics != "serl":
@@ -811,7 +767,6 @@ class RealRobotEnv(gym.Env):
 
         config = self.config
         return semantics_contract(
-            config.safety_box[:3], config.safety_box[3:],
             config.safety_box_rpy_low, config.safety_box_rpy_high,
             config.gripper_action_scale, config.gripper_sleep_s,
         )
@@ -831,7 +786,8 @@ class RealRobotEnv(gym.Env):
             "num_arms": 1,
             "arm_names": ["arm"],
             "num_joints": config.num_joints,
-            "joint_limits": config.joint_limits,
+            "joint_limits": None if self._joint_limits is None else self._joint_limits.tolist(),
+            "limits": self._effective_limits.contract_dict(),
             "xyz_scale_m": config.xyz_scale_m,
             "rot_scale_rad": config.rot_scale_rad,
             "joint_scale_rad": config.joint_scale_rad,
@@ -927,11 +883,8 @@ class RealRobotEnv(gym.Env):
         if not health.ok:
             raise RuntimeError(f"cannot hold an unhealthy arm: {health}")
         raw = self.robot.arm.read_state()
-        self._check_workspace_feedback(raw["tcp_pose"])
-        from real_world_rl.devices.safety import ArmSafety
-        limits = self.robot.arm.safety_limits
-        if limits:
-            ArmSafety.from_dict(limits).require_pose_inside(target)
+        self._check_limits_feedback(raw["tcp_pose"])
+        self._effective_limits.require_pose_inside(target, device=self.robot.name)
         self.robot.arm.servo_cartesian(target)
         accepted = self.robot.arm.last_cartesian_target
         if accepted is None or not np.allclose(accepted, target, atol=1e-9, rtol=0):
@@ -951,7 +904,7 @@ class RealRobotEnv(gym.Env):
             raise RuntimeError(f"cannot hold an unhealthy arm: {health}")
         raw = self.robot.arm.read_state()
         if "tcp_pose" in raw:
-            self._check_workspace_feedback(raw["tcp_pose"])
+            self._check_limits_feedback(raw["tcp_pose"])
         self.robot.arm.servo_joints(np.asarray(target, dtype=np.float64))
         self._check_in_step_watchdog()
         return raw

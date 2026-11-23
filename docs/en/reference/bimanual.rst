@@ -25,9 +25,9 @@ under ``left`` and ``right``, plus ``arm_names``, ``max_episode_steps`` and ``re
    * - field
      - where
      - notes
-   * - ``robot`` / ``remote`` / ``token``, ``safety_box``, ``joint_limits``, ``home_joints``, ``cameras``
+   * - ``robot`` / ``remote`` / ``token``, ``limits`` (the tighter-only override, see :ref:`Limits <en-devices-limits>`), ``home_joints``, ``cameras``
      - per arm
-     - ``cameras`` must be unique across arms; ``joint_limits`` on both arms or on neither
+     - ``cameras`` must be unique across arms; ``limits.joints`` on both arms or on neither
    * - ``action_mode``, ``num_joints``, ``control_hz``, ``gripper_in_action``, ``xyz_scale_m``, ``rot_scale_rad``, ``joint_scale_rad``, ``state_fields``, ``image_size``
      - per arm, equal on both
      - a mismatch raises ``ValueError`` when the config is built
@@ -42,7 +42,7 @@ Set ``task`` on the two-arm config (default ``task.name: none``); per-arm tasks
 must remain ``none``. ``max_episode_steps`` defaults to ``None`` and shared
 ``reset_settle_s`` to ``0.5`` seconds, replacing each arm's settle time.
 
-Per-arm lists such as ``joint_limits`` go in a YAML preset (``--config``), as for ``real_robot``:
+Per-arm lists such as ``limits.joints`` go in a YAML preset (``--config``), as for ``real_robot``:
 
 .. code-block:: yaml
    :dedent: 0

@@ -7,7 +7,7 @@ import math
 from pathlib import Path
 
 PRESET_HARDWARE_FIELDS = ("robot_ip", "arm_backend", "gripper", "cameras", "home_joints",
-                          "joint_limits", "safety_box", "task_frame", "workspace")
+                          "limits", "task_frame")
 PRESET_CAMERA_FIELDS = ("serial", "width", "height", "fps", "enable_depth")
 STALE_PRESET_HINT = "the preset copy of the station is stale; regenerate it or edit the field"
 _BRIEF_LIST_LENGTH = 4

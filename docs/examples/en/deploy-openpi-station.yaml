@@ -13,13 +13,17 @@ claim: true
 home_joints: [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]
 # end home
 # start bounds
-# Example numbers from robot.franka.example.yaml; replace with reviewed on-site boundaries.
-safety_box: [0.3, -0.3, 0.05, 0.7, 0.3, 0.6]
-workspace:
-  frame: base
-  low: [0.3, -0.3, 0.05]
-  high: [0.7, 0.3, 0.6]
-max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.1}
+# Example numbers: joint limits are the Panda datasheet values; the TCP box is centred on home, low/high are offsets from home in metres. origin_xyz/axes_R are written by rwrl limits rebase.
+limits:
+  joints: [[-2.8973, 2.8973], [-1.7628, 1.7628], [-2.8973, 2.8973], [-3.0718, -0.0698], [-2.8973, 2.8973], [-0.0175, 3.7525], [-2.8973, 2.8973]]
+  tcp:
+    origin: home
+    origin_xyz: [0.3070195700516105, -7.841394128006894e-17, 0.4868695582766445]
+    axes_R: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    low: [-0.2, -0.25, -0.15]
+    high: [0.2, 0.25, 0.3]
+    measured_margin_m: 0.003
+  max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.1}
 # end bounds
 # start gripper
 gripper:

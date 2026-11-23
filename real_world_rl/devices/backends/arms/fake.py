@@ -8,7 +8,7 @@ import numpy as np
 from real_world_rl.devices.arm import Arm, ControlMode
 from real_world_rl.devices.base import Connection
 from real_world_rl.devices.errors import DeviceFault
-from real_world_rl.devices.safety import ArmSafety
+from real_world_rl.devices.limits import ArmLimits
 
 if TYPE_CHECKING:
     from real_world_rl.devices.robot import RobotConfig
@@ -29,7 +29,7 @@ class FakeArm(Arm):
         num_joints: int = 7,
         alpha: float = 0.5,
         owner: Connection | None = None,
-        safety: ArmSafety | None = None,
+        safety: ArmLimits | None = None,
     ) -> None:
         super().__init__(name, num_joints=num_joints, owner=owner, safety=safety)
         self._alpha = alpha
@@ -43,7 +43,15 @@ class FakeArm(Arm):
 
     @classmethod
     def from_config(cls, config: "RobotConfig", *, name: str = "arm") -> "FakeArm":
-        return cls(name, num_joints=config.NUM_JOINTS, safety=ArmSafety.from_config(config))
+        arm = cls(name, num_joints=config.NUM_JOINTS, safety=ArmLimits.from_config(config))
+        arm._kinematics = config.kinematics()
+        return arm
+
+    def tcp_position_from_joints(self, q):
+        if self.num_joints != 7:
+            return None
+        from real_world_rl.devices.robots.franka_kinematics import tcp_position
+        return (getattr(self, "_kinematics", None) or tcp_position)(q)
 
     def inject(self, fault: str | None) -> None:
         if fault not in _FAULTS:

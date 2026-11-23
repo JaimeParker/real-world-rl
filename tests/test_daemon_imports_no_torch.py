@@ -89,11 +89,11 @@ def test_rwrl_help_runs_without_learning_packages(argv):
 
 def test_mock_doctor_runs_without_learning_packages(tmp_path):
     station = tmp_path / "station.yaml"
-    station.write_text("type: franka\narm_backend: fake\ngripper:\n  backend: fake\n")
+    station.write_text("type: franka\nlimits: {joints: [[-4, 4], [-4, 4], [-4, 4], [-4, 4], [-4, 4], [-4, 4], [-4, 4]]}\narm_backend: fake\ngripper:\n  backend: fake\n")
     result = run_without_learning(
         "from real_world_rl.cli import main\nraise SystemExit(main(sys.argv[1:]))",
         "--json", "doctor", "--mock", "--station", str(station),
-        env={"RWRL_DOCTOR_REPORT_DIR": str(tmp_path / "reports")},
+        env={"RWRL_DOCTOR_REPORT_DIR": str(tmp_path / "reports"), "XDG_CACHE_HOME": str(tmp_path / "cache")},
     )
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["status"] == "PASS"
@@ -117,7 +117,7 @@ def test_teleop_run_reports_the_learning_extra(monkeypatch, tmp_path):
         raise ModuleNotFoundError("No module named 'rl_garden'", name="rl_garden")
 
     station = tmp_path / "station.yaml"
-    station.write_text("type: franka\narm_backend: fake\nteleop:\n  backend: spacemouse\n")
+    station.write_text("type: franka\nlimits: {joints: [[-4, 4], [-4, 4], [-4, 4], [-4, 4], [-4, 4], [-4, 4], [-4, 4]]}\narm_backend: fake\nteleop:\n  backend: spacemouse\n")
     monkeypatch.setattr("real_world_rl.teleop.spacemouse.cli.run_session", missing_rl_garden)
     with pytest.raises(CliError) as error:
         TELEOP.run(SimpleNamespace(teleop_command="run", station=str(station), robot=None), None)

@@ -1,6 +1,8 @@
 """Two fake Franka arms (device-layer fake backends) for the two-arm env tests."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 from typing import Any
 
 import real_world_rl.devices.backends  # noqa: F401  (registers the fake backends)
@@ -25,7 +27,7 @@ def fake_robot_dict(arm: str) -> dict[str, Any]:
     """A local device-layer RobotConfig dict for ``arm``: a fake Franka with a gripper and a camera.
 
     Each arm gets its own robot and camera names, as two real arms would."""
-    return {
+    return {"limits": station_limits(),
         "type": "franka",
         "name": f"{arm}_franka",
         "arm_backend": "fake",
@@ -37,6 +39,7 @@ def fake_robot_dict(arm: str) -> dict[str, Any]:
 
 
 def fake_franka(arm: str, **robot_overrides) -> FrankaRobot:
+    robot_overrides.setdefault("limits", station_limits())
     return FrankaRobot(
         FrankaConfig(
             name=f"{arm}_franka",

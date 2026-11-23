@@ -27,7 +27,7 @@ import numpy as np
 import torch
 
 # What a normalized action physically means: these must match for a replayed transition.
-_PHYSICAL_KEYS = ("joint_limits", "xyz_scale_m", "rot_scale_rad", "joint_scale_rad", "state_fields")
+_PHYSICAL_KEYS = ("limits", "joint_limits", "xyz_scale_m", "rot_scale_rad", "joint_scale_rad", "state_fields")
 _ARM_LAYOUT_KEYS = ("num_arms", "arm_names")
 DEMO_CONTRACT_KEYS = (
     ("action_mode", "arm_action_dim", "gripper_in_action", "num_joints") + _ARM_LAYOUT_KEYS + _PHYSICAL_KEYS + ("contract_version", "experiment", "effective_control")
@@ -37,7 +37,7 @@ _COMPARED_KEYS = ("action_mode", "arm_action_dim", "gripper_in_action") + _ARM_L
 # station facts the CLI owns. None of them changes what the policy sees or how its actions are
 # interpreted; camera names and order are compared through ``observation`` (its entries and
 # ``camera_order``) and ``image_size``.
-_PROVENANCE_EXPERIMENT_KEYS = ("sources", "safety_box", "home_joints", "reset_settle_s", "max_episode_steps", "cameras")
+_PROVENANCE_EXPERIMENT_KEYS = ("sources", "home_joints", "reset_settle_s", "max_episode_steps", "cameras")
 # ``sources`` entries that change the action layout (which dims the operator drives): compared.
 _COMPARED_SOURCE_KEYS = ("teleop_selected_parts", "teleop_idle_behavior")
 # The ``sources`` entry describing how operator actions were generated (the cartesian command
@@ -142,6 +142,12 @@ def compared_experiment(spec: Any) -> Any:
     entry at the top level."""
     if not isinstance(spec, Mapping):
         return spec
+    from real_world_rl.contracts.limits import checkpoint_limits
+    spec = dict(spec)
+    if any(key in spec for key in ("safety_box", "workspace", "spatial_constraints", "joint_limits")):
+        spec["limits"] = checkpoint_limits(spec)
+        for key in ("safety_box", "workspace", "spatial_constraints", "joint_limits"):
+            spec.pop(key, None)
     compared = {key: value for key, value in spec.items() if key not in _PROVENANCE_EXPERIMENT_KEYS}
     sources = spec.get("sources") or {}
     teleop = {key: sources[key] for key in _COMPARED_SOURCE_KEYS if key in sources}
@@ -155,9 +161,6 @@ def compared_experiment(spec: Any) -> Any:
     if isinstance(control, Mapping):
         compared[TELEOP_CONTROL_KEY] = {key: value for key, value in control.items()
                                       if key not in ("input_rotation", "input_rotation_semantics")}
-    spatial = compared.get("spatial_constraints")
-    if isinstance(spatial, Mapping) and "workspace" not in spatial:
-        compared.pop("spatial_constraints")
     if isinstance(spec.get("arms"), Mapping):
         compared["arms"] = {name: compared_experiment(arm) for name, arm in spec["arms"].items()}
     return compared
@@ -197,6 +200,8 @@ def write_contract_sidecar(pkl_path: str | Path, contract: Mapping[str, Any]) ->
 
 def _contract_values_match(saved: Any, expected: Any) -> bool:
     if isinstance(saved, Mapping) and isinstance(expected, Mapping):
+        from real_world_rl.contracts.limits import canonical_limits
+        saved, expected = canonical_limits(saved), canonical_limits(expected)
         saved, expected = semantic_experiment(saved), semantic_experiment(expected)
     if isinstance(saved, Mapping) or isinstance(expected, Mapping):
         return (isinstance(saved, Mapping) and isinstance(expected, Mapping)
@@ -258,6 +263,8 @@ def validate_transitions_against_contract(
     expected = with_arm_layout(expected)
     if saved is not None:
         saved = with_arm_layout(saved)
+        from real_world_rl.contracts.limits import translate_legacy_contract
+        saved = translate_legacy_contract(saved, expected)
         saved_spec = saved.get("experiment", {})
         expected_spec = expected.get("experiment", {})
         if saved_spec and "observation" not in saved_spec and "observation" in expected_spec:
@@ -377,10 +384,24 @@ def validate_experiment(env, saved):
         if _requires_experiment_metadata(contract.get("experiment", {})):
             raise ValueError("saved experiment metadata is missing for task/control/crop/depth configuration")
         return
+    current = env
+    while getattr(current, "env", None) is not None:
+        current = current.env
+    arms = current.arms if hasattr(current, "arms") else {"arm": current}
+    saved_spec = saved.get("experiment") or {}
+    for name, arm in arms.items():
+        spec = (saved_spec.get("arms") or {}).get(name, saved_spec)
+        limits = spec.get("limits") or {}
+        has_limits = limits.get("tcp") is not None or limits.get("joints") is not None
+        has_limits = has_limits or any(spec.get(key) is not None for key in ("safety_box", "workspace", "spatial_constraints"))
+        if has_limits and getattr(getattr(arm, "config", None), "remote", None) is not None:
+            arm._connect_and_validate()
     expected = {key: value for key, value in saved.items() if key not in ("runtime_control", "provenance")}
     actual = experiment_contract_of(env)
     if actual is None:
         raise ValueError("saved experiment contract/hash differs from the constructed environment, which has none")
+    from real_world_rl.contracts.limits import translate_legacy_contract
+    expected = translate_legacy_contract(expected, actual)
     saved_view, actual_view = _compared_contract(expected), _compared_contract(actual)
     if not _contract_values_match(saved_view, actual_view):
         differing = [

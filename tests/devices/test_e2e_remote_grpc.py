@@ -16,7 +16,9 @@ from real_world_rl.server import RemoteRobot
 from real_world_rl.server.service import RobotService
 from real_world_rl.server.transport import GrpcTransport, TransportError
 
-ACTION = {"arm": {"joint_pos": np.ones(7)}, "gripper": {"gripper": [0.9]}}
+# Inside the Panda datasheet joint limits (joint 4 is negative), which the arm applies by default.
+TARGET_Q = np.array([1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0])
+ACTION = {"arm": {"joint_pos": TARGET_Q}, "gripper": {"gripper": [0.9]}}
 
 
 def franka_robot() -> FrankaRobot:
@@ -92,7 +94,7 @@ def test_full_session(daemon):
     robot.arm.set_control_mode(ControlMode.JOINT_SERVO)
     for _ in range(5):
         observation = robot.step(ACTION)
-    np.testing.assert_allclose(observation["arm"]["joint_pos"], 1.0, atol=0.1)
+    np.testing.assert_allclose(observation["arm"]["joint_pos"], TARGET_Q, atol=0.1)
     assert observation["gripper"]["gripper_pos"][0] == 1.0
 
     health = robot.health()

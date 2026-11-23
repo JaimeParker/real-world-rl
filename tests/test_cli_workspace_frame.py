@@ -10,7 +10,9 @@ from real_world_rl.station import load_station
 from real_world_rl.teleop.core.workspace_points import (frame_axes, frame_from_points, frame_point_quality,
                                                     point_base_positions)
 
-ROBOT = {"type": "franka", "name": "left", "robot_ip": "172.16.0.2"}
+from real_world_rl.devices.robots.franka import DATASHEET_JOINT_LIMITS
+LIMITS = {"joints": [list(pair) for pair in DATASHEET_JOINT_LIMITS["panda"]]}
+ROBOT = {"limits": LIMITS, "type": "franka", "name": "left", "robot_ip": "172.16.0.2"}
 TRANSLATED = [1, 0, 0, .5, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
 # 90 degrees about base z, origin at (0.1, 0.2, 0.3).
 ROTATED = [[0, -1, 0, .1], [1, 0, 0, .2], [0, 0, 1, .3], [0, 0, 0, 1]]
@@ -144,6 +146,7 @@ def test_save_adds_task_frame_and_preserves_comments(tmp_path, capsys):
     path = tmp_path / "station.yaml"
     before = ("# Station notes\ntype: franka\nname:  \"left\"  # operator label\n\n"
               "robot_ip: '172.16.0.2' # FCI\n")
+    before += yaml.safe_dump({"limits": LIMITS})
     path.write_text(before)
     write_points(tmp_path, UNIT_POINTS)
     result = frame(path, capsys, "set", "--name", "table", *point_args(), "--save")
@@ -161,44 +164,19 @@ def test_save_replaces_only_the_task_frame(tmp_path, capsys):
     before = ("# Station notes\ntype: franka\nname:  \"left\"  # operator label\n"
               + yaml.safe_dump({"task_frame": {"name": "table", "base_T_frame": np.eye(4).tolist()}})
               + "robot_ip: '172.16.0.2' # FCI\n\n# End of station\n")
+    before += yaml.safe_dump({"limits": LIMITS})
     path.write_text(before)
     result = frame(path, capsys, "set", "--name", "table", *matrix_args(TRANSLATED), "--save")
     assert_only_key_changed(before, path.read_text(), ("task_frame",))
-    assert path.read_text().endswith("# FCI\n\n# End of station\n")
+    assert "# FCI\n\n# End of station\n" in path.read_text()
     assert load_station(path).select().config.task_frame == result["candidate"]
 
 
-def test_save_refuses_a_name_that_orphans_the_workspace(tmp_path, capsys):
-    workspace = {"frame": "table", "low": [0, 0, 0], "high": [1, 1, 1]}
-    path = write_station(tmp_path, task_frame={"name": "table", "base_T_frame": np.eye(4).tolist()},
-                         workspace=workspace)
-    original = path.read_bytes()
-    result = frame(path, capsys, "set", "--name", "bench", *matrix_args(TRANSLATED), "--save", code=2)
-    assert "'table'" in result["error"] and "--name table" in result["hint"]
-    assert path.read_bytes() == original
-    # The station could not load such a candidate, so a preview is refused the same way.
-    preview = frame(path, capsys, "set", "--name", "bench", *matrix_args(TRANSLATED), code=2)
-    assert preview["error"] == result["error"]
-
-
-def test_save_with_a_base_frame_workspace_is_not_a_rebase(tmp_path, capsys):
-    workspace = {"frame": "base", "low": [0, 0, 0], "high": [1, 1, 1]}
-    path = write_station(tmp_path, workspace=workspace)
+def test_save_prints_rebase_hint(tmp_path, capsys):
+    path = write_station(tmp_path)
     result = frame(path, capsys, "set", "--name", "bench", *matrix_args(TRANSLATED), "--save")
-    assert "workspace_frame_rebased" not in result
-    config = load_station(path).select().config
-    assert config.task_frame["name"] == "bench" and config.workspace == workspace
-
-
-def test_save_with_the_workspace_frame_name_rebases_it(tmp_path, capsys):
-    workspace = {"frame": "table", "low": [0, 0, 0], "high": [1, 1, 1]}
-    path = write_station(tmp_path, task_frame={"name": "table", "base_T_frame": np.eye(4).tolist()},
-                         workspace=workspace)
-    result = frame(path, capsys, "set", "--name", "table", *matrix_args(TRANSLATED), "--save")
-    assert result["workspace_frame_rebased"] is True
-    assert "rwrl workspace validate" in result["workspace_note"]
-    config = load_station(path).select().config
-    assert config.task_frame["base_T_frame"][0][3] == .5 and config.workspace == workspace
+    assert "rwrl limits rebase" in result["hint"]
+    assert load_station(path).select().config.task_frame['name'] == 'bench'
 
 
 def test_show_reports_the_frame_and_its_axes(tmp_path, capsys):
@@ -238,3 +216,24 @@ def test_frame_rpy_reads_a_tilted_table_mount():
     c = 0.5 ** 0.5
     nominal = {"name": "table", "base_T_frame": [[1, 0, 0, 0], [0, c, -c, 0], [0, c, c, 0], [0, 0, 0, 1]]}
     assert frame_axes(nominal)["rpy_deg"] == pytest.approx({"roll": 45.0, "pitch": 0.0, "yaw": 0.0})
+
+
+def test_calibrating_rotated_frame_keeps_limits_frozen_until_rebase(tmp_path, capsys):
+    from real_world_rl.cli.limits_ops import migrate_node
+    from real_world_rl.devices.robots.franka import FRANKA_HOME_JOINTS
+    from real_world_rl.devices.robots.franka_kinematics import tcp_position
+    home = tcp_position(FRANKA_HOME_JOINTS)
+    node = {**ROBOT, 'joint_limits': LIMITS['joints'],
+            'safety_box': np.r_[home - .3, home + .3].tolist()}
+    node.pop('limits')
+    migrate_node(node)
+    path = write_station(tmp_path, **node)
+    previous_tcp = node['limits']['tcp']
+    result = frame(path, capsys, 'set', '--name', 'table',
+                   *matrix_args(np.array(ROTATED).flatten()), '--save')
+    assert 'rwrl limits rebase' in result['hint']
+    assert yaml.safe_load(path.read_text())['limits']['tcp'] == previous_tcp
+    with pytest.raises(ValueError, match='task_frame changed'):
+        load_station(path)
+    assert main(['limits', 'rebase', str(path), '--write']) == 0
+    load_station(path)

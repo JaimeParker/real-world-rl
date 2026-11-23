@@ -9,7 +9,7 @@ from real_world_rl.devices.stop_trace import StopThresholds, evaluate_stop_trace
 def trace():
     return {'schema_version': 1, 'stop_start_s': 1., 'stop_end_s': 2.,
             'control_mode': 'cartesian_servo', 'tracker_active': True,
-            'workspace': {'frame': 'base', 'low': [-1]*3, 'high': [1]*3},
+            'tcp': {'origin_xyz': [0]*3, 'axes_R': np.eye(3).tolist(), 'low': [-1]*3, 'high': [1]*3},
             'samples': [{'monotonic_s': float(t), 'device_time_s': float(t + 10),
                          'tcp_pose': [0, 0, 0, 0, 0, 0, 1], 'joint_vel': [0]*7,
                          'robot_mode': 'Move' if t <= 1 else 'Idle', 'errors': []} for t in np.linspace(.5, 4., 351)]}
@@ -46,7 +46,7 @@ def test_so3_rotation_including_quaternion_sign(degrees, expected):
 
 def test_stale_device_time_and_missing_workspace_block():
     data = trace()
-    del data['workspace']
+    del data['tcp']
     for row in data['samples']:
         row['device_time_s'] = 10
     result = evaluate_stop_trace(data)
@@ -67,7 +67,7 @@ def test_fault_or_workspace_breach_fail_even_with_poor_coverage():
     del data['samples'][101:200]
     result = evaluate_stop_trace(data)
     assert result['status'] == 'FAIL'
-    assert 'measured TCP outside workspace' in result['failed']
+    assert 'measured TCP outside limits.tcp' in result['failed']
     assert result['missing_evidence']
 
 

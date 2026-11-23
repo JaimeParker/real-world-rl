@@ -54,7 +54,7 @@ Examples run on the robot PC, from the repository root with the project environm
 A robot config is one YAML mapping with a ``type`` key. It can also be nested under a
 top-level ``robot:`` key. Unknown keys are rejected with the list of valid ones. Omitted
 keys take their dataclass defaults; the YAML below also includes illustrative safety
-limits. ``safety_box``, ``joint_limits`` and ``max_delta_per_step`` default to ``null``. Full annotated copies are in
+limits, all inside one ``limits:`` block (a Franka without ``limits.joints`` uses its ``robot_model`` datasheet limits; everything else defaults to ``null``). Full annotated copies are in
 \ |reference-link-1|_\  and
 \ |reference-link-2|_\ . The
 \ :doc:`setup wizard <../tutorials/station>`\  writes this file for a Franka station.
@@ -117,16 +117,23 @@ sections.
    serl_auto_recover: null       # cartesian_controller: serl: {enabled, max_per_episode}; null = {true, 5}
    load: null                    # optional payload {mass_kg, center_of_mass_m: [x, y, z], inertia: 3x3}, set after connect
    home_joints: [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]  # 7 values (default shown)
-   safety_box: [0.3, -0.3, 0.05, 0.7, 0.3, 0.6]  # [xmin, ymin, zmin, xmax, ymax, zmax] m, base frame of tcp_pose (O_T_EE)
-   joint_limits:                 # 7 [lo, hi] pairs in rad; home_joints must lie inside
-     - [-2.8, 2.8]
-     - [-1.7, 1.7]
-     - [-2.8, 2.8]
-     - [-3.0, -0.1]
-     - [-2.8, 2.8]
-     - [0.0, 3.7]
-     - [-2.8, 2.8]
-   max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.1}  # servo step cap from the measured state
+   limits:                       # see "Limits" below; Franka defaults limits.joints to its datasheet
+     joints:                     # 7 [lo, hi] pairs in rad (wizard default: the robot_model datasheet); home_joints must lie inside
+       - [-2.8973, 2.8973]
+       - [-1.7628, 1.7628]
+       - [-2.8973, 2.8973]
+       - [-3.0718, -0.0698]
+       - [-2.8973, 2.8973]
+       - [-0.0175, 3.7525]
+       - [-2.8973, 2.8973]
+     tcp:                        # optional TCP box centred on home, along the table axes (task_frame rotation)
+       origin: home
+       origin_xyz: [0.3070195700516105, -7.841394128006894e-17, 0.4868695582766445]  # frozen FK(home_joints); written by rwrl setup / rwrl limits rebase
+       axes_R: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]   # frozen task_frame rotation (identity without task_frame)
+       low: [-0.20, -0.25, -0.15]   # m, along the axes_R columns, each < 0
+       high: [0.20, 0.25, 0.30]     # m, each > 0
+       measured_margin_m: 0.003     # default 0.003
+     max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.1}  # servo step cap from the measured state
    claim: true                   # daemon takes a per-host exclusive lock while connected
    gripper:                      # null = no gripper
      backend: franky             # franky (default) | serl_http | fake
@@ -159,9 +166,14 @@ sections.
    bitrate: 1000000              # must match the interface (default 1000000)
    firmware_profile: null        # pyagxarm only: default | v183 | v188 | v189; null probes the arm
    home_joints: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # 6 values, rad
-   safety_box: [0.1, -0.3, 0.1, 0.5, 0.3, 0.5]   # m, base frame; tcp_pose is the FLANGE pose (no tool offset)
-   joint_limits: [[-2.6, 2.6], [0.0, 3.1], [-2.9, 0.0], [-1.7, 1.7], [-1.2, 1.2], [-2.0, 2.0]]  # rad
-   max_delta_per_step: {xyz_m: 0.02, joint_rad: 0.05}
+   limits:
+     joints: [[-2.6, 2.6], [0.0, 3.1], [-2.9, 0.0], [-1.7, 1.7], [-1.2, 1.2], [-2.0, 2.0]]  # rad
+     tcp:                        # no FK model: explicit base-frame origin (the tcp_pose is the FLANGE pose, no tool offset)
+       origin: [0.3, 0.0, 0.3]
+       axes_R: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+       low: [-0.2, -0.25, -0.15]
+       high: [0.2, 0.25, 0.3]
+     max_delta_per_step: {xyz_m: 0.02, joint_rad: 0.05}
    claim: true
    gripper:
      backend: pyagxarm           # must match the arm backend: pyagxarm | piper_sdk
@@ -171,13 +183,13 @@ sections.
      shares_arm_session: true    # required: the Piper gripper borrows the arm's CAN session
    cameras: []
 
-Safety limits and teleop (all optional, all three keys are read from the robot PC's yaml):
+Safety limits and teleop (all optional; every limit is in the ``limits:`` block of the robot PC's yaml, fields are explained under \ :ref:`Limits <en-devices-limits>`\ ):
 
--  ``safety_box``: ``[xmin, ymin, zmin, xmax, ymax, zmax]`` in metres, in the frame of
+-  ``limits.joints``: one ``[lo, hi]`` pair per joint, in rad. ``home_joints`` must lie inside it.
+-  ``limits.tcp``: a TCP box centred on the home TCP position, along the table axes, in metres, in the frame of
    ``read_state()["tcp_pose"]`` (Franka: ``O_T_EE``, Piper: the **flange**, not the gripper tip).
    Only the position is limited; the orientation is left untouched.
--  ``joint_limits``: one ``[lo, hi]`` pair per joint, in rad. ``home_joints`` must lie inside it.
--  ``max_delta_per_step``: ``xyz_m`` and/or ``joint_rad``, a cap on how far a servo target may be from
+-  ``limits.max_delta_per_step``: ``xyz_m`` and/or ``joint_rad``, a cap on how far a servo target may be from
    the measured state. Servo only; ``move_to_*`` is not capped.
 -  The yaml on the robot PC is the source of truth. ``servo_*`` targets outside the limits are
    **clipped** and counted (``safety_clips``); ``move_to_*`` targets outside them are **refused** with
@@ -259,6 +271,142 @@ motion, the way HIL-SERL's ``franka_server`` ``/set_load`` calls franka_control'
    ``arm.joint_trajectory_params`` and ``arm.update_joint_trajectory_params`` read and live-update them (also through the daemon). It needs ``arm_backend: franky`` and franky,
    ``serl_controller`` and ``joint_controller`` from one build; ``realtime: enforce`` is recommended. See \ :doc:`Joint controller <joint-controller>`\ .
 
+.. _en-devices-limits:
+
+Limits
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+All safety limits of one arm live in one ``limits:`` block of the robot yaml (one block per robot
+when nested under ``robots:``):
+
+.. code-block:: yaml
+
+   limits:
+     joints: [[-2.8973, 2.8973], [-1.7628, 1.7628], [-2.8973, 2.8973], [-3.0718, -0.0698], [-2.8973, 2.8973], [-0.0175, 3.7525], [-2.8973, 2.8973]]
+     tcp:
+       origin: home                     # home, or an explicit base-frame [x, y, z] in m
+       origin_xyz: [0.307, 0.0, 0.487]  # frozen: forward-kinematics position of home_joints
+       axes_R: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]  # frozen: rotation of task_frame (identity without one)
+       low:  [-0.20, -0.25, -0.15]      # m along the three axes_R columns, each < 0
+       high: [ 0.20,  0.25,  0.30]      # m, each > 0
+       measured_margin_m: 0.003         # tolerance for the measured TCP, default 0.003, >= 0
+     max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.1}   # optional, same meaning as before
+
+.. list-table::
+   :header-rows: 1
+
+   * - Field
+     - Meaning
+   * - ``joints``
+     - One ``[lo, hi]`` pair per joint, rad; one row per joint, ``lo <= hi``, ``home_joints`` must lie inside. Required for a Franka (``rwrl setup`` writes the ``robot_model`` datasheet values).
+   * - ``tcp.low`` / ``tcp.high``
+     - The two corners of the TCP position box as offsets from the box centre, in m. ``low < 0 < high`` on every axis, so home is always strictly inside.
+   * - ``tcp.origin`` / ``origin_xyz``
+     - The box centre. ``origin: home`` uses the forward-kinematics TCP position of ``home_joints`` and freezes it in ``origin_xyz``. A robot without a kinematics model (Piper, ...) writes an explicit ``origin: [x, y, z]`` instead.
+   * - ``tcp.axes_R``
+     - The three box axes (a 3x3 rotation in the base frame). It must equal the rotation of ``task_frame``, or the identity when there is no ``task_frame`` (box aligned with the base axes). The ``task_frame`` **origin** is not used.
+   * - ``tcp.measured_margin_m``
+     - How far (m) the measured TCP may be outside the box before it counts as a breach (last row of the table below). Default 0.003.
+   * - ``max_delta_per_step``
+     - Per-step cap between a servo target and the measured state (``xyz_m``, ``joint_rad``). Servo only; ``move_to_*`` is not capped.
+
+**Why the box is centred on home and follows the table axes.** An arm is often mounted on its side or
+tilted, so the base axes do not line up with the table. The box follows the axes of ``task_frame``
+(the table frame you calibrate with ``rwrl workspace`` from three table points), so its faces are the
+table's front/back, left/right and up/down and do not cut diagonally through the table. It is centred
+on home, so home is always inside and you never copy corner coordinates. **There is no orientation
+limit:** the station no longer limits the end-effector attitude.
+
+**Frozen values and rebase.** ``origin_xyz`` and ``axes_R`` are frozen values written into the file.
+On load they are checked against the forward kinematics of the current ``home_joints`` and the current
+``task_frame`` (a position difference above 1 mm, or a rotation that differs from ``axes_R``, is an
+error), so changing home or re-calibrating the table frame never moves the box silently. You get:
+
+.. code-block:: text
+
+   home_joints changed since limits were frozen; run `rwrl limits rebase`
+   task_frame changed since limits were frozen; run `rwrl limits rebase`
+
+Then run ``rwrl limits rebase <yaml> --write``: it recomputes ``origin_xyz`` and ``axes_R`` from the
+current home and ``task_frame`` and keeps ``low`` / ``high``. You can also write just ``origin: home``,
+``low`` and ``high`` and let ``rebase`` fill in the two frozen values.
+
+**What happens on a breach.** One block of limits is enforced by the device layer (``Arm``), so the
+local ``Robot``, the daemon, GELLO, SpaceMouse, Pico and the training env all follow the same rules;
+teleop and env no longer re-implement them:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Command
+     - On a breach
+     - Counter
+   * - ``servo_cartesian`` (``cartesian_delta`` env steps, SpaceMouse, Pico, Cartesian leader)
+     - Shortened to ``max_delta_per_step`` first, then the position is **clipped** into the box; the orientation is untouched. The target slides along the wall; it does not stop and is not re-anchored.
+     - ``safety_clips``
+   * - ``servo_joints`` (GELLO, ``joint_delta``, ``joint_abs``)
+     - Clipped into ``joints`` and shortened to the step cap; if forward kinematics predicts the TCP would leave the box, the joint step is bisected so the arm **stops at the wall** (the largest step that stays inside). If the current position is already outside (for example after hand guiding), only a target closer to the box is accepted; otherwise the arm holds.
+     - ``safety_clips``
+   * - ``move_to_pose``
+     - Target position outside the box: **rejected** with ``SafetyViolation``, nothing is sent.
+     - ``safety_rejects``
+   * - ``move_to_joints`` and env reset
+     - Target outside ``joints``, or its forward-kinematics TCP outside the box: **rejected** with ``SafetyViolation``.
+     - ``safety_rejects``
+   * - Measured TCP outside the box + ``measured_margin_m``
+     - The env stops the arm and **latches a fault** (``SafetyViolation: measured TCP outside TCP box``); the env never commands a return into the box.
+     - env fault
+
+A robot without a kinematics model (Piper, AGX, ``serl_http``) has no in-box projection for joint
+servoing: joint modes are limited by ``joints`` and the step cap only, and the box constrains Cartesian
+targets, ``move_to_pose`` and the measured feedback. The Franka kinematics is the Franka datasheet's
+Craig (modified) DH table plus ``flange_T_ee`` (default: Franka Hand); the ``franky`` backend compares it
+with ``state.F_T_EE`` at every connect and raises ``DeviceFault`` on a mismatch, and ``rwrl doctor``
+also checks FK against the measured ``O_T_EE`` (under 1 mm). The soft limits of SERL's native joint
+reset are datasheet values inside the C++ controller and are not touched by ``limits``.
+
+**The env can only be tighter.** ``real_robot.limits`` in a training or deploy config is an optional
+override with a subset of the ``limits`` shape:
+
+.. code-block:: yaml
+
+   real_robot:
+     limits:
+       joints: [[...], ...]       # optional: narrower joint ranges than the robot
+       tcp: {low: [-0.1, -0.1, -0.1], high: [0.1, 0.1, 0.2]}   # optional: only low / high; origin and axes come from the robot
+
+After connecting (the first ``reset()``) the env merges it with the robot's limits: anything unset is
+inherited, anything looser than the robot is refused with a ``DeviceFault``. The env cannot change the
+box origin or axes. The old env keys ``safety_box``, ``joint_limits`` and ``workspace`` are removed and
+fail immediately. ``cartesian_semantics: serl`` additionally takes ``safety_box_rpy_low`` /
+``safety_box_rpy_high``: these belong to the HIL-SERL action semantics (they clip the target roll/pitch/yaw),
+not to the station safety limits; that mode needs a ``limits.tcp`` in the station and both rpy ranges.
+
+**Commands.**
+
+.. list-table::
+   :header-rows: 1
+
+   * - Command
+     - What it does
+   * - ``rwrl limits show [STATION] [--station STATION]``
+     - Prints the resolved limits of each arm: joints, box centre, axes, ``low`` / ``high`` and the eight base-frame corners ``corners_base_m``.
+   * - ``rwrl limits migrate <yaml> [--write]``
+     - Converts old top-level ``safety_box`` / ``workspace`` / ``joint_limits`` / ``max_delta_per_step`` into ``limits:``; prints the new block and a diff; ``--write`` edits the file (the original is kept as ``.bak``).
+   * - ``rwrl limits rebase <yaml> [--write]``
+     - Recomputes ``origin_xyz`` and ``axes_R`` from the current ``home_joints`` and ``task_frame``; ``low`` / ``high`` stay.
+   * - ``rwrl workspace show`` / ``validate --pose X Y Z QX QY QZ QW``
+     - Shows the ``task_frame``, the resolved limits and ``home_within_limits``; checks whether the position of a base-frame pose is inside the box (the orientation is not checked).
+
+**Migration.** The old top-level ``safety_box``, ``workspace``, ``joint_limits`` and ``max_delta_per_step``
+are now a load error that points at ``rwrl limits migrate``. The rules: ``origin_xyz`` is the forward-kinematics
+position of ``home_joints``; with no ``task_frame`` the old position box is represented exactly as offsets from home;
+with a tilted ``task_frame`` an old base-axis box cannot be written exactly as a table-axis box, so the largest
+table-axis box centred on home that fits inside the old one is written and a warning asks you to confirm it;
+when both ``safety_box`` and ``workspace`` exist the intersection is taken; orientation limits of ``workspace`` are
+dropped with a warning. Limits recorded in old checkpoints are translated by the same rules on load;
+what cannot be translated (for example an orientation limit) requires retraining.
+
 SERL controller (``cartesian_controller: serl``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -307,11 +455,13 @@ A new franky arm with the impedance controller gets the SERL-like ``control:`` g
 impedance Cartesian gains (switching a station to serl drops them from ``control:`` and keeps the
 joint keys).
 
-Every arm gets device-side safety limits: the datasheet ``joint_limits`` of its ``robot_model``
-(asked before them, so an FR3 gets the FR3 table; ``--joint-limits``),
-a servo step cap ``max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}`` (``--max-delta-xyz-m``,
-``--max-delta-joint-rad``) and a ``safety_box`` it asks for (base frame, metres, suggested
-``[0.3, -0.3, 0.05, 0.7, 0.3, 0.6]``, ``--safety-box``), which must contain the home pose.
+Every arm gets device-side safety limits, written as one ``limits:`` block: the datasheet ``limits.joints`` of its
+``robot_model`` (asked before them, so an FR3 gets the FR3 table; ``--joint-limits``), a TCP box centred on home
+(the wizard asks for ``low`` / ``high`` relative to home, default ``[-0.20, -0.25, -0.15]`` and ``[0.20, 0.25, 0.30]`` m,
+``--tcp-box-low``, ``--tcp-box-high``; the box follows the ``task_frame`` axes, or the base axes without one) and a servo
+step cap ``max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}`` (``--max-delta-xyz-m``, ``--max-delta-joint-rad``).
+The wizard writes the frozen ``origin_xyz`` and ``axes_R`` from the home forward kinematics; a robot without a kinematics
+model (Piper, ...) takes an explicit base-frame origin with ``--tcp-origin X,Y,Z``. See \ :ref:`Limits <en-devices-limits>`\ .
 
 On the robot PC, from the repository root with the project environment active.
 See the \ :doc:`setup walkthrough <../tutorials/station>`\  for commands.
@@ -450,7 +600,7 @@ rule installation command. See \ :ref:`Known limitations <en-devices-known-limit
 with one joint per ``joint_ids`` entry and a gripper channel when ``gripper_id`` is set. Each poll
 is one sync read; joint ``i`` is ``wrap((raw_rad - joint_offsets_rad[i]) * joint_signs[i])`` into
 ``[wrap_centers_rad[i] - pi, wrap_centers_rad[i] + pi)``, so no start pose is needed at connect
-(set the centres to the midpoints of ``joint_limits``; Panda joint 6 reaches past pi and needs a centre > 0).
+(set the centres to the midpoints of ``limits.joints``; Panda joint 6 reaches past pi and needs a centre > 0).
 The gripper is ``clip((raw - gripper_closed_rad) / (gripper_open_rad - gripper_closed_rad), 0, 1)``,
 1 = open, optionally binarized with ``gripper_binarize_threshold``. ``intervention: always``
 (default) reports ``intervening`` on every poll; ``toggle`` follows a toggle key read with ``evdev``
@@ -471,7 +621,7 @@ the block to paste:
 
 It checks each joint's sign (move one joint in the robot's positive direction when asked),
 solves the offsets on the quarter-turn grid from the calibration pose, captures the trigger's
-open and closed angles, and takes the wrap centres from the yaml's ``joint_limits``. The port
+open and closed angles, and takes the wrap centres from the yaml's ``limits.joints``. The port
 needs read/write access (``dialout`` group); the doctor checks it as ``os:serial`` and ``os:groups``,
 and warns about brltty on CH340 adapters (``os:brltty``) and a slow FTDI ``latency_timer``
 (``os:latency_timer``). The baud rate
@@ -619,7 +769,7 @@ hooks (plus ``read_state``, ``recover``, ``_enter_control_mode``) and never over
 methods, so no path to the motors skips the guard. A backend's ``read_state()`` must return its
 result through ``self._remember_state(state)``: the step cap reuses that cached state (at most
 ``MAX_DELTA_STATE_AGE_S`` = 0.5 s old, else it re-reads) instead of querying the robot on every
-servo call. ``Arm.from_config(config)`` builds the backend with ``ArmSafety.from_config(config)``.
+servo call. ``Arm.from_config(config)`` builds the backend with ``ArmLimits.from_config(config)``.
 A third-party backend that skips ``_remember_state`` still works but costs one extra
 ``read_state()`` per capped servo call.
 
@@ -641,36 +791,33 @@ Safety rules
 -  **Connecting enables the motors.** Connecting a Piper (directly, through the doctor, or
    through the daemon when a client connects) enables its motors, and they stay enabled
    after ``disconnect()``. Clear the workspace before running the doctor.
--  **Safety limits.** ``safety_box``, ``joint_limits`` and ``max_delta_per_step`` in the robot yaml on
-   the robot host are the source of truth. ``Arm`` enforces them in the public command methods, so
-   they hold on every path: local ``Robot``, the daemon (``arm.servo_*``, ``arm.move_to_*``,
+-  **Safety limits.** The ``limits:`` block (``joints``, ``tcp``, ``max_delta_per_step``) in the robot yaml on
+   the robot host is the source of truth; fields are explained under \ :ref:`Limits <en-devices-limits>`\ . ``Arm`` enforces it in the public command methods, so
+   it holds on every path: local ``Robot``, the daemon (``arm.servo_*``, ``arm.move_to_*``,
    ``robot.send_action``, ``robot.step``) and ``send_action``. A ``RemoteArm`` has no guard of its own and
    forwards to the daemon's.
 
-   -  ``servo_*``: the target is first shortened to ``max_delta_per_step`` from the measured state, then
-      clipped into the base box / joint limits. Any accepted change counts one ``safety_clips``.
-      With ``workspace`` configured, Cartesian targets must also satisfy its oriented position box
-      and optional SO(3) orientation radius, both before and after base-box clipping. A workspace
-      rejection raises ``SafetyViolation``, increments ``safety_rejects``, and sends nothing.
-   -  ``move_to_*``: a target outside the box / joint limits raises ``SafetyViolation``, counts one
-      ``safety_rejects``, and nothing is sent. ``move_to_*`` is not step-capped.
+   -  ``servo_cartesian``: the target is first shortened to ``max_delta_per_step`` from the measured state, then
+      its position is clipped into the TCP box (the orientation is untouched).
+   -  ``servo_joints``: shortened to the step cap and clipped into ``joints``; if forward kinematics predicts the TCP
+      would leave the box, the joint step is bisected and the arm stops at the wall. If the current position is already
+      outside the box, only a target closer to the box is accepted; otherwise the arm holds. A backend without a kinematics
+      model does no in-box projection. Any accepted change counts one ``safety_clips``.
+   -  ``move_to_*``: a target position outside the box, or outside ``joints`` (a joint target also by its forward-kinematics
+      TCP), raises ``SafetyViolation``, counts one ``safety_rejects``, and nothing is sent. ``move_to_*`` is not step-capped.
    -  ``SafetyViolation`` is not a device fault: it is raised before the backend is touched, so it
       cannot latch a fault, needs no ``recover()``, keeps the control mode, and through the daemon it
       does not refresh the watchdog. A client sees the same class.
    -  ``arm.health()`` reports ``safety_clips`` / ``safety_rejects``; ``robot.describe`` exposes the limits
-      as ``arm.safety``. The checks are validated at build time: ``home_joints`` must lie inside
-      ``joint_limits``, a box must have min <= max.
-   -  ``safety_box`` and the Cartesian step cap limit position only. A workspace may additionally
-      constrain orientation with ``orientation_xyzw`` (in its frame) and ``max_angle_rad`` (SO(3)
-      geodesic radius, avoiding Euler branch cuts). Orientation has no device-side step cap.
-      Joint commands are not checked against Cartesian workspace boundaries: these limits do not
-      certify a joint trajectory, whole-arm clearance, or collision-free motion.
-   -  Target checks use ``1e-9`` numerical tolerance. Feedback checks use workspace keys
-      ``measured_margin_m`` (default ``0.003 m``) and ``measured_margin_rad`` (default ``0.03 rad``),
-      both finite and nonnegative. The environment and teleop tracker use these feedback margins;
-      they never relax target admission. A ``task_frame`` without a workspace is a display/sampling
-      reference and adds no spatial contract. With a workspace, both geometries are compared
-      against the daemon before reset.
+      as ``arm.safety`` in the ``station_limits_v1`` wire format (``arm.safety_capabilities`` advertises the same name). Validated at build time:
+      ``home_joints`` must lie inside ``joints``, ``tcp.low < 0 < tcp.high``, and the frozen ``origin_xyz`` / ``axes_R``
+      must match the current home and ``task_frame``.
+   -  The box limits position only, not orientation; there is no device orientation step cap. These limits do not
+      certify whole-arm clearance or collision-free motion.
+   -  Target checks use ``1e-9`` numerical tolerance. Feedback checks use ``tcp.measured_margin_m`` (default
+      ``0.003 m``, finite and nonnegative): a measured TCP outside the box plus that margin makes the env stop the arm and
+      latch a fault; it never relaxes target admission. ``task_frame`` is also the operator input frame of SpaceMouse and Pico;
+      its rotation sets the box axes, so run ``rwrl limits rebase`` after changing it.
 
 -  **Watchdog.** The daemon idles a servoing arm whose client went quiet (see step 4).
 -  \ ``DeviceClaim``\ **.**\  An advisory, node-local file lock in ``$XDG_CACHE_HOME/rwrl/claims/``
@@ -720,7 +867,7 @@ Device errors subclass ``DeviceError`` (a ``RuntimeError``) and carry ``message`
      - libfranka vs robot server version; the wrong distribution ``hid`` without trezor's ``hid.device()`` API
    * - ``safety_violation``
      - ``SafetyViolation``
-     - a Cartesian servo/move target outside ``workspace`` (position or orientation), or a ``move_to_*`` target outside ``safety_box`` / ``joint_limits``; refused before sending, counted by ``safety_rejects``
+     - a ``move_to_*`` target outside ``limits.tcp`` (position) or ``limits.joints``; refused before sending, counted by ``safety_rejects``
    * - ``transport``
      - ``TransportError`` (a ``DeviceFault``)
      - daemon unreachable, timeout, token mismatch
@@ -983,10 +1130,9 @@ Nothing below has been exercised on real hardware; the fakes cover the logic onl
    ``discover()`` globs, sync-read timing per baud rate, the FTDI latency timer (16 ms by default;
    1 ms is the usual Dynamixel tip, not set by the backend), and that the present position stays
    continuous when a joint crosses a turn boundary.
--  **Orientation step size.** A workspace can bound orientation relative to a reference;
-   ``safety_box`` and ``max_delta_per_step`` still limit only position (``xyz_m``) and joints
-   (``joint_rad``). There is no device orientation step cap. The gym env bounds its own rotation
-   increment with ``rot_scale_rad`` and projects policy targets into the configured workspace.
+-  **Orientation step size.** ``limits`` does not bound orientation, and ``max_delta_per_step`` limits only position (``xyz_m``)
+   and joints (``joint_rad``). There is no device orientation step cap. The gym env bounds its own rotation
+   increment with ``rot_scale_rad``.
 -  **Step cap baseline.** The cap is measured from the last read state (at most 0.5 s old),
    not from the previous target. It bounds the target relative to that sample, not its
    distance from the robot’s true current position during the sample’s age.

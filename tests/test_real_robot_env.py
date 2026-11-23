@@ -1,6 +1,8 @@
 """RealRobotEnv over device-layer fake devices, both local and through RemoteRobot + LocalClient."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import time
 
 import numpy as np
@@ -21,6 +23,7 @@ FRAME_HW = (24, 32)
 
 
 def _fake_franka(**robot_overrides) -> FrankaRobot:
+    robot_overrides.setdefault("limits", station_limits(bounds=[-10.]*3+[10.]*3))
     return FrankaRobot(
         FrankaConfig(
             arm_backend="fake",
@@ -49,6 +52,8 @@ class _Rig:
             self.service = RobotService(_fake_franka(**robot_overrides), watchdog_s=30.0)
             self.robot = RemoteRobot.from_client(LocalClient(self.service))
             self.device_robot = self.service.robot
+        # This fixture models joint resets independently of Cartesian feedback.
+        self.device_robot.arm._kinematics = lambda q: np.zeros(3)
         self.envs: list[RealRobotEnv] = []
 
     @property
@@ -58,7 +63,7 @@ class _Rig:
     def config(self, **overrides) -> RealRobotEnvConfig:
         values = dict(cameras=["wrist"], home_joints=ZERO_HOME, reset_settle_s=0.0)
         if self.mode == "local":
-            values["robot"] = {"type": "franka", "arm_backend": "fake"}
+            values["robot"] = {"limits": station_limits(), "type": "franka", "arm_backend": "fake"}
         else:
             values.update(remote="local", image_size=FRAME_HW)
         values.update(overrides)
@@ -126,7 +131,7 @@ def serl_clock(monkeypatch):
 
 
 def _serl_env(rig, **overrides):
-    values = dict(cartesian_semantics="serl", safety_box=[-1] * 3 + [1] * 3,
+    values = dict(cartesian_semantics="serl", limits=env_limits(bounds=[-1] * 3 + [1] * 3),
                   safety_box_rpy_low=[0, -np.pi, -np.pi], safety_box_rpy_high=[np.pi] * 3)
     values.update(overrides)
     return rig.env(**values)
@@ -260,7 +265,7 @@ def test_serl_hz_does_not_rescale_delta(rig, serl_clock, monkeypatch, hz):
 
 @pytest.mark.parametrize("missing", ["safety_box", "safety_box_rpy_low", "safety_box_rpy_high"])
 def test_serl_requires_complete_pose_limits(missing):
-    values = dict(cartesian_semantics="serl", safety_box=[-1] * 3 + [1] * 3,
+    values = dict(cartesian_semantics="serl", limits=env_limits(bounds=[-1] * 3 + [1] * 3),
                   safety_box_rpy_low=[0, -1, -1], safety_box_rpy_high=[3, 1, 1])
     values[missing] = None
     with pytest.raises(ValueError, match="safety_box"):
@@ -276,7 +281,7 @@ def test_serl_requires_complete_pose_limits(missing):
     {"action_mode": "joint_delta"},
 ])
 def test_serl_rejects_invalid_config(overrides):
-    values = dict(cartesian_semantics="serl", safety_box=[-1] * 3 + [1] * 3,
+    values = dict(cartesian_semantics="serl", limits=env_limits(bounds=[-1] * 3 + [1] * 3),
                   safety_box_rpy_low=[0, -1, -1], safety_box_rpy_high=[3, 1, 1])
     values.update(overrides)
     with pytest.raises(ValueError):
@@ -310,17 +315,17 @@ def test_current_env_defaults_unchanged(rig):
     [
         (dict(action_mode="velocity"), "action_mode"),
         (dict(num_joints=0), "num_joints"),
-        (dict(joint_limits=[[-1.0, 1.0]] * 6), "joint_limits"),
-        (dict(joint_limits=[[-1.0, 1.0, 2.0]] * 7), "joint_limits"),
-        (dict(safety_box=[0.0] * 5), "safety_box"),
+        (dict(limits=env_limits(joints=[[-1.0, 1.0]] * 6)), "limits.joints"),
+        (dict(limits=env_limits(joints=[[-1.0, 1.0, 2.0]] * 7)), "joints"),
+        (dict(limits=env_limits(bounds=[0.0] * 5)), "low|high|three"),
         (dict(state_fields=("tcp_pose", "ee_wrench")), "state_fields"),
-        (dict(action_mode="joint_abs"), "joint_limits"),
+        (dict(action_mode="joint_abs"), "limits.joints"),
         (dict(home_joints=[0.0] * 6), "home_joints"),
     ],
 )
 def test_config_validation_errors(kwargs, match):
     if "remote" not in kwargs and kwargs:
-        kwargs = {"robot": {"type": "franka"}, **kwargs}
+        kwargs = {"robot": {"limits": station_limits(), "type": "franka"}, **kwargs}
     with pytest.raises(ValueError, match=match):
         RealRobotEnvConfig(**kwargs)
 
@@ -384,7 +389,7 @@ def test_runtime_report_paths_from_environ_and_explicit_override(tmp_path, monke
 
 
 @pytest.mark.parametrize(
-    "kwargs", [dict(), dict(robot={"type": "franka"}, remote="host:1")]
+    "kwargs", [dict(), dict(robot={"limits": station_limits(), "type": "franka"}, remote="host:1")]
 )
 def test_env_requires_exactly_one_robot_source(kwargs):
     with pytest.raises(ValueError, match="exactly one"):
@@ -481,7 +486,7 @@ def test_reset_without_any_home_joints_raises_hint():
 def test_local_reset_falls_back_to_robot_home_joints():
     robot = _fake_franka()
     env = RealRobotEnv(
-        RealRobotEnvConfig(robot={"type": "franka"}, reset_settle_s=0.0), robot=robot
+        RealRobotEnvConfig(robot={"limits": station_limits(), "type": "franka"}, reset_settle_s=0.0), robot=robot
     )
     try:
         obs, _ = env.reset()
@@ -522,7 +527,7 @@ def test_cartesian_rotation_composes_delta_on_current(rig, monkeypatch):
 
 
 def test_cartesian_target_clipped_to_safety_box(rig, monkeypatch):
-    env = rig.env(safety_box=[-0.005, -1.0, -1.0, 0.005, 1.0, 0.01])
+    env = rig.env(limits=env_limits(bounds=[-0.005, -1.0, -1.0, 0.005, 1.0, 0.01]))
     env.reset()
     sent = rig.spy_commands(monkeypatch)
     env.step(np.array([1, 0, 1, 0, 0, 0, 1], dtype=np.float32))
@@ -541,7 +546,7 @@ def test_out_of_range_action_is_clipped(rig, monkeypatch):
 
 
 def test_joint_delta_clipped_to_joint_limits(rig, monkeypatch):
-    env = rig.env(action_mode="joint_delta", joint_limits=[[-0.01, 0.01]] * 7)
+    env = rig.env(action_mode="joint_delta", limits=env_limits(joints=[[-0.01, 0.01]] * 7))
     env.reset()
     sent = rig.spy_commands(monkeypatch)
     env.step(np.array([1, -1, 0.1, 0, 0, 0, 0, 1], dtype=np.float32))
@@ -561,7 +566,7 @@ def test_joint_delta_without_limits_is_unclipped(rig, monkeypatch):
 @pytest.fixture(params=["local", "remote"])
 def step_limited_rig(request):
     """A robot whose yaml sets max_delta_per_step.joint_rad, as joint_abs requires."""
-    rig = _Rig(request.param, max_delta_per_step={"joint_rad": 10.0})
+    rig = _Rig(request.param, limits=station_limits(steps={"joint_rad": 10.0}))
     yield rig
     rig.close()
 
@@ -569,7 +574,8 @@ def step_limited_rig(request):
 def test_joint_abs_maps_unit_range_onto_limits(step_limited_rig, monkeypatch):
     rig = step_limited_rig
     limits = [[-1.0, 1.0], [0.0, 2.0], [-2.0, -1.0], [0.0, 1.0], [0.0, 1.0], [0.0, 1.0], [0.0, 1.0]]
-    env = rig.env(action_mode="joint_abs", joint_limits=limits)
+    env = rig.env(action_mode="joint_abs", limits=env_limits(joints=limits),
+                  home_joints=np.mean(limits, axis=1).tolist())
     env.reset()
     sent = rig.spy_commands(monkeypatch)
     env.step(np.array([-1, 0, 1, 0.5, -0.5, 0, 0, 1], dtype=np.float32))
@@ -693,10 +699,10 @@ CARTESIAN_PUSH = np.array([1, 0, 0, 0, 0, 0, 1], dtype=np.float32)  # +xyz_scale
 def limited_rig(request):
     rig = _Rig(
         request.param,
-        safety_box=DEVICE_BOX,
-        joint_limits=DEVICE_JOINT_LIMITS,
+        limits=station_limits(bounds=DEVICE_BOX, joints=DEVICE_JOINT_LIMITS, steps={"joint_rad": 0.5}),
+
         home_joints=DEVICE_HOME,
-        max_delta_per_step={"joint_rad": 0.5},
+
     )
     yield rig
     rig.close()
@@ -716,14 +722,14 @@ def test_unset_safety_box_is_inherited_from_device(limited_rig, monkeypatch):
 
 def test_tighter_env_safety_box_wins(limited_rig, monkeypatch):
     tighter = [-0.005, -0.005, -0.005, 0.005, 0.005, 0.005]
-    assert _first_target_x(limited_rig, monkeypatch, safety_box=tighter) == pytest.approx(0.005)
+    assert _first_target_x(limited_rig, monkeypatch, limits=env_limits(bounds=tighter)) == pytest.approx(0.005)
 
 
 def test_looser_env_safety_box_faults_on_first_reset(limited_rig):
-    env = limited_rig.env(safety_box=[-0.02, -0.01, -0.01, 0.02, 0.01, 0.01])
+    env = limited_rig.env(limits=env_limits(bounds=[-0.02, -0.01, -0.01, 0.02, 0.01, 0.01]))
     with pytest.raises(DeviceFault) as excinfo:
         env.reset()
-    assert "0.02" in str(excinfo.value) and "0.01" in str(excinfo.value)
+    assert "looser" in str(excinfo.value)
     assert "tighten" in excinfo.value.hint
     assert not limited_rig.robot.is_connected
 
@@ -739,23 +745,22 @@ def test_unset_joint_limits_are_inherited_and_tighter_ones_win(limited_rig, monk
         return float(np.asarray(sent[-1]["arm"]["joint_pos"])[0])
 
     assert first_joint_target() == pytest.approx(2.5)
-    assert first_joint_target(joint_limits=[[-1.0, 1.0]] * 7) == pytest.approx(1.0)
+    assert first_joint_target(limits=env_limits(joints=[[-1.0, 1.0]] * 7)) == pytest.approx(1.0)
 
 
 def test_looser_env_joint_limits_fault_on_first_reset(limited_rig):
-    env = limited_rig.env(joint_limits=[[-3.0, 3.0]] * 7)
-    with pytest.raises(DeviceFault, match="joint_limits"):
+    env = limited_rig.env(limits=env_limits(joints=[[-3.0, 3.0]] * 7))
+    with pytest.raises(DeviceFault, match="limits.joints"):
         env.reset()
 
 
-def test_device_without_safety_leaves_env_config_unchecked(rig, monkeypatch):
+def test_device_without_tcp_rejects_env_tcp_override(rig, monkeypatch):
     from real_world_rl.server.remote import RemoteArm
-
     arm_class = RemoteArm if rig.mode == "remote" else type(rig.arm)
     monkeypatch.setattr(arm_class, "safety_limits", property(lambda self: None))
-    assert _first_target_x(rig, monkeypatch, safety_box=[-1.0, -1.0, -1.0, 1.0, 1.0, 1.0]) == (
-        pytest.approx(0.02)
-    )
+    env = rig.env(limits=env_limits(bounds=[-1.]*3+[1.]*3))
+    with pytest.raises(DeviceFault, match="device TCP box"):
+        env.reset()
 
 
 def test_unset_home_joints_are_inherited_from_device(limited_rig):
@@ -765,7 +770,7 @@ def test_unset_home_joints_are_inherited_from_device(limited_rig):
 
 
 def test_joint_abs_without_device_joint_step_limit_faults_with_hint(rig):
-    env = rig.env(action_mode="joint_abs", joint_limits=[[-1.0, 1.0]] * 7)
+    env = rig.env(action_mode="joint_abs", limits=env_limits(joints=[[-1.0, 1.0]] * 7))
     with pytest.raises(DeviceFault, match="max_delta_per_step.joint_rad") as excinfo:
         env.reset()
     assert "robot yaml" in excinfo.value.hint
@@ -777,13 +782,13 @@ def test_joint_abs_with_device_unaware_of_safety_limits_faults(limited_rig, monk
 
     arm_class = RemoteArm if limited_rig.mode == "remote" else type(limited_rig.arm)
     monkeypatch.setattr(arm_class, "safety_limits", property(lambda self: None))  # older daemon
-    env = limited_rig.env(action_mode="joint_abs", joint_limits=[[-1.0, 1.0]] * 7)
+    env = limited_rig.env(action_mode="joint_abs", limits=env_limits(joints=[[-1.0, 1.0]] * 7))
     with pytest.raises(DeviceFault, match="max_delta_per_step.joint_rad"):
         env.reset()
 
 
 def test_joint_abs_with_device_joint_step_limit_passes(limited_rig):
-    env = limited_rig.env(action_mode="joint_abs", joint_limits=[[-1.0, 1.0]] * 7)
+    env = limited_rig.env(action_mode="joint_abs", limits=env_limits(joints=[[-1.0, 1.0]] * 7))
     env.reset()
 
 
@@ -821,30 +826,24 @@ def test_teleop_part_does_not_leak_into_env_observation(teleop_rig):
 
 
 @pytest.mark.parametrize('mode', ['local', 'remote'])
-def test_workspace_contract_requires_matching_enforcement_before_reset(mode):
-    workspace = {'frame': 'base', 'low': [-2., -2., -2.], 'high': [2., 2., 2.]}
-    rig = _Rig(mode, workspace=workspace)
+def test_limits_contract_inherits_and_refuses_looser_before_reset(mode):
+    rig = _Rig(mode, limits=station_limits(bounds=[-2.]*3+[2.]*3))
     try:
-        env = rig.env(workspace=workspace)
-        assert 'spatial_constraints' in env.requested_experiment
+        env = rig.env()
         env.reset()
-        assert 'task_workspace_v1' in env.robot.arm.safety_capabilities
-    finally:
-        rig.close()
-    rig = _Rig(mode, workspace=workspace)
-    try:
-        wrong = {**workspace, 'high': [3., 3., 3.]}
-        env = rig.env(workspace=wrong)
-        with pytest.raises(DeviceFault, match='differs'):
-            env.reset()
-        assert not env._validated
+        assert env.action_contract["limits"]["version"] == "station_limits_v1"
+        assert "station_limits_v1" in env.robot.arm.safety_capabilities
+        env.close()
+        wrong = rig.env(limits=env_limits(bounds=[-2.]*3+[3.]*3))
+        with pytest.raises(DeviceFault, match="looser"):
+            wrong.reset()
     finally:
         rig.close()
 
 
 def test_old_daemon_cannot_claim_workspace_support():
     workspace = {'frame': 'base', 'low': [-2.]*3, 'high': [2.]*3}
-    rig = _Rig('remote', workspace=workspace)
+    rig = _Rig('remote', limits=station_limits(bounds=[*workspace["low"], *workspace["high"]]))
     original = rig.service._methods['robot.describe']
     def old_describe():
         result = original()
@@ -852,7 +851,7 @@ def test_old_daemon_cannot_claim_workspace_support():
         return result
     rig.service._methods['robot.describe'] = old_describe
     try:
-        env = rig.env(workspace=workspace)
+        env = rig.env()
         with pytest.raises(DeviceFault, match='does not advertise'):
             env.reset()
     finally:
@@ -864,11 +863,11 @@ def test_old_daemon_cannot_claim_workspace_support():
 def test_measured_workspace_violation_stops_without_recovery_command(mode, semantics):
     from real_world_rl.devices.errors import SafetyViolation
     workspace = {'frame': 'base', 'low': [-1.]*3, 'high': [1.]*3}
-    rig = _Rig(mode, workspace=workspace)
+    rig = _Rig(mode, limits=station_limits(bounds=[*workspace["low"], *workspace["high"]]))
     try:
-        options = dict(workspace=workspace, cartesian_semantics=semantics)
+        options = dict(cartesian_semantics=semantics)
         if semantics == 'serl':
-            options.update(safety_box=[-1.]*3+[1.]*3,
+            options.update(limits=env_limits(bounds=[-1.]*3+[1.]*3),
                            safety_box_rpy_low=[-3.14]*3, safety_box_rpy_high=[3.14]*3)
         env = rig.env(**options)
         env.reset()
@@ -886,13 +885,13 @@ def test_measured_workspace_violation_stops_without_recovery_command(mode, seman
         rig.close()
 
 
-def test_joint_mode_refuses_cartesian_workspace_before_connect():
-    workspace = {'frame': 'base', 'low': [-1.]*3, 'high': [1.]*3}
-    rig = _Rig('local', workspace=workspace)
+def test_joint_mode_accepts_tcp_box():
+    rig = _Rig('local', limits=station_limits(bounds=[-1.]*3+[1.]*3))
     try:
-        with pytest.raises(ValueError, match='requires cartesian_delta'):
-            rig.env(workspace=workspace, action_mode='joint_delta')
-        assert not rig.robot.is_connected
+        env = rig.env(action_mode='joint_delta')
+        env.reset()
+        env.step(np.zeros(8))
+        assert 'servo_joints' in rig.arm.call_log
     finally:
         rig.close()
 
@@ -900,9 +899,9 @@ def test_joint_mode_refuses_cartesian_workspace_before_connect():
 def test_measured_workspace_stop_failure_preserves_violation(monkeypatch):
     from real_world_rl.devices.errors import SafetyViolation
     workspace = {'frame': 'base', 'low': [-1.]*3, 'high': [1.]*3}
-    rig = _Rig('local', workspace=workspace)
+    rig = _Rig('local', limits=station_limits(bounds=[*workspace["low"], *workspace["high"]]))
     try:
-        env = rig.env(workspace=workspace)
+        env = rig.env()
         env.reset()
         rig.arm._tcp_pose[2] = 2.
         rig.arm._pose_target = None
@@ -920,9 +919,9 @@ def test_measured_workspace_stop_failure_preserves_violation(monkeypatch):
 def test_feedback_drift_after_send_is_detected(monkeypatch):
     from real_world_rl.devices.errors import SafetyViolation
     workspace = {'frame': 'base', 'low': [-1.]*3, 'high': [1.]*3}
-    rig = _Rig('local', workspace=workspace)
+    rig = _Rig('local', limits=station_limits(bounds=[*workspace["low"], *workspace["high"]]))
     try:
-        env = rig.env(workspace=workspace)
+        env = rig.env()
         env.reset()
         original = rig.robot.get_observation
         def drifted():
@@ -1008,10 +1007,10 @@ def test_failed_stop_acceptance_exports_evidence_and_releases(tmp_path, monkeypa
 @pytest.mark.parametrize('mode', ['local', 'remote'])
 def test_control_diagnostics_distinguish_requested_limited_accepted_and_measured(mode, tmp_path):
     import json
-    rig = _Rig(mode, max_delta_per_step={'xyz_m': .01})
+    rig = _Rig(mode, limits=station_limits(bounds=[-1.]*3+[1.]*3, steps={'xyz_m': .01}))
     try:
         path = tmp_path / 'diagnostics.jsonl'
-        env = rig.env(report_paths=RuntimeReportPaths(diagnostics=str(path)), safety_box=[-.015]*3+[.015]*3,
+        env = rig.env(report_paths=RuntimeReportPaths(diagnostics=str(path)), limits=env_limits(bounds=[-.015]*3+[.015]*3),
                       xyz_scale_m=.02)
         path = env.output_path('diagnostics')
         env.reset()
@@ -1096,17 +1095,13 @@ def test_hold_session_capability_rejected_before_homing(mode, monkeypatch):
         rig.close()
 
 
-def test_spacemouse_from_env_inherits_task_workspace_without_connecting():
+def test_spacemouse_from_env_inherits_effective_box():
     from real_world_rl.teleop.spacemouse.source import SpaceMouseTeleopSource
-    rig = _Rig('local')
+    rig = _Rig('local', limits=station_limits(bounds=[-2.]*3+[2.]*3))
     try:
-        frame = {'name': 'table', 'base_T_frame': np.eye(4).tolist()}
-        workspace = {'frame': 'table', 'low': [-1]*3, 'high': [1]*3}
-        env = rig.env(task_frame=frame, workspace=workspace, xyz_scale_m=.05, rot_scale_rad=.3)
+        env = rig.env(limits=env_limits(bounds=[-1.]*3+[1.]*3), xyz_scale_m=.05, rot_scale_rad=.3)
         source = SpaceMouseTeleopSource.from_env(env, last_gripper_action_getter=lambda: 1.)
-        assert source.cartesian_tracker.workspace.frame == 'table'
-        np.testing.assert_array_equal(source.cartesian_tracker.workspace.high, [1]*3)
-        assert not rig.robot.is_connected
+        np.testing.assert_array_equal(source.cartesian_tracker.limits.high, [1]*3)
     finally:
         rig.close()
 
@@ -1293,9 +1288,9 @@ def test_hold_target_after_step_watchdog_trip_reports_the_trip():
 def test_hold_allows_measured_half_mm_below_base_box(with_workspace):
     """B1: exercise the real HOLD method against a fake device, not a fake backend."""
     workspace = {'low': [-1., -1., 0.], 'high': [1., 1., 1.]} if with_workspace else None
-    rig = _Rig('local', safety_box=[-1., -1., 0., 1., 1., 1.], workspace=workspace)
+    rig = _Rig('local', limits=station_limits(bounds=[-1., -1., 0., 1., 1., 1.]))
     try:
-        env = rig.env(workspace=workspace)
+        env = rig.env()
         env.reset()
         env.step(np.zeros(7))
         target = env.session_hold_target()
@@ -1314,9 +1309,9 @@ def test_hold_allows_measured_half_mm_below_base_box(with_workspace):
 def test_measured_workspace_margin_distinguishes_one_and_four_mm(mode, outside_m, should_fault):
     from real_world_rl.devices.errors import SafetyViolation
     workspace = {'low': [-1., -1., 0.], 'high': [1., 1., 1.]}
-    rig = _Rig(mode, workspace=workspace)
+    rig = _Rig(mode, limits=station_limits(bounds=[*workspace["low"], *workspace["high"]]))
     try:
-        env = rig.env(workspace=workspace)
+        env = rig.env()
         env.reset()
         rig.arm._tcp_pose[2] = -outside_m
         rig.arm._pose_target = None
@@ -1326,22 +1321,22 @@ def test_measured_workspace_margin_distinguishes_one_and_four_mm(mode, outside_m
             assert 'stop' in rig.arm.call_log
         else:
             env.session_hold_tick([0, 0, 0, 0, 0, 0, 1])
-            assert env._workspace_fault is None
+            assert env._limits_fault is None
     finally:
         rig.close()
 
 
 @pytest.mark.parametrize('mode', ['local', 'remote'])
 @pytest.mark.parametrize('semantics', ['current', 'serl'])
-def test_policy_target_projects_position_and_orientation_into_workspace(mode, semantics):
+def test_policy_clips_position_and_only_serl_limits_rpy(mode, semantics):
     from scipy.spatial.transform import Rotation
     workspace = {'low': [-.01]*3, 'high': [.01]*3,
-                 'orientation_xyzw': [0, 0, 0, 1], 'max_angle_rad': .04}
-    rig = _Rig(mode, workspace=workspace)
+                 }
+    rig = _Rig(mode, limits=station_limits(bounds=[*workspace["low"], *workspace["high"]]))
     try:
-        options = dict(workspace=workspace, cartesian_semantics=semantics)
+        options = dict(cartesian_semantics=semantics)
         if semantics == 'serl':
-            options.update(safety_box=[-.015]*3+[.015]*3,
+            options.update(
                            safety_box_rpy_low=[0, -.02, -.03],
                            safety_box_rpy_high=[.1, .02, .03])
         env = rig.env(**options)
@@ -1349,7 +1344,10 @@ def test_policy_target_projects_position_and_orientation_into_workspace(mode, se
         env.step(np.array([1., 1., 1., 1., 1., 0., 0.]))
         target = rig.arm.last_cartesian_target
         np.testing.assert_allclose(target[:3], [.01]*3)
-        assert Rotation.from_quat(target[3:]).magnitude() == pytest.approx(.04)
+        if semantics == 'current':
+            np.testing.assert_allclose(Rotation.from_quat(target[3:]).as_rotvec(), [.1, .1, 0], atol=1e-12)
+        else:
+            assert abs(Rotation.from_quat(target[3:]).as_euler('xyz')[1]) <= .02 + 1e-12
         assert rig.arm.health().safety_rejects == 0
     finally:
         rig.close()
@@ -1357,9 +1355,9 @@ def test_policy_target_projects_position_and_orientation_into_workspace(mode, se
 
 def test_workspace_step_uses_cached_feedback_without_extra_arm_read(monkeypatch):
     workspace = {'low': [-1.]*3, 'high': [1.]*3}
-    rig = _Rig('remote', workspace=workspace)
+    rig = _Rig('remote', limits=station_limits(bounds=[*workspace["low"], *workspace["high"]]))
     try:
-        env = rig.env(workspace=workspace)
+        env = rig.env()
         env.reset()
         calls = []
         original = rig.robot.arm.read_state
@@ -1374,7 +1372,7 @@ def test_runtime_report_paths_are_not_serialized_and_close_is_idempotent(tmp_pat
     import dataclasses
     from rl_garden.common.effective_config import json_value
     names = {'stop_trace_path', 'diagnostics_path', 'session_events_path'}
-    config = RealRobotEnvConfig(robot={'type': 'franka'})
+    config = RealRobotEnvConfig(robot={"limits": station_limits(), 'type': 'franka'})
     assert not names & dataclasses.asdict(config).keys()
     assert not names & json_value(config).keys()
     rig = _Rig('local')
@@ -1400,23 +1398,15 @@ def test_runtime_report_paths_are_not_serialized_and_close_is_idempotent(tmp_pat
         rig.close()
 
 
-def test_frame_alone_is_display_only_and_workspace_compares_frame():
+def test_task_frame_origin_does_not_change_limits():
     frame = {'name': 'table', 'base_T_frame': np.eye(4).tolist()}
-    rig = _Rig('remote')
-    try:
-        env = rig.env(task_frame=frame)
-        assert 'spatial_constraints' not in env.requested_experiment
-        env.reset()
-    finally:
-        rig.close()
-    workspace = {'frame': 'base', 'low': [-1]*3, 'high': [1]*3}
-    rig = _Rig('remote', workspace=workspace, task_frame=frame)
+    rig = _Rig('remote', task_frame=frame)
     try:
         different = {'name': 'table', 'base_T_frame': np.eye(4).tolist()}
         different['base_T_frame'][0][3] = .1
-        env = rig.env(workspace=workspace, task_frame=different)
-        with pytest.raises(DeviceFault, match='differs'):
-            env.reset()
+        env = rig.env(task_frame=different)
+        env.reset()
+        assert env._effective_limits.tcp.origin_xyz.tolist() == [0., 0., 0.]
     finally:
         rig.close()
 

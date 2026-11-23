@@ -59,7 +59,7 @@ actor 也先构造同形状的小缓冲策略，再等待 learner 的初始快�
 **可选直连路径**：若决定让 actor 直接持有硬件，先停止 daemon，再复制
 local/rl-task.yaml 为 local/rl-direct.yaml；删除 real_robot.remote，
 将已调试 station 的单臂机器人配置映射放入 real_robot.robot，不放站点路径，也不复制 daemon 块。
-robot 与 remote 必须且只能选一个；两机使用同一份观测、动作、home、工作区及 teleop 配置。
+robot 与 remote 必须且只能选一个；两机使用同一份观测、动作、home、限位及 teleop 配置。
 以下先只打印配置，再用 doctor 比较工位；doctor 会初始化设备，须保证没有其他占用者。
 
 .. literalinclude:: ../examples/rl-train-alternatives.sh
@@ -69,7 +69,7 @@ robot 与 remote 必须且只能选一个；两机使用同一份观测、动作
 
 **你应该看到**：print-config 中有 robot 映射、没有 remote；doctor 的 <臂名>.preset 为 PASS。
 硬件字段不同时会列出 <臂名>.preset:<字段> WARN 及 station／preset 两个值，
-包括 IP、后端、夹爪、相机、home、关节限制、坐标系和工作区。
+包括 IP、后端、夹爪、相机、home、限位（``limits``）和坐标系。
 
 **如果不对**：逐项修复副本，不删除告警；解析成功不代表硬件可用。
 随后把第 3 步两端命令的配置都换成 local/rl-direct.yaml，actor 用监督器启动：

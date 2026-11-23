@@ -19,8 +19,7 @@ and episode-end presses latched until the next read. This source gives them thei
   and to ``lead_cap_m``/``lead_cap_rad`` ahead of the measured pose; the action is
   ``(command - measured)`` in the env's units.
 - **Hand-back** puts the tracker in hold at the measured pose (``hold_at``); the recorder's hold
-  policy (``real_world_rl.teleop.core.hold``) shares the tracker. A requested position outside
-  the safety box or the station workspace (``WORKSPACE HOLD: <axes>``, logged), an input or
+  policy (``real_world_rl.teleop.core.hold``) shares the tracker. An input or
   tracking failure and an episode end hand back too: the next bind press takes over again, from
   wherever the hand is then. A stalled control loop (more than ``max_dt_s`` between two
   intervened polls) holds at the measured pose and the next poll re-anchors the hand there.
@@ -136,8 +135,7 @@ class PicoTeleopSource(TeleopPartSource, ToggleableTeleopSource):
         target_speed_m_s: float = 0.05,
         target_speed_rad_s: float = 0.3,
         max_dt_s: float = 0.3,
-        safety_box: Optional[Sequence[float]] = None,
-        workspace=None,
+        limits=None,
         task_frame=None,
         read_timeout_s: float = DEFAULT_READ_TIMEOUT_S,
         clock: Callable[[], float] = time.monotonic,
@@ -156,8 +154,7 @@ class PicoTeleopSource(TeleopPartSource, ToggleableTeleopSource):
             target_speed_rad_s=target_speed_rad_s,
             max_dt_s=max_dt_s,
         )
-        self._tracker = CartesianTargetTracker(tracker_config, safety_box=safety_box,
-                                               workspace=workspace, task_frame=task_frame)
+        self._tracker = CartesianTargetTracker(tracker_config, limits=limits)
         self._driver = CartesianTrackerDriver(
             self._tracker, source_name="pico", follower_pose_getter=follower_pose_getter,
             pos_scale_m=pos_scale_m, rot_scale_rad=rot_scale_rad, clock=clock,
@@ -226,8 +223,8 @@ class PicoTeleopSource(TeleopPartSource, ToggleableTeleopSource):
         **kwargs: Any,
     ) -> "PicoTeleopSource":
         """Source for ``env``. Unless passed, the follower pose, the scales, the safety box and the
-        station workspace/task frame come from the env, as for ``spacemouse``
-        (``follower_kwargs_from_env``, ``workspace_from_env``). The Pico is, in this order:
+        station task frame come from the env, as for ``spacemouse``
+        (``follower_kwargs_from_env``, ``task_frame_from_env``). The Pico is, in this order:
         ``teleop`` (a part the caller owns); with ``robot_teleop=True`` the teleop part of the
         robot behind the ``real_robot`` env (its robot yaml's ``teleop: {backend: pico}``, local or
         served by the robot daemon; the robot owns it); with ``remote_address`` (``host:port``) the
@@ -235,13 +232,13 @@ class PicoTeleopSource(TeleopPartSource, ToggleableTeleopSource):
         ``leader_cartesian`` on the robot stack); else a Pico subscriber built here."""
         from real_world_rl.teleop.core.targets.follower import (
             follower_kwargs_from_env,
-            workspace_from_env,
+            task_frame_from_env,
         )
 
         if robot_teleop and remote_address is not None:
             raise ValueError("pico: pass robot_teleop=True or remote_address, not both")
         follower_kwargs_from_env(env, kwargs)
-        workspace_from_env(env, kwargs)
+        task_frame_from_env(env, kwargs)
         if robot_teleop:
             from real_world_rl.teleop.core.part import _find_last_observation_owner
 
@@ -370,14 +367,6 @@ class PicoTeleopSource(TeleopPartSource, ToggleableTeleopSource):
             self._take_over(hand)
         try:
             update = tracker.advance(self._requested_pose(hand), measured, self._driver.elapsed_s())
-            if update.workspace_violations:
-                self._driving = False
-                logger.warning(
-                    "WORKSPACE HOLD: %s; the follower holds its pose and the Pico handed back, "
-                    "press bind to take over again",
-                    ", ".join(update.workspace_violations),
-                )
-                return False, idle
             if update.missed_deadline_s is not None:
                 logger.warning(
                     "control loop stalled: %.3f s between two Pico commands (max %.3f s); the "

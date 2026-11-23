@@ -66,10 +66,10 @@ class Preset:
             raise CliError("home set requires --preset", code=USAGE_EXIT_CODE, hint="pass --preset <yaml>, or remember one with `rwrl use preset <yaml>`")
         current = joints(current, num_joints, "current joint_pos")
         updated = [round(value, 4) for value in current]
-        limits = [*limits, ("preset joint_limits", self.env.get("joint_limits"))]
+        limits = [*limits, ("preset limits.joints", (self.env.get("limits") or {}).get("joints"))]
         robot_config = self.env.get("robot")
         if isinstance(robot_config, dict):
-            limits.append(("preset robot joint_limits", robot_config.get("joint_limits")))
+            limits.append(("preset robot limits.joints", (robot_config.get("limits") or {}).get("joints")))
         for label, boundary in limits:
             check_limits(current, boundary, label)
             check_limits(updated, boundary, label)

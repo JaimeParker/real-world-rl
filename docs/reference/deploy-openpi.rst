@@ -111,7 +111,7 @@ RLinf 缩放所需的 OpenCV、通用档案缩放所需的 Pillow，以及 JPEG 
    缩放，否则由 GPU 主机对原始尺寸帧执行相同的预处理。见\ :ref:`相机帧预处理 <daemon-camera-frame-preprocessing>`\ 。
 -  \ ``rlinf_franka`` 动作\ 包含七个归一化值。环境用当前位姿的伴随矩阵转换前六维，
    应用 ``xyz_scale_m`` 和 ``rot_scale_rad``\ ，再用欧拉角增量对应的旋转左乘实测姿态。
-   守护进程执行工作站的工作空间和单步增量限制。Franka Hand 使用二值模式。乘以
+   守护进程执行工作站的 ``limits``（TCP 盒、关节范围）和单步增量限制。Franka Hand 使用二值模式。乘以
    ``gripper_action_scale`` 后，动作值达到 +0.5 时按实测状态张开夹爪，达到 −0.5
    或更低时闭合。\ ``--real-robot.rlinf-gripper-threshold`` 可调整阈值。时序由守护
    进程的阻塞式夹爪命令决定。CLI 的平移和旋转缩放默认沿用环境值 0.02 米和 0.1 弧度。

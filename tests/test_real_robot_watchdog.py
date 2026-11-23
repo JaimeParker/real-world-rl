@@ -1,6 +1,8 @@
 """RealRobotEnv's optional in-process step watchdog (``RealRobotEnvConfig.watchdog_s``) over fake devices."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import time
 
 import numpy as np
@@ -27,11 +29,11 @@ def make_env():
     envs: list[RealRobotEnv] = []
 
     def make(**overrides) -> RealRobotEnv:
-        robot = FrankaRobot(FrankaConfig(
+        robot = FrankaRobot(FrankaConfig(limits=station_limits(),
             arm_backend="fake", gripper=GripperConfig(backend="fake"),
             cameras=[CameraConfig(name="wrist", backend="fake", width=32, height=24, fps=60)],
         ))
-        values = dict(robot={"type": "franka", "arm_backend": "fake"}, cameras=["wrist"],
+        values = dict(robot={"limits": station_limits(), "type": "franka", "arm_backend": "fake"}, cameras=["wrist"],
                       home_joints=[0.0] * 7, reset_settle_s=0.0, control_hz=_CONTROL_HZ)
         values.update(overrides)
         env = RealRobotEnv(RealRobotEnvConfig(**values), robot=robot)
@@ -102,4 +104,4 @@ def test_watchdog_does_not_change_the_experiment_contract(make_env):
 @pytest.mark.parametrize("watchdog_s", [0.02, 0.0, -1.0, float("nan")])
 def test_watchdog_must_exceed_one_control_period(watchdog_s):
     with pytest.raises(ValueError, match="watchdog_s"):
-        RealRobotEnvConfig(robot={"type": "franka"}, control_hz=_CONTROL_HZ, watchdog_s=watchdog_s)
+        RealRobotEnvConfig(robot={"limits": station_limits(), "type": "franka"}, control_hz=_CONTROL_HZ, watchdog_s=watchdog_s)

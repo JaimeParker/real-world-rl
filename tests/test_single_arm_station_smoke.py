@@ -20,6 +20,8 @@ six steps.
 """
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import dataclasses
 import pickle
 from dataclasses import dataclass
@@ -113,7 +115,7 @@ def _leader_script() -> list[dict]:
 
 def _station() -> dict:
     """A single-robot station yaml, as the setup wizard writes one."""
-    return {
+    return {"limits": station_limits(),
         "type": "franka",
         "name": ROBOT_NAME,
         "arm_backend": "fake",

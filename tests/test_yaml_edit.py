@@ -64,10 +64,10 @@ def test_new_file_and_new_keys_append(tmp_path):
     assert saved['backup'] is None
     assert yaml.safe_load(path.read_bytes()) == document
     original = b'# heading\nrobot:\n  name: "left"\n\n# footer\nother: 2\n'
-    result = render_changes({'robot': {'name': 'left', 'workspace': {'frame': 'base'}},
+    result = render_changes({'robot': {'name': 'left', 'limits': {'joints': None}},
                              'other': 2}, original)
-    assert result == ('# heading\nrobot:\n  name: "left"\n  workspace:\n'
-                      '    frame: base\n\n# footer\nother: 2\n')
+    assert result == ('# heading\nrobot:\n  name: "left"\n  limits:\n'
+                      '    joints:\n\n# footer\nother: 2\n')
 
 
 def test_atomic_replace_failure_keeps_source_and_backup(tmp_path, monkeypatch):

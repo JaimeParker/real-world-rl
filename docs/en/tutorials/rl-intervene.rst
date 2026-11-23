@@ -39,7 +39,7 @@ Keep the Chapter 3 ``LEARNER_HOST`` setting. Both machines use the configuration
       while policy_action continues to come from the policy. The gripper has its own actual-control marker; use the records as the source of truth.
 
       **If it doesn't**: if pushing the cap immediately takes over, check whether serl was selected by mistake. If buttons do nothing, recheck HID reads and button numbering.
-      At WORKSPACE HOLD, check directions and workspace before taking over again; do not enlarge the boundaries to keep trying.
+      If the TCP only slides along the box wall, or the arm stops with ``measured TCP outside TCP box``, check directions and limits before taking over again; do not enlarge the box to keep trying.
       If you choose SERL, use the SERL configuration and data independently verified in :doc:`spacemouse`: motion/button levels trigger takeover,
       release hands back, button_0 closes, and button_1 opens. Do not change only the mode on the fly and combine training data.
 

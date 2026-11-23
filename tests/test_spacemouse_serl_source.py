@@ -1,5 +1,6 @@
 """Native SERL intervention and shared entrypoint wiring; no hardware needed."""
 from __future__ import annotations
+from _station_limits import env_limits
 
 import dataclasses
 import json
@@ -36,7 +37,7 @@ def _args(backend="real_robot", **kwargs):
     args = HilSerlArgs(env_backend=backend, teleop_device="spacemouse", spacemouse_mode="serl", **kwargs)
     if backend == "real_robot":
         args.real_robot = dataclasses.replace(
-            args.real_robot, robot={"type": "unused"}, safety_box=[-1] * 3 + [1] * 3,
+            args.real_robot, robot={"type": "unused"}, limits=env_limits(bounds=[-1] * 3 + [1] * 3),
             safety_box_rpy_low=[0, -1, -1], safety_box_rpy_high=[3, 1, 1],
         )
     return args
@@ -390,8 +391,8 @@ def test_serl_record_train_deploy_mode_roundtrip(tmp_path, monkeypatch):
     preset.write_text(
         "env_backend: real_robot\nteleop_device: spacemouse\n"
         "reward_from_teleop_events: false\n"
-        "real_robot:\n  robot: {type: franka, arm_backend: fake, gripper: {backend: fake}}\n"
-        "  safety_box: [-1, -1, -1, 1, 1, 1]\n"
+        "real_robot:\n  robot: {type: franka, arm_backend: fake, gripper: {backend: fake}, limits: {joints: [[-10, 10], [-10, 10], [-10, 10], [-10, 10], [-10, 10], [-10, 10], [-10, 10]], tcp: {origin: [0, 0, 0], axes_R: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], low: [-2, -2, -2], high: [2, 2, 2]}}}\n"
+        "  limits: {tcp: {low: [-1, -1, -1], high: [1, 1, 1]}}\n"
         "  safety_box_rpy_low: [0, -1, -1]\n  safety_box_rpy_high: [3, 1, 1]\n"
     )
     recorded = parse_record_args([
@@ -516,7 +517,7 @@ def test_serl_rejects_partial_action_selection():
         TeleopInterventionWrapper(ContractEnv(), teleop=source, selected_parts=["arm.arm"])
 
 
-@pytest.mark.parametrize("missing", ["safety_box", "safety_box_rpy_low", "safety_box_rpy_high"])
+@pytest.mark.parametrize("missing", ["safety_box_rpy_low", "safety_box_rpy_high"])
 def test_serl_requires_complete_xyz_and_rpy_safety_boxes(missing):
     args = _args()
     setattr(args.real_robot, missing, None)
@@ -627,3 +628,9 @@ def test_tracker_ignores_task_frame_rotation():
     after = SpaceMouseTeleopSource(_Part(), task_frame_rotation=yaw_rotation(.8), **options)
     twist = [.1, .2, .3, .4, .5, .6]
     np.testing.assert_array_equal(before._twist(twist), after._twist(twist))
+
+
+@pytest.fixture(autouse=True)
+def isolated_device_claims(tmp_path, monkeypatch):
+    import real_world_rl.devices.claims as claims
+    monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")

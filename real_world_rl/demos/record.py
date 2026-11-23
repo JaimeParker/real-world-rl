@@ -645,7 +645,7 @@ def parse_record_args(argv: Optional[Sequence[str]] = None) -> RecordDemosArgs:
     """``RecordDemosArgs`` from the command line (``sys.argv[1:]`` by default).
 
     ``--config PATH`` loads a YAML preset first and flags override it, as in
-    ``train_real_world.py``; settings the command line cannot express (``real_robot.joint_limits``)
+    ``train_real_world.py``; settings the command line cannot express (``real_robot.limits``)
     go there. The training run's own preset works: its top-level keys that are not recorder
     fields (algorithm hyperparameters) are skipped, nested ones are checked strictly.
     """

@@ -26,7 +26,8 @@ robot:
   arm_backend: fake
   claim: false
   gripper: {backend: fake}
-  joint_limits: [[-2.8, 2.8], [-1.7, 1.7], [-2.8, 2.8], [-3.0, -0.1], [-2.8, 2.8], [0.0, 3.7], [-2.8, 2.8]]
+  limits:
+    joints: [[-2.8, 2.8], [-1.7, 1.7], [-2.8, 2.8], [-3.0, -0.1], [-2.8, 2.8], [0.0, 3.7], [-2.8, 2.8]]
   teleop:
     name: gello
     backend: gello
@@ -87,7 +88,7 @@ def test_station_options_are_the_defaults(tmp_path, capsys, calibrations):
 def test_flags_override_the_station(tmp_path, capsys, calibrations):
     path = write(tmp_path)
     limits = tmp_path / "arm.yaml"
-    limits.write_text(yaml.safe_dump({"robot": {"joint_limits": [[-1.0, 1.0], [-2.0, 2.0], [0.0, 3.0]]}}))
+    limits.write_text(yaml.safe_dump({"robot": {"limits": {"joints": [[-1.0, 1.0], [-2.0, 2.0], [0.0, 3.0]]}}}))
     assert main(["--station", str(path), "teleop", "calibrate", "--backend", "gello", "--port", "/dev/other",
                  "--joint-ids", "1", "2", "3", "--gripper-id", "9", "--baudrate", "57600",
                  "--calibration-pose", "0", "0.5", "1", "--joint-signs", "1", "1", "-1",
@@ -102,10 +103,10 @@ def test_new_joint_set_needs_matching_limits_and_restarts_signs(tmp_path, capsys
     path = without_teleop(tmp_path)
     assert main(["--station", str(path), "teleop", "calibrate", "--backend", "gello", "--port", "/dev/x",
                  "--joint-ids", "1", "2", "3", "--calibration-pose", "0", "0", "0"]) == 2
-    assert "joint_limits rows" in capsys.readouterr().err
+    assert "limits.joints rows" in capsys.readouterr().err
     path = write(tmp_path)
     limits = tmp_path / "arm.yaml"
-    limits.write_text(yaml.safe_dump({"joint_limits": [[-1.0, 1.0]] * 3}))
+    limits.write_text(yaml.safe_dump({"limits": {"joints": [[-1.0, 1.0]] * 3}}))
     assert main(["--station", str(path), "teleop", "calibrate", "--joint-ids", "1", "2", "3",
                  "--calibration-pose", "0", "0", "0", "--joint-limits-yaml", str(limits)]) == 0
     capsys.readouterr()

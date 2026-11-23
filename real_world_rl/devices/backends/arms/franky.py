@@ -49,7 +49,7 @@ from real_world_rl.devices.errors import (
     SdkMissing,
     VersionMismatch,
 )
-from real_world_rl.devices.safety import ArmSafety
+from real_world_rl.devices.limits import ArmLimits
 
 if TYPE_CHECKING:
     from real_world_rl.devices.robot import RobotConfig
@@ -359,7 +359,9 @@ class FrankyArm(Arm):
         joint_controller: str = "impedance",
         joint_trajectory: dict | None = None,
         home_joints: list[float] | None = None,
-        safety: ArmSafety | None = None,
+        flange_T_ee=None,
+        task_frame=None,
+        safety: ArmLimits | None = None,
         serl: dict | None = None,
         load: dict | None = None,
         robot_model: str = SERL_JOINT_RESET_ROBOT_MODEL,
@@ -373,9 +375,12 @@ class FrankyArm(Arm):
                              f"choose from {list(CARTESIAN_CONTROLLERS)}")
         if joint_controller not in JOINT_CONTROLLERS:
             raise ValueError(f"joint_controller '{joint_controller}' invalid; choose from {list(JOINT_CONTROLLERS)}")
+        from real_world_rl.devices.robots.franka_kinematics import _tool_transform
+        self.flange_T_ee = _tool_transform(flange_T_ee)
+        self.task_frame = copy.deepcopy(task_frame)
         self.joint_controller = joint_controller
-        from real_world_rl.devices.joint_trajectory import joint_trajectory_updates
-        self._joint_trajectory_params = joint_trajectory_updates(joint_trajectory)
+        from real_world_rl.devices.joint_trajectory import station_joint_trajectory
+        self._joint_trajectory_params = station_joint_trajectory(joint_trajectory, None if safety is None else safety.joints)
         self._joint_trajectory_resolved = False
         self.cartesian_controller = cartesian_controller
         # SERL compliance parameters: the station ``serl:`` block resolved over the .cfg defaults,
@@ -417,7 +422,9 @@ class FrankyArm(Arm):
             joint_controller=getattr(config, "joint_controller", "impedance"),
             joint_trajectory=getattr(config, "joint_trajectory", None),
             home_joints=config.home_joints,
-            safety=ArmSafety.from_config(config),
+            flange_T_ee=getattr(config, "flange_T_ee", None),
+            task_frame=config.task_frame,
+            safety=ArmLimits.from_config(config),
             serl=getattr(config, "serl", None),
             load=getattr(config, "load", None),
             robot_model=getattr(config, "robot_model", SERL_JOINT_RESET_ROBOT_MODEL),
@@ -430,6 +437,26 @@ class FrankyArm(Arm):
 
     def require_serl(self) -> ModuleType:
         return require_serl_controller(self.name)
+
+    def tcp_position_from_joints(self, q):
+        from real_world_rl.devices.robots.franka_kinematics import tcp_position
+        return tcp_position(q, self.flange_T_ee, self.robot_model)
+
+    def _check_tcp_transform(self, robot):
+        try:
+            value = robot.state.F_T_EE
+            if hasattr(value, "matrix"):
+                value = value.matrix() if callable(value.matrix) else value.matrix
+            matrix = np.asarray(value, dtype=float)
+            if matrix.shape == (16,):
+                matrix = matrix.reshape(4, 4, order="F")
+            matches = matrix.shape == (4, 4) and np.allclose(matrix, self.flange_T_ee, atol=1e-4, rtol=0)
+        except (AttributeError, TypeError, ValueError):
+            matches = False
+        if not matches:
+            raise DeviceFault("configured flange_T_ee does not match robot.state.F_T_EE",
+                              hint="set flange_T_ee to the robot's configured TCP transform, then run `rwrl limits rebase`",
+                              device=self.name)
 
     # --- lifecycle ---
 
@@ -446,6 +473,7 @@ class FrankyArm(Arm):
             )
         except Exception as error:
             raise franky_connect_error(franky, error, self.robot_ip, self.name) from error
+        self._check_tcp_transform(robot)
         self._stop_metadata = None  # cache lifetime is this connection
         handle = _FrankyHandle(robot=robot)
         if self.load is not None:
@@ -629,9 +657,10 @@ class FrankyArm(Arm):
     def update_joint_trajectory_params(self, updates) -> dict:
         if self.joint_controller != "trajectory_impedance":
             return super().update_joint_trajectory_params(updates)
-        from real_world_rl.devices.joint_trajectory import joint_trajectory_updates
+        from real_world_rl.devices.joint_trajectory import joint_trajectory_updates, station_joint_trajectory
         values = joint_trajectory_updates(updates)
-        merged = {**self.joint_trajectory_params, **values}
+        merged = station_joint_trajectory(
+            {**self.joint_trajectory_params, **values}, None if self._safety is None else self._safety.joints)
         motion = self._handle.joint_trajectory_motion if self.is_connected else None
         if motion is None:
             # The native constructor validates the complete set even while idle.
@@ -936,8 +965,8 @@ class FrankyArm(Arm):
             self._stop_metadata = metadata
         limits = self.safety_limits or {}
         return StopTraceRecorder(
-            self.stop_sample, pre_window_s=.75, workspace=limits.get("workspace"),
-            task_frame=limits.get("task_frame"),
+            self.stop_sample, pre_window_s=.75, tcp=limits.get("tcp"),
+            task_frame=self.task_frame,
             metadata={**self._stop_metadata, "control": self.control_metadata}).start()
 
     def begin_stop_trace(self) -> None:

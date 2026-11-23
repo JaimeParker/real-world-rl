@@ -42,7 +42,7 @@ MOTION_THRESHOLD = 0.001
 TRACKER_OPTIONS = frozenset({
     "follower_pose_getter", "last_gripper_action_getter", "pos_scale_m", "rot_scale_rad",
     "lead_cap_m", "lead_cap_rad", "target_speed_m_s", "target_speed_rad_s",
-    "max_dt_s", "safety_box", "clock", "deadzone", "axis_lock", "hold_s", "tracker",
+    "max_dt_s", "limits", "clock", "deadzone", "axis_lock", "hold_s", "tracker",
     "cartesian_tracker",
 })
 

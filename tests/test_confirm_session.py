@@ -3,6 +3,8 @@ in the recorder, the actor loop and on its own, over fake devices and scripted o
 (JSONL event files, one event per poll)."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -80,7 +82,7 @@ def _robot(**overrides) -> FrankaRobot:
     return FrankaRobot(FrankaConfig(
         arm_backend="fake", gripper=GripperConfig(backend="fake"),
         cameras=[CameraConfig(name="wrist", backend="fake", width=32, height=24, fps=60)],
-        max_delta_per_step={"joint_rad": 10.0}, **overrides))
+        limits=station_limits(steps={"joint_rad": 10.0}), **overrides))
 
 
 class Rig:
@@ -89,10 +91,10 @@ class Rig:
 
     def __init__(self, tmp_path, keys, *, mode="cartesian_delta", motion=None, gripper=CLOSED, **config):
         self.robot = _robot()
-        values = dict(robot={"type": "franka", "arm_backend": "fake"}, cameras=[], home_joints=HOME,
+        values = dict(robot={"limits": station_limits(), "type": "franka", "arm_backend": "fake"}, cameras=[], home_joints=HOME,
                       reset_settle_s=0.0, control_hz=1000.0, action_mode=mode)
         if mode == "joint_abs":
-            values["joint_limits"] = LIMITS
+            values["limits"] = {"joints": LIMITS}
         values.update(config)
         self.env = RealRobotEnv(RealRobotEnvConfig(**values), robot=self.robot)
         self.vector = RealRobotVectorEnv(self.env)
@@ -285,7 +287,7 @@ def test_post_episode_holds_the_last_accepted_cartesian_target(tmp_path, phases,
 
 def test_no_event_device_is_refused_before_any_reset(tmp_path, rigs):
     robot = _robot()
-    config = RealRobotEnvConfig(robot={"type": "franka", "arm_backend": "fake"}, cameras=[], home_joints=HOME,
+    config = RealRobotEnvConfig(robot={"limits": station_limits(), "type": "franka", "arm_backend": "fake"}, cameras=[], home_joints=HOME,
                                 reset_settle_s=0.0, control_hz=1000.0)
     wrapped = TeleopEventRewardWrapper(InterventionWrapper(
         RealRobotVectorEnv(RealRobotEnv(config, robot=robot)), ScriptedTeleopSource([TeleopReading.idle(7)])))

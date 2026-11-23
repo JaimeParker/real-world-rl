@@ -15,6 +15,8 @@ intervening reads towards ``LEFT_LEADER`` with the trigger squeezed, the first o
 """
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
@@ -115,7 +117,7 @@ def _right_script() -> list[dict]:
 
 
 def _station_robot(arm: str, index: int, script: list[dict], on_end: str) -> dict:
-    return {
+    return {"limits": station_limits(),
         "type": "franka",
         "name": arm,
         "arm_backend": "fake",
@@ -191,7 +193,7 @@ def _bimanual_config(daemons: dict[str, StationDaemon]) -> BimanualRealRobotEnvC
             joint_scale_rad=0.1,
             state_fields=("joint_pos", "gripper_pos"),
             control_hz=FAST_HZ,
-            joint_limits=PANDA_JOINT_LIMITS,
+            limits=env_limits(joints=PANDA_JOINT_LIMITS),
         )
         for arm in ARMS
     }
@@ -506,7 +508,7 @@ def _deploy_bc(daemons, bc_args: RealWorldBCArgs, checkpoint: Path) -> None:
     trained = restored.real_robot_bimanual
     assert trained.max_episode_steps == EPISODE_STEPS
     assert trained.left.action_mode == trained.right.action_mode == "joint_delta"
-    assert trained.left.joint_limits == bc_args.real_robot_bimanual.left.joint_limits
+    assert trained.left.limits["joints"] == bc_args.real_robot_bimanual.left.limits["joints"]
 
     (result,) = run_deploy(args)
     assert result.steps == 2 and result.truncated and result.health_ok is True

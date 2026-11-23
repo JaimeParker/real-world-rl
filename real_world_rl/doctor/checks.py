@@ -556,6 +556,10 @@ def run_doctor(
         return result
 
     record(_guarded(0, LAYER_NAMES[0], lambda: _deps_result(config, serves_daemon=serves_daemon and not mock)))
+    from .limits import static_limits
+    limits_result = record(lambda: static_limits(config))
+    if not limits_result.ok:
+        return results
     sdk_checks, backends_resolved = _sdk_layer(config)
     for check in sdk_checks:
         record(check)
@@ -661,6 +665,8 @@ def _feedback_and_mode_layers(robot: Robot, record, results: list[CheckResult]) 
         )
 
     record(_make_check(4, "feedback:arm", arm_feedback))
+    from .limits import franka_kinematics
+    record(lambda: franka_kinematics(robot))
     if robot.gripper is not None:
         gripper = robot.gripper
 

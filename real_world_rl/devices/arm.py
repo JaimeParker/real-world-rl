@@ -13,7 +13,7 @@ from real_world_rl.devices.control import ArmControlConfig
 from real_world_rl.devices.base import Connection, ControllablePart, Features, Health
 from real_world_rl.devices.errors import DeviceFault, SafetyViolation
 from real_world_rl.devices.registry import BackendRegistry
-from real_world_rl.devices.safety import ArmSafety
+from real_world_rl.devices.limits import ArmLimits
 
 if TYPE_CHECKING:
     from real_world_rl.devices.robot import RobotConfig
@@ -68,12 +68,12 @@ class Arm(ControllablePart, BackendRegistry, ABC):
         *,
         num_joints: int,
         owner: Connection | None = None,
-        safety: ArmSafety | None = None,
+        safety: ArmLimits | None = None,
     ) -> None:
         super().__init__(name, owner=owner)
-        if safety is not None and safety.joint_limits is not None and len(safety.joint_limits) != num_joints:
+        if safety is not None and safety.joints is not None and len(safety.joints) != num_joints:
             raise ValueError(
-                f"joint_limits has {len(safety.joint_limits)} rows, arm '{name}' has {num_joints} joints"
+                f"joint_limits has {len(safety.joints)} rows, arm '{name}' has {num_joints} joints"
             )
         self._num_joints = num_joints
         self._control_mode = ControlMode.IDLE
@@ -197,7 +197,7 @@ class Arm(ControllablePart, BackendRegistry, ABC):
 
     @property
     def safety_capabilities(self) -> tuple[str, ...]:
-        return ("task_workspace_v1", "accepted_cartesian_target_v1")
+        return ("station_limits_v1", "accepted_cartesian_target_v1")
 
     @property
     def safety_limits(self) -> dict | None:
@@ -261,7 +261,7 @@ class Arm(ControllablePart, BackendRegistry, ABC):
 
     @property
     def last_cartesian_target(self) -> np.ndarray | None:
-        """The latest target of this control segment that passed ``ArmSafety`` and was handed to
+        """The latest target of this control segment that passed ``ArmLimits`` and was handed to
         the backend; never measured feedback. None after any ``stop()``, ``stop_with_trace()``,
         control-mode switch or ``disconnect()``. Backends that convert the target further inside
         ``_servo_cartesian`` (piper_sdk, pyagxarm: rounding, RPY conversion) may send a slightly
@@ -269,7 +269,7 @@ class Arm(ControllablePart, BackendRegistry, ABC):
         return None if self._last_cartesian_target is None else self._last_cartesian_target.copy()
 
     def servo_cartesian(self, pose: np.ndarray) -> None:
-        """Limit steps and clip the base box; reject workspace breaches and count them."""
+        """Limit the position step, then clip into the TCP box; preserve orientation."""
         self._require_connected()
         pose = self._sanitize_pose(pose)
         if self._safety is not None:
@@ -292,13 +292,22 @@ class Arm(ControllablePart, BackendRegistry, ABC):
         self._require_connected()
         q = self._sanitize_joints(q)
         if self._safety is not None:
-            stepped = False
-            if self._safety.max_delta_joint_rad is not None:
+            q, limited = self._safety.clip_joints(q)
+            stepped = projected = False
+            if self._safety.max_delta_joint_rad is not None or self._safety.tcp is not None:
                 current = self._current_state_field("joint_pos")
                 if current is not None:
                     q, stepped = self._safety.limit_step_joints(q, current)
-            q, limited = self._safety.clip_joints(q)
-            if stepped or limited:
+                    q, projected = self._safety.project_joints_to_box(
+                        q, current, self.tcp_position_from_joints)
+                elif self._safety.tcp is not None:
+                    # No measured joints to project from: the target itself must be inside the box.
+                    try:
+                        self._safety.require_joints_inside(q, device=self.name, fk=self.tcp_position_from_joints)
+                    except SafetyViolation:
+                        self._safety_rejects += 1
+                        raise
+            if stepped or limited or projected:
                 self._safety_clips += 1
         self._servo_joints(q)
 
@@ -321,7 +330,7 @@ class Arm(ControllablePart, BackendRegistry, ABC):
         q = self._sanitize_joints(q)
         if self._safety is not None:
             try:
-                self._safety.require_joints_inside(q, device=self.name)
+                self._safety.require_joints_inside(q, device=self.name, fk=self.tcp_position_from_joints)
             except SafetyViolation:
                 self._safety_rejects += 1
                 raise
@@ -329,6 +338,9 @@ class Arm(ControllablePart, BackendRegistry, ABC):
             self._move_to_joints(q, blocking=blocking)
         finally:
             self._forget_state()
+
+    def tcp_position_from_joints(self, q) -> np.ndarray | None:
+        return None
 
     def _sanitize_pose(self, pose: np.ndarray) -> np.ndarray:
         value = self._sanitize("tcp_pose", pose, (7,))

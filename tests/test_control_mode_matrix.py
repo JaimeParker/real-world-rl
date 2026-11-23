@@ -8,6 +8,8 @@ IDLE and back works. ``rwrl teleop run --backend spacemouse --mode ...`` resolve
 """
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import sys
 from pathlib import Path
 
@@ -39,7 +41,7 @@ def station_text(controller: str) -> str:
     return yaml.safe_dump({
         "type": "franka", "name": "arm", "arm_backend": "franky", "robot_ip": "10.0.0.2",
         "realtime": "ignore", "cartesian_controller": controller, "gripper": {"backend": "fake"}, "cameras": [],
-        "home_joints": HOME, "safety_box": SAFETY_BOX, "teleop": {"backend": "spacemouse"},
+        "home_joints": HOME, "limits": station_limits(bounds=SAFETY_BOX), "teleop": {"backend": "spacemouse"},
     }, sort_keys=False)
 
 
@@ -86,7 +88,7 @@ def load_config(tmp_path: Path, controller: str):
 
 
 def make_env(config, robot, mode: str) -> RealRobotEnv:
-    serl = {"cartesian_semantics": "serl", "safety_box": SAFETY_BOX,
+    serl = {"cartesian_semantics": "serl",
             "safety_box_rpy_low": [-3.14] * 3, "safety_box_rpy_high": [3.14] * 3} if mode == "serl" else {}
     # The tracker needs env scales at least its lead caps (one env step reaches every command).
     return RealRobotEnv(RealRobotEnvConfig(robot=config.to_dict(), reset_settle_s=0.0, xyz_scale_m=0.05,
@@ -247,7 +249,7 @@ def test_cli_teleop_run_spacemouse_mode_x_controller(session, tmp_path, capsys, 
     session.path.write_text(yaml.safe_dump(document))
     preset = yaml.safe_load(session.preset.read_text())
     if mode == "serl":  # SERL's env semantics need its pose limits, as a serl preset sets them
-        preset["real_robot"].update(safety_box=SAFETY_BOX, safety_box_rpy_low=[-3.14] * 3,
+        preset["real_robot"].update( safety_box_rpy_low=[-3.14] * 3,
                                     safety_box_rpy_high=[3.14] * 3)
     session.preset.write_text(yaml.safe_dump(preset))
     assert main([*session.prefix, "teleop", "run", "--backend", "spacemouse", "--mode", mode,

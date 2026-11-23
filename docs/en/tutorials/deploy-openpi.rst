@@ -161,7 +161,7 @@ the client's ``--policy-port``. ``--api-key`` only sends an authentication heade
 
 Write the bind address into the existing station so device checks, the service, and SSH forwarding use the same port.
 Add the block below at the top level of the ``local/station.yaml`` filled in and verified in :doc:`station`,
-alongside ``type`` and ``cameras``. Do not overwrite your measured home and workspace with this chapter's template.
+alongside ``type`` and ``cameras``. Do not overwrite your measured home and ``limits`` with this chapter's template.
 
 .. literalinclude:: ../../examples/en/deploy-openpi-station.yaml
    :language: yaml
@@ -325,7 +325,7 @@ On the NUC, query the daemon already running:
    :start-after: # start mapping
    :end-before: # end mapping
 
-**What you should see**: actual camera names, home, workspace, and per-step limits.
+**What you should see**: actual camera names, home, and ``limits`` (joint ranges, TCP box and per-step limits).
 The ``wrist`` in :doc:`station` is only one camera; this chapter's service example defaults to
 ``wrist_1`` and ``wrist_2``. If you have only one, check whether the model allows the second view to be absent;
 do not duplicate the same frame as two cameras and claim a match.
@@ -354,7 +354,7 @@ For example, if ``status`` lists ``wrist`` and ``side``, change the left-hand na
 supply its xyzw quaternion relative to the TCP. Keep the training crop, colors, and camera order.
 Default translation/rotation scales are 0.02 m/0.1 rad; the deployment documentation's RLinf SFT example explicitly uses 1.0/1.0.
 **These are examples, not confirmed Pick_Red parameters.** Use the verified training configuration,
-while retaining the station workspace, per-step limits, and safe home.
+while retaining the station ``limits`` (including per-step limits) and safe home.
 
 ``generic`` instead concatenates native-unit state according to ``--real-robot.state-fields`` and defaults to 224 × 224,
 Pillow bilinear resizing, and RGB; actions follow the environment configuration. Changing profile changes the contract; it is not a shortcut for fixing a dimension error.
@@ -549,7 +549,7 @@ Do not feed bimanual actions into the current single-arm entry point.
    **What needs hardware confirmation in this chapter**
 
    WebSocket loading and inference with actual Pick_Red weights remain unverified. Also confirm real camera views,
-   crop and colors, state/torque and stiffness frames, action directions, scales and gripper thresholds, home and workspace,
+   crop and colors, state/torque and stiffness frames, action directions, scales and gripper thresholds, home and ``limits``,
    inference and transfer timing, watchdog stopping, and manual confirmation and reset after disconnection.
    autossh, systemd, and Clash routing need validation on both on-site hosts; Clean Desk also needs bimanual contract and synchronization validation.
    Local results in this chapter cover only the CLI, fake-policy protocol, and diagnostics without a service; they do not constitute hardware acceptance.

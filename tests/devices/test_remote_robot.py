@@ -26,7 +26,7 @@ from real_world_rl.server.transport import LocalClient
 def service(tmp_path, monkeypatch):
     monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
     robot = FrankaRobot(
-        FrankaConfig(
+        FrankaConfig(limits={"joints": [[-4., 4.]] * 7},
             arm_backend="fake",
             gripper=GripperConfig(backend="fake"),
             cameras=[CameraConfig(name="wrist", backend="fake", fps=60, width=32, height=24)],
@@ -179,7 +179,7 @@ def teleop_remote(tmp_path, monkeypatch):
 
     monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
     robot = FrankaRobot(
-        FrankaConfig(
+        FrankaConfig(limits={"joints": [[-4., 4.]] * 7},
             arm_backend="fake",
             gripper=GripperConfig(backend="fake"),
             teleop=TeleopConfig(name="sm", backend="fake", hold_s=0.1, options={"script": TELEOP_SCRIPT}),

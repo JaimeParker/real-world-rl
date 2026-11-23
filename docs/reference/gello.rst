@@ -99,7 +99,7 @@ GELLO 是 Franka Panda 的被动式 3D 打印副本，关节采用 Dynamixel 舵
    * - ``--calibration-pose``
      - Franka 七关节位姿 ``0 0 0 -pi/2 0 pi/2 0``\ （弧度）
    * - ``--joint-limits-yaml``
-     - 用于包裹中心的其他机器人 YAML；否则使用工作站 ``joint_limits``
+     - 用于包裹中心的其他机器人 YAML；否则使用工作站 ``limits.joints``
    * - ``--skip-sign-check``
      - 保留初始符号；默认关闭
    * - ``--use``
@@ -120,7 +120,7 @@ GELLO 是 Franka Panda 的被动式 3D 打印副本，关节采用 Dynamixel 舵
        joint_ids: [1, 2, 3, 4, 5, 6, 7]
        joint_offsets_rad: [...]        # from the calibration CLI
        joint_signs: [...]              # from the calibration CLI
-       wrap_centers_rad: [...]         # from the calibration CLI (midpoints of joint_limits)
+       wrap_centers_rad: [...]         # from the calibration CLI (midpoints of limits.joints)
        gripper_id: 8                   # null: no gripper channel (the actor holds the last gripper action)
        gripper_open_rad: ...           # raw trigger angle, released
        gripper_closed_rad: ...         # raw trigger angle, squeezed
@@ -137,7 +137,7 @@ GELLO 是 Franka Panda 的被动式 3D 打印副本，关节采用 Dynamixel 舵
 3. 机器人 YAML（\ ``real_robot``\ 、franky）
 --------------------------------------------------------------------------------
 
-从 ``examples/stations/robot.franka.example.yaml`` 开始，加入安全限制和 GELLO。也可使用 ``rwrl setup``\ ，生成包含机器人、相机、GELLO 标定和 daemon 端口的工作站 YAML（\ ``./local/station.yaml``\ ，daemon 无需 ``--station`` 即可找到）；它写入 Panda ``joint_limits``\ 、\ ``max_delta_per_step`` 上限和询问得到的 ``safety_box``\ 。运动前对照实际工作站检查这些值；手写文件也需相同限制：
+从 ``examples/stations/robot.franka.example.yaml`` 开始，加入安全限制和 GELLO。也可使用 ``rwrl setup``\ ，生成包含机器人、相机、GELLO 标定和 daemon 端口的工作站 YAML（\ ``./local/station.yaml``\ ，daemon 无需 ``--station`` 即可找到）；它写入 Panda ``limits.joints``\ 、\ ``max_delta_per_step`` 上限和询问得到的 ``limits.tcp`` 盒（见\ :ref:`限位 <devices-limits>`\ ）。运动前对照实际工作站检查这些值；手写文件也需相同限制：
 
 .. code-block:: yaml
    :dedent: 0
@@ -147,15 +147,20 @@ GELLO 是 Franka Panda 的被动式 3D 打印副本，关节采用 Dynamixel 舵
    arm_backend: franky
    robot_ip: 172.16.0.2
    home_joints: [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]
-   joint_limits:
-     - [-2.8, 2.8]
-     - [-1.7, 1.7]
-     - [-2.8, 2.8]
-     - [-3.0, -0.1]
-     - [-2.8, 2.8]
-     - [0.0, 3.7]
-     - [-2.8, 2.8]
-   max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}   # recommended joint_rad: 0.03 to 0.05
+   limits:
+     joints:
+       - [-2.8, 2.8]
+       - [-1.7, 1.7]
+       - [-2.8, 2.8]
+       - [-3.0, -0.1]
+       - [-2.8, 2.8]
+       - [0.0, 3.7]
+       - [-2.8, 2.8]
+     tcp:                                # box centred on home; GELLO joint targets stop at its wall too
+       origin: home
+       low: [-0.20, -0.25, -0.15]
+       high: [0.20, 0.25, 0.30]
+     max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}   # recommended joint_rad: 0.03 to 0.05
    gripper:
      backend: franky
      mode: binary
@@ -202,7 +207,7 @@ actor 的预设（\ ``hil.yaml``\ ，通过 ``--config`` 传入；README 的“�
      num_joints: 7
      action_mode: joint_delta          # or joint_abs; the same for demos, base policy and HIL runs
      joint_scale_rad: 0.05
-     joint_limits: [[-2.8, 2.8], [-1.7, 1.7], [-2.8, 2.8], [-3.0, -0.1], [-2.8, 2.8], [0.0, 3.7], [-2.8, 2.8]]
+     limits: {joints: [[-2.8, 2.8], [-1.7, 1.7], [-2.8, 2.8], [-3.0, -0.1], [-2.8, 2.8], [0.0, 3.7], [-2.8, 2.8]]}
      state_fields: [joint_pos, gripper_pos]
      control_hz: 10
      max_episode_steps: 200
@@ -296,7 +301,7 @@ actor 用 Panda 正向运动学将主臂关节变成笛卡尔 twist（\ ``--tele
 人工介入时，actor 执行主臂源动作，并将它作为 transition 的 ``action`` 上传。细节如下（对应 ``tests/test_leader_arm_hil_loops.py`` 的脚本化端到端检查）：
 
 -  ``joint_delta``\ **。** 动作为 ``clip((q_leader - q_follower) / joint_scale_rad, -1, 1)``\ ：主臂较远时每步饱和至 ``joint_scale_rad``\ ，直到从臂追上，对齐后为零。\ ``ramp`` 下，主臂首次进入 ``joint_scale_rad`` 范围前的初始追赶标为 syncing；对齐后再次饱和的教学步骤仍是正常监督。
--  ``joint_abs`` **与** ``--teleop-onset ramp``\ **。** 每个介入步均限速：目标为 ``q_follower + clip(q_leader - q_follower, +-ramp_step_rad)``，保存的机械臂动作是该目标按 ``joint_limits`` 归一化后的 ``[-1, 1]`` 值。误差超过 ``ramp_step_rad`` 的步骤带 ``info["teleop_events"]["teleop_syncing"] = True``\ 。归档保留实际动作和人工掩码，训练排除其专家监督。误差在 ramp 限制内时，动作为主臂归一化关节目标；同次接管后续误差再次超限时仍标 syncing。
+-  ``joint_abs`` **与** ``--teleop-onset ramp``\ **。** 每个介入步均限速：目标为 ``q_follower + clip(q_leader - q_follower, +-ramp_step_rad)``，保存的机械臂动作是该目标按 ``limits.joints`` 归一化后的 ``[-1, 1]`` 值。误差超过 ``ramp_step_rad`` 的步骤带 ``info["teleop_events"]["teleop_syncing"] = True``\ 。归档保留实际动作和人工掩码，训练排除其专家监督。误差在 ramp 限制内时，动作为主臂归一化关节目标；同次接管后续误差再次超限时仍标 syncing。
 -  ``--teleop-onset arm``\ **。** 主臂与从臂距离进入 ``--teleop-arm-tolerance-rad``\ （0.1）前，切换不生效：策略继续动作，数据行不算介入，每秒记录一次逐关节误差。随后每步算介入，直到交还。
 -  ``residual_hil_serl``\ **。** 保存的 ``action`` 是人工总动作（不是相对基础策略的偏移）；\ ``base_actions`` 是同一观测的基础策略动作，\ ``policy_action`` 是残差策略建议动作。
 -  ``silri``\ **。** ``intervention_onset`` 标记人工首个介入步骤之前的 transition：\ ``ramp`` 时为切换前的策略步，\ ``arm`` 时为主臂就绪前最后一步（切换到就绪之间仍是策略动作）。

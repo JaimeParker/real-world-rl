@@ -18,7 +18,7 @@ def station(tmp_path, monkeypatch):
     monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
     path = tmp_path / "station.yaml"
     path.write_text(yaml.safe_dump({"type": "franka", "arm_backend": "fake", "claim": False,
-                                    "gripper": {"backend": "fake"}, "home_joints": [0.3] * 7}))
+                                    "limits": {"joints": [[-3., 3.]] * 7}, "gripper": {"backend": "fake"}, "home_joints": [0.3] * 7}))
     return path
 
 
@@ -106,12 +106,12 @@ def test_home_set_outside_limits_leaves_files_untouched(station, tmp_path, capsy
     limits = [[0.1, 0.6]] * 7  # Station home is valid; fake's current q=0 is outside.
     if where == "station":
         station_data = yaml.safe_load(station.read_text())
-        station_data["joint_limits"] = limits
+        station_data["limits"] = {"joints": limits}
         station.write_text(yaml.safe_dump(station_data))
     elif where == "preset":
-        data["joint_limits"] = limits
+        data["limits"] = {"joints": limits}
     else:
-        data["robot"] = {"joint_limits": limits}
+        data["robot"] = {"limits": {"joints": limits}}
     preset.write_text(yaml.safe_dump(data))
     original = preset.read_bytes()
     backup = Path(str(preset) + ".bak")

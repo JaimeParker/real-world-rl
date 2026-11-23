@@ -297,10 +297,9 @@ class BimanualRealRobotEnv(gym.Env):
         """The shared contract with ``num_arms=2``. ``joint_limits`` is per arm, in arm order
         (``(num_arms, num_joints, 2)``), or None when no arm sets them."""
         shared = self.config.left
-        arm_configs = self.config.arm_configs.values()
-        joint_limits = (
-            None if shared.joint_limits is None else [config.joint_limits for config in arm_configs]
-        )
+        joint_limits = [arm.action_contract["joint_limits"] for arm in self.arms.values()]
+        if all(value is None for value in joint_limits):
+            joint_limits = None
         return {
             "experiment": self.requested_experiment,
             "action_mode": shared.action_mode,
@@ -310,6 +309,7 @@ class BimanualRealRobotEnv(gym.Env):
             "arm_names": self.arm_names,
             "num_joints": shared.num_joints,
             "joint_limits": joint_limits,
+            "limits": {name: arm._effective_limits.contract_dict() for name, arm in self.arms.items()},
             "xyz_scale_m": shared.xyz_scale_m,
             "rot_scale_rad": shared.rot_scale_rad,
             "joint_scale_rad": shared.joint_scale_rad,

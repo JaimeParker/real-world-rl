@@ -138,7 +138,7 @@ gripper keys when there is no gripper channel.
    * - ``--calibration-pose``
      - seven-joint Franka pose ``0 0 0 -pi/2 0 pi/2 0`` (rad)
    * - ``--joint-limits-yaml``
-     - alternate robot YAML for wrap centres; otherwise station ``joint_limits``
+     - alternate robot YAML for wrap centres; otherwise station ``limits.joints``
    * - ``--skip-sign-check``
      - keep initial signs; off by default
    * - ``--use``
@@ -159,7 +159,7 @@ The resulting robot YAML fields (placeholder angles must be replaced by the unit
        joint_ids: [1, 2, 3, 4, 5, 6, 7]
        joint_offsets_rad: [...]        # from the calibration CLI
        joint_signs: [...]              # from the calibration CLI
-       wrap_centers_rad: [...]         # from the calibration CLI (midpoints of joint_limits)
+       wrap_centers_rad: [...]         # from the calibration CLI (midpoints of limits.joints)
        gripper_id: 8                   # null: no gripper channel (the actor holds the last gripper action)
        gripper_open_rad: ...           # raw trigger angle, released
        gripper_closed_rad: ...         # raw trigger angle, squeezed
@@ -179,7 +179,7 @@ The resulting robot YAML fields (placeholder angles must be replaced by the unit
 Start from ``examples/stations/robot.franka.example.yaml`` and add the safety limits and the GELLO. The
 alternative is ``rwrl setup``, which writes a station yaml with the robot, cameras,
 GELLO calibration and daemon port (``./local/station.yaml``, found by the daemon without ``--station``);
-it writes Panda ``joint_limits``, a ``max_delta_per_step`` cap and a requested ``safety_box``.
+it writes Panda ``limits.joints``, a ``max_delta_per_step`` cap and a requested ``limits.tcp`` box (see :ref:`Limits <en-devices-limits>`).
 Inspect those values against the actual station before motion; hand-written files need the
 same limits:
 
@@ -191,15 +191,20 @@ same limits:
    arm_backend: franky
    robot_ip: 172.16.0.2
    home_joints: [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]
-   joint_limits:
-     - [-2.8, 2.8]
-     - [-1.7, 1.7]
-     - [-2.8, 2.8]
-     - [-3.0, -0.1]
-     - [-2.8, 2.8]
-     - [0.0, 3.7]
-     - [-2.8, 2.8]
-   max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}   # recommended joint_rad: 0.03 to 0.05
+   limits:
+     joints:
+       - [-2.8, 2.8]
+       - [-1.7, 1.7]
+       - [-2.8, 2.8]
+       - [-3.0, -0.1]
+       - [-2.8, 2.8]
+       - [0.0, 3.7]
+       - [-2.8, 2.8]
+     tcp:                                # box centred on home; GELLO joint targets stop at its wall too
+       origin: home
+       low: [-0.20, -0.25, -0.15]
+       high: [0.20, 0.25, 0.30]
+     max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}   # recommended joint_rad: 0.03 to 0.05
    gripper:
      backend: franky
      mode: binary
@@ -251,7 +256,7 @@ The actor's preset (``hil.yaml``, passed with ``--config``; the README's
      num_joints: 7
      action_mode: joint_delta          # or joint_abs; the same for demos, base policy and HIL runs
      joint_scale_rad: 0.05
-     joint_limits: [[-2.8, 2.8], [-1.7, 1.7], [-2.8, 2.8], [-3.0, -0.1], [-2.8, 2.8], [0.0, 3.7], [-2.8, 2.8]]
+     limits: {joints: [[-2.8, 2.8], [-1.7, 1.7], [-2.8, 2.8], [-3.0, -0.1], [-2.8, 2.8], [0.0, 3.7], [-2.8, 2.8]]}
      state_fields: [joint_pos, gripper_pos]
      control_hz: 10
      max_episode_steps: 200
@@ -391,7 +396,7 @@ source's action. In detail (these are the scripted end-to-end checks in
    remain ordinary supervision.
 -  ``joint_abs`` **with** ``--teleop-onset ramp``\ **.** Every intervened step is rate-limited:
    the target is ``q_follower + clip(q_leader - q_follower, +-ramp_step_rad)``, and the stored arm
-   action is that target normalized onto ``joint_limits`` in ``[-1, 1]``. Steps whose gap
+   action is that target normalized onto ``limits.joints`` in ``[-1, 1]``. Steps whose gap
    exceeds ``ramp_step_rad`` carry
    ``info["teleop_events"]["teleop_syncing"] = True``. The archive keeps their actual actions and human
    masks, while training excludes their expert supervision. When the gap fits within the ramp limit, the action is the leader's

@@ -130,7 +130,7 @@ roll／pitch／yaw 分别绕前向 X、左向 Y、向上 Z 旋转（右手规则
 **你应该看到**：结果有 ``candidate``、``frame``、``yaw_rad``、
 ``horizontal_validated``、``rotation_validated`` 和保存路径。
 完整采完六轴正负方向后检查两个 validated 都为 true。
-``profiles show`` 应选中 operator-base，``workspace show`` 应仍显示上一章审阅过的 base 边界。
+``profiles show`` 应选中 operator-base，``workspace show`` 应仍显示上一章审阅过的 ``limits``（关节范围和 TCP 盒）。
 只采水平四向能拟合 yaw，但不能证明旋转方向已经验证。
 
 有 ``task_frame`` 的机器人（例如侧装 45°）用桌面系标定，``--frame`` 写 ``task_frame`` 的 ``name``：
@@ -266,7 +266,7 @@ roll／pitch／yaw 分别绕前向 X、左向 Y、向上 Z 旋转（右手规则
 推“上”而 TCP 斜着走，说明 ``task_frame`` 没写或角度不对，回到 :doc:`station` 第 11 步。
 
 需要限制诊断输入时，给上述 ``teleop run`` 加 ``--diagnose translation``、
-``rotation`` 或 ``all``；这是会运动的会话，要求 station 已有审阅过的 workspace。
+``rotation`` 或 ``all``；这是会运动的会话，要求 station 已有审阅过的 ``limits.tcp``。
 此时 ``--gain`` 默认 0.2，范围 (0, 1]；``--duration-s`` 默认 5 秒，范围 (0, 300]，
 换算成回合步数上限。未显式指定时，成功配额和回合预算都为 1；回合结束仍进入 POST_EPISODE，预算用完后 ``n`` 或 ``q`` 结束会话。
 不带 ``--diagnose`` 时，gain 和 duration-s 不生效；输入过滤设置会写入控制约定。
@@ -279,7 +279,8 @@ tracker 的领先上限不能超过 preset 一步的动作尺度，否则会话�
 **如果不对**：
 
 * 一直停在 READY：开始回合要在运行 ``rwrl`` 的终端按空格，帽子和按钮不管开始。档案的 neutral_threshold（默认 0.05）只用于 ``hold`` 模式。
-* ``WORKSPACE HOLD: <axes>``：请求越界，回查 workspace 和 safety_box；交还后重新接管，不要扩大边界绕过检查。
+* 推到盒子边缘后 TCP 不再前进、只沿墙面滑动：这是 ``limits.tcp`` 在起作用（目标被裁进盒内），不是故障。回查盒子的 ``low``／``high`` 是否符合现场；不要为了继续推而扩大盒子绕过检查。
+* ``measured TCP outside TCP box``：实测 TCP 超出盒子加 ``measured_margin_m``，环境已停臂并锁存 ``SafetyViolation`` 故障。先检查反馈和机器人状态，人工确认后再重新开始会话；不会自动归位。
 * 方向或幅度不符：退出会话，回查方向档案、任务系及 preset 的动作尺度，再做单轴练习。
 
 5. 再决定是否使用 SERL 模式
@@ -287,8 +288,8 @@ tracker 的领先上限不能超过 preset 一步的动作尺度，否则会话�
 
 只有需要靠推帽即时接管的操作习惯时，才另开 SERL 会话并重新核对动作约定。
 先删除 station 的 ``teleop.options.deadzone`` 和显式设置过的 ``axis_lock`` 字段（设备层仍使用默认 deadzone）；
-SERL 源会拒绝 tracker 专用选项。再复制 preset；SERL 要求环境层同时具备 XYZ 和 RPY 边界，
-上一章的 task 模板没有这些字段。
+SERL 源会拒绝 tracker 专用选项。再复制 preset；SERL 要求 station 的 ``limits.tcp``（XYZ 盒）和 preset 的 ``real_robot.safety_box_rpy_low`` / ``safety_box_rpy_high``（RPY 边界），
+上一章的 task 模板没有 RPY 字段。
 
 .. tutorial-test: skip
 .. literalinclude:: ../examples/spacemouse.sh
@@ -306,7 +307,7 @@ SERL 源会拒绝 tracker 专用选项。再复制 preset；SERL 要求环境层
 
 在已经独立确认安全的姿态下读取 TCP，用同一段换算程序把 xyzw 转成弧度。
 如需手动引导，沿用 station 章的停止控制、现场监护流程；此处读数本身不运动。
-将以下片段合入新文件的 real_robot 块，把所有占位符换成审阅过的数值：
+将以下片段合入新文件的 real_robot 块，把所有占位符换成审阅过的数值（XYZ 盒不用在这里写，沿用 station 的 ``limits.tcp``）：
 
 .. literalinclude:: ../examples/spacemouse-config.txt
    :language: yaml
@@ -318,8 +319,8 @@ SERL 源会拒绝 tracker 专用选项。再复制 preset；SERL 要求环境层
 
    * - 必须改的字段
      - 怎么得到这个值
-   * - ``real_robot.safety_box``
-     - 从 workspace show 复制已审阅的 base_safety_box，顺序保持 xmin、ymin、zmin、xmax、ymax、zmax。
+   * - ``real_robot.limits``（可选）
+     - 不写就沿用 station 的 ``limits``；只有想让这份 preset 比 station 更窄时才写 ``limits.tcp.low`` / ``high``，且只能收紧，见\ :ref:`限位（limits） <devices-limits>`\ 。
    * - ``safety_box_rpy_low`` / ``safety_box_rpy_high``
      - 用本步 TCP 换算值和允许的姿态范围取上下界；roll 用绝对值，pitch／yaw 保留正负，单位 rad。
 
@@ -399,7 +400,8 @@ stderr 也不会再打印 ``using preset``。
 
 **如果不对**：
 
-* ``serl requires complete safety_box`` 或 ``safety_box_rpy``：补齐新 preset 的环境层边界；仅 station 中有位置边界还不够。
+* ``serl requires a TCP box``：station 没有 ``limits.tcp``，按 :doc:`station` 第 5 步补上。
+* ``serl requires complete safety_box_rpy low/high limits``：补齐新 preset 的 RPY 边界；station 的 ``limits.tcp`` 只管位置，不管姿态。
 * 以为短按会保持接管：SERL 使用当前输入和按钮电平，改回 tracker 才有锁存接管。
 * 想调 tracker 速度却没有效果：SERL 不使用这些选项；重新审阅环境尺度及位置／姿态边界。
 * 方向和 tracker 模式不一样：serl 模式默认不加档案 yaw；SpaceMouse 没按上图摆正时方向会转一个角度，这是预期行为。摆正它，或写 ``use_profile_rotation: true``。

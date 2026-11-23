@@ -31,14 +31,14 @@ from real_world_rl.devices.errors import (
 from real_world_rl.devices.gripper import Gripper, GripperMode
 from real_world_rl.devices.registry import BackendRegistry
 from real_world_rl.devices.robot import GripperConfig, Robot, RobotConfig
-from real_world_rl.devices.safety import ArmSafety
+from real_world_rl.devices.limits import ArmLimits, TcpBox
 from real_world_rl.devices.teleop import RawReading, Teleop, TeleopConfig, TeleopHealth, TeleopSample
 
 __all__ = [
     "ARM_STATE_FIELDS",
     "Arm",
     "ArmHealth",
-    "ArmSafety",
+    "ArmLimits", "TcpBox",
     "Camera",
     "CameraConfig",
     "ControlMode",

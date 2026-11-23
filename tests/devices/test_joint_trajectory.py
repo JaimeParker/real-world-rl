@@ -74,9 +74,9 @@ def arm(franky, joint_controller, clock):
 
 
 def test_validation_and_defaults():
-    assert FrankaConfig().joint_controller == "impedance"
+    assert FrankaConfig(limits={"joints": [[-4., 4.]] * 7}).joint_controller == "impedance"
     assert FrankyArm(robot_ip="x").joint_trajectory_params is None
-    for cls, kw in ((FrankaConfig, {}), (FrankyArm, {"robot_ip": "x"})):
+    for cls, kw in ((FrankaConfig, {"limits": {"joints": [[-4., 4.]] * 7}}), (FrankyArm, {"robot_ip": "x"})):
         with pytest.raises(ValueError, match="trajectory_impedance"):
             cls(joint_controller="invalid", **kw)
         with pytest.raises(ValueError, match="unknown joint_trajectory"):
@@ -145,7 +145,7 @@ def test_params(arm, joint_controller, model):
     assert arm.joint_trajectory_params["stiffness"][0] == 100.
     with pytest.raises(ValueError, match="unknown"):
         arm.update_joint_trajectory_params({"nope": 1})
-    configured = FrankyArm.from_config(FrankaConfig(joint_controller="trajectory_impedance",
+    configured = FrankyArm.from_config(FrankaConfig(limits={"joints": DATASHEET_JOINT_LIMITS[model]}, joint_controller="trajectory_impedance",
                              robot_model=model, joint_trajectory={"max_delta_tau": 3.}))
     assert configured.joint_trajectory_params == {**expected, "max_delta_tau": 3.}
 
@@ -206,7 +206,7 @@ def test_params_grpc(franky, joint_controller, clock):
     from real_world_rl.devices.robots.franka import FrankaRobot
     from real_world_rl.server.service import RobotService
     from real_world_rl.server.transport import GrpcTransport
-    robot = FrankaRobot(FrankaConfig(joint_controller="trajectory_impedance", gripper=None, claim=False))
+    robot = FrankaRobot(FrankaConfig(limits={"joints": [[-4., 4.]] * 7}, joint_controller="trajectory_impedance", gripper=None, claim=False))
     service = RobotService(robot, watchdog_s=5.)
     transport = GrpcTransport()
     transport.start(service, "127.0.0.1:0")
@@ -228,7 +228,7 @@ def test_rpc_dispatch_without_socket(arm, monkeypatch):
     from real_world_rl.server.service import RobotService
     from real_world_rl.server.remote import RemoteArm
     from real_world_rl.server.transport.base import is_read_only
-    robot = FrankaRobot(FrankaConfig(arm_backend="fake", gripper=None, claim=False))
+    robot = FrankaRobot(FrankaConfig(limits={"joints": [[-4., 4.]] * 7}, arm_backend="fake", gripper=None, claim=False))
     robot.children["arm"] = arm
     service = RobotService(robot, watchdog_s=5.)
     remote = object.__new__(RemoteArm)
@@ -259,13 +259,13 @@ def test_doctor_checks_enabled_only_for_trajectory(franky, joint_controller, mon
     from real_world_rl.doctor.checks import _sdk_layer
     monkeypatch.setattr("importlib.metadata.version", lambda name: "1.2.3")
     for controller in JOINT_CONTROLLERS:
-        checks, _ = _sdk_layer(FrankaConfig(joint_controller=controller, gripper=None))
+        checks, _ = _sdk_layer(FrankaConfig(limits={"joints": [[-4., 4.]] * 7}, joint_controller=controller, gripper=None))
         results = {r.name: r for r in (check() for check in checks)}
         assert ("sdk:joint_controller" in results) == (controller == "trajectory_impedance")
         if controller == "trajectory_impedance":
             assert results["sdk:joint_controller"].ok
     joint_controller.build_info = lambda: {}
-    checks, _ = _sdk_layer(FrankaConfig(joint_controller="trajectory_impedance", gripper=None))
+    checks, _ = _sdk_layer(FrankaConfig(limits={"joints": [[-4., 4.]] * 7}, joint_controller="trajectory_impedance", gripper=None))
     assert not next(r for r in (check() for check in checks) if r.name == "sdk:joint_controller").ok
 
 
@@ -278,3 +278,30 @@ def test_native_rejects_nonfinite_direct_command(arm):
     arm.set_control_mode(ControlMode.JOINT_SERVO)
     with pytest.raises(DeviceFault, match="joint target rejected"):
         arm._servo_joints(np.full(7, np.nan))
+
+
+def test_station_joint_trajectory_bounds_and_live_updates(franky, joint_controller):
+    from real_world_rl.devices.limits import ArmLimits
+    from real_world_rl.devices.joint_trajectory import station_joint_trajectory
+    bounds = [[-1., 1.]] * 7
+    assert station_joint_trajectory({}, bounds) == {'lower_limit': [-1.]*7, 'upper_limit': [1.]*7}
+    arm = FrankyArm(robot_ip='x', joint_controller='trajectory_impedance', safety=ArmLimits(joints=bounds))
+    assert arm.joint_trajectory_params['lower_limit'] == [-1.]*7
+    assert arm.joint_trajectory_params['upper_limit'] == [1.]*7
+    for updates in ({'lower_limit': [-2.]*7}, {'upper_limit': [2.]*7},
+                    {'lower_limit': [np.nan]*7}, {'upper_limit': [0.]*6},
+                    {'lower_limit': [.5]*7, 'upper_limit': [-.5]*7}):
+        with pytest.raises(ValueError):
+            station_joint_trajectory(updates, bounds)
+        with pytest.raises(ValueError):
+            arm.update_joint_trajectory_params(updates)
+    arm.connect()
+    try:
+        arm.set_control_mode(ControlMode.JOINT_SERVO)
+        motion = arm._handle.joint_trajectory_motion
+        with pytest.raises(ValueError, match='tighten'):
+            arm.update_joint_trajectory_params({'upper_limit': [2.]*7})
+        assert motion.updates == []
+        assert arm.update_joint_trajectory_params({'upper_limit': [.8]*7})['upper_limit'] == [.8]*7
+    finally:
+        arm.disconnect()

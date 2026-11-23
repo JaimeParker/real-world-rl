@@ -10,7 +10,8 @@ import pytest
 import yaml
 
 import real_world_rl.devices.claims as claims
-from real_world_rl.devices import ArmSafety, CameraConfig, DeviceNotFound
+from real_world_rl.devices import CameraConfig, DeviceNotFound
+from real_world_rl.devices.limits import ArmLimits
 from real_world_rl.teleop.gello import backend as gello_backend
 from real_world_rl.devices.robots.franka import FrankaConfig
 from real_world_rl.discovery.autoconfig import STATION_CONFIG_ENV, load_station
@@ -28,7 +29,7 @@ from real_world_rl.setup.wizard import (
     GELLO_OPTION_ORDER,
     NEW_GELLO_GRIPPER_BINARIZE_THRESHOLD,
     PANDA_JOINT_LIMITS,
-    SUGGESTED_SAFETY_BOX,
+    DEFAULT_TCP_LOW,
     Answers,
     ArmDraft,
     StationDraft,
@@ -129,10 +130,10 @@ def test_one_arm_with_defaults_calibrates_writes_and_passes_the_doctor(tmp_path)
     assert f"serve the robot: rwrl daemon --station {out}" in output
     assert "--teleop-device gello --teleop-options-yaml" in output and "--obs.rgb wrist front front_2" in output
     assert "real_robot_bimanual" not in output
-    assert any("safety box of 'arm'" in prompt for prompt in operator.prompts)
-    assert "safety box: the TCP position is kept inside it" in output
-    assert config.safety_box == list(SUGGESTED_SAFETY_BOX)
-    assert config.joint_limits == DEFAULT_JOINT_LIMITS and config.max_delta_per_step == DEFAULT_MAX_DELTA
+    assert any("TCP box low of 'arm'" in prompt for prompt in operator.prompts)
+    assert "TCP box: centred on home" in output
+    assert config.limits["tcp"]["low"] == list(DEFAULT_TCP_LOW)
+    assert config.limits["joints"] == DEFAULT_JOINT_LIMITS and config.limits["max_delta_per_step"] == DEFAULT_MAX_DELTA
 
 
 def test_two_arms_get_their_own_ip_cameras_gello_and_port(tmp_path):
@@ -159,9 +160,9 @@ def test_two_arms_get_their_own_ip_cameras_gello_and_port(tmp_path):
     assert "--teleop-device bimanual --teleop-arm-device leader_arm" in output
     assert "coming in a later change" not in output and "--teleop-options-yaml" not in output
     for robot in (left, right):
-        assert robot.config.safety_box == list(SUGGESTED_SAFETY_BOX)
-        assert robot.config.joint_limits == DEFAULT_JOINT_LIMITS
-        assert robot.config.max_delta_per_step == DEFAULT_MAX_DELTA
+        assert robot.config.limits["tcp"]["low"] == list(DEFAULT_TCP_LOW)
+        assert robot.config.limits["joints"] == DEFAULT_JOINT_LIMITS
+        assert robot.config.limits["max_delta_per_step"] == DEFAULT_MAX_DELTA
 
 
 def test_the_default_local_scope_is_found_without_config(tmp_path):
@@ -282,98 +283,85 @@ def test_non_interactive_writes_the_default_safety_limits(tmp_path):
     code, output = run([*FLAGGED_ONE_ARM, "--output", out], never_asked)
     assert code == 0, output
     text = out.read_text()
-    for key in ("safety_box", "joint_limits", "max_delta_per_step"):
+    for key in ("tcp", "joints", "max_delta_per_step"):
         assert f"{key}: null" not in text
     config = load_station(out).select().config
-    assert config.safety_box == list(SUGGESTED_SAFETY_BOX)
-    assert config.joint_limits == DEFAULT_JOINT_LIMITS
-    assert config.max_delta_per_step == DEFAULT_MAX_DELTA
-    safety = ArmSafety.from_config(config)
+    assert config.limits["tcp"]["low"] == list(DEFAULT_TCP_LOW)
+    assert config.limits["joints"] == DEFAULT_JOINT_LIMITS
+    assert config.limits["max_delta_per_step"] == DEFAULT_MAX_DELTA
+    safety = ArmLimits.from_config(config)
     assert safety is not None and (safety.max_delta_xyz_m, safety.max_delta_joint_rad) == (0.05, 0.04)
 
 
 def test_safety_flags_are_written(tmp_path):
     out = tmp_path / "station.yaml"
     argv = [
-        *FLAGGED_ONE_ARM, f"--joint-limits={NARROW_JOINT_LIMITS}", "--safety-box", "[0.2, -0.4, 0.1, 0.6, 0.4, 0.5]",
+        *FLAGGED_ONE_ARM, f"--joint-limits={NARROW_JOINT_LIMITS}", "--tcp-box-low=[-0.2, -0.4, -0.1]",
         "--max-delta-xyz-m", "0.02", "--max-delta-joint-rad", "0.01", "--output", out,
     ]
     code, output = run(argv, never_asked)
     assert code == 0, output
     config = load_station(out).select().config
-    assert config.joint_limits == [[-2, 2], [-1.5, 1.5], [-2, 2], [-3, -0.1], [-2, 2], [0, 3.5], [-2, 2]]
-    assert config.safety_box == [0.2, -0.4, 0.1, 0.6, 0.4, 0.5]
-    assert config.max_delta_per_step == {"xyz_m": 0.02, "joint_rad": 0.01}
+    assert config.limits["joints"] == [[-2, 2], [-1.5, 1.5], [-2, 2], [-3, -0.1], [-2, 2], [0, 3.5], [-2, 2]]
+    assert config.limits["tcp"]["low"] == [-0.2, -0.4, -0.1]
+    assert config.limits["max_delta_per_step"] == {"xyz_m": 0.02, "joint_rad": 0.01}
 
 
 def test_per_arm_safety_boxes(tmp_path):
     out = tmp_path / "station.yaml"
     argv = [
-        "--mock", "--output", out, "--safety-box", "0.3,-0.3,0.05,0.7,0.3,0.6", "0.35,-0.25,0.1,0.65,0.25,0.5",
+        "--mock", "--output", out, "--tcp-box-high", "0.7,0.3,0.6", "0.65,0.25,0.5",
     ]
     code, output = run(argv, Operator({"number of arms": "2"}))
     assert code == 0, output
     station = load_station(out)
-    assert station.robots["left"].config.safety_box == [0.3, -0.3, 0.05, 0.7, 0.3, 0.6]
-    assert station.robots["right"].config.safety_box == [0.35, -0.25, 0.1, 0.65, 0.25, 0.5]
+    assert station.robots["left"].config.limits["tcp"]["high"] == [0.7, 0.3, 0.6]
+    assert station.robots["right"].config.limits["tcp"]["high"] == [0.65, 0.25, 0.5]
 
 
 def test_from_keeps_hand_edited_limits_and_fills_missing_ones(tmp_path):
     out = tmp_path / "station.yaml"
     assert run([*FLAGGED_ONE_ARM, "--output", out], never_asked)[0] == 0
-    text = out.read_text()
-    edits = {
-        "safety_box: [0.3, -0.3, 0.05, 0.7, 0.3, 0.6]": "safety_box: [0.2, -0.4, 0.1, 0.6, 0.4, 0.5]",
-        "[-3.0718, -0.0698]": "[-3.0, -0.1]",
-        "max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}": "max_delta_per_step: {xyz_m: 0.02}",
-    }
-    for old, new in edits.items():
-        assert old in text
-        text = text.replace(old, new)
-    out.write_text(text)
+    data = yaml.safe_load(out.read_text())
+    data['limits']['tcp']['low'] = [-.2, -.4, -.1]
+    data['limits']['joints'][3] = [-3., -.1]
+    data['limits']['max_delta_per_step'] = {'xyz_m': .02}
+    out.write_text(yaml.safe_dump(data))
     again = tmp_path / "again.yaml"
     code, output = run(["--mock", "--non-interactive", "--station", out, "--output", again], never_asked)
     assert code == 0, output
     config = load_station(again).select().config
-    assert config.safety_box == [0.2, -0.4, 0.1, 0.6, 0.4, 0.5]
-    assert config.joint_limits[3] == [-3.0, -0.1] and config.joint_limits[0] == [-2.8973, 2.8973]
-    assert config.max_delta_per_step == {"xyz_m": 0.02, "joint_rad": 0.04}
-
-    for key in ("safety_box", "joint_limits", "max_delta_per_step"):
-        text = "\n".join(f"{key}: null" if line.startswith(f"{key}:") else line for line in text.splitlines())
-    out.write_text(text + "\n")
-    assert load_station(out).select().config.safety_box is None
+    assert config.limits['tcp']['low'] == [-.2, -.4, -.1]
+    assert config.limits['joints'][3] == [-3., -.1]
+    assert config.limits['max_delta_per_step'] == {'xyz_m': .02, 'joint_rad': .04}
+    data['limits'] = {'joints': DEFAULT_JOINT_LIMITS}
+    out.write_text(yaml.safe_dump(data))
     code, output = run(["--mock", "--non-interactive", "--station", out, "--output", again], never_asked)
     assert code == 0, output
-    config = load_station(again).select().config
-    assert config.safety_box == list(SUGGESTED_SAFETY_BOX)
-    assert config.joint_limits == DEFAULT_JOINT_LIMITS and config.max_delta_per_step == DEFAULT_MAX_DELTA
+    assert load_station(again).select().config.limits['tcp']['low'] == list(DEFAULT_TCP_LOW)
 
 
-@pytest.mark.parametrize(
-    "box, message",
-    [
-        ("0.7,-0.3,0.05,0.3,0.3,0.6", "xmin 0.7 must be below xmax 0.3"),
-        ("0.3,-0.3,0.6,0.7,0.3,0.6", "zmin 0.6 must be below zmax 0.6"),
-        ("0.3,-0.3,0.05,0.7,0.3", "give 6 numbers in m (xmin ymin zmin xmax ymax zmax), got 5"),
-        ("0.3,-0.3,0.05,0.7,0.3,high", "give 6 numbers in m"),
-    ],
-)
-def test_an_invalid_safety_box_flag_is_rejected(tmp_path, box, message, capsys):
+@pytest.mark.parametrize("box, message", [
+    ("0.7,-0.3,-0.1", "low < 0 < high"),
+    ("-0.3,-0.3,0", "low < 0 < high"),
+    ("-0.3,-0.3", "three finite numbers"),
+    ("-0.3,-0.3,nan", "finite"),
+])
+def test_an_invalid_tcp_box_flag_is_rejected(tmp_path, box, message, capsys):
     out = tmp_path / "station.yaml"
-    code, output = run([*FLAGGED_ONE_ARM, "--safety-box", box, "--output", out], never_asked)
+    code, output = run([*FLAGGED_ONE_ARM, "--tcp-box-low=" + box, "--output", out], never_asked)
     error = capsys.readouterr().err
-    assert "error:" not in output
-    assert code == 2 and "--safety-box" in error and message in error and not out.exists()
+    assert code == 2 and "--tcp-box-low" in error and message in error and not out.exists()
 
 
-def test_an_invalid_safety_box_answer_is_asked_again():
-    echoed: list[str] = []
-    operator = Operator([("safety box", "0.3, 0.3"), ("safety box", "0.7,-0.3,0.05,0.3,0.3,0.6"), ("teleop device", "none")])
+def test_an_invalid_tcp_box_answer_is_asked_again():
+    echoed = []
+    operator = Operator([("TCP box low", "0.3, 0.3"), ("TCP box low", "0.7,-0.3,-0.1"), ("teleop device", "none")])
     draft = run_wizard(probes.mock_station_probe(), Answers(arms=1, mock=True), operator, echoed.append)
-    assert draft.arms[0].config.safety_box == list(SUGGESTED_SAFETY_BOX)
-    assert sum("safety box of 'arm'" in prompt for prompt in operator.prompts) == 3
-    assert any("got 2" in line for line in echoed) and any("xmin 0.7 must be below xmax 0.3" in line for line in echoed)
+    assert draft.arms[0].config.limits['tcp']['low'] == list(DEFAULT_TCP_LOW)
+    assert sum("TCP box low of 'arm'" in prompt for prompt in operator.prompts) == 3
+    assert any("three finite numbers" in line for line in echoed)
+    assert any("low < 0 < high" in line for line in echoed)
 
 
 @pytest.mark.parametrize(
@@ -382,7 +370,7 @@ def test_an_invalid_safety_box_answer_is_asked_again():
         (["--max-delta-xyz-m", "0"], "--max-delta-xyz-m '0': give a positive number of m"),
         (["--max-delta-joint-rad", "fast"], "--max-delta-joint-rad 'fast': 'fast' is not a number"),
         (["--joint-limits", "1,2,3"], "give 14 numbers in rad"),
-        (["--joint-limits=2,-2,-1.5,1.5,-2,2,-3,-0.1,-2,2,0,3.5,-2,2"], "joint 1: lo 2.0 must be below hi -2.0"),
+        (["--joint-limits=2,-2,-1.5,1.5,-2,2,-3,-0.1,-2,2,0,3.5,-2,2"], "joint 1: require finite lo <= hi, got 2.0, -2.0"),
     ],
 )
 def test_invalid_limit_flags_are_rejected(tmp_path, flags, message, capsys):
@@ -401,8 +389,8 @@ def test_home_joints_outside_the_joint_limits_give_a_readable_error(tmp_path, ca
 
 def test_bimanual_next_steps_map_renamed_arms_and_skip_teleop_without_one():
     arms = [
-        ArmDraft("a", FrankaConfig(name="a", teleop=None), bind="10.0.0.5:50051"),
-        ArmDraft("b", FrankaConfig(name="b", teleop=None), bind="0.0.0.0:50052"),
+        ArmDraft("a", FrankaConfig(limits={"joints": DEFAULT_JOINT_LIMITS}, name="a", teleop=None), bind="10.0.0.5:50051"),
+        ArmDraft("b", FrankaConfig(limits={"joints": DEFAULT_JOINT_LIMITS}, name="b", teleop=None), bind="0.0.0.0:50052"),
     ]
     text = next_steps_text(StationDraft(arms), Path("station.yaml"), found_without_config=True)
     assert "--env-backend real_robot_bimanual" in text
@@ -547,9 +535,9 @@ def test_render_omits_upper_layer_profiles_and_keeps_safety_comment_adjacent():
     draft = StationDraft.from_station(load_station(DOCS / "station.bimanual.example.yaml"))
     assert "teleop_profiles" not in render_station_yaml(draft)
     lines = [line for line in TEMPLATE_PATH.read_text().splitlines() if line.strip()]
-    index = next(i for i, line in enumerate(lines) if line.startswith("safety_box:"))
-    assert lines[index - 2] == "# Safety limits, enforced by the arm (and so by the daemon): servo targets are clipped,"
-    assert lines[index - 1] == "# move_to_* targets outside them are refused. null = no limit (not recommended)."
+    assert any('TCP bounds are relative to home' in line for line in lines)
+    assert '{{limits_block}}' in lines
+
 
 
 # -- camera stream flags -----------------------------------------------------------------------------
@@ -629,17 +617,18 @@ def test_robot_model_and_serl_auto_recover_round_trip_and_fr3_limit_defaults(tmp
             line = line.replace("robot_model: panda", "robot_model: fr3", 1)
         elif line.lstrip().startswith("serl_auto_recover:"):
             line = line.replace("serl_auto_recover: null", "serl_auto_recover: {enabled: false, max_per_episode: 3}", 1)
-        elif line.lstrip().startswith("joint_limits:"):
-            line = line.split("joint_limits:")[0] + "joint_limits: null\n"
+
         edited.append(line)
-    out.write_text("".join(edited))
+    data = yaml.safe_load("".join(edited))
+    data["limits"]["joints"] = [list(pair) for pair in DATASHEET_JOINT_LIMITS["fr3"]]
+    out.write_text(yaml.safe_dump(data))
     again = tmp_path / "again.yaml"
     code, output = run(["--mock", "--non-interactive", "--station", out, "--output", again], never_asked)
     assert code == 0, output
     config = load_station(again).select().config
     assert config.robot_model == "fr3"
     assert config.serl_auto_recover == {"enabled": False, "max_per_episode": 3}
-    assert config.joint_limits == [list(pair) for pair in DATASHEET_JOINT_LIMITS["fr3"]]  # FR3 datasheet default
+    assert config.limits["joints"] == [list(pair) for pair in DATASHEET_JOINT_LIMITS["fr3"]]  # FR3 datasheet default
 
 
 # -- robot model, Cartesian controller, realtime ----------------------------------------------------
@@ -667,7 +656,7 @@ def test_fr3_gets_the_fr3_datasheet_joint_limits(tmp_path):
     assert code == 0, output
     config = load_station(out).select().config
     assert config.robot_model == "fr3"
-    assert config.joint_limits == [list(pair) for pair in DATASHEET_JOINT_LIMITS["fr3"]]
+    assert config.limits["joints"] == [list(pair) for pair in DATASHEET_JOINT_LIMITS["fr3"]]
     assert config.cartesian_controller == "impedance" and config.realtime == "ignore"  # mock: kernel not checked
 
 
@@ -683,7 +672,7 @@ def test_interactive_asks_the_model_before_the_limits_and_serl_suggests_enforce(
     assert realtime_prompt.endswith("[enforce]: ")
     config = load_station(out).select().config
     assert (config.robot_model, config.cartesian_controller, config.realtime) == ("fr3", "serl", "enforce")
-    assert config.joint_limits == [list(pair) for pair in DATASHEET_JOINT_LIMITS["fr3"]]
+    assert config.limits["joints"] == [list(pair) for pair in DATASHEET_JOINT_LIMITS["fr3"]]
     # serl writes no impedance gains (doctor would warn config:serl_control) and SERL's defaults as null.
     assert config.control is None and config.serl is None
     assert "realtime kernel: not checked" in output
@@ -726,7 +715,7 @@ def test_switching_a_station_to_serl_drops_the_impedance_gains_and_back_restores
 
 
 def test_serl_keeps_the_joint_servo_control_keys():
-    prior = StationDraft([ArmDraft("arm", FrankaConfig(name="arm", cameras=[], teleop=None, control={
+    prior = StationDraft([ArmDraft("arm", FrankaConfig(limits={"joints": DEFAULT_JOINT_LIMITS}, name="arm", cameras=[], teleop=None, control={
         "translational_stiffness": 2000.0, "joint_stiffness": [600.0] * 7}))])
     answers = Answers(non_interactive=True, mock=True, previous=prior, cartesian_controllers=["serl"],
                       teleops=["none"], cameras=["none"])
@@ -780,12 +769,40 @@ def test_joint_trajectory_flags_write_station(tmp_path):
     assert code in (0, 1), output
     text = out.read_text()
     assert "joint_controller: trajectory_impedance" in text
-    assert "joint_trajectory: {}" in text
+    assert "joint_trajectory:" in text
     assert "command_timeout_s = 0.5" in text
     config = load_station(out).select().config
     assert config.joint_controller == "trajectory_impedance"
-    assert config.joint_trajectory == {}
+    assert config.joint_trajectory["lower_limit"] == [pair[0] for pair in config.limits["joints"]]
+    assert config.joint_trajectory["upper_limit"] == [pair[1] for pair in config.limits["joints"]]
     assert config.realtime == "enforce"
     again = tmp_path / "again.yaml"
     assert run(["--mock", "--non-interactive", "--station", out, "--output", again], never_asked)[0] in (0, 1)
     assert again.read_text() == text
+
+
+def test_existing_piper_asks_explicit_origin_and_renders(tmp_path):
+    from real_world_rl.devices.robots.piper import PiperConfig
+    previous = StationDraft(arms=[ArmDraft('piper', PiperConfig(arm_backend='fake', gripper=None))])
+    operator = Operator({'explicit TCP box origin': '0.3,0,0.2', 'teleop device': 'none'})
+    draft = run_wizard(probes.mock_station_probe(), Answers(previous=previous, mock=True), operator, lambda _: None)
+    tcp = draft.arms[0].config.limits['tcp']
+    assert tcp['origin'] == [.3, 0., .2] and 'origin_xyz' not in tcp
+    assert any('explicit TCP box origin' in line for line in operator.prompts)
+    check_rendered_station(render_station_yaml(draft), draft)
+
+
+def test_wizard_freezes_configured_tool_and_table_axes():
+    from real_world_rl.devices.robots.franka_kinematics import FLANGE_T_HAND, tcp_position
+    tool = FLANGE_T_HAND.copy()
+    tool[2, 3] += .1
+    config = FrankaConfig(limits={'joints': DEFAULT_JOINT_LIMITS}, flange_T_ee=tool.tolist(),
+                          task_frame={'name': 'table', 'base_T_frame': [[0, -1, 0, 2], [1, 0, 0, 3],
+                                                                     [0, 0, 1, 4], [0, 0, 0, 1]]})
+    previous = StationDraft(arms=[ArmDraft('arm', config)])
+    draft = run_wizard(probes.mock_station_probe(), Answers(previous=previous, mock=True),
+                       Operator({'teleop device': 'none'}), lambda _: None)
+    tcp = draft.arms[0].config.limits['tcp']
+    np.testing.assert_allclose(tcp['origin_xyz'], tcp_position(config.home_joints, tool))
+    np.testing.assert_allclose(tcp['axes_R'], np.array(config.task_frame['base_T_frame'])[:3, :3])
+    assert tcp['low'] == list(DEFAULT_TCP_LOW)

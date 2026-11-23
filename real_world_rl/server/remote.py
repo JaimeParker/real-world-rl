@@ -40,7 +40,7 @@ GRIPPER_WAIT_IDLE_DEADLINE_MARGIN_S = 5.0
 @dataclass
 class RemoteRobotConfig(RobotConfig):
     """``arm_backend``/``gripper``/``cameras``/``home_joints`` (and the daemon-side
-    ``joint_limits``/``max_delta_per_step``/``teleop``/``safety_box``) are ignored: the parts come
+    ``limits``/``teleop``) are ignored: the parts come
     from the daemon's ``robot.describe``."""
 
     TYPE = "remote"

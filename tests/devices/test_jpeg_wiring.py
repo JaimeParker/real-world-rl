@@ -12,6 +12,7 @@ from real_world_rl.devices import CameraConfig, Frame, GripperConfig
 from real_world_rl.devices.backends.cameras.fake import FakeCamera
 from real_world_rl.devices.base import Health
 from real_world_rl.devices.errors import SdkMissing
+from real_world_rl.devices.robots.franka import FRANKA_HOME_JOINTS
 from real_world_rl.devices.robots.franka import FrankaConfig, FrankaRobot
 from real_world_rl.server import RemoteRobot
 from real_world_rl.server.codec import pack, unpack
@@ -298,7 +299,7 @@ def test_cv2_env_negotiation_and_exact_fallback(make_service, fixed_frames, cv2_
     preprocessing = CameraPreprocessConfig(resize="cv2_linear", crop_region=region)
     env = RealRobotEnv(
         RealRobotEnvConfig(
-            remote="local", home_joints=[0] * 7, reset_settle_s=0, image_size=size,
+            remote="local", home_joints=list(FRANKA_HOME_JOINTS), reset_settle_s=0, image_size=size,
             cameras=["wrist"], depth_cameras=["wrist"], preprocess={"wrist": preprocessing},
         ),
         robot=RemoteRobot.from_client(LocalClient(service)),

@@ -92,7 +92,7 @@ GELLO 默认练习同样使用笛卡尔映射，也能得到七维动作。
    :end-before: # end gello
 
 **你应该看到**：关节扩展的 ``action_mode: joint_abs``、七个 arm 维度加一个夹爪维度，
-并有七组 ``joint_limits``。归一化动作 a 对应关节目标
+并有七组 ``limits.joints``。归一化动作 a 对应关节目标
 ``low + (a + 1) / 2 * (high - low)``，不是弧度值本身。
 若改成 joint_delta，则目标为当前关节角加 ``a * joint_scale_rad``。
 

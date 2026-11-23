@@ -1,6 +1,8 @@
 """Hardware-free rwrl coverage; daemon calls stay inside LocalClient."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import builtins
 import json
 import os
@@ -31,7 +33,7 @@ def offline(monkeypatch):
 @pytest.fixture
 def station(tmp_path):
     path = tmp_path / "station.yaml"
-    path.write_text(yaml.safe_dump({
+    path.write_text(yaml.safe_dump({"limits": station_limits(),
         "type": "franka", "name": "cli_fake", "arm_backend": "fake", "claim": False,
         "gripper": {"backend": "fake"}, "home_joints": HOME,
     }), encoding="utf-8")
@@ -319,8 +321,10 @@ def test_failed_connect_still_disconnects(station, capsys, monkeypatch, built_ro
     assert calls == ["connect", "disconnect"]
 
 
-def test_doctor_forwarding(station, capsys):
-    assert main(["--station", str(station), "doctor", "--mock", "--json"]) == 0
+def test_doctor_forwarding(station, capsys, tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    assert main(["--station", str(station), "doctor", "--mock", "--json",
+                 "--report-dir", str(tmp_path / "reports")]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["schema_version"] == 1
     assert any(item["name"] == "feedback:gripper" and item["ok"] for item in next(iter(payload["results"].values())))

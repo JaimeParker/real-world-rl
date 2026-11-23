@@ -1,7 +1,6 @@
-"""Workspace inspection, measurement, validation and reviewed updates."""
+"""Task-frame calibration, measurement and TCP limit inspection."""
 from __future__ import annotations
 
-import dataclasses
 import json
 from pathlib import Path
 
@@ -11,7 +10,7 @@ from .station_edit import station_document, confirm_write, atomic_save
 
 
 def home_limit_report(home_joints, joint_limits) -> dict:
-    """Whether each station home joint lies inside its joint limits; None when either is not configured."""
+    """Whether each station home joint lies inside limits.joints; None when either is not configured."""
     if home_joints is None or joint_limits is None:
         return {"home_within_limits": None}
     violations = [{"joint": joint, "value": value, "low": low, "high": high}
@@ -80,26 +79,12 @@ def frame_command(args, config, path, raw, document, node, ctx):
     if args.frame_action == "show":
         return {"task_frame": config.task_frame, **frame_axes(config.task_frame)}
     candidate, quality = frame_candidate(args, path)
-    workspace_frame = None if config.workspace is None else config.workspace.get("frame", "base")
-    # A base-frame workspace does not depend on the task frame; any other workspace frame must keep its name.
-    if workspace_frame not in (None, "base", candidate["name"]):
-        raise CliError(f"the station workspace is defined in frame '{workspace_frame}'; "
-                       f"task frame '{candidate['name']}' would invalidate it", code=USAGE_EXIT_CODE,
-                       hint=f"use --name {workspace_frame} to recalibrate that frame, "
-                            "or move the workspace to another frame first with rwrl workspace set")
-    try:
-        dataclasses.replace(config, task_frame=candidate)
-    except ValueError as error:
-        raise CliError(f"the station rejects this task frame: {error}", code=USAGE_EXIT_CODE) from error
     from real_world_rl.teleop.core.workspace_points import RPY_NOTE, frame_rpy_deg
     result = {"candidate": candidate, "rpy_deg": frame_rpy_deg(candidate["base_T_frame"]), "rpy_note": RPY_NOTE,
               **quality, "saved": None,
               "note": "Candidate only; base_T_frame maps task-frame coordinates into the robot base frame. "
                       "Points files captured in another frame must be recaptured after saving"}
-    if workspace_frame == candidate["name"]:
-        result["workspace_frame_rebased"] = True
-        result["workspace_note"] = (f"workspace bounds in frame '{workspace_frame}' move with the new frame; "
-                                    "rerun rwrl workspace validate and review the bounds")
+    result["hint"] = "After saving task_frame, run `rwrl limits rebase <yaml>`."
     if args.save:
         node["task_frame"] = candidate
         confirm_write(ctx, path, document, raw)
@@ -108,8 +93,8 @@ def frame_command(args, config, path, raw, document, node, ctx):
 
 
 def workspace_command(args, config, path, raw, document, node, ctx):
-    from real_world_rl.devices.workspace import Workspace, task_transform
-    from real_world_rl.teleop.core.workspace_points import point_set, candidate_bounds
+    from real_world_rl.devices.workspace import task_transform
+    from real_world_rl.teleop.core.workspace_points import point_set
     import yaml
     if args.action == "frame":
         return frame_command(args, config, path, raw, document, node, ctx)
@@ -129,7 +114,7 @@ def workspace_command(args, config, path, raw, document, node, ctx):
         position = transform[:3, :3].T @ (np.asarray(pose[:3]) - transform[:3, 3])
         result = {"base_pose": pose, "task_position": position.tolist(), "units": "m; quaternion xyzw",
                 "frame": config.task_frame["name"] if config.task_frame else "base",
-                "note": "Measurement only; not an accepted workspace boundary"}
+                "note": "Measurement only; not an accepted TCP limit"}
         if args.save:
             from datetime import datetime, timezone
             points['points'][args.name] = {'base_pose': pose, 'captured_at': datetime.now(timezone.utc).isoformat()}
@@ -138,67 +123,26 @@ def workspace_command(args, config, path, raw, document, node, ctx):
             result['saved'] = atomic_save(file, points, previous)
         return result
     if args.action == "show":
-        result = {"task_frame": config.task_frame, "workspace": config.workspace,
-                  "base_safety_box": config.safety_box,
-                  "joint_limits": config.joint_limits,
-                  "max_delta_per_step": config.max_delta_per_step,
-                  "home_joints": config.home_joints,
-                  **home_limit_report(config.home_joints, config.joint_limits),
-                  "units": {"position": "m", "angle": "rad", "quaternion": "xyzw"},
-                  "source": {"station": str(path), "robot": config.name,
-                             "frame_calibration": (config.task_frame or {}).get("source")},
-                  "scope": "configured constraints only; no live daemon or physical calibration verification",
-                  "combination": "intersection of base safety box and oriented workspace; orientation limits also apply"}
-        if config.workspace is not None:
-            from itertools import product
-            import numpy as np
-            geometry = Workspace(config.workspace, config.task_frame)
-            corners = np.asarray(list(product(*zip(geometry.low, geometry.high))))
-            result["workspace_corners_base_m"] = (corners @ geometry.rotation.T + geometry.origin).tolist()
-            result["workspace_corners_frame_m"] = corners.tolist()
-            result["corner_note"] = "oriented box vertices, not replacement axis-aligned bounds; not proof of collision-free interior"
-        return result
+        from .limits_ops import resolved_report
+        return {"task_frame": config.task_frame, "limits": resolved_report(config),
+                "home_joints": config.home_joints,
+                **home_limit_report(config.home_joints, (config.limits or {}).get("joints"))}
     if args.action == "validate":
-        if config.workspace is None:
-            raise CliError("no workspace configured", code=USAGE_EXIT_CODE)
-        from real_world_rl.devices.safety import ArmSafety
-        safety = ArmSafety.from_config(config)
+        from real_world_rl.devices.limits import ArmLimits
         from real_world_rl.devices.errors import SafetyViolation
+        limits = ArmLimits.from_config(config)
+        if limits is None or limits.tcp is None:
+            raise CliError("no limits.tcp configured", code=USAGE_EXIT_CODE)
         try:
-            safety.require_pose_inside(args.pose)
+            limits.require_pose_inside(args.pose)
         except SafetyViolation as error:
             return {"valid": False, "pose": args.pose, "violations": [error.message]}
         return {"valid": True, "pose": args.pose, "violations": []}
-    if args.from_points:
-        if args.low is not None or args.high is not None:
-            raise CliError("--from-points cannot be combined with --low/--high", code=USAGE_EXIT_CODE)
-        file = Path(args.from_points)
-        if not file.is_absolute():
-            file = path.parent / file
-        candidate = candidate_bounds(yaml.safe_load(file.read_text()), config.task_frame)
-        if candidate['frame'] != args.frame:
-            raise CliError("--frame must match captured points", code=USAGE_EXIT_CODE)
-    else:
-        if args.low is None or args.high is None:
-            raise CliError("provide --low and --high, or --from-points", code=USAGE_EXIT_CODE)
-        candidate = {"frame": args.frame, "low": args.low, "high": args.high}
-    if args.orientation_xyzw is not None:
-        candidate["orientation_xyzw"] = args.orientation_xyzw
-    if args.max_angle_rad is not None:
-        candidate["max_angle_rad"] = args.max_angle_rad
-    Workspace(candidate, config.task_frame)
-    result = {"candidate": candidate, "saved": None,
-              "note": "Candidate only; captured extrema do not certify the enclosed volume is safe"}
-    if args.save:
-        node["workspace"] = candidate
-        confirm_write(ctx, path, document, raw)
-        result["saved"] = atomic_save(path, document, raw)
-    return result
 
 
 class WorkspaceCommand:
     name = "workspace"
-    help = "inspect and configure task-frame workspace"
+    help = "calibrate task frames and inspect TCP limits"
 
     def register(self, parser):
         ws = parser.add_subparsers(dest="action", required=True)
@@ -209,14 +153,6 @@ class WorkspaceCommand:
         capture.add_argument("--name", help="measurement name; required when saving")
         capture.add_argument("--output", help="points YAML, relative to station directory")
         capture.add_argument("--save", action="store_true")
-        setter = ws.add_parser("set")
-        setter.add_argument("--frame", required=True)
-        setter.add_argument("--low", nargs=3, type=float)
-        setter.add_argument("--high", nargs=3, type=float)
-        setter.add_argument("--from-points", help="propose bounds from captured points YAML")
-        setter.add_argument("--orientation-xyzw", nargs=4, type=float)
-        setter.add_argument("--max-angle-rad", type=float)
-        setter.add_argument("--save", action="store_true")
         frame = ws.add_parser("frame", help="show or set the station task frame (task_frame)")
         frame_actions = frame.add_subparsers(dest="frame_action", required=True)
         frame_actions.add_parser("show", help="print task_frame with its origin and unit axes in the base frame")

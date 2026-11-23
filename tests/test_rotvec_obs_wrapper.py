@@ -2,6 +2,8 @@
 rotation vector, against a fake device-layer robot (no hardware)."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import gymnasium as gym
 import numpy as np
 import pytest
@@ -28,7 +30,7 @@ def make_wrapped_env(tmp_path, monkeypatch):
         if initial_pose is not None:
             robot.arm._tcp_pose = np.asarray(initial_pose, dtype=np.float64)
         config = RealRobotEnvConfig(
-            robot={"type": "franka", "arm_backend": "fake"},
+            robot={"limits": station_limits(), "type": "franka", "arm_backend": "fake"},
             state_fields=("tcp_pose", "tcp_vel", "gripper_pos", "tcp_force", "tcp_torque"),
             home_joints=[0.0] * 7, reset_settle_s=0.0, control_hz=1000.0,
         )

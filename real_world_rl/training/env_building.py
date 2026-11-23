@@ -164,7 +164,7 @@ def robot_teleop_kwargs(args) -> dict:
     if args.env_backend != "real_robot":
         raise ValueError(f"--teleop-device {args.teleop_device} needs --env-backend real_robot")
     real_robot = args.real_robot
-    kwargs = {"joint_limits": real_robot.joint_limits, "joint_scale_rad": real_robot.joint_scale_rad}
+    kwargs = {"joint_limits": (real_robot.limits or {}).get("joints"), "joint_scale_rad": real_robot.joint_scale_rad}
     teleop_contract = _declared_robot_teleop(args, real_robot.num_joints)
     if teleop_contract is not None:
         kwargs["teleop_contract"] = teleop_contract

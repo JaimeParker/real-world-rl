@@ -253,7 +253,7 @@ gRPC 和 SSH 链路检查
      - ``deps``
      - 各后端所需扩展，含 ``daemon:`` 时另需 ``grpc``\ ；无此块时缺 ``grpc`` 仅为 ``WARN``
    * - 1 sdk
-     - ``sdk:arm``, ``sdk:gripper``, ``sdk:camera:<name>``, ``sdk:teleop:<backend>``\ ；\ ``cartesian_controller: serl`` 时还有 ``sdk:serl_controller``\ 、\ ``config:serl_control``\ ；\ ``joint_controller: trajectory_impedance`` 时还有 ``sdk:joint_controller``
+     - ``config:limits``\ （校验 ``limits`` 块和冻结的原点/轴，失败时不再继续后续层）、\ ``sdk:arm``, ``sdk:gripper``, ``sdk:camera:<name>``, ``sdk:teleop:<backend>``\ ；\ ``cartesian_controller: serl`` 时还有 ``sdk:serl_controller``\ 、\ ``config:serl_control``\ ；\ ``joint_controller: trajectory_impedance`` 时还有 ``sdk:joint_controller``
      - 后端解析及 SDK 导入；未知后端跳过第 3–5 层；serl 相关行见 \ :ref:`SERL 控制器：诊断检查 <serl-controller-doctor-checks>`\ ，关节控制器的行见\ :ref:`关节控制器检查 <doctor-joint-controller-checks>`\
    * - 2 os
      - ``os:ping``, ``os:tcp``, ``os:camera:<name>``, ``os:teleop:<name>``, ``os:hid``, ``os:serial``, ``os:groups``, ``os:brltty``, ``os:latency_timer``, ``os:can_*``
@@ -262,7 +262,7 @@ gRPC 和 SSH 链路检查
      - ``handshake``
      - 获取设备占用声明（除非 ``claim: false``\ ），再 ``connect()``\ ；失败跳过第 4–5 层
    * - 4 feedback
-     - ``feedback:arm``, ``feedback:gripper``, ``feedback:camera:<name>``, ``feedback:teleop:<name>``
+     - ``feedback:arm``, ``feedback:kinematics``\ （仅 Franka 的 franky 后端：正运动学 TCP 与实测 ``O_T_EE`` 误差须小于 1 mm，且 ``flange_T_ee`` 与 ``F_T_EE`` 一致；其他机器人为 ``SKIPPED``\ ）、\ ``feedback:gripper``, ``feedback:camera:<name>``, ``feedback:teleop:<name>``
      - 各设备返回数据；相机须在 2 s 内出帧
    * - 5 mode
      - ``mode:robot_mode``, ``mode:libfranka_version``, ``mode:realtime_kernel``, ``mode:robot_model``, ``mode:internal_realtime``\ （\ ``cartesian_controller: internal``\ ）, ``mode:serl_realtime``\ （\ ``cartesian_controller: serl``\ ）, ``mode:joint_trajectory_realtime``\ （\ ``joint_controller: trajectory_impedance``\ ）, or ``mode:none``
@@ -279,7 +279,7 @@ gRPC 和 SSH 链路检查
 
 站点和预设决定预期设备。已配置设备缺失为 ``BLOCKED``\ ；未配置且未识别为 ``SKIPPED``\ ，不算可用。识别的 SpaceMouse、RealSense 和 ZED USB 也独立检查。
 
-只有持有硬件连接的进程算占用者：守护进程、录制器、actor、deploy 入口、\ ``setup``\ 、连接原语（\ ``status``\ 、\ ``q``\ 、\ ``tcp``\ 、\ ``home``\ 、\ ``gripper``\ 、\ ``camera``\ 、\ ``stop``\ 、\ ``recover``\ ）、\ ``teleop run/read/calibrate/diagnose/probe-hid``\ 、\ ``workspace capture`` 和学习命令。离线命令（\ ``--help``\ 、\ ``workspace show/set/validate/frame``\ 、\ ``teleop profiles``\ 、\ ``teleop inspect-stop``\ 、\ ``archive inspect``\ ）不会令 doctor 报告 ``BLOCKED``\ 。
+只有持有硬件连接的进程算占用者：守护进程、录制器、actor、deploy 入口、\ ``setup``\ 、连接原语（\ ``status``\ 、\ ``q``\ 、\ ``tcp``\ 、\ ``home``\ 、\ ``gripper``\ 、\ ``camera``\ 、\ ``stop``\ 、\ ``recover``\ ）、\ ``teleop run/read/calibrate/diagnose/probe-hid``\ 、\ ``workspace capture`` 和学习命令。离线命令（\ ``--help``\ 、\ ``workspace show/validate/frame``\ 、\ ``limits show/migrate/rebase``\ 、\ ``teleop profiles``\ 、\ ``teleop inspect-stop``\ 、\ ``archive inspect``\ ）不会令 doctor 报告 ``BLOCKED``\ 。
 
 ``--mock``
 --------------------------------------------------------------------------------
@@ -293,7 +293,7 @@ gRPC 和 SSH 链路检查
 比较预设与站点
 --------------------------------------------------------------------------------
 
-提供站点和 ``--preset`` 时，doctor 将预设机器人（内嵌 ``real_robot.robot``\ 、裸 ``robot`` 映射或指定站点文件）与站点机器人比较：\ ``robot_ip``\ 、\ ``arm_backend``\ 、\ ``gripper``\ 、按名称匹配的相机（\ ``serial``\ 、\ ``width``\ 、\ ``height``\ 、\ ``fps``\ 、\ ``enable_depth``\ ）、\ ``home_joints``\ 、\ ``joint_limits``\ 、\ ``safety_box``\ 、\ ``task_frame``\ 、\ ``workspace``\ 。一致时输出一行 ``PASS`` ``<robot>.preset``\ （\ ``preset hardware fields match the station``\ ）。各差异字段产生 ``WARN`` ``<robot>.preset:<field>``\ ，如 ``arm.preset:robot_ip: station="172.16.0.2"; preset="172.16.0.3"`` 或 ``arm.preset:cameras.wrist.fps: station=30; preset=15``\ ，提示 ``the preset copy of the station is stale; regenerate it or edit the field``\ 。WARN 不改退出码，须阅读。多机器人站点内嵌机器人需 ``--robot``\ ，否则比较为 ``SKIPPED``\ 。
+提供站点和 ``--preset`` 时，doctor 将预设机器人（内嵌 ``real_robot.robot``\ 、裸 ``robot`` 映射或指定站点文件）与站点机器人比较：\ ``robot_ip``\ 、\ ``arm_backend``\ 、\ ``gripper``\ 、按名称匹配的相机（\ ``serial``\ 、\ ``width``\ 、\ ``height``\ 、\ ``fps``\ 、\ ``enable_depth``\ ）、\ ``home_joints``\ 、\ ``limits``\ 、\ ``task_frame``\ 。一致时输出一行 ``PASS`` ``<robot>.preset``\ （\ ``preset hardware fields match the station``\ ）。各差异字段产生 ``WARN`` ``<robot>.preset:<field>``\ ，如 ``arm.preset:robot_ip: station="172.16.0.2"; preset="172.16.0.3"`` 或 ``arm.preset:cameras.wrist.fps: station=30; preset=15``\ ，提示 ``the preset copy of the station is stale; regenerate it or edit the field``\ 。WARN 不改退出码，须阅读。多机器人站点内嵌机器人需 ``--robot``\ ，否则比较为 ``SKIPPED``\ 。
 
 预设遥操作为 GELLO 时也指定主臂选项文件 (``teleop_options_yaml``)；该文件必须存在，否则 doctor 以用法错误停止。
 

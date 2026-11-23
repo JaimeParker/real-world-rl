@@ -66,7 +66,7 @@ Finally, fully open and close the trigger in turn, pressing Enter for each.
 
 To override calibration inputs, ``--joint-signs`` accepts signs in joint order;
 if omitted, station signs are used, or all +1 if none exist.
-``--joint-limits-yaml`` computes wrap centers from another robot YAML's joint_limits;
+``--joint-limits-yaml`` computes wrap centers from another robot YAML's ``limits.joints``;
 if omitted, it uses the current station. ``--skip-sign-check`` skips the per-joint direction check and uses the initial signs directly.
 Use it only when those signs have already been verified on this machine.
 
@@ -93,7 +93,7 @@ After calibration, add the following options to the generated teleop block, reta
    * - ``gripper_open_rad``, ``gripper_closed_rad``
      - Use raw radian values from calibration with the trigger fully open / closed.
    * - ``wrap_centers_rad``
-     - Midpoints of each follower ``joint_limits`` row. Fill station.joint_limits from the current robot model's specification first, then calibrate.
+     - Midpoints of each follower ``limits.joints`` row. Fill the station's ``limits.joints`` from the current robot model's specification first, then calibrate.
    * - ``intervention``, ``event_device``, ``event_keys``
      - New configurations default to always. This example uses always with terminal t/h during active episodes; evdev toggle is unnecessary.
        ``--use`` on an existing GELLO block preserves intervention, event_device and event_keys. Check and edit them as needed.
@@ -107,7 +107,7 @@ this chapter's leader_cartesian already uses 0.5 to separate open from closed by
 * ``moved less than 0.1 rad``: the old sign is retained this time. Repeat the single-joint check with enough motion.
 * Residual exceeds pi/8: check pose and signs, then recalibrate. Do not start following immediately.
 * ``gripper trigger moved only ...``: check the trigger ID. Open and closed endpoints must differ by at least 0.05 rad.
-* ``no joint_limits given``: the previous chapter's template has no joint_limits. A zero wrap center is unsuitable for some Panda joints.
+* ``no limits.joints given``: the previous chapter's template has no ``limits.joints``. A zero wrap center is unsuitable for some Panda joints.
   Add seven limit pairs from the current model's specification and recalibrate, checking joints that cross pi especially carefully.
 
 3. Align leader and follower: read before moving
@@ -128,7 +128,7 @@ For direct connections, read leader and follower separately. ``teleop read --wit
 **If it doesn't**:
 
 * A value is reversed or differs by about pi/2: recheck joint_ids order, sign and offset. Do not compensate by moving the leader backward.
-* Readings jump across pi: check wrap_centers_rad against actual joint_limits.
+* Readings jump across pi: check wrap_centers_rad against actual ``limits.joints``.
 * Open and close are reversed: capture gripper_open_rad and gripper_closed_rad again. Do not continue by merely swapping labels.
 
 read prints 3 times per second by default. Without ``--duration-s``, it reads until Ctrl-C.
@@ -178,14 +178,15 @@ The session report's ``resolved-config.yaml`` contains ``teleop_device: leader_c
 
 * Stuck at READY: the episode starts only when you press space, in the terminal that runs ``rwrl``.
 * Space switches device state but does not take over the active episode: this session uses the terminal event source. Press t/h; do not mix the two take-over states.
-* ``WORKSPACE HOLD``: hand back, check request direction and boundaries, then take over again. Do not enlarge the workspace to hide a mapping error.
+* The follower stops advancing at the box edge and only slides along the wall: the station's ``limits.tcp`` clips the target into the box; this is not a fault. Hand back, check the request direction and the box, then take over again. Do not enlarge the box to hide a mapping error.
+* ``measured TCP outside TCP box``: the measured TCP is beyond the box plus ``measured_margin_m``; the environment stopped the arm and latched a ``SafetyViolation``. Inspect feedback and robot state and restart only after a manual check.
 
 To check the mapping, denote the leader end effector at take-over by ``(p_l0, R_l0)`` and the follower command by ``(p_c, R_c)``.
 Subsequent requested position is ``p* = p_c + (p_l - p_l0)``, and rotation is ``R* = (R_l R_l0^T) R_c``;
 the leader end effector here comes from forward kinematics. The tracker then limits request speed and lead.
-``teleop run`` merges station workspace and task_frame into the environment.
+``teleop run`` merges the station's task_frame into the environment; limits come with the robot, and the environment inherits the station's ``limits`` on the first reset.
 Explicit source options override environment configuration; local robot YAML is used only if the environment has no setting.
-The task-frame workspace and base-frame safety_box constrain targets together.
+The TCP box (axes from ``task_frame``) clips Cartesian targets into the box, and the robot's joint ranges limit joint targets as well.
 
 5. Switch when joint following is needed
 --------------------------------------------------------------------------------
@@ -216,8 +217,8 @@ Keep the rest of the copied configuration. ``teleop_arm_tolerance_rad`` defaults
 Each arm now has seven joint deltas plus the gripper, eight dimensions total. Do not mix this with the earlier seven-dimensional data.
 
 If you switch to ``real_robot.action_mode: joint_abs``, you must also fill in
-seven locally verified ``joint_limits`` pairs under real_robot. Absolute actions are mapped using these lower and upper limits.
-The robot configuration must also provide ``max_delta_per_step.joint_rad``; for remote connections, set it in the station used by the daemon.
+seven locally verified ``limits.joints`` pairs (``real_robot.limits.joints``, which can only be narrower than the station's range). Absolute actions are mapped using these lower and upper limits.
+The robot configuration must also provide ``limits.max_delta_per_step.joint_rad``; for remote connections, set it in the station used by the daemon.
 Keep ``joint_pos`` in ``state_fields`` and check remote, token, cameras and home/reset. Changing only the action mode is insufficient.
 If the source options file contains multiple robots, select one with ``--teleop-robot NAME``.
 
@@ -319,8 +320,8 @@ The only built-in kinematics model is the default panda, requiring the leader to
 other mechanisms require a matching registered model. kinematics does not change automatically with arm.type.
 
 Prepare ``local/record-cartesian.yaml`` as in step 6 of :doc:`record`, retaining the verified follower configuration.
-The ordinary recorder does not automatically merge station task_frame and workspace. Confirm they are already in real_robot
-or its local robot configuration. If the preset connects directly to the follower, stop the daemon holding the follower first, but keep the leader daemon running.
+The ordinary recorder does not automatically merge the station's task_frame. Confirm it is already in real_robot
+or its local robot configuration; limits (``limits``) are in the robot configuration or come with the daemon's station. If the preset connects directly to the follower, stop the daemon holding the follower first, but keep the leader daemon running.
 Start in the learning environment on the follower machine:
 
 .. literalinclude:: ../../examples/gello.sh
@@ -329,7 +330,7 @@ Start in the learning environment on the follower machine:
    :end-before: # end second-record
 
 **What you should see**: the follower holds after reset, anchors when t takes over, and hands back on h.
-Before saving demonstrations, verify leader FK against the actual TCP, translation and rotation directions, gripper behavior, workspace hold and stopping effects.
+Before saving demonstrations, verify leader FK against the actual TCP, translation and rotation directions, gripper behavior, sliding at the box edge and stopping effects.
 These are on-site acceptance targets, not yet hardware validation results for a second physical leader arm.
 
 **If it doesn't**: fix kinematics first if the joint count or model is wrong. Stop recording if direction or stopping differs from expectations;

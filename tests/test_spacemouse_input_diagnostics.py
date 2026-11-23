@@ -1,3 +1,5 @@
+
+from _station_limits import station_limits, env_limits, tcp_box
 from types import SimpleNamespace
 
 import numpy as np
@@ -115,7 +117,7 @@ def test_open_input_decodes_with_the_station_device_table(tmp_path, monkeypatch)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path / 'xdg'))
     station = tmp_path / 'station.yaml'
-    station.write_text(yaml.safe_dump({'type': 'franka', 'name': 'arm', 'arm_backend': 'fake', 'claim': False,
+    station.write_text(yaml.safe_dump({"limits": station_limits(), 'type': 'franka', 'name': 'arm', 'arm_backend': 'fake', 'claim': False,
                                        'teleop': {'backend': 'spacemouse'}}))
     (tmp_path / 'spacemouse-devices.yaml').write_text(
         'schema_version: 1\ndevices:\n  BT: {hid_id: [0x256F, 0xC63A], layout: SpaceMouse Wireless}\n')

@@ -5,7 +5,7 @@ Example: rwrl workspace capture output (not saved; illustrative numbers). task_p
   "task_position": [0.091, 0.177, 0.183],
   "units": "m; quaternion xyzw",
   "frame": "table",
-  "note": "Measurement only; not an accepted workspace boundary"
+  "note": "Measurement only; not an accepted TCP limit"
 }
 # end capture
 # start check

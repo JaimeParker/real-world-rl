@@ -224,7 +224,7 @@ class RobotService:
                 "num_joints": arm.num_joints,
                 "supported_state_fields": list(arm.SUPPORTED_STATE_FIELDS),
                 "control_mode": arm.control_mode.value,
-                "safety": arm.safety_limits,
+                "safety": arm.safety_limits,  # Resolved station_limits_v1, passed through verbatim.
                 "safety_capabilities": list(arm.safety_capabilities),
                 "home_joints": robot.config.home_joints,
                 "control_metadata": arm.control_metadata,

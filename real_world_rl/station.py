@@ -13,7 +13,7 @@ STATION_SECTIONS = {"teleop_profiles": validate_profiles_reference, "link": vali
 
 
 def load_station(path: str | Path) -> autoconfig.Station:
-    """Load device configuration and real_world_rl station sections."""
+    """Load station sections and validate limits through each RobotConfig."""
     return autoconfig.load_station(path, sections=STATION_SECTIONS)
 
 

@@ -47,6 +47,7 @@ class FrankaConfig(RobotConfig):
         default_factory=lambda: GripperConfig(backend="franky", max_width_m=0.08, mode="binary")
     )
     home_joints: list[float] | None = field(default_factory=lambda: list(FRANKA_HOME_JOINTS))
+    flange_T_ee: list[list[float]] | None = None
     relative_dynamics_factor: float = 0.2
     realtime: str = "ignore"
     # impedance: franky's torque-level Cartesian impedance tracker (stiffness from ``control``);
@@ -71,7 +72,15 @@ class FrankaConfig(RobotConfig):
     # every /pose), at most max_per_episode times per episode. None: the defaults (true, 5).
     serl_auto_recover: dict | None = None
 
+    def kinematics(self):
+        from functools import partial
+        from real_world_rl.devices.robots.franka_kinematics import _tool_transform, tcp_position
+        return partial(tcp_position, flange_T_ee=_tool_transform(self.flange_T_ee), model=self.robot_model)
+
     def __post_init__(self) -> None:
+        if self.robot_model not in ROBOT_MODELS:
+            raise ValueError(f"robot_model '{self.robot_model}' invalid; choose from {list(ROBOT_MODELS)}")
+        self.kinematics()  # Validate the configured TCP transform even without a box.
         super().__post_init__()
         if self.realtime not in _REALTIME_MODES:
             raise ValueError(f"realtime '{self.realtime}' invalid; choose from {list(_REALTIME_MODES)}")
@@ -81,15 +90,13 @@ class FrankaConfig(RobotConfig):
         if self.cartesian_controller in ("internal", "serl") and self.arm_backend not in ("franky", "fake"):
             raise ValueError(f"cartesian_controller: {self.cartesian_controller} needs arm_backend franky")
         from real_world_rl.devices.backends.arms.franky import JOINT_CONTROLLERS
-        from real_world_rl.devices.joint_trajectory import joint_trajectory_updates
+        from real_world_rl.devices.joint_trajectory import station_joint_trajectory
         if self.joint_controller not in JOINT_CONTROLLERS:
             raise ValueError(f"joint_controller '{self.joint_controller}' invalid; choose from {list(JOINT_CONTROLLERS)}")
         if self.joint_controller == "trajectory_impedance" and self.arm_backend not in ("franky", "fake"):
             raise ValueError("joint_controller: trajectory_impedance needs arm_backend franky")
         if self.joint_trajectory is not None:
-            self.joint_trajectory = joint_trajectory_updates(self.joint_trajectory)
-        if self.robot_model not in ROBOT_MODELS:
-            raise ValueError(f"robot_model '{self.robot_model}' invalid; choose from {list(ROBOT_MODELS)}")
+            self.joint_trajectory = station_joint_trajectory(self.joint_trajectory, self.joint_limits)
         from real_world_rl.devices.control import franka_load, serl_auto_recover_config, serl_param_updates
         if self.serl_auto_recover is not None:
             self.serl_auto_recover = serl_auto_recover_config(self.serl_auto_recover)

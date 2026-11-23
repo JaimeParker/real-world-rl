@@ -115,7 +115,7 @@ hil_serl（以及 residual、SiLRI）从参数推导源 kwargs（\ ``robot``/``l
      - ``TeleopPartSource``
      - ``real_robot`` 环境背后机器人的 teleop 部件（机器人 YAML 的 ``teleop:``\ ，本地或 daemon 提供）
      - cartesian_delta、joint_abs 或 joint_delta，映射到环境空间
-     - kwargs：\ ``teleop_contract``\ 、\ ``joint_limits``\ 、\ ``joint_scale_rad``\ 、\ ``read_timeout_s``\ （hil_serl：\ ``--robot-teleop-action-mode``\ 、\ ``--no-robot-teleop-has-gripper``\ ）。部件由机器人拥有，\ ``close()`` 保持其连接。
+     - kwargs：\ ``teleop_contract``\ 、\ ``joint_limits``\ （即机械臂的 ``limits.joints``\ ）、\ ``joint_scale_rad``\ 、\ ``read_timeout_s``\ （hil_serl：\ ``--robot-teleop-action-mode``\ 、\ ``--no-robot-teleop-has-gripper``\ ）。部件由机器人拥有，\ ``close()`` 保持其连接。
    * - ``fake``
      - ``ScriptedTeleopSource``
      - 脚本读取（用于测试；无 ``readings`` 时从不介入）
@@ -183,7 +183,7 @@ SpaceMouse
      - 按住按钮 0 关闭，每步在 ``[-1, -0.9)`` 重新均匀采样；否则按住按钮 1 打开，\ ``uniform(0.9, 1)``\ 。同时按下时按钮 0 优先；均未按为中立 ``0.0``\ 。仅环境有夹爪动作时按钮才引起接管。
    * - 机械臂目标
      - 持久命令，带目标速度和相对实测位姿的领先限制。
-     - 每步最新实测位姿 + 原始动作 × 环境缩放；旋转左乘实测四元数。裁剪 XYZ 和 RPY 安全框（roll 按绝对值裁剪并保留符号）。无时间步重缩放或 tracker 目标。
+     - 每步最新实测位姿 + 原始动作 × 环境缩放；旋转左乘实测四元数。裁剪到站点 ``limits.tcp`` 盒（XYZ）和 ``safety_box_rpy_*``\ （RPY）（roll 按绝对值裁剪并保留符号）。无时间步重缩放或 tracker 目标。
    * - 夹爪执行
      - 原环境行为。
      - 缩放动作 ``<= -0.5`` 且实测归一化宽度 ``> 0.85`` 才关闭；\ ``>= 0.5`` 且宽度 ``< 0.85`` 才打开。距上次命令时间须严格大于 ``gripper_sleep_s``\ （默认 ``0.6 s``\ ），随后 sleep 相同间隔。零为中立。
@@ -191,13 +191,13 @@ SpaceMouse
      - 忽略 ``t``/``h``\ ，状态变化时警告；标记/结束/退出仍可用。
      - 同样按键：\ ``s``/``f``/``r``/Esc/``q`` 标记/结束/退出。\ ``t``/``h`` 不控制接管，状态变化时警告。
 
-机器人基座倾斜时，\ ``teleop_options_yaml`` 可提供 ``input_rotation``\ ，即有限且合法的 3×3 旋转矩阵 ``base_R_input``\ 。tracker 模式将平移和角输入旋转到机器人基坐标（没有档案时只用工作站 ``task_frame`` 的旋转）；serl 模式只用工作站 ``task_frame`` 的旋转（不加档案 yaw；没有 ``task_frame`` 时与 HIL-SERL 一样直接驱动原始基坐标），档案旋转只作为来源信息保存，除非选项设置 ``use_profile_rotation: true``\ （见 \ :ref:`SERL 控制器：serl 模式下的 SpaceMouse <serl-controller-spacemouse-in-serl-mode-the-task-frame>`\ ）。轴反转和 tracker 逐轴死区先于旋转；SERL 接管仍用原始六轴范数。旋转后的每个三向量仅在需要时等比缩小至动作立方体内，保留方向。不施加原点平移。解析矩阵和档案名/文件/yaw 在持久化解析配置前保存为不参与比较的 ``teleop_input`` 来源信息。恢复使用数值选项，不重读已改变档案。记录动作为基坐标，因此操作员重标定不会使旧示范或恢复约定失效。旧安全框仍在机器人基坐标系。可选工作站 ``task_frame``\ 、\ ``workspace`` 增加桌面约束，与原限制取交集；输入旋转本身不移动安全边界。两者都不改变机器人安装/重力配置或负载模型。
+机器人基座倾斜时，\ ``teleop_options_yaml`` 可提供 ``input_rotation``\ ，即有限且合法的 3×3 旋转矩阵 ``base_R_input``\ 。tracker 模式将平移和角输入旋转到机器人基坐标（没有档案时只用工作站 ``task_frame`` 的旋转）；serl 模式只用工作站 ``task_frame`` 的旋转（不加档案 yaw；没有 ``task_frame`` 时与 HIL-SERL 一样直接驱动原始基坐标），档案旋转只作为来源信息保存，除非选项设置 ``use_profile_rotation: true``\ （见 \ :ref:`SERL 控制器：serl 模式下的 SpaceMouse <serl-controller-spacemouse-in-serl-mode-the-task-frame>`\ ）。轴反转和 tracker 逐轴死区先于旋转；SERL 接管仍用原始六轴范数。旋转后的每个三向量仅在需要时等比缩小至动作立方体内，保留方向。不施加原点平移。解析矩阵和档案名/文件/yaw 在持久化解析配置前保存为不参与比较的 ``teleop_input`` 来源信息。恢复使用数值选项，不重读已改变档案。记录动作为基坐标，因此操作员重标定不会使旧示范或恢复约定失效。工作站 ``limits.tcp`` 盒在机器人基坐标系（盒轴是工作站 ``task_frame`` 的旋转，见\ :ref:`限位 <devices-limits>`\ ）；输入旋转本身不移动安全边界。两者都不改变机器人安装/重力配置或负载模型。
 
-SpaceMouse tracker 在发送请求目标前、速度/领先限制后均检查任务工作空间。候选被拒绝时交还控制，并将 recorder 保持锚定在实测位姿；按钮 0 可再次接管。训练中交还后，策略通过相同设备约束恢复。策略位置目标在任务坐标逐分量裁剪，超过 ``max_angle_rad`` 的旋转通过缩放相对参考 rotvec 投影到 SO(3) 锥。SERL 先执行原 XYZ/RPY 框裁剪，再作工作空间投影。实测 TCP 超出工作空间及反馈裕量会锁存故障。裕量默认 ``measured_margin_m: 0.003``\ 、\ ``measured_margin_rad: 0.03``\ ，已接受目标仍用 ``1e-9`` 容差。设备和环境约束对两种遥操作模式及策略动作均有最终约束力。
+SpaceMouse tracker 在限制速度和领先前把请求位置夹进工作站 ``limits.tcp`` 盒，对自己的命令姿态也再夹一次，所以命令沿盒壁滑动而不是停住；不交还控制，也不再记录 ``WORKSPACE HOLD``\ 。姿态不受限制。训练中，策略目标经过同样的设备夹取。SERL 先执行原 XYZ/RPY 裁剪（\ ``safety_box_rpy_*``\ ），再做设备夹取。实测 TCP 超出盒及 ``measured_margin_m``\ （默认 ``0.003``\ ）会锁存故障。设备和环境约束对两种遥操作模式及策略动作均有最终约束力；关节模式（GELLO）由设备用正运动学在盒壁处停住。
 
 命名操作员档案使用 \ :ref:`CLI 标定流程 <spacemouse-commissioning-spacemouse-profiles-and-task-frame-workspace>`\ 。平移和角向量的组合输入旋转均为 ``base_R_task @ Rz(operator_yaw)``\ 。固定 HID 轴映射是设备约定，不是实测安装变换。不要对已标定 ``base_R_task`` 再加 roll 修正。绝对位置使用含原点的完整任务变换；反馈观测和策略动作保留原基坐标约定。
 
-SERL 须先配置工作站 **XYZ 和 RPY 安全框**\ ，缺任一个均为构建错误。\ ``real_robot`` 中为 ``safety_box``\ （\ ``[xmin, ymin, zmin, xmax, ymax, zmax]``\ ）、\ ``safety_box_rpy_low``\ 、\ ``safety_box_rpy_high``\ ；缩放仍为 ``xyz_scale_m``/``rot_scale_rad``\ 。模式在构建环境前选择 ``cartesian_semantics: serl``\ ，不打开遥操作设备的 learner 也如此。显式配置 ``current`` 与此模式冲突；未设置的程序化 dataclass 默认值会提升为 ``serl``\ 。训练/录制参数序列化前完成模式解析，所以保存的 SERL 配置同时含 ``spacemouse_mode: serl`` 与 ``cartesian_semantics: serl``\ 。Deploy 保留保存的环境语义；\ ``--spacemouse-mode serl`` 覆盖与已存 ``cartesian_semantics: current`` 冲突。
+SERL 须先配置工作站 ``limits.tcp`` 盒和 RPY 范围，缺任一个均为构建错误。XYZ 盒是工作站 ``limits.tcp``\ （可被 ``real_robot.limits.tcp`` 进一步收紧）；RPY 范围是 ``real_robot`` 上的训练选项 ``safety_box_rpy_low``\ 、\ ``safety_box_rpy_high``\ ，属于 HIL-SERL 动作语义，不属于工作站限位；缩放仍为 ``xyz_scale_m``/``rot_scale_rad``\ 。模式在构建环境前选择 ``cartesian_semantics: serl``\ ，不打开遥操作设备的 learner 也如此。显式配置 ``current`` 与此模式冲突；未设置的程序化 dataclass 默认值会提升为 ``serl``\ 。训练/录制参数序列化前完成模式解析，所以保存的 SERL 配置同时含 ``spacemouse_mode: serl`` 与 ``cartesian_semantics: serl``\ 。Deploy 保留保存的环境语义；\ ``--spacemouse-mode serl`` 覆盖与已存 ``cartesian_semantics: current`` 冲突。
 
 录制、训练、部署使用同一模式。SERL 记录以下参与比较的 ``teleop_control`` 约定（非默认 ``invert_axes`` 还会加入该列表，带 ``input_rotation`` 的选项还会加入 ``use_profile_rotation``\ ）：
 
@@ -268,7 +268,7 @@ SpaceMouse 安装与 Linux 权限
        --teleop-device spacemouse --teleop-event-device stdin \
        --output-dir demos/task_20 --num-successes 20
 
-HIL actor 接受相同两个参数。配置两种安全框后，加 ``--spacemouse-mode serl`` 选择上表原生行为。以下描述默认 **tracker** 模式。\ ``SpaceMouseTeleopSource``\ （\ ``real_world_rl/teleop/spacemouse/source.py``\ ）通过设备层 ``SpaceMouseTeleop`` 打开设备（\ ``TeleopConfig(backend="spacemouse")``\ ，轮询线程为 ``read()`` 供样本；twist 在 ``[-1, 1]``\ ，HID 读取器状态轴映射 ``[-y, x, z, -roll, -pitch, -yaw]``\ ，\ ``invert_axes`` 反转所列输出索引 0–5），并驱动与 ``leader_cartesian`` 相同的 ``CartesianTargetTracker``\ （见\ :ref:`映射 <teleop-mapping>`\ ）：
+HIL actor 接受相同两个参数。配置 ``limits.tcp`` 盒和 RPY 范围后，加 ``--spacemouse-mode serl`` 选择上表原生行为。以下描述默认 **tracker** 模式。\ ``SpaceMouseTeleopSource``\ （\ ``real_world_rl/teleop/spacemouse/source.py``\ ）通过设备层 ``SpaceMouseTeleop`` 打开设备（\ ``TeleopConfig(backend="spacemouse")``\ ，轮询线程为 ``read()`` 供样本；twist 在 ``[-1, 1]``\ ，HID 读取器状态轴映射 ``[-y, x, z, -roll, -pitch, -yaw]``\ ，\ ``invert_axes`` 反转所列输出索引 0–5），并驱动与 ``leader_cartesian`` 相同的 ``CartesianTargetTracker``\ （见\ :ref:`映射 <teleop-mapping>`\ ）：
 
 .. list-table::
    :header-rows: 1
@@ -287,7 +287,7 @@ HIL actor 接受相同两个参数。配置两种安全框后，加 ``--spacemou
 -  **速度。** 每个介入步请求 tracker 命令移动 ``twist * target_speed * dt``\ （\ ``dt`` 是距上个介入步时间，接管时为 0，所以接管不跳变）：平移为基坐标 ``twist[:3] * --teleop-target-speed-m-s * dt``\ ，旋转向量 ``twist[3:] * --teleop-target-speed-rad-s * dt`` 左乘，与环境步相同。满偏转对应目标速度（0.05 m/s、0.3 rad/s），tracker 也将对角运动限制到此速度。\ ``deadzone`` 内各轴视为零（满量程 0.05，高于 Compact 静止噪声）。
 -  **轴组锁定。** 默认 ``axis_lock: dominant`` 保留峰值较大的平移或旋转组，将另一组清零；``axis_lock: "off"`` 同时保留两组。此选项进入 ``teleop_control``。
 -  **领先上限。** 命令领先实测 TCP 不超过 ``--teleop-lead-cap-m``/``--teleop-lead-cap-rad``\ （0.05 m、0.3 rad），超额丢弃。请求从命令而非上个请求开始，机械臂滞后不会让请求无限前进：释放操纵帽后停在命令位置，距当时位置最多一个领先上限。环境 ``xyz_scale_m``/``rot_scale_rad`` 至少等于领先上限（\ ``--real-robot.xyz-scale-m 0.05 --real-robot.rot-scale-rad 0.3``\ ；\ ``real_robot`` 默认 0.02/0.1 在构建源时被拒绝）。
--  **交还**\ 保持实测位姿；recorder 保持策略共享 tracker，保持该位姿（不是零 twist）直到下次接管。请求位置超安全框（日志 ``WORKSPACE HOLD: <axes>``\ ）、输入或跟踪失败也会交还：按按钮 0 再接管。控制循环停顿（两个介入步间超过 0.3 秒）会保持实测位姿，下一步从这里继续。
+-  **交还**\ 保持实测位姿；recorder 保持策略共享 tracker，保持该位姿（不是零 twist）直到下次接管。输入或跟踪失败也会交还：按按钮 0 再接管（请求位置超出 ``limits.tcp`` 盒则不会交还：它被夹进盒内，命令沿盒壁滑动）。控制循环停顿（两个介入步间超过 0.3 秒）会保持实测位姿，下一步从这里继续。
 -  **夹爪。** 每次接管从夹爪最后命令开始（介入包装器 ``last_gripper_action_getter``\ ，原样保留，因此不打开闭合夹爪），按钮 1 再切换状态。交还期间按钮 1 无效。
 -  **按钮按下仅生效一次。** 设备层锁存每次按下直到下次读取，短于环境一步的按键也不丢失；长按只算一次，跨 reset 长按不算按下。
 -  **忽略事件设备的** ``t``\ **/**\ ``h``\ （有警告）：它们设置的接管状态可能与按钮 0 冲突。按钮 0 是唯一切换来源。
@@ -311,7 +311,7 @@ HIL actor 接受相同两个参数。配置两种安全框后，加 ``--spacemou
 
 硬件、标定、机器人 YAML、录制及 ``hil_serl``\ 、\ ``residual_hil_serl``\ 、\ ``silri`` 命令的端到端指南见 \ :doc:`gello.md <gello>`\ ；使用配置向导、BC、ACT 与部署的首次操作见\ :doc:`教程 <../index>`\ 。本节介绍输入源。
 
-主臂报告绝对关节位置。\ ``LeaderArmPartSource``\ （\ ``real_world_rl/teleop/leader/joint.py``\ ）像 ``TeleopPartSource`` 一样映射到环境关节动作模式（\ ``joint_abs``\ ：归一化至 ``joint_limits``\ ；\ ``joint_delta``\ ：\ ``(q_leader - q_follower) / joint_scale_rad``\ ，每步饱和到一个 ``joint_scale_rad``\ ），并添加操作员接管时的起始策略。读取 GELLO 有两种方式：
+主臂报告绝对关节位置。\ ``LeaderArmPartSource``\ （\ ``real_world_rl/teleop/leader/joint.py``\ ）像 ``TeleopPartSource`` 一样映射到环境关节动作模式（\ ``joint_abs``\ ：归一化至 ``limits.joints``\ ；\ ``joint_delta``\ ：\ ``(q_leader - q_follower) / joint_scale_rad``\ ，每步饱和到一个 ``joint_scale_rad``\ ），并添加操作员接管时的起始策略。读取 GELLO 有两种方式：
 
 -  ``--teleop-device leader_arm``\ ：GELLO 是机器人 PC 上 daemon 提供的机器人 YAML ``teleop:`` 部件（\ ``rwrl daemon --station robot.yaml ...``\ ），通过 ``RemoteRobot`` 读取。\ ``rwrl setup`` 将该段（含标定）写入工作站 YAML；也可手工添加（如 ``examples/stations/robot.franka.example.yaml``\ ）。\ ``rwrl --station robot.yaml teleop calibrate --backend gello --port ... --joint-ids 1 2 3 4 5 6 7 --gripper-id 8`` 输出该设备的 ``options``\ （未指定参数来自工作站 ``teleop.options``\ ；\ ``--use`` 写回工作站，见 \ :ref:`gello.md <gello-2-calibration>`\ ）：
 
@@ -460,9 +460,9 @@ Actor 侧
 -  ``robot_yaml=<path>``\ ：本机加载相同占位 YAML（GELLO 接 actor 机器），由 ``start()`` 连接；
 -  ``leader=<part or resolver>``\ ：调用者拥有的 teleop 部件（测试、自定义配置）。
 
-从臂位姿、每步缩放、安全框来自环境：沿包装器链找到 ``real_robot`` 笛卡尔环境，使用 ``last_observation["state"]["tcp_pose"]``\ 、动作约定 ``xyz_scale_m``/``rot_scale_rad`` 和配置的 ``safety_box``\ （\ ``None`` 时源不检查旧式安全框）。可用 ``follower_pose_getter=``\ 、\ ``pos_scale_m=``\ 、\ ``rot_scale_rad=``\ 、\ ``safety_box=`` 覆盖。缩放至少须等于领先上限（\ ``xyz_scale_m >= lead_cap_m``\ 、\ ``rot_scale_rad >= lead_cap_rad``\ ），否则拒绝构建；默认 0.02 m / 0.1 rad 需增大（预设中的 ``--real-robot.xyz-scale-m 0.05 --real-robot.rot-scale-rad 0.3``\ ），或减小上限。
+从臂位姿、每步缩放、盒来自环境：沿包装器链找到 ``real_robot`` 笛卡尔环境，使用 ``last_observation["state"]["tcp_pose"]``\ 、动作约定 ``xyz_scale_m``/``rot_scale_rad`` 和实际生效的 ``limits.tcp`` 盒（\ ``None`` 时源不夹取）。可用 ``follower_pose_getter=``\ 、\ ``pos_scale_m=``\ 、\ ``rot_scale_rad=``\ 、\ ``limits=``\ （\ ``TcpBox``\ ）覆盖。缩放至少须等于领先上限（\ ``xyz_scale_m >= lead_cap_m``\ 、\ ``rot_scale_rad >= lead_cap_rad``\ ），否则拒绝构建；默认 0.02 m / 0.1 rad 需增大（预设中的 ``--real-robot.xyz-scale-m 0.05 --real-robot.rot-scale-rad 0.3``\ ），或减小上限。
 
-``real_robot`` 中，与 Pico 一样，从环境配置读取工作站 ``workspace``\ 、\ ``task_frame``\ ，回退到本地机器人 YAML。显式源 kwargs 可覆盖。任务坐标系定义 workspace 位置轴与可选姿态约束。\ ``workspace`` 与基坐标 ``safety_box`` 同时生效。任一越界请求都会交还并保持实测从臂位姿；回到框内不会自动恢复跟随。日志为 ``WORKSPACE HOLD: <axes>; the follower holds its pose and the leader handed back; toggle again to take over``\ 。释放接管请求，再请求以重新锚定。
+``real_robot`` 中，与 Pico 一样，从环境配置读取 ``task_frame``\ ，回退到本地机器人 YAML；盒来自环境实际生效的限位。显式源 kwargs 可覆盖。请求越出 ``limits.tcp`` 盒时被夹进盒内，命令沿盒壁滑动；不交还，不再有 ``WORKSPACE HOLD`` 日志，也无需重新锚定。
 
 .. code-block:: python
    :dedent: 0
@@ -561,7 +561,7 @@ Actor 侧
    a_pos = (p_cmd - p) / pos_scale_m
    a_rot = rotvec(R_cmd R^T) / rot_scale_rad
 
-这是环境步的逆（\ ``p + a_pos * pos_scale_m`` 与 ``from_rotvec(a_rot * rot_scale_rad) * R``\ ：旋转左乘，所以旋转向量在基坐标系）。缩放至少为领先上限时动作不会离开 ``[-1, 1]``\ ；否则 tracker 抛 ``CommandOutOfRange`` 而非裁剪。交还、输入/跟踪失败、回合结束都将 tracker 设为实测位姿保持。控制循环停顿（介入轮询间超过 0.3 秒）算输入丢失：从臂保持，警告报告间隔，下次轮询像接管一样重锚主臂（时钟倒退抛 ``MissedControlDeadline``\ ）。请求位置超安全框也如此：日志 ``WORKSPACE HOLD: <axes>``\ ，读取为未介入，直到操作员交还再接管。
+这是环境步的逆（\ ``p + a_pos * pos_scale_m`` 与 ``from_rotvec(a_rot * rot_scale_rad) * R``\ ：旋转左乘，所以旋转向量在基坐标系）。缩放至少为领先上限时动作不会离开 ``[-1, 1]``\ ；否则 tracker 抛 ``CommandOutOfRange`` 而非裁剪。交还、输入/跟踪失败、回合结束都将 tracker 设为实测位姿保持。控制循环停顿（介入轮询间超过 0.3 秒）算输入丢失：从臂保持，警告报告间隔，下次轮询像接管一样重锚主臂（时钟倒退抛 ``MissedControlDeadline``\ ）。请求位置超出 ``limits.tcp`` 盒则不是保持：它被夹进盒内，命令沿盒壁滑动。
 
 recorder 保持策略（\ ``real_world_rl/teleop/core/hold.py``\ ，\ ``CartesianHold``\ ）共享源 tracker：无人驱动时发送回固定保持位姿的动作（不是零 twist），每步最多一个领先上限。无提供 tracker 的源（``leader_cartesian``、``spacemouse`` tracker 或 ``pico``）时使用独立 tracker，上限为 ``min(0.05 m, xyz_scale_m)`` / ``min(0.3 rad, rot_scale_rad)``\ ，因此机械臂被推远后会收到饱和返回动作而非错误。\ ``--teleop-device leader_cartesian``\ （或 ``spacemouse``\ ）将 tracker 记录到实验约定（参与比较的 ``teleop_control``\ ：版本 ``cartesian_tracker_v1`` 与上方四值）；无此块或值不同的示范无法加载。SpaceMouse 还记录 ``axis_lock`` 及适用的输入坐标系/诊断设置，因此仅四个 tracker 参数相同不足以让 GELLO 与 SpaceMouse 示范兼容；完整比较约定必须匹配。
 
@@ -895,8 +895,8 @@ Pico 侧在 ZeroMQ ``PUB`` socket（如 ``tcp://*:7777``\ ）发布 JSON 数组�
      - ``1 - trigger > gripper_binarize_threshold``\ （0.5）时为 ``+1``\ （开），否则 ``-1``\ ；\ ``gripper_binarize_threshold: null`` 输出连续 ``2w - 1``\ 。接管时与最后夹爪命令不一致的扳机会被忽略，直到一致，因此接管不松物。
    * - 回合结束按下
      - 结束回合并交还
-   * - 请求超安全框或工作站 workspace
-     - 日志 ``WORKSPACE HOLD: <axes>``\ ，保持实测位姿并交还，下次 bind 再接管
+   * - 请求超出 ``limits.tcp`` 盒
+     - 夹进盒内，命令沿盒壁滑动，不保持也不交还
    * - 控制循环停顿（> ``max_dt_s``\ ）
      - 保持实测位姿，下次轮询在此重锚手位姿
    * - 读取失败

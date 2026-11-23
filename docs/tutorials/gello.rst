@@ -66,7 +66,7 @@
 
 需要覆盖标定输入时，``--joint-signs`` 接收按关节顺序排列的符号；
 未指定时取 station 的符号，再没有才全为 +1。
-``--joint-limits-yaml`` 从另一份机器人 YAML 的 joint_limits 计算 wrap center，
+``--joint-limits-yaml`` 从另一份机器人 YAML 的 ``limits.joints`` 计算 wrap center，
 未指定时使用当前 station。``--skip-sign-check`` 跳过逐关节方向检查、直接使用初始符号；
 只有这些符号已在本机验证过时才使用。
 
@@ -93,7 +93,7 @@
    * - ``gripper_open_rad``、``gripper_closed_rad``
      - 使用触发器完全开／闭时标定输出的原始弧度值。
    * - ``wrap_centers_rad``
-     - 来自从臂 ``joint_limits`` 每行上下限的中点；先按当前机器人型号的规格填 station.joint_limits，再运行标定。
+     - 来自从臂 ``limits.joints`` 每行上下限的中点；先按当前机器人型号的规格填 station 的 ``limits.joints``，再运行标定。
    * - ``intervention``、``event_device``、``event_keys``
      - 新配置默认 always；本例设为 always，活动回合使用终端 t/h，不需要 evdev toggle。
        对已有 GELLO 块执行 ``--use`` 会保留原有 intervention、event_device、event_keys，需核对后修改。
@@ -107,7 +107,7 @@
 * ``moved less than 0.1 rad``：这次保留旧符号，重新做足够幅度的单关节检查。
 * 残差超过 pi/8：检查姿态和符号，再标定；不要直接开始跟随。
 * ``gripper trigger moved only ...``：检查触发器 ID，开闭两端至少相差 0.05 rad。
-* ``no joint_limits given``：上一章模板没有 joint_limits，零 wrap center 对部分 Panda 关节不合适。
+* ``no limits.joints given``：上一章模板没有 ``limits.joints``，零 wrap center 对部分 Panda 关节不合适。
   按当前型号规格补上七组限位后重做标定，尤其核对跨 pi 的关节。
 
 3. 对齐主从，先读后动
@@ -128,7 +128,7 @@
 **如果不对**：
 
 * 某一项反向或相差约 pi/2：回查 joint_ids 顺序、sign、offset，不用反向扳主臂补偿。
-* 跨 pi 后读数跳变：核对 wrap_centers_rad 与实际 joint_limits。
+* 跨 pi 后读数跳变：核对 wrap_centers_rad 与实际 ``limits.joints``。
 * 开闭方向相反：重新采集 gripper_open_rad 和 gripper_closed_rad，不靠交换标签继续。
 
 read 默认每秒打印 3 次；省略 ``--duration-s`` 就一直读到 Ctrl-C。
@@ -178,14 +178,15 @@ station 声明了 daemon、但 daemon 已停止时，把全局 ``--direct`` 放�
 
 * 一直停在 READY：按空格才开始回合，要在运行 ``rwrl`` 的终端里按。
 * Space 能切设备状态却不接管活动回合：当前会话使用终端事件源，按 t/h；不要混用两套接管状态。
-* ``WORKSPACE HOLD``：先交还，检查请求方向和边界，再接管。不要通过扩大工作区掩盖错误映射。
+* 从臂在盒子边缘不再前进、只沿墙面滑动：目标被 station 的 ``limits.tcp`` 裁进盒内，不是故障。先交还，检查请求方向和盒子，再接管；不要通过扩大盒子掩盖错误映射。
+* ``measured TCP outside TCP box``：实测 TCP 超出盒子加 ``measured_margin_m``，环境已停臂并锁存 ``SafetyViolation``；检查反馈和机器人状态，人工确认后再重新开始。
 
 需要核对映射时，记接管瞬间的主臂末端为 ``(p_l0, R_l0)``，从臂命令为 ``(p_c, R_c)``。
 随后请求位置是 ``p* = p_c + (p_l - p_l0)``，旋转是 ``R* = (R_l R_l0^T) R_c``；
 这里的主臂末端由正运动学求得，tracker 再限制请求速度和领先量。
-``teleop run`` 把 station 的 workspace、task_frame 合入环境。
+``teleop run`` 把 station 的 task_frame 合入环境；限位随机器人带来，环境在首次 reset 时继承 station 的 ``limits``。
 源的显式选项优先于环境配置，环境未设置时才回退到本地机器人 YAML；
-任务系 workspace 与基座系 safety_box 同时约束目标。
+TCP 盒（轴取自 ``task_frame``）把笛卡尔目标裁进盒内，机器人关节范围同时限制关节目标。
 
 5. 需要关节跟随时怎样切换
 --------------------------------------------------------------------------------
@@ -216,8 +217,8 @@ station 声明了 daemon、但 daemon 已停止时，把全局 ``--direct`` 放�
 此时每臂七个关节增量加夹爪，共八维；别与前面的七维数据混用。
 
 若改成 ``real_robot.action_mode: joint_abs``，还必须在 real_robot 中填写
-按本机核验过的七组 ``joint_limits``；绝对动作按这些上下限映射。
-机器人配置也要提供 ``max_delta_per_step.joint_rad``，远程连接时在 daemon 所用 station 中设置。
+按本机核验过的七组 ``limits.joints``（``real_robot.limits.joints``，只能比 station 的范围更窄）；绝对动作按这些上下限映射。
+机器人配置也要提供 ``limits.max_delta_per_step.joint_rad``，远程连接时在 daemon 所用 station 中设置。
 保留 ``state_fields`` 中的 ``joint_pos``，核对 remote、token、相机与 home/reset，不能只改动作模式。
 源选项文件含多个机器人时，用 ``--teleop-robot NAME`` 选择对应机器人。
 
@@ -319,8 +320,8 @@ joint_delta 已按 joint_scale_rad 限幅，初次追赶标记持续到主臂首
 其他机构需注册匹配模型，kinematics 不会随 arm.type 自动改变。
 
 按 :doc:`record` 第 6 步准备 ``local/record-cartesian.yaml``，保留已核验的从臂配置。
-普通录制器不自动合并 station 的 task_frame、workspace；确认它们已在 real_robot
-或其本地 robot 配置中。若预设直连从臂，先停止占用从臂的 daemon，主臂 daemon 保持运行。
+普通录制器不自动合并 station 的 task_frame；确认它已在 real_robot
+或其本地 robot 配置中，限位（``limits``）则在 robot 配置里或随 daemon 的 station 带来。若预设直连从臂，先停止占用从臂的 daemon，主臂 daemon 保持运行。
 在从臂机器的学习环境启动：
 
 .. literalinclude:: ../examples/gello.sh
@@ -329,7 +330,7 @@ joint_delta 已按 joint_scale_rad 限幅，初次追赶标记持续到主臂首
    :end-before: # end second-record
 
 **你应该看到**：从臂 reset 后保持，t 接管时锚定，h 交还。
-保存示范前逐项验证主臂 FK 与实际 TCP、平移和旋转方向、夹爪、工作区保持及停止效果。
+保存示范前逐项验证主臂 FK 与实际 TCP、平移和旋转方向、夹爪、盒子边缘的滑动及停止效果。
 这些是现场验收目标，尚不能视为第二台实体主臂的硬件验证结果。
 
 **如果不对**：关节数或模型不符时先修正运动学；方向或停止不符合预期时停止录制，

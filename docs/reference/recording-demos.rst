@@ -25,9 +25,9 @@ GELLO 由机器人 daemon 提供，follower 为 ``joint_delta``\ （守护进程
        --teleop-event-device keyboard --teleop-onset arm \
        --output-dir demos/task_20 --num-successes 20
 
-``joint_abs`` 数据集（用于 ``joint_abs`` 流程）需增加 ``--real_robot.action_mode joint_abs --robot-teleop-action-mode joint_abs``\ ，并在预设中提供 ``joint_limits``\ 。
+``joint_abs`` 数据集（用于 ``joint_abs`` 流程）需增加 ``--real_robot.action_mode joint_abs --robot-teleop-action-mode joint_abs``\ ，并在预设中提供 ``real_robot.limits.joints``\ 。
 
-``hil.yaml`` 是训练预设 \ |reference-link-1|_\  的副本；命令行不能表达数值对列表，因此 ``joint_limits`` 必须来自预设。不是录制器字段的预设键（算法超参数）会被跳过。
+``hil.yaml`` 是训练预设 \ |reference-link-1|_\  的副本；命令行不能表达数值对列表，因此 ``limits.joints`` 必须来自预设。不是录制器字段的预设键（算法超参数）会被跳过。
 
 其它运动设备使用方式相同：本机 GELLO 用 ``--teleop-device gello`` 和 ``--teleop-options-yaml gello.yaml``\ ；GELLO 驱动 ``cartesian_delta`` 臂（\ ``real_robot``\ ）用 ``--teleop-device leader_cartesian``\ （\ |reference-link-2|_\  是单臂 50 Hz 预设，tracker 参数 ``--teleop-lead-cap-m``\ 、\ ``--teleop-lead-cap-rad``\ 、\ ``--teleop-target-speed-m-s``\ 、\ ``--teleop-target-speed-rad-s`` 见 \ :ref:`teleop.md <teleop-leader-arm-on-a-cartesian-robot-leader_cartesian>`\ ）；SpaceMouse 驱动 ``cartesian_delta`` 臂用 ``--teleop-device spacemouse --teleop-event-device stdin``\ 。\ ``leader_cartesian`` 或 ``spacemouse`` 录制的示范在实验契约（\ ``teleop_control``\ ）中包含 tracker，因此部署时若 ``--teleop-device`` 不带 tracker，会拒绝使用这些示范训练的策略。GELLO 设置见 \ :doc:`gello.md <gello>`\ ，设备说明见 \ :doc:`teleop.md <teleop>`\ 。
 

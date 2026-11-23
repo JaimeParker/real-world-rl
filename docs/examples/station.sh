@@ -18,6 +18,13 @@ rwrl --station local/station.yaml tcp
 # start corner
 rwrl --station local/station.yaml tcp
 # end corner
+# start limits
+rwrl --station local/station.yaml limits show
+# end limits
+# start rebase
+rwrl limits rebase local/station.yaml
+rwrl limits rebase local/station.yaml --write
+# end rebase
 # start workspace
 rwrl --station local/station.yaml workspace show
 # end workspace

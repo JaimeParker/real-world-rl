@@ -22,7 +22,7 @@ Do not treat the template below as an already calibrated on-site configuration.
 
    * - Fields you must change
      - How to obtain the value
-   * - ``obs`` and the action, state, scale, and workspace fields in ``real_robot``
+   * - ``obs`` and the action, state, scale, and limits (``limits``) fields in ``real_robot``
      - Copy from the session/resolved-config.yaml actually used in the previous chapter; the script below preserves these blocks in full.
        If inspect reports rgb_wrist as [1,224,224,3], the corresponding settings are rgb: [wrist] and image_size: [224,224].
    * - ``real_robot.remote`` and, if needed, ``token``
@@ -89,7 +89,7 @@ referenced teleop files to the learner machine (the lossless frames in a dataset
 
 **What you should see**: the script prints the config path, remote, action_mode, and teleop_device.
 The action mode should be cartesian_delta and the device should match your chosen input device. In a text editor, check that real_robot no longer contains a direct robot configuration,
-and that home/workspace/control settings still come from the original session or the same daemon station.
+and that home/limits/control settings still come from the original session or the same daemon station.
 
 **If it doesn't**: on FileExistsError, inspect the existing local/rl-task.yaml; do not overwrite a running experiment.
 If the script rejects joint actions, select the previous chapter's Cartesian session. If GELLO reference files are missing, copy the complete session.

@@ -97,8 +97,8 @@ def test_duplicate_camera_names_are_rejected():
 
 
 def test_joint_limits_on_one_arm_only_are_rejected():
-    with pytest.raises(ValueError, match="joint_limits"):
-        bimanual_config(left={"joint_limits": [[-1.0, 1.0]] * 7})
+    with pytest.raises(ValueError, match="limits.joints"):
+        bimanual_config(left={"limits": {"joints": [[-1.0, 1.0]] * 7}})
 
 
 def test_per_arm_max_episode_steps_is_rejected():
@@ -171,7 +171,7 @@ def test_action_contract_is_shared_with_two_arms(make_env):
     assert contract["num_arms"] == 2 and contract["arm_names"] == ["left", "right"]
     assert contract["action_mode"] == "joint_delta" and contract["arm_action_dim"] == 7
     assert contract["gripper_in_action"] is True and contract["num_joints"] == 7
-    assert contract["joint_limits"] is None
+    assert contract["joint_limits"] == [[[-10., 10.]] * 7] * 2
     assert contract["state_fields"] == env.config.left.state_fields
     assert env.action_mode == "joint_delta"
 
@@ -180,8 +180,8 @@ def test_action_contract_carries_joint_limits_per_arm(make_env):
     left_limits, right_limits = [[-1.0, 1.0]] * 7, [[-0.5, 0.5]] * 7
     env = make_env(
         shared={"action_mode": "joint_delta"},
-        left={"joint_limits": left_limits},
-        right={"joint_limits": right_limits},
+        left={"limits": {"joints": left_limits}},
+        right={"limits": {"joints": right_limits}},
         arm_names=("a", "b"),
     )
     assert env.action_contract["joint_limits"] == [left_limits, right_limits]

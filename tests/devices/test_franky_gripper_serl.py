@@ -28,7 +28,7 @@ def franky(monkeypatch):
 
 
 def _station_gripper(**fields) -> FrankyGripper:
-    config = FrankaConfig(robot_ip="10.0.0.2", gripper=GripperConfig(backend="franky", **fields))
+    config = FrankaConfig(limits={"joints": [[-4., 4.]] * 7}, robot_ip="10.0.0.2", gripper=GripperConfig(backend="franky", **fields))
     gripper = FrankyGripper.from_config(config)
     gripper.connect()
     return gripper

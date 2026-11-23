@@ -1,4 +1,4 @@
-"""Device-layer safety limits: ArmSafety, the Arm command templates, the daemon and remote clients."""
+"""Device-layer safety limits: ArmLimits, the Arm command templates, the daemon and remote clients."""
 from __future__ import annotations
 
 import dataclasses
@@ -15,32 +15,9 @@ from real_world_rl.devices.backends.arms.fake import FakeArm
 from real_world_rl.devices.errors import DeviceError, SafetyViolation
 from real_world_rl.devices.robots.franka import FrankaConfig, FrankaRobot
 from real_world_rl.devices.robots.piper import PiperConfig
-from real_world_rl.devices.safety import ArmSafety
+from real_world_rl.devices.limits import ArmLimits, TcpBox
 
 
-@pytest.mark.parametrize("values", [
-    {"safety_box": [0, 0, 0, float("nan"), 1, 1]},
-    {"joint_limits": [[-1, float("inf")]] * 7},
-    {"home_joints": [float("nan")] * 7},
-    {"max_delta_per_step": {"xyz_m": float("inf")}},
-])
-def test_nonfinite_station_geometry_rejected_before_robot_connection(monkeypatch, values):
-    connected = []
-    monkeypatch.setattr(Robot, "connect", lambda self: connected.append(self))
-    with pytest.raises(ValueError, match="finite|positive"):
-        Robot.from_dict({"type": "franka", "arm_backend": "fake", **values})
-    assert connected == []
-
-
-@pytest.mark.parametrize("values", [
-    {"safety_box": [0, 0, 0, float("nan"), 1, 1]},
-    {"joint_limits": [[-1, float("inf")]] * 7},
-    {"max_delta_xyz_m": float("inf")},
-    {"max_delta_joint_rad": float("nan")},
-])
-def test_direct_arm_safety_rejects_nonfinite_boundaries(values):
-    with pytest.raises(ValueError):
-        ArmSafety(**values)
 from real_world_rl.server import RemoteRobot
 from real_world_rl.server.service import RobotService
 from real_world_rl.server.transport import LocalClient
@@ -48,10 +25,14 @@ from real_world_rl.server.transport import LocalClient
 BOX = [0.2, -0.3, 0.1, 0.6, 0.3, 0.5]
 JOINT_LIMITS = [[-1.0, 1.0]] * 7
 QUAT = [0.0, 0.0, 0.0, 1.0]
-DOCS = Path(__file__).resolve().parents[2] / "examples" / "stations"
+def tcp_box():
+    bounds = np.array(BOX)
+    center = (bounds[:3] + bounds[3:]) / 2
+    return TcpBox(center, np.eye(3), bounds[:3]-center, bounds[3:]-center)
 
 
-def connected_arm(safety: ArmSafety | None, arm_cls: type[FakeArm] = FakeArm) -> FakeArm:
+
+def connected_arm(safety: ArmLimits | None, arm_cls: type[FakeArm] = FakeArm) -> FakeArm:
     arm = arm_cls(num_joints=7, safety=safety)
     arm.connect()
     return arm
@@ -62,9 +43,10 @@ def safe_franka(**overrides) -> FrankaRobot:
         arm_backend="fake",
         gripper=GripperConfig(backend="fake"),
         home_joints=[0.0] * 7,
-        safety_box=BOX,
-        joint_limits=JOINT_LIMITS,
+        limits={"joints": JOINT_LIMITS},
     )
+    if "max_delta_per_step" in overrides:
+        values["limits"]["max_delta_per_step"] = overrides.pop("max_delta_per_step")
     values.update(overrides)
     return FrankaRobot(FrankaConfig(**values))
 
@@ -96,37 +78,7 @@ def services():
         service.close()
 
 
-# ------------------------------------------------------------------ ArmSafety
-
-
-def test_arm_safety_from_config_none_when_unlimited():
-    assert ArmSafety.from_config(FrankaConfig()) is None
-    assert ArmSafety.from_config(FrankaConfig(max_delta_per_step={})) is None
-
-
-def test_arm_safety_dict_round_trip():
-    config = FrankaConfig(
-        home_joints=[0.0] * 7,
-        safety_box=BOX,
-        joint_limits=JOINT_LIMITS,
-        max_delta_per_step={"xyz_m": 0.05},
-    )
-    limits = ArmSafety.from_config(config).to_dict()
-    assert limits == {
-        "safety_box": BOX,
-        "joint_limits": JOINT_LIMITS,
-        "max_delta_per_step": {"xyz_m": 0.05},
-    }
-    assert ArmSafety.from_dict(limits).to_dict() == limits
-
-
-def test_arm_safety_require_names_dimension_value_and_bound():
-    safety = ArmSafety(safety_box=np.array(BOX), joint_limits=np.array(JOINT_LIMITS))
-    with pytest.raises(SafetyViolation, match=r"z=0\.9000 not in \[0\.1000, 0\.5000\]"):
-        safety.require_pose_inside(np.array([0.4, 0.0, 0.9, *QUAT]))
-    with pytest.raises(SafetyViolation, match=r"joint 3=1\.5000 not in \[-1\.0000, 1\.0000\]"):
-        safety.require_joints_inside(np.array([0, 0, 0, 1.5, 0, 0, 0.0]))
-    safety.require_pose_inside(np.array([0.6, 0.3, 0.5, *QUAT]))  # boundary is inside
+# ------------------------------------------------------------------ ArmLimits
 
 
 def test_safety_violation_is_not_a_device_fault():
@@ -140,7 +92,7 @@ def test_safety_violation_is_not_a_device_fault():
 
 
 def test_servo_cartesian_outside_box_is_clipped_and_counted():
-    arm = connected_arm(ArmSafety(safety_box=np.array(BOX)))
+    arm = connected_arm(ArmLimits(tcp=tcp_box()))
     arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
     quat = np.array([0.0, 0.0, 0.70710678, 0.70710678])
     arm.servo_cartesian(np.array([1.0, -0.5, 0.3, *quat]))
@@ -152,7 +104,7 @@ def test_servo_cartesian_outside_box_is_clipped_and_counted():
 
 
 def test_servo_joints_outside_limits_is_clipped_and_counted():
-    arm = connected_arm(ArmSafety(joint_limits=np.array(JOINT_LIMITS)))
+    arm = connected_arm(ArmLimits(joints=np.array(JOINT_LIMITS)))
     arm.set_control_mode(ControlMode.JOINT_SERVO)
     arm.servo_joints(np.array([2.0, -3.0, 0.5, 0, 0, 0, 0]))
     np.testing.assert_allclose(arm._joint_target, [1.0, -1.0, 0.5, 0, 0, 0, 0])
@@ -161,7 +113,7 @@ def test_servo_joints_outside_limits_is_clipped_and_counted():
 
 @pytest.mark.parametrize("via_send_action", [False, True])
 def test_send_action_and_direct_servo_are_limited_alike(via_send_action):
-    arm = connected_arm(ArmSafety(joint_limits=np.array(JOINT_LIMITS)))
+    arm = connected_arm(ArmLimits(joints=np.array(JOINT_LIMITS)))
     arm.set_control_mode(ControlMode.JOINT_SERVO)
     q = np.full(7, 5.0)
     if via_send_action:
@@ -179,7 +131,7 @@ def test_send_action_and_direct_servo_are_limited_alike(via_send_action):
     ],
 )
 def test_move_outside_limits_is_rejected_before_the_backend(method, target):
-    arm = connected_arm(ArmSafety(safety_box=np.array(BOX), joint_limits=np.array(JOINT_LIMITS)))
+    arm = connected_arm(ArmLimits(tcp=tcp_box(), joints=np.array(JOINT_LIMITS)))
     arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
     arm.call_log.clear()
     with pytest.raises(SafetyViolation) as info:
@@ -192,7 +144,8 @@ def test_move_outside_limits_is_rejected_before_the_backend(method, target):
 
 
 def test_move_inside_limits_reaches_the_backend():
-    arm = connected_arm(ArmSafety(safety_box=np.array(BOX), joint_limits=np.array(JOINT_LIMITS)))
+    arm = connected_arm(ArmLimits(tcp=tcp_box(), joints=np.array(JOINT_LIMITS)))
+    arm.tcp_position_from_joints = lambda q: np.array([.4, 0, .3])
     arm.move_to_joints(np.full(7, 0.5))
     arm.move_to_pose(np.array([0.4, 0.0, 0.3, *QUAT]))
     assert arm.call_log[-2:] == ["move_to_joints", "move_to_pose"]
@@ -216,7 +169,7 @@ def test_no_guard_still_sanitizes_direct_calls():
 
 
 def test_max_delta_xyz_shortens_the_step_and_reads_only_when_stale():
-    arm = connected_arm(ArmSafety(max_delta_xyz_m=0.05), CountingFakeArm)
+    arm = connected_arm(ArmLimits(max_delta_xyz_m=0.05), CountingFakeArm)
     arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
     arm.servo_cartesian(np.array([0.5, 0.0, 0.0, *QUAT]))  # empty cache -> one read
     assert arm.reads == 1
@@ -238,7 +191,7 @@ def test_max_delta_xyz_shortens_the_step_and_reads_only_when_stale():
 
 
 def test_max_delta_joint_clips_each_joint_around_the_measured_state():
-    arm = connected_arm(ArmSafety(max_delta_joint_rad=0.1), CountingFakeArm)
+    arm = connected_arm(ArmLimits(max_delta_joint_rad=0.1), CountingFakeArm)
     arm.set_control_mode(ControlMode.JOINT_SERVO)
     arm.read_state()
     reads = arm.reads
@@ -253,14 +206,14 @@ def test_max_delta_joint_clips_each_joint_around_the_measured_state():
 
 
 def test_step_limit_without_max_delta_never_reads():
-    arm = connected_arm(ArmSafety(safety_box=np.array(BOX)), CountingFakeArm)
+    arm = connected_arm(ArmLimits(tcp=tcp_box()), CountingFakeArm)
     arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
     arm.servo_cartesian(np.array([0.4, 0.0, 0.3, *QUAT]))
     assert arm.reads == 0
 
 
 def test_step_then_box_counts_one_clip():
-    arm = connected_arm(ArmSafety(safety_box=np.array(BOX), max_delta_xyz_m=0.05))
+    arm = connected_arm(ArmLimits(tcp=tcp_box(), max_delta_xyz_m=0.05))
     arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
     arm.servo_cartesian(np.array([1.0, 0.0, 0.3, *QUAT]))
     assert arm.health().safety_clips == 1
@@ -268,16 +221,15 @@ def test_step_then_box_counts_one_clip():
 
 def test_from_config_passes_the_guard():
     robot = safe_franka(max_delta_per_step={"joint_rad": 0.2})
-    assert robot.arm.safety_limits == {
-        "safety_box": BOX,
-        "joint_limits": JOINT_LIMITS,
-        "max_delta_per_step": {"joint_rad": 0.2},
-    }
+    assert robot.arm.safety_limits["version"] == "station_limits_v1"
+    assert robot.arm.safety_limits["joints"] == JOINT_LIMITS
+    assert robot.arm.safety_limits["max_delta_per_step"] == {"joint_rad": .2}
+
 
 
 def test_joint_limit_rows_must_match_num_joints():
     with pytest.raises(ValueError, match="joint_limits has 7 rows"):
-        FakeArm(num_joints=6, safety=ArmSafety(joint_limits=np.array(JOINT_LIMITS)))
+        FakeArm(num_joints=6, safety=ArmLimits(joints=np.array(JOINT_LIMITS)))
 
 
 # ------------------------------------------------------------------ daemon
@@ -331,13 +283,11 @@ def test_rejected_commands_do_not_feed_the_watchdog(services):
 
 def test_describe_exposes_safety_and_home(services):
     configured = services().dispatch("robot.describe", {})["arm"]
-    assert configured["safety"] == {
-        "safety_box": BOX,
-        "joint_limits": JOINT_LIMITS,
-        "max_delta_per_step": None,
-    }
+    assert configured["safety"]["version"] == "station_limits_v1"
+    assert configured["safety"]["joints"] == JOINT_LIMITS
     assert configured["home_joints"] == [0.0] * 7
-    plain = FrankaRobot(FrankaConfig(arm_backend="fake", gripper=None))
+    from real_world_rl.devices.robots.piper import PiperRobot
+    plain = PiperRobot(PiperConfig(arm_backend="fake", gripper=None))
     unconfigured = services(plain).dispatch("robot.describe", {})["arm"]
     assert unconfigured["safety"] is None
     assert unconfigured["home_joints"] == plain.config.home_joints
@@ -355,7 +305,7 @@ def test_remote_arm_reads_limits_and_gets_safety_violation(services):
         assert robot.arm.home_joints == [0.0] * 7
         with pytest.raises(SafetyViolation) as info:
             robot.arm.move_to_joints(np.full(7, 2.0))
-        assert "joint_limits" in info.value.message and info.value.hint
+        assert "limits.joints" in info.value.message
         robot.arm.set_control_mode(ControlMode.JOINT_SERVO)
         robot.arm.servo_joints(np.full(7, 2.0))
         np.testing.assert_allclose(service.robot.arm._joint_target, 1.0)
@@ -394,6 +344,7 @@ def test_grpc_round_trip_of_limits_and_safety_violation(services):
     from real_world_rl.server.transport import GrpcTransport
 
     service = services(watchdog_s=30.0)
+    service.robot.arm._safety = ArmLimits(joints=JOINT_LIMITS, tcp=tcp_box())
     transport = GrpcTransport()
     transport.start(service, "127.0.0.1:0")
     robot = Robot.from_dict({"type": "remote", "address": f"127.0.0.1:{transport.port}", "timeout_s": 2.0})
@@ -401,7 +352,7 @@ def test_grpc_round_trip_of_limits_and_safety_violation(services):
         robot.connect()
         assert robot.arm.safety_limits == service.robot.arm.safety_limits
         assert robot.arm.home_joints == [0.0] * 7
-        with pytest.raises(SafetyViolation, match="safety_box"):
+        with pytest.raises(SafetyViolation, match="limits.tcp"):
             robot.arm.move_to_pose(np.array([0.4, 0.0, 0.9, *QUAT]))
     finally:
         robot.disconnect()
@@ -409,42 +360,6 @@ def test_grpc_round_trip_of_limits_and_safety_violation(services):
 
 
 # ------------------------------------------------------------------ config
-
-
-def test_config_validation_of_limits():
-    with pytest.raises(ValueError, match="zmin"):
-        FrankaConfig(safety_box=[0.2, -0.3, 0.6, 0.6, 0.3, 0.5])
-    with pytest.raises(ValueError, match="7 \\[lo, hi\\] pairs"):
-        FrankaConfig(home_joints=None, joint_limits=[[-1.0, 1.0]] * 6)
-    with pytest.raises(ValueError, match="pairs"):
-        FrankaConfig(home_joints=None, joint_limits=[[-1.0, 0.0, 1.0]] * 7)
-    with pytest.raises(ValueError, match=r"joint_limits\[2\] lo"):
-        FrankaConfig(home_joints=None, joint_limits=[[-1.0, 1.0]] * 2 + [[1.0, -1.0]] + [[-1.0, 1.0]] * 4)
-    with pytest.raises(ValueError, match="unknown max_delta_per_step key 'rpy_rad'"):
-        FrankaConfig(max_delta_per_step={"rpy_rad": 0.1})
-    for bad in (0.0, -0.1, None, True, "0.1"):
-        with pytest.raises(ValueError, match="positive"):
-            FrankaConfig(max_delta_per_step={"xyz_m": bad})
-    with pytest.raises(ValueError, match=r"home_joints\[3\] = -2.356"):
-        FrankaConfig(joint_limits=JOINT_LIMITS)  # default Franka home is outside these limits
-    with pytest.raises(ValueError, match="unknown key 'joint_limit'"):
-        Robot.from_dict({"type": "franka", "joint_limit": JOINT_LIMITS})
-
-
-def _uncomment_safety_keys(text: str) -> str:
-    return re.sub(r"^# ((safety_box|joint_limits|max_delta_per_step):|  - )", r"\1", text, flags=re.M)
-
-
-@pytest.mark.parametrize("name, config_cls", [("franka", FrankaConfig), ("piper", PiperConfig)])
-def test_example_yaml_loads_with_and_without_limits(tmp_path, name, config_cls):
-    source = DOCS / f"robot.{name}.example.yaml"
-    assert isinstance(Robot.from_yaml(source).config, config_cls)
-    enabled = tmp_path / source.name
-    enabled.write_text(_uncomment_safety_keys(source.read_text()))
-    config = Robot.from_yaml(enabled).config
-    assert config.safety_box is not None
-    assert len(config.joint_limits) == config.NUM_JOINTS
-    assert set(config.max_delta_per_step) == {"xyz_m", "joint_rad"}
 
 
 def test_arm_health_accepts_an_old_daemon_dict():
@@ -455,7 +370,7 @@ def test_arm_health_accepts_an_old_daemon_dict():
 
 
 def test_failed_move_still_forgets_the_cached_state(monkeypatch):
-    arm = connected_arm(ArmSafety(max_delta_joint_rad=0.1), CountingFakeArm)
+    arm = connected_arm(ArmLimits(max_delta_joint_rad=0.1), CountingFakeArm)
     arm.read_state()
     assert arm._last_state is not None
 
@@ -472,3 +387,34 @@ def test_failed_move_still_forgets_the_cached_state(monkeypatch):
     reads = arm.reads
     arm.servo_joints(np.zeros(7))
     assert arm.reads == reads + 1
+
+
+def test_remote_joint_projection_and_cartesian_acceptance(services):
+    from real_world_rl.devices.robots.franka import FRANKA_HOME_JOINTS
+    from real_world_rl.devices.robots.franka_kinematics import tcp_position
+    home = np.array(FRANKA_HOME_JOINTS)
+    box = TcpBox(tcp_position(home), np.eye(3), [-.02]*3, [.02]*3)
+    config = FrankaConfig(arm_backend='fake', gripper=None, claim=False,
+                         limits={'joints': [[-4, 4]]*7, 'tcp': {'origin': 'home', **box.to_dict()}})
+    service = services(FrankaRobot(config), watchdog_s=30)
+    service.robot.arm._joint_pos = home.copy()
+    remote = RemoteRobot.from_client(LocalClient(service))
+    remote.connect()
+    try:
+        assert 'station_limits_v1' in remote.arm.safety_capabilities
+        assert remote.arm.safety_limits == service.robot.arm.safety_limits
+        remote.arm.set_control_mode(ControlMode.JOINT_SERVO)
+        target = home.copy()
+        target[0] += .8
+        remote.arm.servo_joints(target)
+        assert box.contains(tcp_position(service.robot.arm._joint_target))
+        assert remote.arm.health().safety_clips == 1
+        with pytest.raises(SafetyViolation):
+            remote.arm.move_to_joints(target)
+        remote.arm.set_control_mode(ControlMode.CARTESIAN_SERVO)
+        remote.arm.servo_cartesian([*(box.origin_xyz + [.1, 0, 0]), 0, 0, 1, 0])
+        accepted = remote.arm.last_cartesian_target
+        np.testing.assert_allclose(accepted[:3], box.origin_xyz + [.02, 0, 0])
+        np.testing.assert_array_equal(accepted[3:], [0, 0, 1, 0])
+    finally:
+        remote.disconnect()

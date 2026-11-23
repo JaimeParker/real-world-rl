@@ -376,7 +376,7 @@ false labels and unknown online-checkpoint provenance remain nonexpert.
 
 The versioned experiment contract has a compared part and a provenance part. The compared
 part is what changes what the policy sees or how its actions are interpreted: the task,
-control settings, ``control_hz``, ``joint_limits``, depth cameras, ``image_size``, image
+control settings, ``control_hz``, ``joint_limits`` and the effective ``limits`` (version ``station_limits_v1``; an older checkpoint's ``safety_box``/``workspace`` is translated on load), depth cameras, ``image_size``, image
 preprocessing, the final observation layout (keys, shapes, camera order, frame stack) and
 the teleop part selection/idle behavior. Recording, training, deployment and evaluation must
 agree on it; a mismatch is rejected rather than replayed under different action or
@@ -384,7 +384,7 @@ observation semantics, and only this part enters the experiment hash. The proven
 saved with the contract and shown in mismatch errors but never compared: the reward sources
 (classifier paths, contents and threshold, ``reward_from_teleop_events``,
 ``teleop_success_reward``, grasp penalty) and the station facts the command line owns
-(``safety_box``, ``home_joints``, ``reset_settle_s``, ``max_episode_steps``, and the ``cameras``
+(``home_joints``, ``reset_settle_s``, ``max_episode_steps``, and the ``cameras``
 list, whose names and order are compared through the observation layout). So demos recorded with the recorder's teleop-event reward load into a run
 with a classifier, and a deploy may use another home pose or episode cap. Data recorded
 before experiment metadata existed loads with a warning unless the run's task, control,

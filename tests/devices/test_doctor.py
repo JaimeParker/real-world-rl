@@ -58,7 +58,8 @@ def test_all_green(sdk_backed_fakes):
     results = run_doctor(franka_config())
     assert exit_code(results) == 0
     assert {result.layer for result in results} == {0, 1, 2, 3, 4, 5}
-    assert all(result.ok and not result.skipped for result in results)
+    # feedback:kinematics needs a connected franky arm, so it is skipped on the fake backend.
+    assert all(result.ok and (not result.skipped or result.name == "feedback:kinematics") for result in results)
     names = {result.name for result in results}
     assert {"os:ping", "handshake", "feedback:arm", "feedback:gripper", "feedback:camera:wrist"} <= names
     assert "mode:none" in names
@@ -114,7 +115,8 @@ def test_ping_failure_does_not_skip_later_layers(monkeypatch, sdk_backed_fakes):
     ping_result = next(result for result in results if result.name == "os:ping")
     assert not ping_result.ok and "Ethernet cable" in ping_result.hint
     assert exit_code(results) == 1
-    assert all(r.ok and not r.skipped for layer in (3, 4, 5) for r in by_layer(results, layer))
+    assert all(r.ok and (not r.skipped or r.name == "feedback:kinematics")
+               for layer in (3, 4, 5) for r in by_layer(results, layer))
 
 
 def test_unknown_backend_skips_later_layers():
@@ -141,7 +143,7 @@ def test_handshake_failure_skips_feedback_and_mode(monkeypatch):
 def test_mock_piper_skips_os_and_passes():
     results = run_doctor(PiperConfig(), mock=True)
     assert all(r.skipped for r in by_layer(results, 2)) and by_layer(results, 2)
-    assert all(r.message == "no SDK needed" for r in by_layer(results, 1))
+    assert all(r.message == "no SDK needed" for r in by_layer(results, 1) if r.name != "config:limits")
     assert exit_code(results) == 0
 
 
@@ -166,7 +168,7 @@ def test_no_feedback_arm_fails_with_hint(monkeypatch):
 
 def test_mock_piper_findings_have_no_failure_and_three_skips():
     statuses = [finding.status for finding in device_findings("piper", check_rows(run_doctor(PiperConfig(), mock=True)))]
-    assert "FAIL" not in statuses and statuses.count("SKIPPED") == 3
+    assert "FAIL" not in statuses and statuses.count("SKIPPED") == 4  # three os probes + feedback:kinematics (Franka only)
 
 
 def write_config(tmp_path) -> str:

@@ -25,7 +25,7 @@
 先改 ``local/station.yaml``；``local/task.yaml`` 留到设备检查完成后再改。
 
 **你应该看到**：``local/`` 下有 ``station.yaml`` 和 ``task.yaml``。
-前者的 ``REPLACE_WITH_...`` 要换成现场值；home 和边界的数字会在后面读出来再填。
+前者的 ``REPLACE_WITH_...`` 要换成现场值；home 和限位的数字会在后面读出来再填。
 
 **如果不对**：
 
@@ -64,8 +64,8 @@
      - ``panda`` 或 ``fr3``，决定默认关节限位；非交互创建新臂时必填。
    * - ``--cartesian-controller``、``--joint-controller``、``--realtime``
      - 控制器默认 ``impedance``，也可选 ``internal``／``serl``；实时设置为 ``ignore``／``enforce``。internal、serl 或 PREEMPT_RT 内核默认 enforce；其他情况默认 ignore。``--joint-controller`` 默认 ``impedance``，GELLO 关节遥操作可选 ``trajectory_impedance``\ （也建议 enforce）。SERL 和关节控制器的安装见 :doc:`controller`。
-   * - ``--home-joints``、``--joint-limits``、``--safety-box``
-     - 逗号分隔的关节角、各关节 lo/hi 对、基座系位置盒；home 可填 ``none`` 留待第 4 步实测。不要拿向导建议值当工位验收结果。
+   * - ``--home-joints``、``--joint-limits``、``--tcp-box-low``、``--tcp-box-high``
+     - 逗号分隔的关节角、各关节 lo/hi 对、TCP 盒相对 home 的下界／上界（沿桌面轴，m，如 ``'[-0.2,-0.25,-0.15]'``）；home 可填 ``none`` 留待第 4 步实测。不要拿向导建议值当工位验收结果。没有运动学模型的机器人再加 ``--tcp-origin``。
    * - ``--max-delta-xyz-m``、``--max-delta-joint-rad``、``--control``
      - 单步位置／关节上限和阻抗参数映射；完整格式见本步的 ``setup --help``。
    * - ``--cameras``
@@ -212,7 +212,7 @@
 ``cartesian_controller: impedance`` 表示由 franky 的阻抗 tracker 执行末端目标，普通内核也能用。
 先保持它：做完第 3 步后，:doc:`controller` 会帮你在 ``impedance``、``internal``、``serl`` 中选定一个，
 并装好它需要的软件、填好 ``realtime``。
-``robot_model`` 决定 SERL 关节复位用哪张关节限位表，也是 ``rwrl setup`` 给 ``joint_limits`` 的默认来源。
+``robot_model`` 决定 SERL 关节复位用哪张关节限位表，也是 ``rwrl setup`` 给 ``limits.joints`` 的默认来源。
 归位速度需要调整时再审阅 ``relative_dynamics_factor``，它控制 ``move_to_*`` 的速度、加速度和 jerk 比例。
 ``claim: true`` 保留本机设备独占锁。
 
@@ -399,6 +399,9 @@ doctor 会连接后断开，不执行归位或机械臂运动；设备初始化�
 其余字段保持默认；换起始姿态时重新读数并更新这一行。
 保存后，这一行应与你自己的 ``q`` 输出一致。
 
+``limits.tcp`` 的盒子以 home 为中心，并冻结了 home 的位置。改了 ``home_joints`` 之后，加载 station 会报 ``home_joints changed since limits were frozen`` 并提示运行 ``rwrl limits rebase``，
+这时运行 ``rwrl limits rebase local/station.yaml --write``（第 5 步细讲），盒子随新 home 重新居中。
+
 **如果不对**：
 
 * 读数命令连接失败：确认已退出手动引导，重新检查 Desk 控制权和 FCI。
@@ -421,31 +424,17 @@ doctor 会连接后断开，不执行归位或机械臂运动；设备初始化�
 这个值优先于 station home；第 9 步“沿用 station”只适用于没有设置此覆盖值的任务。
 **如果不对**：缺 preset 就显式传入路径；越限就先核对实测姿态和限位，不能为了写入而放宽限制。
 
-5. 测工作区，再检查保存结果
+5. 设定限位，再检查保存结果
 --------------------------------------------------------------------------------
 
-在允许区域的角点读取 TCP，得到本仓限制末端目标所需的边界。
+给机械臂定两类限位：每个关节的活动范围，和末端 TCP 的活动盒。它们都写在 ``local/station.yaml`` 的一个 ``limits:`` 块里。
+模板已经带了 Panda 手册的关节范围和一个以 home 为中心的盒子，这一步是核对、按现场收紧，再检查保存结果。
 
-沿用上一步的手动引导流程。先选一个已留出工具和障碍物余量的区域，
-逐个引导到八个角点；每到一点，退出引导，运行一次：
+盒子的设计：它\ **以 home 为中心**\ ，三个方向各给一个相对 home 的偏移（``low`` 都是负数，``high`` 都是正数，单位 m），
+所以 home 一定在盒内；它沿\ **桌面轴**\ ：轴取自 ``task_frame``（第 11 步用桌上三个点标定的桌面坐标系），还没标定时沿基座轴。
+机械臂侧装或倾斜安装时，盒子的边仍与桌面对齐。盒内\ **不限制姿态**\ 。完整字段和越界行为见\ :ref:`限位（limits） <devices-limits>`\ 。
 
-.. literalinclude:: ../examples/station.sh
-   :language: bash
-   :start-after: # start corner
-   :end-before: # end corner
-
-**你应该看到**：每次都有一行 TCP 读数。下面演示一个基座系位置盒的八个角点。
-
-.. literalinclude:: ../examples/station-output.txt
-   :language: text
-   :start-after: # start corners
-   :end-before: # end corners
-
-从这些读数分别取 x、y、z 的最小值和最大值。
-示例得到 ``low = [0.3, -0.3, 0.05]``、``high = [0.7, 0.3, 0.6]``。
-现场有测量偏差时向内收紧，并再次检查范围内的工具、机械臂和路径。
-角点可达并不保证整个盒子无碰撞。
-
+先选一个已留出工具和障碍物余量的区域：以 home 为中心，向前后、左右、上下各留多少米。模板的默认值是 x ±0.20、y ±0.25、z 从 -0.15 到 +0.30。
 把结果写入 ``local/station.yaml``：
 
 .. literalinclude:: ../examples/station.yaml
@@ -456,16 +445,27 @@ doctor 会连接后断开，不执行归位或机械臂运动；设备初始化�
 .. list-table::
    :header-rows: 1
 
-   * - 必须改的字段
+   * - 要核对的字段
      - 怎么得到这个值
-   * - ``workspace.low`` / ``workspace.high``
-     - 从本步每次 ``rwrl --station local/station.yaml tcp`` 的 XYZ 取下界／上界，单位 m。
-   * - ``safety_box``
-     - 把已审阅的 low 和 high 连在一起，顺序为 xmin、ymin、zmin、xmax、ymax、zmax。
+   * - ``limits.joints``
+     - 保持 ``rwrl setup`` 按 ``robot_model`` 写的手册值，除非现场需要更窄的范围；``home_joints`` 必须在范围内。
+   * - ``limits.tcp.low`` / ``limits.tcp.high``
+     - 相对 home 的偏移，沿桌面轴，单位 m。现场有障碍物时向内收紧。``low`` 必须全为负、``high`` 必须全为正。
+   * - ``limits.tcp.origin_xyz`` / ``axes_R``
+     - 不手填：由 ``rwrl setup`` 写入，或运行 ``rwrl limits rebase``（见下）。它们冻结 home 的位置和 ``task_frame`` 的旋转；
+       以后改了 home 或 ``task_frame``，加载会提示重新运行 ``rebase``，不会悄悄移动盒子。
 
-其余字段保持默认：``workspace.frame: base`` 和 ``max_delta_per_step``。
-后者把从实测状态到 servo 目标的单步变化限制为示例的 0.05 m／0.1 rad；
-只有现场核对控制周期和运动后才调整。两个位置范围共同生效，取交集。
+其余字段保持默认：``measured_margin_m: 0.003`` 是实测 TCP 超出盒子多少米以上才算越界。
+``max_delta_per_step`` 把从实测状态到 servo 目标的单步变化限制为示例的 0.05 m／0.1 rad；
+只有现场核对控制周期和运动后才调整。
+
+如果你自己写（或改了）``tcp`` 块，可以只写 ``origin: home``、``low``、``high``，再让 ``rebase`` 补上两个冻结值。
+先不带 ``--write`` 看会改什么，满意后再带 ``--write``：
+
+.. literalinclude:: ../examples/station.sh
+   :language: bash
+   :start-after: # start rebase
+   :end-before: # end rebase
 
 保存后检查文件里的值：
 
@@ -474,7 +474,7 @@ doctor 会连接后断开，不执行归位或机械臂运动；设备初始化�
    :start-after: # start workspace
    :end-before: # end workspace
 
-**你应该看到**：``workspace``、``base_safety_box`` 和 ``home_joints`` 与刚才填写的一致。
+**你应该看到**：``limits.tcp`` 的 ``low`` / ``high`` 与刚才填写的一致，``home_joints`` 与第 4 步一致。
 ``home_within_limits`` 为 true 表示 station home 在已配置关节限位内；false 表示越限，
 查看 ``home_violations``。null 表示缺 home 或关节限位，不能当作通过。
 下面是输出字段的格式节选。输出还会标明 m、rad、xyzw 单位。
@@ -484,11 +484,36 @@ doctor 会连接后断开，不执行归位或机械臂运动；设备初始化�
    :start-after: # start workspace
    :end-before: # end workspace
 
+再看八个角点在基座系下的坐标，确认盒子落在你想要的区域：
+
+.. literalinclude:: ../examples/station.sh
+   :language: bash
+   :start-after: # start limits
+   :end-before: # end limits
+
+.. literalinclude:: ../examples/station-output.txt
+   :language: text
+   :start-after: # start corners
+   :end-before: # end corners
+
+可选的现场核对：沿用上一步的手动引导流程，把 TCP 引导到几个角点附近（先从离障碍物最近的开始），
+退出引导后运行一次 ``rwrl tcp``，读数应落在对应角点的盒内：
+
+.. literalinclude:: ../examples/station.sh
+   :language: bash
+   :start-after: # start corner
+   :end-before: # end corner
+
+角点在盒内不代表整个盒子无碰撞，也不代表机械臂本体不碰障碍物。
+
 **如果不对**：
 
-* low 大于或等于 high：重新按 x、y、z 分别整理下界和上界。
+* ``tcp bounds require low < 0 < high on every axis``：``low`` 必须全是负数、``high`` 必须全是正数，home 在盒子里面。
+* ``home_joints changed since limits were frozen``：改过 home；运行 ``rwrl limits rebase local/station.yaml --write``。
+* ``task_frame changed since limits were frozen``：改过桌面坐标系；同样运行 ``rebase``。
+* 报 ``safety_box`` / ``workspace`` / ``joint_limits`` 已删除：这是旧版站点文件，运行 ``rwrl limits migrate local/station.yaml``，核对后加 ``--write``。
 * 输出仍是旧值：保存文件，确认命令使用的是 ``local/station.yaml``。
-* 某个角点或路径不安全：缩小、重新选择区域，不要为了凑满盒子强行到达。
+* 某个角点或路径不安全：缩小盒子，不要为了凑满盒子强行到达。
 
 6. 读夹爪开口
 --------------------------------------------------------------------------------
@@ -867,12 +892,12 @@ Franka 的基座坐标系跟着底座走；底座不正装时，基座的 “上
 **11.3 先坐标系，后档案。** 坐标系定好以后，再去 :doc:`spacemouse` 标定方向档案（``--frame table``）：
 这样档案的 yaw 只描述 SpaceMouse 在桌上怎么摆，不再混入机械臂的安装角度。
 改了 ``task_frame`` 之后，之前在旧坐标系下标定的档案和捕获的点都要重做。
-若 ``workspace.frame`` 是该任务坐标系的名字（例如 ``table``），原有 low／high 会随新坐标系
-改变在基座系中的位置和方向；保存后运行 ``rwrl workspace show``，并用
+``task_frame`` 的旋转同时决定第 5 步 TCP 盒的轴：保存新的 ``task_frame`` 后，加载 station 会报 ``task_frame changed since limits were frozen`` 并提示运行 ``rwrl limits rebase``。先运行
+``rwrl limits rebase local/station.yaml``\ （不带 ``--write`` 只看改动），确认后加 ``--write``：
+盒子的 ``low`` / ``high`` 不变，``axes_R`` 换成新桌面系的旋转，``origin_xyz`` 重新取 home 的位置。
+然后运行 ``rwrl workspace show`` 和 ``rwrl limits show`` 核对基座系下的角点，再用
 ``rwrl workspace validate --pose X Y Z QX QY QZ QW`` 检查待用的基座系位姿
-（位置单位 m，四元数 xyzw；用实际读数替换占位符），重新核对边界及现场运动范围。``workspace frame set`` 会用 ``workspace_frame_rebased`` 和
-``workspace_note`` 提醒这一点。本章的 ``workspace.frame: base`` 和 ``safety_box`` 保持基座系定义，
-不会随 ``task_frame`` 移动，但仍要核对新遥操作方向下的可用范围。
+（位置单位 m，四元数 xyzw；用实际读数替换占位符；只检查位置是否在盒内）。``workspace frame set`` 的输出也会提醒这一点。
 最后在 :doc:`spacemouse` 第 4 步用单轴推动验证：推帽向上，TCP 应竖直向上走；向前推，TCP 沿桌面前方走。
 
 **如果不对**：
@@ -880,7 +905,7 @@ Franka 的基座坐标系跟着底座走；底座不正装时，基座的 “上
 * ``origin, x-axis and y-axis points are collinear``：y 点要离开 x 方向那条线。
 * ``x-axis point is ... mm from the origin``：x 点离原点太近，拉开到 20 cm 以上。
 * ``rpy_deg`` 和名义值差很多：检查 x、y 点有没有取反（前／左），三个点是否同高。
-* ``the station workspace is defined in frame ...``：工作区用的是别的坐标系；本章工作区是 ``base``，不受影响。
+* 保存 ``task_frame`` 后 ``rwrl`` 报 ``task_frame changed since limits were frozen``：按上文运行 ``rwrl limits rebase``。
 * 正装机器人测出的 roll／pitch 只有零点几度：还要核对 yaw；输入轴与基座轴都对齐时才可省略 ``task_frame``。
 
 现在两份配置和桌面坐标系都已准备好。下一章 :doc:`controller` 选定并装好 Franka 控制器；
@@ -891,7 +916,7 @@ Franka 的基座坐标系跟着底座走；底座不正装时，基座的 “上
    **本章哪些内容需要真机确认**
 
    文中的硬件输出是按 CLI 格式编写的示例。FCI 与 SDK 握手、真实设备反馈、
-   夹爪行程和开闭、相机模式与画面、home 与归位路径、工作区和单步上限、
+   夹爪行程和开闭、相机模式与画面、home 与归位路径、限位盒和单步上限、
    动作方向和幅度、10 Hz 控制时序、0.5 秒稳定时间，都要现场确认。
-   ``workspace show`` 只显示配置，不验证现场几何、碰撞或在线 daemon。
+   ``workspace show`` 和 ``limits show`` 只显示配置，不验证现场几何、碰撞或在线 daemon。
    桌面坐标系的名义角度和实测角度、单轴方向也要现场确认。

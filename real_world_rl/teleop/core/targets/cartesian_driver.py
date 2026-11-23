@@ -3,7 +3,7 @@
 The tracker owns the persistent command, the lead cap and the speed limit. Driving it from a
 device also takes the follower's measured pose, the env's per-step scales and a clock for the
 advances; ``CartesianTrackerDriver`` holds those for a source (by composition, it is not a base
-class). How a source requests poses, and what it does after a workspace rejection or a stalled
+class). How a source requests poses, and what it does after a stalled
 control loop, stays in the source.
 
 ``validated_tracker_config`` checks a source's tracker kwargs against the env scales, and

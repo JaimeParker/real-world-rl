@@ -1,6 +1,8 @@
 """Supervised teleop configuration and evidence, with no recorder or hardware access."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import hashlib
 import json
 from pathlib import Path
@@ -26,7 +28,6 @@ SPACEMOUSE_CONFIG = b"""real_robot:
   - 0
   gripper_in_action: false
   task_frame: null
-  workspace: null
   robot:
     type: franka
     name: left
@@ -41,9 +42,22 @@ SPACEMOUSE_CONFIG = b"""real_robot:
     - 0.0
     - 1.571
     - 0.785
-    safety_box: null
-    joint_limits: null
-    max_delta_per_step: null
+    limits:
+      joints:
+      - - -10.0
+        - 10.0
+      - - -10.0
+        - 10.0
+      - - -10.0
+        - 10.0
+      - - -10.0
+        - 10.0
+      - - -10.0
+        - 10.0
+      - - -10.0
+        - 10.0
+      - - -10.0
+        - 10.0
     control: null
     claim: true
     teleop:
@@ -52,9 +66,9 @@ SPACEMOUSE_CONFIG = b"""real_robot:
       hold_s: 0.0
       options: {}
     task_frame: null
-    workspace: null
     robot_ip: 172.16.0.2
     bridge_url: http://127.0.0.1:5000
+    flange_T_ee: null
     relative_dynamics_factor: 0.2
     realtime: ignore
     cartesian_controller: impedance
@@ -113,7 +127,7 @@ teleop_input:
 def session(tmp_path, monkeypatch):
     """Real station/config parsing, but no child process and no connected devices."""
     path = tmp_path / "station.yaml"
-    config = {"type": "franka", "name": "left", "arm_backend": "fake", "gripper": None,
+    config = {"limits": station_limits(), "type": "franka", "name": "left", "arm_backend": "fake", "gripper": None,
               "cameras": {}, "teleop": {"backend": "spacemouse"},
               "teleop_profiles": {"file": "profiles.yaml", "default": "front"}}
     path.write_text(yaml.safe_dump(config))
@@ -158,7 +172,7 @@ def test_spacemouse_resolved_config_bytes(session, tmp_path, capsys):
 
 def gello_station(session, *, wrapped=False, daemon=False):
     # Real follower-only fields must never leak into the leader stub.
-    config = {"type": "franka", "name": "left", "robot_ip": "192.0.2.9",
+    config = {"limits": station_limits(), "type": "franka", "name": "left", "robot_ip": "192.0.2.9",
               "arm_backend": "franky", "gripper": {"backend": "franky"},
               "cameras": [{"name": "wrist", "backend": "realsense"}],
               "teleop": {"backend": "gello", "name": "leader", "hold_s": .1,
@@ -168,7 +182,7 @@ def gello_station(session, *, wrapped=False, daemon=False):
         config["daemon"] = {"bind": "127.0.0.1:50051"}
         document = {"robot": config}
     elif wrapped:
-        document = {"robots": {"left": config, "right": {"type": "franka", "name": "right",
+        document = {"robots": {"left": config, "right": {"limits": station_limits(), "type": "franka", "name": "right",
                                                              "teleop": {"backend": "spacemouse"}}}}
     else:
         document = config
@@ -204,7 +218,8 @@ def test_gello_resolved_config_and_provenance(session, tmp_path, capsys, wrapped
     assert options_path.parent == stub_path.parent == report
     assert set(options) == {"robot_yaml"}
     stub = yaml.safe_load(stub_path.read_bytes())
-    assert stub == {"type": "franka", "name": "gello-leader", "arm_backend": "fake",
+    from real_world_rl.devices.robots.franka import DATASHEET_JOINT_LIMITS
+    assert stub == {"limits": {"joints": [list(row) for row in DATASHEET_JOINT_LIMITS["panda"]]}, "type": "franka", "name": "gello-leader", "arm_backend": "fake",
                     "gripper": None, "cameras": [], "teleop": teleop}
     assert 'backend: "gello"  # leader only' in stub_path.read_text()
     assert session.path.read_bytes() == original

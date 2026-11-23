@@ -50,20 +50,18 @@ _JSON_FLOAT_SENTINELS = {"Infinity": float("inf"), "-Infinity": float("-inf"), "
 DEVICE_ERROR_EXIT_CODE = DEVICE_EXIT_CODE
 _LOGGER = logging.getLogger(__name__)
 # Fields that define what the policy's actions and observations mean: the training run decides.
-# Everything else on RealRobotEnvConfig (robot, remote, token, home_joints, cameras, safety_box,
+# Everything else on RealRobotEnvConfig (robot, remote, token, home_joints, cameras,
 # reset_settle_s) describes this deployment's connection and stays under CLI control.
-# In SERL semantics, safety_box also belongs to the compared pose limits.
 _CONTRACT_FIELDS = (
     "task",
     "task_frame",
-    "workspace",
     "control",
     "preprocess",
     "depth_cameras",
     "action_mode",
     "gripper_in_action",
     "num_joints",
-    "joint_limits",
+    "limits",
     "xyz_scale_m",
     "rot_scale_rad",
     "joint_scale_rad",
@@ -298,8 +296,23 @@ def _restore_real_world_fields(training_args: Any, saved: Mapping[str, Any]) -> 
 
 
 def _real_robot_config_from_saved(saved_robot: Mapping[str, Any]) -> RealRobotEnvConfig:
+    saved_robot = dict(saved_robot)
+    resolved = None
+    station = saved_robot.get("robot")
+    legacy = dict(station) if isinstance(station, Mapping) else {}
+    legacy.update({key: value for key, value in saved_robot.items() if value is not None})
+    if any(key in legacy for key in ("safety_box", "joint_limits", "workspace")):
+        from real_world_rl.contracts.limits import checkpoint_limits
+        resolved = checkpoint_limits(legacy)
+        overrides = {}
+        if resolved["joints"] is not None:
+            overrides["joints"] = resolved["joints"]
+        # Absolute legacy geometry is compared through saved experiment metadata.
+        saved_robot["limits"] = overrides or None
     names = {f.name for f in fields(RealRobotEnvConfig)}
-    return RealRobotEnvConfig(**{k: v for k, v in saved_robot.items() if k in names})
+    result = RealRobotEnvConfig(**{k: v for k, v in saved_robot.items() if k in names})
+    result._checkpoint_limits = resolved
+    return result
 
 
 def _bimanual_config_from_saved(saved_bimanual: Mapping[str, Any]) -> BimanualRealRobotEnvConfig:
@@ -325,7 +338,7 @@ def _contract_conflicts(cli: Any, trained: Any, defaults: Any, names: tuple[str,
 def _training_geometry(config):
     station = config.robot or {}
     return {name: getattr(config, name) if getattr(config, name) is not None else station.get(name)
-            for name in ("task_frame", "workspace")}
+            for name in ("task_frame",)}
 
 
 def resolve_deploy_robot_config(args: DeployArgs, training_args: Any) -> RealRobotEnvConfig:
@@ -334,8 +347,7 @@ def resolve_deploy_robot_config(args: DeployArgs, training_args: Any) -> RealRob
     A contract field counts as given on the CLI when it differs from the dataclass default; a
     given value that also differs from the training run's is a ``ValueError``. Runs without a
     ``real_robot`` config fall back to the CLI config entirely (with a warning).
-    SERL restores all three safety boxes from training, rejecting different CLI limits;
-    current semantics keep the existing CLI-controlled xyz safety box.
+    Limits overrides and SERL orientation semantics are restored from training.
     """
     cli = args.real_robot
     trained = getattr(training_args, "real_robot", None)
@@ -348,8 +360,6 @@ def resolve_deploy_robot_config(args: DeployArgs, training_args: Any) -> RealRob
     # Local training configs may carry station geometry inside robot instead.
     trained = replace(trained, **_training_geometry(trained))
     contract_fields = _CONTRACT_FIELDS
-    if trained.cartesian_semantics == "serl":
-        contract_fields += ("safety_box",)
     conflicts = _contract_conflicts(cli, trained, RealRobotEnvConfig(), contract_fields)
     if conflicts:
         raise ValueError(
@@ -474,6 +484,18 @@ def build_deploy_env(args: DeployArgs, training_args: Any):
     env = compose_hil_wrappers(wrapper_args, env, robot_config,
                               enable_teleop=args.enable_teleop and (task_active or args.teleop_device is not None),
                               source_config={} if saved_spec.get("sources") == {} else None)
+    # Legacy absolute boxes cannot become relative overrides until the device frame resolves.
+    backend = env
+    while getattr(backend, "env", None) is not None:
+        backend = backend.env
+    trained_config = getattr(training_args, "real_robot_bimanual" if args.env_backend == _BIMANUAL_BACKEND else "real_robot", None)
+    arms = backend.arms if hasattr(backend, "arms") else {"arm": backend}
+    for name, arm in arms.items():
+        trained_arm = trained_config.arm_configs[name] if hasattr(trained_config, "arm_configs") else trained_config
+        expected_limits = getattr(trained_arm, "_checkpoint_limits", None)
+        if expected_limits is not None:
+            arm._expected_checkpoint_limits = expected_limits
+            arm._validated = False
     from real_world_rl.contracts.action import validate_experiment
     try:
         validate_experiment(env, saved_experiment)

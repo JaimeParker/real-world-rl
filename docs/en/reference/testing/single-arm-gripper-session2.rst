@@ -10,10 +10,10 @@ Second single-arm and gripper hardware session: GELLO / SpaceMouse
 Scope: one NUC, one arm and a physical Franka Hand, connected directly by a single recorder child; no training. This page does not claim hardware acceptance.
 Run every command on the **NUC, repository root, in Bash**. S01 needs no environment active; after it succeeds, activate the environment the installer created (``.venv`` by default), for example ``source .venv/bin/activate``; all later commands use the project environment.
 First follow :doc:`tutorial 02, Before you start <../../tutorials/station>`\ : power on, unlock, power the End Effector, and check the Control cable and Desk. Verify robot identity and the physical Hand; do not infer them from a default IP.
-Follow :doc:`tutorial 08 <../../tutorials/record>` to commission the actual IP, home, limits, workspace and GELLO calibration. ``gello_leader.yaml`` must point to a separate fake-arm leader YAML, never a second connection to the physical arm.
+Follow :doc:`tutorial 08 <../../tutorials/record>` to commission the actual IP, home, ``limits`` and GELLO calibration. ``gello_leader.yaml`` must point to a separate fake-arm leader YAML, never a second connection to the physical arm.
 The preset is state-only, 50 Hz, cartesian_delta, with scales 0.05 m / 0.3 rad, lead caps 0.05 m / 0.3 rad, and target speeds 0.05 m/s / 0.3 rad/s. Confirm the physical stop works first.
 After each item, fill the run directory's :download:`record CSV <single-arm-gripper-session2-record.csv>`\ : enter planned date, actual start time and observations on site. Initial status is NOT_RUN; missing evidence is BLOCKED; a measured limit violation is FAIL.
-During measurements, video both the arm and a timestamped terminal; store the video in the item's directory. Do not relax thresholds or workspace bounds for the test.
+During measurements, video both the arm and a timestamped terminal; store the video in the item's directory. Do not relax thresholds or the ``limits`` box for the test.
 
 Prepare on the NUC, repository root (no venv required). Create a fresh RUN each time; never reuse an existing item directory:
 

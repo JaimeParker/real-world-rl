@@ -1,6 +1,8 @@
 """Tests for the real_robot env backend: config resolution, flattening, registration."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import importlib
 from pathlib import Path
 
@@ -16,7 +18,7 @@ from rl_garden.observations.schema import ObservationContractError
 from real_world_rl.envs.backends.real_robot import RealRobotBackend
 from real_world_rl.envs.real_robot import RealRobotEnvConfig
 
-FAKE_FRANKA = {
+FAKE_FRANKA = {"limits": station_limits(),
     "type": "franka",
     "arm_backend": "fake",
     "gripper": {"backend": "fake"},

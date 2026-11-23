@@ -121,7 +121,7 @@ Profiles
 -  \ ``rlinf_franka`` actions\  contain seven normalized values. The env maps the six arm
    values through RLinf's current-pose adjoint, applies ``xyz_scale_m`` and ``rot_scale_rad``,
    and left-multiplies the measured orientation by the Euler increment. The daemon still
-   enforces the station's workspace and per-step limits. The Franka Hand uses binary mode.
+   enforces the station's ``limits`` (TCP box, joint ranges) and per-step caps. The Franka Hand uses binary mode.
    After scaling by ``gripper_action_scale``, values at or above +0.5 open it and values at or
    below −0.5 close it when its measured state calls for a change. The threshold is adjustable
    with ``--real-robot.rlinf-gripper-threshold``. This path uses the daemon's blocking Hand

@@ -24,7 +24,7 @@
      - 怎么得到这个值
    * - ``env_backend``、``env_id``、``obs``、``real_robot``
      - 用上一章找到的 session resolved-config 整块复制，下面的准备脚本代做。
-       特别保留 robot／remote、task_frame、workspace、control、preprocess 和动作语义。
+       特别保留 robot／remote、task_frame、limits、control、preprocess 和动作语义。
        模板 remote 只是离线构造空间所需的地址，不要求那里运行服务。
    * - ``obs.rgb``、``obs.image_size``、``real_robot.state_fields``
      - 对照上一章检查输出和 contract。例中 rgb_wrist 的形状是 [1,224,224,3]，

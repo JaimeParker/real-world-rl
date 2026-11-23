@@ -58,9 +58,9 @@ SpaceMouse 怎样带动 Franka，取决于两个互不相关的设置：
    serl: null                         # SERL compliance parameters; null = the .cfg defaults (table below)
    serl_auto_recover: null            # null = {enabled: true, max_per_episode: 5}; see Auto-recovery
    load: null                         # optional payload, every mode (see devices.md)
-   joint_limits: [...]                # still refuse move_to_joints targets outside them
+   limits: {joints: [...]}            # still refuse move_to_joints targets outside them
 
--  ``robot_model``\ （\ ``panda`` \| ``fr3``\ ，默认 ``panda``\ ）决定 SERL 关节复位软限位阶段使用 franka_description 中哪个型号的关节限位。setup 向导也会把该型号数据表上的 ``joint_limits`` 作为默认值：Panda 为 ``[[-2.8973, 2.8973], [-1.7628, 1.7628], [-2.8973, 2.8973], [-3.0718, -0.0698], [-2.8973, 2.8973], [-0.0175, 3.7525], [-2.8973, 2.8973]]``\ ，FR3 为 ``[[-2.9007, 2.9007], [-1.8361, 1.8361], [-2.9007, 2.9007], [-3.0770, -0.1169], [-2.8763, 2.8763], [0.4398, 4.6216], [-3.0508, 3.0508]]``\ 。已有的工作站保留自己的 ``joint_limits``\ 。
+-  ``robot_model``\ （\ ``panda`` \| ``fr3``\ ，默认 ``panda``\ ）决定 SERL 关节复位软限位阶段使用 franka_description 中哪个型号的关节限位。setup 向导也会把该型号数据表上的关节范围（写入 ``limits.joints``\ ）作为默认值：Panda 为 ``[[-2.8973, 2.8973], [-1.7628, 1.7628], [-2.8973, 2.8973], [-3.0718, -0.0698], [-2.8973, 2.8973], [-0.0175, 3.7525], [-2.8973, 2.8973]]``\ ，FR3 为 ``[[-2.9007, 2.9007], [-1.8361, 1.8361], [-2.9007, 2.9007], [-3.0770, -0.1169], [-2.8763, 2.8763], [0.4398, 4.6216], [-3.0508, 3.0508]]``\ 。已有的工作站保留自己的 ``limits.joints``\ 。
 -  ``serl`` 保存 SERL 的参数（见下面的\ :ref:`参数 <serl-controller-parameters>`\ ）。这个模式下 ``control:`` 里 Cartesian tracker 的键不起作用；关节相关键、\ ``max_delta_tau`` 和 ``gains_time_constant`` 仍用于关节伺服 tracker。
 -  ``serl_auto_recover: {enabled, max_per_episode}``\ ：分别是布尔值和 ≥ 0 的整数，未知键会报错。
 

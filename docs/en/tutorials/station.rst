@@ -25,7 +25,7 @@ The templates come from the repository's ``robot.franka.example.yaml``, ``gello_
 Edit ``local/station.yaml`` first. Leave ``local/task.yaml`` until after the device checks.
 
 **What you should see**: ``station.yaml`` and ``task.yaml`` under ``local/``.
-Replace ``REPLACE_WITH_...`` in the former with values from your site. You will read and fill in home and boundary values later.
+Replace ``REPLACE_WITH_...`` in the former with values from your site. You will read and fill in home and limit values later.
 
 **If it doesn't**:
 
@@ -64,8 +64,8 @@ For addresses, cameras and GELLO serial ports, enter either the index listed by 
      - ``panda`` or ``fr3``, which determines default joint limits. Required when creating a new arm non-interactively.
    * - ``--cartesian-controller``, ``--joint-controller``, ``--realtime``
      - The controller defaults to ``impedance``; ``internal`` / ``serl`` are also available. Realtime is ``ignore`` / ``enforce``. internal, serl or a PREEMPT_RT kernel default to enforce; otherwise ignore. ``--joint-controller`` defaults to ``impedance``; ``trajectory_impedance`` is available for GELLO joint teleoperation (enforce is also suggested). See :doc:`controller` for SERL and joint controller installation.
-   * - ``--home-joints``, ``--joint-limits``, ``--safety-box``
-     - Comma-separated joint angles, lo/hi pairs for each joint and a base-frame position box. Set home to ``none`` to measure it in step 4. Do not treat wizard suggestions as station acceptance results.
+   * - ``--home-joints``, ``--joint-limits``, ``--tcp-box-low``, ``--tcp-box-high``
+     - Comma-separated joint angles, lo/hi pairs for each joint, and the TCP box lower / upper offsets from home along the table axes (m, for example ``'[-0.2,-0.25,-0.15]'``). Set home to ``none`` to measure it in step 4. A robot without a kinematics model also needs ``--tcp-origin``. Do not treat wizard suggestions as station acceptance results.
    * - ``--max-delta-xyz-m``, ``--max-delta-joint-rad``, ``--control``
      - Per-step position / joint caps and an impedance-parameter mapping. See ``setup --help`` in this step for the full format.
    * - ``--cameras``
@@ -212,7 +212,7 @@ Keep the other fields at their defaults: ``type``, ``name``, ``arm_backend``, ``
 ``cartesian_controller: impedance`` means franky's impedance tracker executes end-effector targets. It also works on a regular kernel.
 Keep it for now. After step 3, :doc:`controller` will help you choose ``impedance``, ``internal`` or ``serl``,
 install its software and set ``realtime``.
-``robot_model`` selects the joint-limit table for SERL's joint reset and supplies the default ``joint_limits`` in ``rwrl setup``.
+``robot_model`` selects the joint-limit table for SERL's joint reset and supplies the default ``limits.joints`` in ``rwrl setup``.
 Review ``relative_dynamics_factor`` when you need to adjust homing speed. It scales velocity, acceleration and jerk for ``move_to_*``.
 ``claim: true`` keeps the host's exclusive device lock.
 
@@ -399,6 +399,10 @@ Copy the seven numbers after ``q (rad):`` unchanged into ``home_joints``. For th
 Keep the other fields at their defaults. When changing the starting pose, read it again and update this line.
 After saving, this line should match your own ``q`` output.
 
+The ``limits.tcp`` box is centred on home and freezes the home position. After changing ``home_joints``, loading the station fails with
+``home_joints changed since limits were frozen`` and asks you to run ``rwrl limits rebase``; run
+``rwrl limits rebase local/station.yaml --write`` (explained in step 5) and the box re-centres on the new home.
+
 **If it doesn't**:
 
 * The read command cannot connect: confirm that manual guiding has ended, then recheck Desk control ownership and FCI.
@@ -421,32 +425,21 @@ The old file remains in the same directory as ``task.yaml.<id>.bak``.
 This value takes precedence over station home. “Use the station value” in step 9 applies only to tasks without this override.
 **If it doesn't**: pass an explicit path if the preset is missing. For a limit violation, check the measured pose and limits first; do not relax limits just to write the value.
 
-5. Measure the workspace and check the saved result
+5. Set the limits and check the saved result
 --------------------------------------------------------------------------------
 
-Read the TCP at the corners of the allowed region to obtain the boundaries this repository uses to limit end-effector targets.
+Give the arm two kinds of limits: the range of every joint and an active box for the end-effector TCP. Both live in one
+``limits:`` block of ``local/station.yaml``. The template already carries the Panda datasheet joint ranges and a box
+centred on home; this step reviews them, tightens them for your site and checks the saved result.
 
-Follow the manual-guiding procedure from the previous step. First choose a region with clearance for tools and obstacles,
-then guide to each of its eight corners. At each point, exit guiding and run:
+How the box works: it is **centred on home**, with one offset per direction relative to home (``low`` entries are all negative,
+``high`` entries all positive, in m), so home is always inside; it follows the **table axes**: the axes come from ``task_frame``
+(the table frame you calibrate in step 11 from three points on the table) and are the base axes until you calibrate it.
+When the arm is mounted on its side or tilted, the box faces still line up with the table. The box **does not limit orientation**.
+Fields and breach behaviour are in :ref:`Limits <en-devices-limits>`.
 
-.. literalinclude:: ../../examples/station.sh
-   :language: bash
-   :start-after: # start corner
-   :end-before: # end corner
-
-**What you should see**: one TCP reading each time. The following illustrates eight corners of a base-frame position box.
-
-.. literalinclude:: ../../examples/en/station-output.txt
-   :language: text
-   :start-after: # start corners
-   :end-before: # end corners
-
-Take the minimum and maximum x, y and z values from these readings separately.
-The example gives ``low = [0.3, -0.3, 0.05]`` and ``high = [0.7, 0.3, 0.6]``.
-Tighten the bounds inward to account for measurement error on site, then recheck the tool, arm and paths within the region.
-Reachable corners do not guarantee that the entire box is collision-free.
-
-Write the result to ``local/station.yaml``:
+First pick a region with clearance for tools and obstacles: how many metres to leave in front/behind, left/right and
+above/below home. The template defaults are x ±0.20, y ±0.25 and z from -0.15 to +0.30. Write the result to ``local/station.yaml``:
 
 .. literalinclude:: ../../examples/en/station.yaml
    :language: yaml
@@ -456,16 +449,27 @@ Write the result to ``local/station.yaml``:
 .. list-table::
    :header-rows: 1
 
-   * - Field to change
+   * - Field to review
      - How to obtain the value
-   * - ``workspace.low`` / ``workspace.high``
-     - Take lower / upper XYZ bounds from every ``rwrl --station local/station.yaml tcp`` reading in this step, in m.
-   * - ``safety_box``
-     - Concatenate the reviewed low and high values in the order xmin, ymin, zmin, xmax, ymax, zmax.
+   * - ``limits.joints``
+     - Keep the datasheet values ``rwrl setup`` wrote for your ``robot_model`` unless the site needs narrower ranges; ``home_joints`` must lie inside.
+   * - ``limits.tcp.low`` / ``limits.tcp.high``
+     - Offsets from home along the table axes, in m. Tighten them where there are obstacles. Every ``low`` entry must be negative and every ``high`` entry positive.
+   * - ``limits.tcp.origin_xyz`` / ``axes_R``
+     - Not filled in by hand: ``rwrl setup`` writes them, or run ``rwrl limits rebase`` (below). They freeze the home position and the ``task_frame``
+       rotation; if you later change home or ``task_frame``, loading asks you to run ``rebase`` instead of moving the box silently.
 
-Keep the other fields at their defaults: ``workspace.frame: base`` and ``max_delta_per_step``.
-The latter limits each step from the measured state to the servo target to the example's 0.05 m / 0.1 rad.
-Adjust it only after checking the control period and motion on site. Both position ranges apply; their intersection is used.
+Keep the other fields at their defaults: ``measured_margin_m: 0.003`` is how many metres the measured TCP may be outside the box before it counts as a breach.
+``max_delta_per_step`` limits each step from the measured state to the servo target to the example's 0.05 m / 0.1 rad.
+Adjust it only after checking the control period and motion on site.
+
+If you write (or edit) the ``tcp`` block yourself you may give only ``origin: home``, ``low`` and ``high`` and let ``rebase`` add the two frozen values.
+Run it without ``--write`` first to see what would change, then with ``--write``:
+
+.. literalinclude:: ../../examples/station.sh
+   :language: bash
+   :start-after: # start rebase
+   :end-before: # end rebase
 
 After saving, check the values in the file:
 
@@ -474,7 +478,7 @@ After saving, check the values in the file:
    :start-after: # start workspace
    :end-before: # end workspace
 
-**What you should see**: ``workspace``, ``base_safety_box`` and ``home_joints`` match what you just entered.
+**What you should see**: ``low`` / ``high`` of ``limits.tcp`` match what you just entered and ``home_joints`` matches step 4.
 ``home_within_limits`` being true means station home is within the configured joint limits. False means a violation;
 check ``home_violations``. Null means home or joint limits are missing and must not be treated as a pass.
 Below is an excerpt showing the output fields. The output also labels units as m, rad and xyzw.
@@ -484,11 +488,36 @@ Below is an excerpt showing the output fields. The output also labels units as m
    :start-after: # start workspace
    :end-before: # end workspace
 
+Then look at the eight corners in base-frame coordinates to confirm the box sits where you want it:
+
+.. literalinclude:: ../../examples/station.sh
+   :language: bash
+   :start-after: # start limits
+   :end-before: # end limits
+
+.. literalinclude:: ../../examples/en/station-output.txt
+   :language: text
+   :start-after: # start corners
+   :end-before: # end corners
+
+Optional on-site check: follow the manual-guiding procedure from the previous step, guide the TCP near a few corners (start with the one closest
+to an obstacle), exit guiding and run ``rwrl tcp`` once; the reading should lie inside the box next to that corner:
+
+.. literalinclude:: ../../examples/station.sh
+   :language: bash
+   :start-after: # start corner
+   :end-before: # end corner
+
+Corners inside the box do not mean the whole box is collision-free, nor that the arm body clears the obstacles.
+
 **If it doesn't**:
 
-* low is greater than or equal to high: reorganize lower and upper bounds separately for x, y and z.
+* ``tcp bounds require low < 0 < high on every axis``: every ``low`` entry must be negative and every ``high`` entry positive, so home is inside the box.
+* ``home_joints changed since limits were frozen``: home was edited; run ``rwrl limits rebase local/station.yaml --write``.
+* ``task_frame changed since limits were frozen``: the table frame was edited; run ``rebase`` the same way.
+* An error says ``safety_box`` / ``workspace`` / ``joint_limits`` were removed: this is an old station file; run ``rwrl limits migrate local/station.yaml``, review it, then add ``--write``.
 * Output still shows old values: save the file and confirm that the command uses ``local/station.yaml``.
-* A corner or path is unsafe: shrink or reselect the region. Do not force the arm to reach a point just to complete the box.
+* A corner or path is unsafe: shrink the box. Do not force the arm to reach a point just to fill the box.
 
 6. Read the gripper opening
 --------------------------------------------------------------------------------
@@ -867,12 +896,13 @@ With ``--save``, changes are shown first and written only after confirmation. ``
 **11.3 Frame first, profile second.** Once the frame is established, go to :doc:`spacemouse` to calibrate the orientation profile (``--frame table``):
 the profile yaw then describes only how the SpaceMouse sits on the table, without mixing in the arm's mounting angle.
 After changing ``task_frame``, redo profiles calibrated and points captured in the old frame.
-If ``workspace.frame`` names this task frame (for example ``table``), the existing low / high bounds change
-position and orientation in the base frame with the new frame. After saving, run ``rwrl workspace show`` and use
+The rotation of ``task_frame`` also sets the axes of the step 5 TCP box: after saving a new ``task_frame``, loading the station fails with
+``task_frame changed since limits were frozen`` and asks you to run ``rwrl limits rebase``. Run
+``rwrl limits rebase local/station.yaml`` first (without ``--write`` it only shows the change), then add ``--write``:
+``low`` / ``high`` stay, ``axes_R`` becomes the new table frame rotation and ``origin_xyz`` is re-taken from home.
+Then run ``rwrl workspace show`` and ``rwrl limits show`` to check the corners in the base frame, and use
 ``rwrl workspace validate --pose X Y Z QX QY QZ QW`` to check the base-frame poses you intend to use
-(position in m, quaternion xyzw; replace placeholders with actual readings). Recheck boundaries and the on-site motion range. ``workspace frame set`` reminds you through ``workspace_frame_rebased`` and
-``workspace_note``. This chapter's ``workspace.frame: base`` and ``safety_box`` remain defined in the base frame;
-they do not move with ``task_frame``, but you must still check the available range under the new teleop directions.
+(position in m, quaternion xyzw; replace placeholders with actual readings; only the position is checked against the box). The output of ``workspace frame set`` reminds you as well.
 Finally, verify with single-axis pushes in step 4 of :doc:`spacemouse`: lifting the puck should move the TCP vertically upward; pushing forward should move it forward along the table.
 
 **If it doesn't**:
@@ -880,7 +910,7 @@ Finally, verify with single-axis pushes in step 4 of :doc:`spacemouse`: lifting 
 * ``origin, x-axis and y-axis points are collinear``: move the y point off the line along x.
 * ``x-axis point is ... mm from the origin``: the x point is too close to the origin. Separate them by more than 20 cm.
 * ``rpy_deg`` differs greatly from the nominal value: check whether x and y points were reversed (forward / left), and whether all three points have the same height.
-* ``the station workspace is defined in frame ...``: the workspace uses a different frame. This chapter's workspace is ``base`` and is unaffected.
+* ``rwrl`` fails with ``task_frame changed since limits were frozen`` after saving ``task_frame``: run ``rwrl limits rebase`` as described above.
 * An upright robot measures only a fraction of a degree of roll / pitch: still check yaw. Omit ``task_frame`` only when all input and base axes align.
 
 The two configurations and table frame are now ready. In the next chapter, :doc:`controller`, choose and install the Franka controller;
@@ -891,7 +921,7 @@ then :doc:`spacemouse` uses ``teleop run`` to combine station and preset into a 
    **What needs confirmation on hardware in this chapter**
 
    Hardware output in this chapter is illustrative and follows the CLI format. FCI and SDK handshakes, real device feedback,
-   gripper travel and opening/closing, camera modes and images, home and homing paths, workspace and per-step caps,
+   gripper travel and opening/closing, camera modes and images, home and homing paths, the TCP box and per-step caps,
    action directions and magnitudes, 10 Hz control timing and 0.5 s settling time all need on-site confirmation.
-   ``workspace show`` only displays configuration. It does not validate site geometry, collisions or a live daemon.
+   ``workspace show`` and ``limits show`` only display configuration. It does not validate site geometry, collisions or a live daemon.
    Nominal and measured table-frame angles and single-axis directions also need on-site confirmation.

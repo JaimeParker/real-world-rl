@@ -1,4 +1,6 @@
 """Production env composition, semantic provenance, HTTP and bundle integration."""
+
+from _station_limits import station_limits, env_limits, tcp_box
 import copy
 import threading
 import urllib.error
@@ -54,7 +56,7 @@ class SpaceAgent:
 def args_for(model_path):
     return HilSerlArgs(env_backend="real_robot", classifier_checkpoint=str(model_path),
         classifier_image_keys=(), obs=ObservationConfig(state=True, rgb=()),
-        real_robot=RealRobotEnvConfig(robot={"type": "franka", "arm_backend": "fake",
+        real_robot=RealRobotEnvConfig(robot={"limits": station_limits(), "type": "franka", "arm_backend": "fake",
             "gripper": {"backend": "fake"}, "claim": False}, cameras=[], gripper_in_action=False,
             home_joints=[0.] * 7, reset_settle_s=0, max_episode_steps=2, control_hz=1000,
             control={"max_delta_tau": .5}))

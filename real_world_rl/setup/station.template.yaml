@@ -22,22 +22,21 @@ joint_controller: {{joint_controller}}
 joint_trajectory: {{joint_trajectory}}  # optional overrides; empty = joint_controller.default_params(robot_model)
 # joint_trajectory defaults: stiffness/damping/velocity_filter_alpha = upstream GELLO defaults;
 # max_velocity = [0.6, 0.6, 0.6, 0.6, 0.75, 0.75, 0.75], max_acceleration = [4, 4, 4, 4, 4, 4, 4],
-# min_segment_duration_s = 0.1, lower_limit/upper_limit = robot_model joint limits, limit_margin = 0.05,
+# min_segment_duration_s = 0.1, lower_limit/upper_limit = limits.joints, limit_margin = 0.05,
 # command_timeout_s = 0.5, max_delta_tau = 1.0, compensate_coriolis = true.
 serl: {{serl}}                # cartesian_controller: serl: SERL compliance parameters (compliance_param.cfg names); null or omitted keys = the .cfg defaults (K 2000/150, D 89/7, clips 0.01/0.05)
-robot_model: {{robot_model}}  # panda (Franka Emika Robot / FER, Desk system 4.x) | fr3 (Franka Research 3, Desk system 5.x). Picks the wizard's joint_limits default and SERL's joint reset limits
+robot_model: {{robot_model}}  # panda (Franka Emika Robot / FER, Desk system 4.x) | fr3 (Franka Research 3, Desk system 5.x). Picks the wizard's limits.joints default and SERL's joint reset limits
 serl_auto_recover: {{serl_auto_recover}}  # native torque controllers (cartesian_controller: serl and joint_controller: trajectory_impedance): {enabled, max_per_episode}; a reflex is cleared on the next servo target and the controller restarted (HIL-SERL's /clearerr), at most max_per_episode times per episode; null = {enabled: true, max_per_episode: 5}
 load: {{load}}                # optional payload {mass_kg, center_of_mass_m: [x, y, z], inertia: 3x3}, set after every connect; null leaves the robot's
 home_joints: {{home_joints}}  # 7 values, rad
 # Safety limits, enforced by the arm (and so by the daemon): servo targets are clipped,
-# move_to_* targets outside them are refused. null = no limit (not recommended).
-safety_box: {{safety_box}}  # [xmin, ymin, zmin, xmax, ymax, zmax] m, base frame (tcp_pose = O_T_EE); must contain the home pose; suggested [0.3, -0.3, 0.05, 0.7, 0.3, 0.6]
-task_frame: {{task_frame}}  # optional named rigid transform base_T_frame
-workspace: {{workspace}}    # optional task-frame bounds; targets outside are rejected
-# workspace measured_margin_m defaults to 0.003 m; measured_margin_rad to 0.03 rad.
-# Both are nonnegative feedback-only margins; target checks keep 1e-9 tolerance.
-joint_limits: {{joint_limits}}  # 7 [lo, hi] pairs, rad (wizard default: the robot_model datasheet, Panda or FR3); home_joints must lie inside
-max_delta_per_step: {{max_delta_per_step}}  # servo step cap from the measured state; default {xyz_m: 0.05, joint_rad: 0.04}
+# move_to_* targets outside them are refused. A Franka without limits.joints uses its robot_model datasheet limits.
+# TCP bounds are relative to home, along table axes; origin and axes are frozen.
+# limits.joints: radians; limits.tcp.low < 0 < high; measured_margin_m defaults to 0.003.
+# limits.max_delta_per_step caps servo steps from measured state.
+{{limits_block}}
+task_frame: {{task_frame}}  # optional calibrated table frame
+flange_T_ee: {{flange_T_ee}}  # null uses the Franka Hand transform
 control: {{control}}          # optional franky impedance settings (cartesian_controller: impedance; joint_controller: impedance), applied while IDLE; null keeps SDK defaults
 claim: {{claim}}              # default true: daemon robot claim and SpaceMouse HID endpoint claim
 {{gripper}}

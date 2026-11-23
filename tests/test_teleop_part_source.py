@@ -2,6 +2,8 @@
 a fake franka with a scripted fake teleop part, both local and through RemoteRobot + LocalClient."""
 from __future__ import annotations
 
+from _station_limits import station_limits, env_limits, tcp_box
+
 import numpy as np
 import pytest
 import torch
@@ -43,7 +45,7 @@ def _fake_franka(teleop: TeleopConfig, gripper_mode: str = "binary") -> FrankaRo
             cameras=[CameraConfig(name="wrist", backend="fake", width=32, height=24, fps=60)],
             teleop=teleop,
             # joint_abs requires it; loose enough never to move a target in these tests.
-            max_delta_per_step={"joint_rad": 10.0},
+            limits=station_limits(steps={"joint_rad": 10.0}),
         )
     )
 
@@ -71,7 +73,7 @@ class _Rig:
     def env(self, **overrides) -> RealRobotEnv:
         values = dict(cameras=[], home_joints=ZERO_HOME, reset_settle_s=0.0, **FAST)
         if self.mode == "local":
-            values["robot"] = {"type": "franka", "arm_backend": "fake"}
+            values["robot"] = {"limits": station_limits(), "type": "franka", "arm_backend": "fake"}
         else:
             values["remote"] = "local"
         values.update(overrides)
@@ -83,7 +85,7 @@ class _Rig:
         real_env = self.env(**overrides)
         if teleop_contract is None and self.mode == "remote":
             teleop_contract = self.teleop_contract
-        kwargs = {"joint_limits": real_env.config.joint_limits, "joint_scale_rad": real_env.config.joint_scale_rad}
+        kwargs = {"joint_limits": (real_env.config.limits or {}).get("joints"), "joint_scale_rad": real_env.config.joint_scale_rad}
         if teleop_contract is not None:
             kwargs["teleop_contract"] = teleop_contract
         wrapper = TeleopInterventionWrapper(RealRobotVectorEnv(real_env), device="robot", **kwargs)
@@ -231,7 +233,7 @@ def test_joint_abs_intervention_is_leader_normalized_onto_limits(make_rig):
         num_joints=7,
         script=[{"action": LEADER_Q, "gripper": 1.0, "active": True}],
     )
-    env, _ = rig.wrapped(action_mode="joint_abs", joint_limits=JOINT_LIMITS)
+    env, _ = rig.wrapped(action_mode="joint_abs", limits=env_limits(joints=JOINT_LIMITS))
     env.reset()
     _, _, _, _, info = env.step(_zeros(env))
     low, high = np.array(JOINT_LIMITS).T
@@ -278,7 +280,7 @@ def test_joint_abs_leader_joints_reach_the_follower_arm_as_servo_targets(make_ri
             {"action": leader_2, "active": True},
         ],
     )
-    env, _ = rig.wrapped(action_mode="joint_abs", joint_limits=JOINT_LIMITS)
+    env, _ = rig.wrapped(action_mode="joint_abs", limits=env_limits(joints=JOINT_LIMITS))
     env.reset()
     for leader in (LEADER_Q, leader_2):
         env.step(_zeros(env))
@@ -477,7 +479,7 @@ def test_remote_actor_loop_pushes_scripted_interventions_and_learner_routes_them
     rig = _Rig("remote", _teleop_config(action_space="joint_abs", num_joints=7, script=script, on_end="idle"))
     try:
         env, _ = rig.wrapped(
-            action_mode="joint_abs", joint_limits=JOINT_LIMITS, state_fields=("joint_pos", "gripper_pos")
+            action_mode="joint_abs", limits=env_limits(joints=JOINT_LIMITS), state_fields=("joint_pos", "gripper_pos")
         )
         sync_client = _RecordingSyncClient()
         HilSerlActorLoop(env, _ZeroPolicy(), sync_client, control_hz=1_000_000.0).run(

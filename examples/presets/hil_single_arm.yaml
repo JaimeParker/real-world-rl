@@ -21,5 +21,6 @@ real_robot:
   state_fields: [joint_pos, gripper_pos]
   control_hz: 10
   max_episode_steps: 200
-  # joint_abs instead of joint_delta also needs the limits (the command line cannot express them):
-  # joint_limits: [[-2.8, 2.8], [-1.7, 1.7], [-2.8, 2.8], [-3.0, -0.1], [-2.8, 2.8], [0.0, 3.7], [-2.8, 2.8]]
+  # joint_abs instead of joint_delta also needs the joint limits (the command line cannot express them):
+  # limits:
+  #   joints: [[-2.8, 2.8], [-1.7, 1.7], [-2.8, 2.8], [-3.0, -0.1], [-2.8, 2.8], [0.0, 3.7], [-2.8, 2.8]]

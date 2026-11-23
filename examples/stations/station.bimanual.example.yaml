@@ -22,10 +22,17 @@ robots:
     relative_dynamics_factor: 0.2  # franky velocity/acc/jerk scale for move_to_*
     home_joints: [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]  # 7 values, rad
     # Safety limits, enforced by the arm (and so by the daemon): servo targets are clipped,
-    # move_to_* targets outside them are refused. null = no limit (not recommended).
-    safety_box: [0.3, -0.3, 0.05, 0.7, 0.3, 0.6]  # [xmin, ymin, zmin, xmax, ymax, zmax] m, base frame (tcp_pose = O_T_EE); must contain the home pose; suggested [0.3, -0.3, 0.05, 0.7, 0.3, 0.6]
-    joint_limits: [[-2.8973, 2.8973], [-1.7628, 1.7628], [-2.8973, 2.8973], [-3.0718, -0.0698], [-2.8973, 2.8973], [-0.0175, 3.7525], [-2.8973, 2.8973]]  # 7 [lo, hi] pairs, rad (default: Panda datasheet); home_joints must lie inside
-    max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}  # servo step cap from the measured state; default {xyz_m: 0.05, joint_rad: 0.04}
+    # move_to_* targets outside them are refused. Franka requires limits.joints.
+    limits:
+      joints: [[-2.8973, 2.8973], [-1.7628, 1.7628], [-2.8973, 2.8973], [-3.0718, -0.0698], [-2.8973, 2.8973], [-0.0175, 3.7525], [-2.8973, 2.8973]]
+      max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}
+      tcp:  # frozen home origin; offsets along table axes
+        origin: home
+        origin_xyz: [0.3070195700516105, -7.841394128006894e-17, 0.4868695582766445]
+        axes_R: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+        low: [-0.007019570051610524, -0.29999999999999993, -0.43686955827664453]
+        high: [0.39298042994838944, 0.30000000000000004, 0.11313044172335546]
+        measured_margin_m: 0.003
     claim: true              # the daemon takes an exclusive per-host lock on this robot
     gripper:
       backend: franky        # franky | serl_http | fake (match arm_backend)
@@ -73,10 +80,17 @@ robots:
     relative_dynamics_factor: 0.2  # franky velocity/acc/jerk scale for move_to_*
     home_joints: [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]  # 7 values, rad
     # Safety limits, enforced by the arm (and so by the daemon): servo targets are clipped,
-    # move_to_* targets outside them are refused. null = no limit (not recommended).
-    safety_box: [0.3, -0.3, 0.05, 0.7, 0.3, 0.6]  # [xmin, ymin, zmin, xmax, ymax, zmax] m, base frame (tcp_pose = O_T_EE); must contain the home pose; suggested [0.3, -0.3, 0.05, 0.7, 0.3, 0.6]
-    joint_limits: [[-2.8973, 2.8973], [-1.7628, 1.7628], [-2.8973, 2.8973], [-3.0718, -0.0698], [-2.8973, 2.8973], [-0.0175, 3.7525], [-2.8973, 2.8973]]  # 7 [lo, hi] pairs, rad (default: Panda datasheet); home_joints must lie inside
-    max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}  # servo step cap from the measured state; default {xyz_m: 0.05, joint_rad: 0.04}
+    # move_to_* targets outside them are refused. Franka requires limits.joints.
+    limits:
+      joints: [[-2.8973, 2.8973], [-1.7628, 1.7628], [-2.8973, 2.8973], [-3.0718, -0.0698], [-2.8973, 2.8973], [-0.0175, 3.7525], [-2.8973, 2.8973]]
+      max_delta_per_step: {xyz_m: 0.05, joint_rad: 0.04}
+      tcp:  # frozen home origin; offsets along table axes
+        origin: home
+        origin_xyz: [0.3070195700516105, -7.841394128006894e-17, 0.4868695582766445]
+        axes_R: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+        low: [-0.007019570051610524, -0.29999999999999993, -0.43686955827664453]
+        high: [0.39298042994838944, 0.30000000000000004, 0.11313044172335546]
+        measured_margin_m: 0.003
     claim: true              # the daemon takes an exclusive per-host lock on this robot
     gripper:
       backend: franky        # franky | serl_http | fake (match arm_backend)

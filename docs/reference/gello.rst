@@ -28,7 +28,7 @@ GELLO 是 Franka Panda 的被动式 3D 打印副本，关节采用 Dynamixel 舵
      - ``cartesian_delta``
      - ``--teleop-device leader_cartesian``，单独配置主臂选项映射
      - 本地机器人主机或 daemon 主机；见第 4 节
-   * - ``franka_real``\ （SERL HTTP 桥接，仅笛卡尔）
+   * - ``real_robot``\ （SERL HTTP 桥接，仅笛卡尔）
      - ``cartesian_delta``
      - ``--teleop-device leader_cartesian``\ （Panda 正向运动学）
      - 机器人主机，经由占位机器人 daemon
@@ -168,6 +168,15 @@ GELLO 是 Franka Panda 的被动式 3D 打印副本，关节采用 Dynamixel 舵
 -  ``max_delta_per_step.joint_rad`` 将每个伺服目标限制在距实测关节该距离内。保持为每步 0.03–0.05 rad（10 Hz 下为 0.3–0.5 rad/s）：它限制任何策略或人工动作每步能做的事。无此项时 ``joint_abs`` 拒绝运行。
 -  actor 侧使用 ``joint_scale_rad`` 0.05（\ ``real_robot`` 默认值）：\ ``joint_delta`` 的 ``+-1`` 表示每步请求 ``+-0.05`` rad，daemon 将超过 ``joint_rad`` 的部分裁剪。\ ``state_fields`` 必须包含 ``joint_pos``\ （主臂源要与之比较）。
 
+-  **关节控制器。** 默认的 ``joint_controller: impedance`` 在每个 ``control_hz`` 周期收到一个阶跃目标。GELLO 关节遥操作可以在机器人 YAML 里设 ``joint_controller: trajectory_impedance``\ ，让每个目标经五次多项式规划器变成连续的参考轨迹再跟踪，从臂更平滑；同时把 actor 预设的 ``real_robot.control_hz`` 提到 15–30 Hz（采集、训练、部署用同一个值）。主臂移动时从臂落后约一个刹车距离（默认约 0.06 rad，主臂 0.5 rad/s），用 ``joint_trajectory.max_acceleration`` 调整。选择、安装和参数见 :doc:`../tutorials/controller` 第 10 步和 :doc:`joint-controller`\ 。
+
+.. code-block:: yaml
+   :dedent: 0
+
+   joint_controller: trajectory_impedance   # default: impedance
+   realtime: enforce                        # PREEMPT_RT kernel recommended
+   joint_trajectory: {}                     # optional overrides, see joint-controller
+
 在机器人 PC 提供服务：
 
 .. code-block:: bash
@@ -198,12 +207,12 @@ actor 的预设（\ ``hil.yaml``\ ，通过 ``--config`` 传入；README 的“�
 
 若 GELLO 接在 actor 机器（\ ``--teleop-device gello``\ ），机器人 YAML 不配置 ``teleop:``\ ，将标定 ``options`` 作为平铺映射，经 ``--teleop-options-yaml gello.yaml`` 传入（\ :ref:`teleop.md <teleop-devices>`\ ）。
 
-.. _gello-4-franka_real-the-stub-robot-daemon:
+.. _gello-4-cartesian-the-stub-robot-daemon:
 
-4. ``franka_real``\ ：占位机器人 daemon
+4. ``real_robot``\ ：占位机器人 daemon
 --------------------------------------------------------------------------------
 
-``franka_real`` 使用仅接受笛卡尔目标的 SERL HTTP 桥接。GELLO 接在机器人主机，由占位机器人（\ ``type: franka``\ 、\ ``arm_backend: fake``\ 、无夹爪、无相机）提供服务，其唯一真实设备是 GELLO，配置见 ``examples/stations/robot.gello_station.example.yaml``\ ：
+使用 ``serl_http`` 臂的 ``real_robot`` 通过仅接受笛卡尔目标的 SERL HTTP 桥接控制。GELLO 接在机器人主机，由占位机器人（\ ``type: franka``\ 、\ ``arm_backend: fake``\ 、无夹爪、无相机）提供服务，其唯一真实设备是 GELLO，配置见 ``examples/stations/robot.gello_station.example.yaml``\ ：
 
 .. code-block:: bash
    :dedent: 0
@@ -211,14 +220,14 @@ actor 的预设（\ ``hil.yaml``\ ，通过 ``--config`` 传入；README 的“�
    # on the robot host, next to the SERL bridge
    rwrl daemon --station robot.gello_station.yaml --bind 0.0.0.0:50052
 
-actor 用 Panda 正向运动学将主臂关节变成笛卡尔 twist（\ ``--teleop-device leader_cartesian --teleop-options-yaml station.yaml``\ ，\ ``station.yaml`` 中设 ``remote_address: robot-host:50052``\ ）。从臂跟踪持久命令目标：无人驱动时保持固定姿态；命令领先实测 TCP 不超过 ``--teleop-lead-cap-m 0.05`` / ``--teleop-lead-cap-rad 0.3``\ ，推进速度不超过 ``--teleop-target-speed-m-s 0.05`` / ``--teleop-target-speed-rad-s 0.3``\ 。环境缩放至少应等于领先上限（\ ``--real-robot.xyz-scale-m 0.05 --real-robot.rot-scale-rad 0.3``\ ，或 ``franka_real`` 动作缩放）。同一输入源也能驱动 ``cartesian_delta`` 的 ``real_robot``\ ；\ ``examples/presets/gello_cartesian.yaml`` 是其单臂 50 Hz、仅状态观测预设。映射、tracker、夹爪和 DH 检查见 \ :ref:`teleop.md <teleop-leader-arm-on-a-cartesian-robot-leader_cartesian>`\ 。
+actor 用 Panda 正向运动学将主臂关节变成笛卡尔 twist（\ ``--teleop-device leader_cartesian --teleop-options-yaml station.yaml``\ ，\ ``station.yaml`` 中设 ``remote_address: robot-host:50052``\ ）。从臂跟踪持久命令目标：无人驱动时保持固定姿态；命令领先实测 TCP 不超过 ``--teleop-lead-cap-m 0.05`` / ``--teleop-lead-cap-rad 0.3``\ ，推进速度不超过 ``--teleop-target-speed-m-s 0.05`` / ``--teleop-target-speed-rad-s 0.3``\ 。环境缩放至少应等于领先上限（\ ``--real-robot.xyz-scale-m 0.05 --real-robot.rot-scale-rad 0.3``\ ）。同一输入源也能驱动 ``cartesian_delta`` 的 ``real_robot``\ ；\ ``examples/presets/gello_cartesian.yaml`` 是其单臂 50 Hz、仅状态观测预设。映射、tracker、夹爪和 DH 检查见 \ :ref:`teleop.md <teleop-leader-arm-on-a-cartesian-robot-leader_cartesian>`\ 。
 
 .. _gello-5-recording-demos:
 
 5. 录制示范
 --------------------------------------------------------------------------------
 
-受监督录制、操作员标记、归档检查和动作约定兼容性见 \ :doc:`08 录制示范 <../tutorials/record>`\ 。示范与加载它的训练须使用同一动作模式；关节空间同步/导出细节见 \ :doc:`07 主从跟随 <../tutorials/gello>`\ 和\ :doc:`录制器参考 <recording-demos>`\ 。
+受监督录制、操作员标记、数据集检查和动作约定兼容性见 \ :doc:`08 录制示范 <../tutorials/record>`\ 。示范与加载它的训练须使用同一动作模式；关节空间同步/导出细节见 \ :doc:`07 主从跟随 <../tutorials/gello>`\ 和\ :doc:`录制器参考 <recording-demos>`\ 。
 
 .. _gello-6-hil-training:
 

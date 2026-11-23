@@ -1,23 +1,24 @@
 Prepare BC training data
 ================================================================================
 
-This chapter starts with the artifacts from :doc:`inspect`: ``local/first-demo.pkl``, its matching
-``.contract.json``, ``resolved-config.yaml`` in the session directory, and
+This chapter starts with the artifacts from :doc:`inspect`: the dataset directory ``local/first-demo``,
+``resolved-config.yaml`` in the session directory, and
 ``local/station.yaml`` and ``local/task.yaml``. All work is offline, from the repository root,
-in an environment with learning dependencies installed. Load only pickle files you recorded yourself or trust.
+in an environment with learning dependencies installed.
 
-These chapters use ``real_world_bc`` because it is the BC entry point in this repository's training registry that reads demonstration pkls directly
+These chapters use ``real_world_bc`` because it is the BC entry point in this repository's training registry that reads demonstration dataset directories directly
 and preserves per-dimension human supervision. The CLI requires an explicit algorithm name; there is no default that selects one automatically.
 It builds ``MaskedBC``, which defaults to a Gaussian actor, an MLP backbone and a plain_conv image encoder.
-Another path that reads trajectory pkls is rl-garden's ACT trajectory trainer, paired with this repository's deploy-act.
-It predicts action chunks and uses a different checkpoint format.
+Another path is rl-garden's ACT trajectory trainer, paired with this repository's deploy-act.
+It predicts action chunks, uses a different checkpoint format, and still reads a pkl plus sidecar,
+so export one from the dataset first with ``rwrl dataset export --format pkl`` (see the end of :doc:`bc-train`).
 rl-garden also provides bc, diffusion_bc, flow_bc, mean_flow_bc, a2a_bc and consistency_distill_bc.
 These are not part of this repository's real_world_bc entry point for loading single-step demonstrations. These chapters do not switch algorithms.
 
 1. Select data and configuration from the same session
 --------------------------------------------------------------------------------
 
-Match the successful demonstrations to the full archive first, so that data with different action conventions do not become one training set.
+Match the successful demonstrations to the episodes in the dataset first, so that data with different action conventions do not become one training set.
 
 .. literalinclude:: ../../examples/bc-data.sh
    :language: bash
@@ -28,24 +29,24 @@ Match the successful demonstrations to the full archive first, so that data with
    :language: bash
    :lines: 3-3
 
-The first command is the repository's archive inspector; the second is the offline checking script provided for this chapter.
-The script reads obs, next_obs, action and human_action_mask from every row and checks shapes, finite values,
-action ranges and masks. It compares the first row's obs with the observation keys, shapes and dtype recorded in the contract.
+The first command is the repository's inspector, which reads the dataset directory directly; the second is the offline checking script provided for this chapter.
+The script fetches the training rows with the same function training uses, reads obs, next_obs, action and human_action_mask from every row and checks shapes, finite values,
+action ranges and masks. It compares the first row's obs with the observation keys, shapes and dtype recorded in the dataset header's ``action_contract``.
 For the remaining obs / next_obs, it checks keys, shapes and finite values, but does not check dtype row by row.
 
-**What you should see**: Successful episodes and human-controlled intervals in the archive, and the filtered transitions count in the pkl.
+**What you should see**: The episodes and human-controlled intervals in the dataset, and the transitions count of the training rows (after filtering kept episodes).
 With the earlier configuration, observations should include ``state`` and ``rgb_wrist``, with seven-dimensional actions.
 ``human masks`` shows the number of rows for each combination of human-controlled dimensions.
-The pkl excludes failed attempts and, by default, alignment steps; see :doc:`inspect` for the filtering rules.
-Start with one checked pkl. When merging multiple files later, perform the same checks on each and compare their full contracts.
-Do not use failure archives directly as successful demonstrations.
+The training rows exclude discarded episodes and, by default, alignment steps; see :doc:`inspect` for the filtering rules.
+Start with one checked dataset. When merging several later, perform the same checks on each and compare their full contracts.
+Do not use discarded episodes as successful demonstrations.
 
 **If it doesn't**:
 
-* Missing pkl or contract: Check whether the previous chapter retained successful human-controlled steps, and recover the sidecar with the same basename.
-* ``observation shape/dtype differs from contract``: Check for the wrong sidecar or independently modified images / state.
-* ``action/mask shape mismatch``: A seven-dimensional mask cannot accompany an eight-dimensional action. Return to the original archive to check the export's source.
-* All-zero masks or no valid actions: Check the archive's human-controlled intervals first. All-zero rows provide no BC supervision.
+* Not a dataset or no training rows: Check that the directory has ``dataset.json`` and that the previous chapter retained successful human-controlled steps (``rwrl dataset list``).
+* ``observation shape/dtype differs from contract``: Check for the wrong dataset or independently modified images / state.
+* ``action/mask shape mismatch``: A seven-dimensional mask cannot accompany an eight-dimensional action. Return to the original dataset to check where it came from.
+* All-zero masks or no valid actions: Check the dataset's human-controlled intervals first. All-zero rows provide no BC supervision.
 
 Next, locate the final configuration used during recording and compare it with the current local files:
 
@@ -56,8 +57,8 @@ Next, locate the final configuration used during recording and compare it with t
    :end-before: # end session
 
 **What you should see**: One or more session configuration paths containing a uuid.
-Use summary and provenance in the same directory to identify which session generated first-demo.pkl. Record the full path.
-resolved-config is the merged station and task configuration; training uses it and the contract as its basis.
+Use summary and provenance in the same directory to identify which session generated first-demo. Record the full path.
+resolved-config is the merged station and task configuration; training uses it and the dataset header's action_contract as its basis.
 The current station/task may have changed. Do not use them to overwrite the cameras, scales or coordinate conventions used during recording.
 Keep these two local files to check device connections during deployment.
 
@@ -110,7 +111,7 @@ In the Cartesian synthetic example below, a=0.2 corresponds to a 0.01 m x reques
 3. Generate a small reproducible example without real-hardware data
 --------------------------------------------------------------------------------
 
-Generate eight rows in the same list-of-tensor-dictionaries format as ``tests/test_real_world_bc.py``
+Generate one eight-step episode, written as a dataset in the same format as ``rwrl record``,
 to verify the later training and loading workflow first. This uses the real environment class's space definitions, without ever calling reset or step.
 Images are random uint8, states are synthetic values, and actions are fixed. This is not a robot simulation.
 
@@ -129,7 +130,7 @@ Then run the following. The output directory must not already exist:
    :start-after: # start synthetic
    :end-before: # end synthetic
 
-**What you should see**: demos.pkl, demos.contract.json and resolved-config.yaml are generated.
+**What you should see**: The dataset ``demos/`` (with ``dataset.json`` and one episode) and resolved-config.yaml are generated.
 The following is an excerpt of the checking script's actual output; the full contract is printed afterward:
 
 .. literalinclude:: ../../examples/bc-data-output.txt
@@ -137,7 +138,7 @@ The following is an excerpt of the checking script's actual output; the full con
    :start-after: # start summary
    :end-before: # end summary
 
-``[1, 128, 128, 3]`` means batch, H, W and RGB channels; ``[1, 27]`` means batch and state dimensions.
+``[1, 224, 224, 3]`` means batch, H, W and RGB channels; ``[1, 27]`` means batch and state dimensions.
 Four rows have mask 1111111 and the other four have 1111110. In the latter rows, the gripper receives no human supervision,
 even though the last action entry is still +1.
 
@@ -145,15 +146,15 @@ even though the last action entry is still +1.
 
 * Directory already exists: Choose a new directory and update subsequent commands to avoid mixing runs.
 * Missing torch or rl_garden: Return to :doc:`install` and use a learning environment. Keep the PYTHONPATH above when running from source.
-* ``offline demos has no action-contract metadata`` during generation: This indicates that no sidecar exists yet while the synthetic spaces are being built.
-  demos.contract.json should exist after generation. If this message appears when training on real data, recover the sidecar.
+* ``offline demos has no action-contract metadata`` during generation: This message appears while the synthetic spaces are being built;
+  the action contract is written to ``dataset.json`` when the dataset is generated. If it appears when training on real data, the path you loaded is not a dataset directory; recover the dataset.
 
 Artifacts from this chapter
 --------------------------------------------------------------------------------
 
-* Real-hardware data: The checked ``local/first-demo.pkl`` and ``local/first-demo.contract.json``,
+* Real-hardware data: The checked dataset ``local/first-demo``,
   plus the matching session resolved-config and station/task.
-* Exercise without hardware: ``local/bc-synthetic/demos.pkl``, its matching contract and resolved-config.
+* Exercise without hardware: The dataset ``local/bc-synthetic/demos`` and its resolved-config.
   The next two chapters use these as alternative inputs, not as real-hardware demonstrations.
 
 .. note::
@@ -165,6 +166,6 @@ Artifacts from this chapter
    Synthetic data checks only the format and software workflow.
 
 Checklist: Identify one observation row's keys and shapes, action mode and dimensions, and human-controlled dimensions;
-locate the configuration and sidecar from the same session, and explain whether the SpaceMouse and GELLO actions can be mixed.
+locate the configuration and dataset from the same session, and explain whether the SpaceMouse and GELLO actions can be mixed.
 
 Next, train your first checkpoint in :doc:`bc-train`.

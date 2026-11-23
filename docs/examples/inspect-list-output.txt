@@ -1,0 +1,9 @@
+# start output
+episode  status     reason                success  steps   intervened  duration_s  notes
+----------------------------------------------------------------------------------------
+000000   kept       -                     yes      120     50%         12.0        1
+000001   discarded  rerecord              -        43      51%         4.3         1
+000002   discarded  no success            no       200     50%         20.0        1
+----------------------------------------------------------------------------------------
+episodes: 3  kept: 1  discarded: 2  kept transitions: 60
+# end output

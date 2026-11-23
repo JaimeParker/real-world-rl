@@ -204,6 +204,21 @@ class BimanualRealRobotEnv(gym.Env):
         return list(self.config.arm_names)
 
     @property
+    def named_state_spec(self) -> dict[str, list[int]]:
+        """Each arm's named state field shapes, keyed ``<arm>.<field>`` in arm order."""
+        return {f"{arm}.{field}": shape for arm, env in self.arms.items()
+                for field, shape in env.named_state_spec.items()}
+
+    @property
+    def named_state(self) -> Optional[dict[str, np.ndarray]]:
+        """The named state fields of the latest reset/step (``named_state_spec``), None before reset."""
+        if self._last_obs is None:
+            return None
+        state = self._last_obs["state"]
+        return {f"{arm}.{field}": np.asarray(state[f"{arm}_{field}"])
+                for arm, env in self.arms.items() for field in env.named_state_spec}
+
+    @property
     def robot(self) -> dict[str, Any]:
         """Each arm's robot, by arm name."""
         return {arm: env.robot for arm, env in self.arms.items()}

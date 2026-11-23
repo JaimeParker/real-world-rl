@@ -12,11 +12,12 @@ are relative to the ``rl-garden/`` submodule.
 
 **Legacy bridge:** ``real_world_rl/legacy/controller/real/franka_bridge.py``
 forwards HTTP requests to ROS ``serl_franka_controllers``. ROS dependencies also
-live in ``gripper_server.py`` in that directory. ``FrankaRealEnv`` accesses this
-route over HTTP. The current ``real_robot`` route uses device backends such as
+live in ``gripper_server.py`` in that directory. ``SerlHttpArm`` accesses this route over HTTP. The current ``real_robot`` route uses device backends such as
 ``real_world_rl/devices/backends/arms/franky.py`` locally or through the daemon;
 it does not require this ROS bridge. Hardware control remains in the native SDK/
 controller, not the torch simulation controller.
+
+The franka_real env was removed; real_robot + serl_http replaces it.
 
 .. _en-devices-roadmap-v1-boundary:
 

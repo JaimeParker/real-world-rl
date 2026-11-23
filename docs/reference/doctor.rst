@@ -253,8 +253,8 @@ gRPC 和 SSH 链路检查
      - ``deps``
      - 各后端所需扩展，含 ``daemon:`` 时另需 ``grpc``\ ；无此块时缺 ``grpc`` 仅为 ``WARN``
    * - 1 sdk
-     - ``sdk:arm``, ``sdk:gripper``, ``sdk:camera:<name>``, ``sdk:teleop:<backend>``\ ；\ ``cartesian_controller: serl`` 时还有 ``sdk:serl_controller``\ 、\ ``config:serl_control``
-     - 后端解析及 SDK 导入；未知后端跳过第 3–5 层；serl 相关行见 \ :ref:`SERL 控制器：诊断检查 <serl-controller-doctor-checks>`\
+     - ``sdk:arm``, ``sdk:gripper``, ``sdk:camera:<name>``, ``sdk:teleop:<backend>``\ ；\ ``cartesian_controller: serl`` 时还有 ``sdk:serl_controller``\ 、\ ``config:serl_control``\ ；\ ``joint_controller: trajectory_impedance`` 时还有 ``sdk:joint_controller``
+     - 后端解析及 SDK 导入；未知后端跳过第 3–5 层；serl 相关行见 \ :ref:`SERL 控制器：诊断检查 <serl-controller-doctor-checks>`\ ，关节控制器的行见\ :ref:`关节控制器检查 <doctor-joint-controller-checks>`\
    * - 2 os
      - ``os:ping``, ``os:tcp``, ``os:camera:<name>``, ``os:teleop:<name>``, ``os:hid``, ``os:serial``, ``os:groups``, ``os:brltty``, ``os:latency_timer``, ``os:can_*``
      - 网络、设备节点、权限；\ ``os:tcp`` 仅供参考
@@ -265,7 +265,7 @@ gRPC 和 SSH 链路检查
      - ``feedback:arm``, ``feedback:gripper``, ``feedback:camera:<name>``, ``feedback:teleop:<name>``
      - 各设备返回数据；相机须在 2 s 内出帧
    * - 5 mode
-     - ``mode:robot_mode``, ``mode:libfranka_version``, ``mode:realtime_kernel``, ``mode:robot_model``, ``mode:internal_realtime``\ （\ ``cartesian_controller: internal``\ ）, ``mode:serl_realtime``\ （\ ``cartesian_controller: serl``\ ）, or ``mode:none``
+     - ``mode:robot_mode``, ``mode:libfranka_version``, ``mode:realtime_kernel``, ``mode:robot_model``, ``mode:internal_realtime``\ （\ ``cartesian_controller: internal``\ ）, ``mode:serl_realtime``\ （\ ``cartesian_controller: serl``\ ）, ``mode:joint_trajectory_realtime``\ （\ ``joint_controller: trajectory_impedance``\ ）, or ``mode:none``
      - 后端预检
 
 设备探测本身失败时 ``<robot>.device`` 为 ``FAIL``\ ；其他进程占用站点时为 ``BLOCKED``\ 。下方\ :ref:`详细示例 <doctor-device-diagnostic-details>`\ 展示设备消息。
@@ -671,6 +671,21 @@ SpaceMouse 与 HID
    * - ``<robot>.mode:serl_realtime`` WARN
      - ``cartesian_controller: serl`` 但未设 ``realtime: enforce``\ （SERL 在强制实时下运行）
      - 安装 RT 内核并设 ``realtime: enforce``
+   * - ``<robot>.mode:joint_trajectory_realtime`` WARN
+     - ``joint_controller: trajectory_impedance`` 但未设 ``realtime: enforce``\ （1 kHz 扭矩循环）
+     - 安装 RT 内核并设 ``realtime: enforce``
+   * - ``<robot>.sdk:joint_controller`` FAIL
+     - ``joint_controller`` 包缺失、不能和已装 franky 一起加载，或它构建时对应的 franky 版本不是已装版本
+     - 重跑 ``native/joint_controller/scripts/install-on-ubuntu.sh``\ ，或从同一个构建目录重装三个 wheel
+
+.. _doctor-joint-controller-checks:
+
+关节控制器检查
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``joint_controller: trajectory_impedance`` 的机器人多两行。``<robot>.sdk:joint_controller`` （第 1 层）导入 ``joint_controller``\ ，要求有 ``TrajectoryImpedanceMotion``\ ，
+并把它的 ``build_info`` 记录的 franky 版本（``franky_dist_version``\ ）与已装 franky 的版本比较；不一致、缺包或不能和 franky 一起加载时为 FAIL，附安装提示。
+``<robot>.mode:joint_trajectory_realtime`` （第 5 层）在 ``realtime`` 不是 ``enforce`` 时为 WARN，否则 PASS。参考 :doc:`joint-controller`\ 。
 
 机器人型号
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -893,7 +908,7 @@ Franka 示例 ``--mock`` 的设备行如下（\ ``rwrl doctor`` 同时打印主�
 安装正确的 franky wheel
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``franky`` 扩展安装默认 ``franky-control`` wheel，绑定一个 libfranka 版本。机器人服务器版本不同会拒绝握手，doctor 报告 ``libfranka mismatch: robot server <N>, installed library <M>``\ 。\ ``cartesian_controller: serl`` 时不要用 ``--install-sdk``\ ：doctor 报告 ``sdk.franky.serl`` ``BLOCKED`` 而不规划官方 wheel（它会替换 ``serl_controller`` 构建时用的 franky），并给出重建命令 ``LIBFRANKA_VERSION=<x.y.z> bash native/serl_controller/scripts/install-on-ubuntu.sh``\ （见 \ :ref:`SERL 控制器 <serl-controller-installing-franky-and-serl_controller>`\ ）；其他工作站若装了 ``serl_controller``\ ，计划的 ``Advice:`` 会说明它将无法加载。否则：
+``franky`` 扩展安装默认 ``franky-control`` wheel，绑定一个 libfranka 版本。机器人服务器版本不同会拒绝握手，doctor 报告 ``libfranka mismatch: robot server <N>, installed library <M>``\ 。\ ``joint_controller: trajectory_impedance`` 时同样不要用 ``--install-sdk``\ ：doctor 报告 ``sdk.franky.joint_controller`` ``BLOCKED``\ ，因为官方 wheel 会换掉与 ``joint_controller`` 配对的 franky（见\ :doc:`joint-controller`\ ）。\ ``cartesian_controller: serl`` 时不要用 ``--install-sdk``\ ：doctor 报告 ``sdk.franky.serl`` ``BLOCKED`` 而不规划官方 wheel（它会替换 ``serl_controller`` 构建时用的 franky），并给出重建命令 ``LIBFRANKA_VERSION=<x.y.z> bash native/serl_controller/scripts/install-on-ubuntu.sh``\ （见 \ :ref:`SERL 控制器 <serl-controller-installing-franky-and-serl_controller>`\ ）；其他工作站若装了 ``serl_controller``\ ，计划的 ``Advice:`` 会说明它将无法加载。否则：
 
 .. code-block:: bash
 

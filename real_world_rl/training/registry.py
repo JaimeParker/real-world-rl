@@ -7,6 +7,16 @@ class RealWorldAlgorithmRegistry(BaseAlgorithmRegistry):
     phase_name = "real_world"
     supports_dry_run = False
 
+    def parse_args(self, args=None):
+        from real_world_rl.training.backend_migration import check_backend_cli
+
+        return super().parse_args(check_backend_cli(args))
+
+    def parse_command(self, args=None):
+        from real_world_rl.training.backend_migration import check_backend_cli
+
+        return super().parse_command(check_backend_cli(args))
+
     def _normalize_runtime(
         self, parsed: object, sources: dict[str, FieldSource],
     ) -> tuple[object, dict[str, object]]:
@@ -30,9 +40,6 @@ class RealWorldAlgorithmRegistry(BaseAlgorithmRegistry):
         if backend == "real_robot":
             path = "real_robot.cartesian_semantics"
             before = normalized.real_robot.cartesian_semantics
-        elif backend == "franka_real":
-            path = "franka_real.env_kwargs_json"
-            before = normalized.franka_real.env_kwargs_json
         else:
             # The shared resolver reports unsupported backends/devices.
             resolve_spacemouse_mode(normalized, sources=sources)

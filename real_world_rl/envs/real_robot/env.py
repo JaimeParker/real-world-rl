@@ -5,7 +5,7 @@ the rl-garden backend (``envs/backends/real_robot.py``) flattens it to ``state``
 torch tensors. Action is ``[-1, 1]^D``: 6 (xyz + rotvec) for ``cartesian_delta`` or
 ``num_joints`` for the joint modes, plus one gripper dimension when ``gripper_in_action``.
 
-Unlike ``FrankaRealEnv``, this env paces itself to ``control_hz``: each ``step()`` sleeps the
+This env paces itself to ``control_hz``: each ``step()`` sleeps the
 remainder of the control period since the previous step's command was sent.
 The opt-in SERL branch sleeps after each pose send and before observing instead.
 """
@@ -764,6 +764,18 @@ class RealRobotEnv(gym.Env):
         return self._last_obs
 
     @property
+    def named_state_spec(self) -> dict[str, list[int]]:
+        """Shape of each named state field (``config.state_fields``, raw quaternion form)."""
+        return {field: list(self.observation_space["state"][field].shape) for field in self.config.state_fields}
+
+    @property
+    def named_state(self) -> Optional[dict[str, np.ndarray]]:
+        """The named state fields of the latest reset/step (``named_state_spec``), None before reset."""
+        if self._last_obs is None:
+            return None
+        return {field: np.asarray(self._last_obs["state"][field]) for field in self.config.state_fields}
+
+    @property
     def action_mode(self) -> str:
         return self.config.action_mode
 
@@ -1010,8 +1022,7 @@ class RealRobotVectorEnv(gym.Env):
     """Batch-of-1 torch view of a ``RealRobotEnv`` satisfying rl-garden's observation vocabulary.
 
     ``state`` is ``config.state_fields`` concatenated in config order (``(1, D)`` float32) and
-    each camera becomes ``rgb_<cam>`` (``(1, H, W, 3)`` uint8). Tensors live on CPU. Like
-    ``FrankaRealEnv`` there is no autoreset: the caller resets on ``terminated``/``truncated``
+    each camera becomes ``rgb_<cam>`` (``(1, H, W, 3)`` uint8). Tensors live on CPU. There is no autoreset: the caller resets on ``terminated``/``truncated``
     (``ActorLoop`` does), so the robot is never homed twice per episode boundary.
     """
 

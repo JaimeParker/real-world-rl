@@ -17,6 +17,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "devices"))
 from test_franky_backend import make_fake_franky, make_fake_serl_controller  # noqa: E402
+from test_joint_trajectory import make_fake_joint_controller
 from _teleop_fakes import make_hid  # noqa: E402
 from test_spacemouse_teleop_source import _Part  # noqa: E402
 
@@ -49,6 +50,7 @@ def fakes(monkeypatch, tmp_path):
     serl_controller = make_fake_serl_controller(log)
     monkeypatch.setitem(sys.modules, "franky", franky)
     monkeypatch.setitem(sys.modules, "serl_controller", serl_controller)
+    monkeypatch.setitem(sys.modules, "joint_controller", make_fake_joint_controller())
     monkeypatch.setitem(sys.modules, "hid", make_hid())  # the station's SpaceMouse part connects with the robot
     monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
 
@@ -140,9 +142,11 @@ def assert_cartesian_controller_running(controller: str, arm, franky, serl_contr
 
 @pytest.mark.parametrize("mode", MODES)
 @pytest.mark.parametrize("controller", CONTROLLERS)
-def test_controller_x_spacemouse_mode(fakes, tmp_path, controller, mode):
+@pytest.mark.parametrize("joint_controller", ("impedance", "trajectory_impedance"))
+def test_controller_x_spacemouse_mode(fakes, tmp_path, controller, mode, joint_controller):
     franky, serl_controller, _ = fakes
     config = load_config(tmp_path, controller)
+    config.joint_controller = joint_controller
     assert config.cartesian_controller == controller and config.arm_backend == "franky"
     robot = FrankaRobot(config)
     env = make_env(config, robot, mode)
@@ -164,10 +168,15 @@ def test_controller_x_spacemouse_mode(fakes, tmp_path, controller, mode):
 
         # joint servo, IDLE and back to Cartesian servo, with no other change
         arm.set_control_mode(ControlMode.JOINT_SERVO)
-        assert isinstance(arm._handle.tracker, franky.JointImpedanceTracker) and arm._handle.serl_motion is None
+        assert arm._handle.serl_motion is None
+        if joint_controller == "impedance":
+            assert isinstance(arm._handle.tracker, franky.JointImpedanceTracker)
+        else:
+            assert arm._handle.joint_trajectory_motion is not None
         q = np.asarray(arm.read_state()["joint_pos"])
         arm.servo_joints(q)
-        assert arm._handle.tracker.targets
+        assert (arm._handle.tracker if joint_controller == "impedance"
+                else arm._handle.joint_trajectory_motion).targets
         arm.set_control_mode(ControlMode.IDLE)
         assert arm._handle.tracker is None and arm._handle.serl_motion is None
         assert not arm._handle.robot.is_in_control
@@ -242,7 +251,7 @@ def test_cli_teleop_run_spacemouse_mode_x_controller(session, tmp_path, capsys, 
                                     safety_box_rpy_high=[3.14] * 3)
     session.preset.write_text(yaml.safe_dump(preset))
     assert main([*session.prefix, "teleop", "run", "--backend", "spacemouse", "--mode", mode,
-                 "--record", str(tmp_path / "demo.pkl")]) == 0, capsys.readouterr().out
+                 "--record", str(tmp_path / "demos")]) == 0, capsys.readouterr().out
     payload = json.loads(capsys.readouterr().out)
     resolved = yaml.safe_load((Path(payload["report_directory"]) / "resolved-config.yaml").read_bytes())
     assert resolved["spacemouse_mode"] == mode and resolved["teleop_device"] == "spacemouse"

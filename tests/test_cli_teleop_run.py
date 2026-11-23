@@ -58,6 +58,8 @@ SPACEMOUSE_CONFIG = b"""real_robot:
     relative_dynamics_factor: 0.2
     realtime: ignore
     cartesian_controller: impedance
+    joint_controller: impedance
+    joint_trajectory: null
     serl: null
     load: null
     robot_model: panda
@@ -76,7 +78,7 @@ episode_end_behavior: hold
 neutral_threshold: 0.05
 num_successes: 20
 max_episodes: null
-output_path: <ROOT>/demo.pkl
+output_dir: <ROOT>/demo
 teleop_input:
   options_file: <STATION_FILE>
   profile_name: front
@@ -140,7 +142,7 @@ def session(tmp_path, monkeypatch):
 
 
 def test_spacemouse_resolved_config_bytes(session, tmp_path, capsys):
-    assert main([*session.prefix, "teleop", "run", "--record", str(tmp_path / "demo.pkl")]) == 0
+    assert main([*session.prefix, "teleop", "run", "--record", str(tmp_path / "demo")]) == 0
     payload = json.loads(capsys.readouterr().out)
     report = Path(payload["report_directory"])
     data = (report / "resolved-config.yaml").read_bytes()
@@ -185,7 +187,7 @@ def test_gello_resolved_config_and_provenance(session, tmp_path, capsys, wrapped
     event_flags = [] if events is None else ["--events-file", events]
     robot_flags = ["--robot", "left"] if wrapped else []
     assert main([*session.prefix, *robot_flags, "teleop", "run", "--backend", "gello",
-                 "--record", str(tmp_path / "gello.pkl"), *event_flags]) == 0
+                 "--record", str(tmp_path / "gello"), *event_flags]) == 0
     payload = json.loads(capsys.readouterr().out)
     report = Path(payload["report_directory"])
     config = yaml.safe_load((report / "resolved-config.yaml").read_bytes())
@@ -226,7 +228,7 @@ def test_gello_resolved_config_and_provenance(session, tmp_path, capsys, wrapped
 
 def test_gello_daemon_and_custom_limits(session, tmp_path, capsys):
     gello_station(session, daemon=True)
-    assert main([*session.prefix, "teleop", "run", "--record", str(tmp_path / "gello.pkl"),
+    assert main([*session.prefix, "teleop", "run", "--record", str(tmp_path / "gello"),
                  "--neutral-stable-s", ".4", "--num-successes", "2", "--max-episodes", "3"]) == 0
     payload = json.loads(capsys.readouterr().out)
     config = yaml.safe_load((Path(payload["report_directory"]) / "resolved-config.yaml").read_bytes())
@@ -242,7 +244,7 @@ def test_gello_rejects_other_station_teleop(session, tmp_path, capsys, backend):
     document["teleop"] = None if backend is None else {"backend": backend}
     session.path.write_text(yaml.safe_dump(document))
     assert main([*session.prefix, "teleop", "run", "--backend", "gello",
-                 "--record", str(tmp_path / "demo.pkl")]) == 2
+                 "--record", str(tmp_path / "demo")]) == 2
     assert "requires a station teleop backend of gello" in json.loads(capsys.readouterr().out)["error"]
     assert session.calls == []
     assert not list(tmp_path.glob("*.session-*"))
@@ -259,7 +261,7 @@ def test_gello_rejects_other_station_teleop(session, tmp_path, capsys, backend):
 def test_gello_invalid_options_do_not_launch(session, tmp_path, capsys, flags, message):
     gello_station(session)
     assert main([*session.prefix, "teleop", "run", "--backend", "gello",
-                 "--record", str(tmp_path / "demo.pkl"), *flags]) == 2
+                 "--record", str(tmp_path / "demo"), *flags]) == 2
     assert message in json.loads(capsys.readouterr().out)["error"]
     assert session.calls == []
     assert not list(tmp_path.glob("*.session-*"))
@@ -267,7 +269,7 @@ def test_gello_invalid_options_do_not_launch(session, tmp_path, capsys, flags, m
 
 def test_spacemouse_refuses_gello_flags(session, tmp_path, capsys):
     assert main([*session.prefix, "teleop", "run", "--backend", "spacemouse",
-                 "--record", str(tmp_path / "demo.pkl"), "--neutral-stable-s", ".2"]) == 2
+                 "--record", str(tmp_path / "demo"), "--neutral-stable-s", ".2"]) == 2
     assert "--neutral-stable-s not applicable to --backend spacemouse" in json.loads(
         capsys.readouterr().out)["error"]
     assert session.calls == []
@@ -292,6 +294,6 @@ def test_gello_prompt_names_terminal_ownership_events(session, tmp_path, monkeyp
     monkeypatch.setattr(Context, "confirm", lambda self, prompt, *, detail: details.append(detail))
     gello_station(session)
     assert main([*session.prefix, "teleop", "run", "--backend", "gello",
-                 "--record", str(tmp_path / "gello.pkl")]) == 0
+                 "--record", str(tmp_path / "gello")]) == 0
     assert "terminal t takes over; h hands back" in details[0]
     assert "toggle takes over" not in details[0]

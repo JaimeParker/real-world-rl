@@ -10,12 +10,13 @@ from .cmd_doctor import DOCTOR
 from .cmd_teleop import TELEOP
 from .cmd_workspace import WORKSPACE
 from .cmd_archive import ARCHIVE
+from .cmd_dataset import DATASET
 from .cmd_use import USE
 from .cmd_learning import COMMANDS as LEARNING_COMMANDS
 
 
 COMMANDS = [STATUS, Q, TCP, STOP, RECOVER, HOME, GRIPPER, CAMERA, DOCTOR, *DEVICE_COMMANDS,
-            TELEOP, WORKSPACE, USE, ARCHIVE, *LEARNING_COMMANDS]
+            TELEOP, WORKSPACE, USE, ARCHIVE, DATASET, *LEARNING_COMMANDS]
 
 
 def build_parser():

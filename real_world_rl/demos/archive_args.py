@@ -1,4 +1,5 @@
-"""Torch-free arguments of the archive inspector, shared by its script and ``rwrl archive inspect``."""
+"""Torch-free arguments of the archive inspector (demo datasets and legacy recorder archives),
+shared by its script and ``rwrl archive inspect``."""
 from pathlib import Path
 
 DRIFT_WINDOW_S = 10.0
@@ -7,8 +8,8 @@ SETTLE_HOLD_S = 0.5
 
 
 def add_inspect_arguments(parser) -> None:
-    parser.add_argument("archive", type=Path)
-    parser.add_argument("--csv", type=Path, help="new output CSV; source SQLite is opened read-only")
+    parser.add_argument("archive", type=Path, help="demo dataset directory or recorder .trajectory.sqlite3 archive")
+    parser.add_argument("--csv", type=Path, help="new output CSV; the source is opened read-only")
     parser.add_argument("--measurements", type=Path,
                         help="new measurements CSV with the test pages' header (segment, hold_window, settle rows)")
     parser.add_argument("--stop-time-s", type=float, action="append", default=[],

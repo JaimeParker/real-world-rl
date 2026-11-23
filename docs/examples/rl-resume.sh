@@ -10,7 +10,7 @@ rwrl train hil_serl --config local/rl-task.yaml --role learner \
   --sync-host 0.0.0.0 --sync-port 6000 \
   --checkpoint-dir local/rl-runs/first-hil/checkpoints \
   --load-checkpoint local/rl-runs/first-hil/checkpoints/bundle_manifest.json \
-  --demo-dataset-paths local/first-demo.pkl
+  --demo-dataset-paths local/first-demo
 # end resume
 # start eval
 # Robot PC; stop its actor first. Copy the COMPLETE saved run here if needed.

@@ -37,7 +37,6 @@ from real_world_rl.envs.wrappers.teleop_event_reward import (
     SUCCESS_EVENT,
 )
 from real_world_rl.training.args import (
-    FrankaRealConfig,
     HilEnvArgs,
     RealWorldFrankaArgs,
 )
@@ -58,7 +57,6 @@ class RealRobotCollectArgs(HilEnvArgs, RealWorldFrankaArgs, EnvRunArgs, Observat
     ...): pass the ones of the run that will use the classifier, so the frames match its
     observations. ``--config PATH`` loads a training preset first."""
 
-    franka_real: FrankaRealConfig = field(default_factory=FrankaRealConfig)
     env_backend: Literal["real_robot"] = "real_robot"
     # The collector never evaluates; no eval env.
     eval_freq: int = 0

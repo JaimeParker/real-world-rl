@@ -17,16 +17,16 @@ rwrl teleop read --duration-s 10 --rate-hz 10
 rwrl q
 # end read
 # start practice
-rwrl teleop run --backend gello --record local/gello-practice.pkl --num-successes 1 --max-episodes 1
+rwrl teleop run --backend gello --record local/gello-practice --num-successes 1 --max-episodes 1
 # end practice
 # start joint
 # First copy the session's resolved-config.yaml to local/gello-joint.yaml and edit it.
-rwrl record --config local/gello-joint.yaml --output-path local/gello-joint.pkl --num-successes 1 --max-episodes 1
+rwrl record --config local/gello-joint.yaml --output-dir local/gello-joint --num-successes 1 --max-episodes 1
 # end joint
 # start bimanual
 cp examples/presets/bimanual_gello_smoke.yaml local/gello-bimanual.yaml
 # After configuring and starting both station daemons, and reviewing the copied preset:
-rwrl record --config local/gello-bimanual.yaml --output-path local/gello-bimanual.pkl --num-successes 1 --max-episodes 1
+rwrl record --config local/gello-bimanual.yaml --output-dir local/gello-bimanual --num-successes 1 --max-episodes 1
 # end bimanual
 
 # start read-routes
@@ -50,5 +50,5 @@ rwrl supervise --log runs/record-second-leader/supervise.jsonl -- \
     --teleop-device leader_cartesian --teleop-options-yaml local/leader-cartesian.yaml \
     --teleop-event-device stdin --episode-end-behavior auto \
     --real_robot.watchdog_s 0.3 \
-    --output-path local/second-leader.pkl --num-successes 1
+    --output-dir local/second-leader --num-successes 1
 # end second-record

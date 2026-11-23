@@ -79,7 +79,7 @@ def apply_obs_chain(
     from real_world_rl.envs.wrappers.rotvec_obs import RotvecObsWrapper
 
     if frame_stack > 1:
-        # FrankaRealEnv/RealRobotVectorEnv have no _init_raw_obs/update_obs_space (ManiSkill-only
+        # RealRobotVectorEnv has no _init_raw_obs/update_obs_space (ManiSkill-only
         # APIs) and their camera keys are not necessarily "rgb*"/"depth*"-prefixed, so
         # image_keys must be passed explicitly.
         stack_keys = tuple(image_keys) or tuple(

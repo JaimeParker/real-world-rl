@@ -76,3 +76,14 @@ franka SERL impedance controller stopped: <错误文字> (serl_auto_recover: max
 示例：错误清不掉（例如外部使能按钮仍按下）时：
 franka SERL impedance controller stopped: <错误文字>; recover_from_errors failed: <原因> (serl_auto_recover could not clear it)
 # end recover-log
+# start joint-doctor
+示例：joint_controller: trajectory_impedance 时 doctor 新增的行（按源码格式编写，不是真机实测记录）。
+PASS           franka.sdk:joint_controller: joint_controller franky build 2.0.0+libfranka.0.17.0; installed franky 2.0.0+libfranka.0.17.0
+PASS           franka.mode:realtime_kernel: PREEMPT_RT kernel; realtime: enforce
+PASS           franka.mode:joint_trajectory_realtime: joint_controller: trajectory_impedance with realtime: enforce
+# end joint-doctor
+# start joint-doctor-warn
+示例：常见的 FAIL／WARN 行（同样是格式示例）。
+FAIL           franka.sdk:joint_controller: joint_controller unavailable: joint_controller: trajectory_impedance needs the 'joint_controller' package
+WARN           franka.mode:joint_trajectory_realtime: joint_controller: trajectory_impedance with realtime: ignore
+# end joint-doctor-warn

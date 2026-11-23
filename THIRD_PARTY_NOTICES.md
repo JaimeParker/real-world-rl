@@ -14,15 +14,16 @@ original copyright and licence notices in their headers.
 | [HIL-SERL](https://github.com/rail-berkeley/hil-serl) (Luo et al.) | Apache-2.0, Copyright 2024 Jianlan Luo, Charles Xu, Jeffrey Wu | `c32939b` | SpaceMouse intervention (raw base-frame twist, button levels), the vendored PySpaceMouse 1.0.3 device table, the Franka Hand values of `franka_gripper_server`, the joint reset polling of `franka_server.reset_joint`, the controller parameter profiles, `grasp_penalty` | `real_world_rl/teleop/spacemouse/{serl,hid}.py`, `real_world_rl/devices/backends/grippers/franky.py`, `real_world_rl/devices/backends/arms/franky.py`, `real_world_rl/envs/wrappers/grasp_penalty.py` |
 | [PySpaceMouse](https://github.com/JakubAndrysek/PySpaceMouse) (John Harrison et al.) | MIT | 1.0.3 (as vendored by HIL-SERL) | SpaceMouse HID device table and report decoder | `real_world_rl/teleop/spacemouse/hid.py` |
 | [RLinf](https://github.com/RLinf/RLinf) (The RLinf Authors) | Apache-2.0 | checked against `cc6bd25` | The single-arm `RelativeFrame` / `FrankaEnv` Cartesian action and state conventions (`cartesian_semantics: rlinf`), the `FrankyGripper` open threshold, the Gymnasium registration contract of RLinf's real-world env worker and the RLinf Franka openpi deploy profile | `real_world_rl/envs/rlinf_cartesian.py`, `real_world_rl/integrations/rlinf/`, `configs/rlinf/`, `real_world_rl/deploy/openpi/profiles.py` |
+| [GELLO](https://github.com/wuphilipp/gello_software) `franka_fr3_arm_controllers` (Franka Robotics GmbH) | Apache-2.0, Copyright (c) 2025 Franka Robotics GmbH | `9fc8c26` | The joint impedance law (K·(q_d − q) − D·dq_filtered), the joint-velocity low-pass filter and the default gains, filter constant and command timeout; ported into `native/joint_controller` (the quintic reference planner, timeout stop, coriolis term and torque-rate limit are this repository's own) | `native/joint_controller/` (`src/law.cpp`, `include/joint_controller/params.hpp`; licence in `native/joint_controller/LICENSE` and `LICENSE.Apache-2.0`) |
 
 ## Libraries used at run time
 
 | Project | Licence | Notes |
 | --- | --- | --- |
-| [franky](https://github.com/TimSchneider42/franky) (Tim Schneider, Nick Walker, Lars Berscheid) | MIT (from 2.0.0; earlier releases LGPL-3.0) | The Franka backend. `native/serl_controller` links against an **unmodified** franky v2.0.0 (`e7e63c7`) and derives from its `Motion` classes; the wheel pair is built from franky's own, unmodified build recipe. |
+| [franky](https://github.com/TimSchneider42/franky) (Tim Schneider, Nick Walker, Lars Berscheid) | MIT (from 2.0.0; earlier releases LGPL-3.0) | The Franka backend. `native/serl_controller` and `native/joint_controller` link against an **unmodified** franky v2.0.0 (`e7e63c7`) and derive from its `Motion` classes; the wheels are built together from franky's own, unmodified build recipe. |
 | [libfranka](https://github.com/frankaemika/libfranka) (Franka Robotics GmbH) | Apache-2.0 | Bundled inside the franky wheel. |
-| [Eigen](https://eigen.tuxfamily.org) | MPL-2.0 | Header-only, used by `native/serl_controller`. |
-| [pybind11](https://github.com/pybind/pybind11) | BSD-3-Clause | `native/serl_controller` Python bindings. |
+| [Eigen](https://eigen.tuxfamily.org) | MPL-2.0 | Header-only, used by `native/serl_controller` and `native/joint_controller`. |
+| [pybind11](https://github.com/pybind/pybind11) | BSD-3-Clause | `native/serl_controller` and `native/joint_controller` Python bindings. |
 
 ## Vendored for tests only
 

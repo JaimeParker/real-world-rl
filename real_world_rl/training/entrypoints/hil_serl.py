@@ -223,6 +223,7 @@ def _run_learner(args) -> None:
             train_freq=args.train_freq,
             publish_freq=args.publish_freq,
             action_contract=demo_contract_of(env),
+            demo_frame_stack=args.obs.frame_stack,
         )
         try:
             loop_owns_env = True
@@ -291,7 +292,6 @@ from typing import Literal  # noqa: E402
 from rl_garden.encoders.config import EncoderConfig  # noqa: E402
 from rl_garden.training.online.entrypoints.rlpd_hybrid import RLPDHybridArgs  # noqa: E402
 from real_world_rl.training.args import (  # noqa: E402
-    FrankaRealConfig,
     HilEnvArgs,
     RealWorldFrankaArgs,
 )
@@ -300,7 +300,6 @@ from real_world_rl.training.registry import registry  # noqa: E402
 
 @dataclass
 class HilSerlArgs(HilEnvArgs, RealWorldFrankaArgs, RLPDHybridArgs):
-    franka_real: FrankaRealConfig = field(default_factory=FrankaRealConfig)
 
     # Overrides RealWorldFrankaArgs.role's Literal["actor", "learner"] with a
     # third "eval" role (item 10 of https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/hil-serl-roadmap.html) -- kept local to

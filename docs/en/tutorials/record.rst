@@ -14,7 +14,8 @@ An episode is one attempt, from after reset until success, failure, rerecord, ti
 1. Start recording with quotas
 --------------------------------------------------------------------------------
 
-Give the session a new output name. Limit both successes and total attempts to avoid continuing to another round unintentionally.
+Give the session a new output name (a dataset directory, ``local/first-demo``, with no suffix). Limit both successes and total attempts to avoid continuing to another round unintentionally.
+Running with the same directory again appends to it, so use a new name for each new experiment.
 
 .. warning::
 
@@ -30,6 +31,8 @@ Give the session a new output name. Limit both successes and total attempts to a
 ``--num-successes 2`` keeps two successful demonstrations. ``--max-episodes 5`` allows at most five completed attempts;
 failure, rerecord and timeout each count as an attempt. Set both to 1 for a single practice round.
 If omitted, the success quota is 20 and total attempts are unlimited. The task's max_episode_steps still limits each episode to 200 steps in this tutorial.
+``--record`` points at a dataset directory: each episode is written as an ``episode_000000/`` subdirectory when it ends,
+and memory only ever holds the episode being recorded. The success quota counts the episodes already kept in the dataset, including those from earlier runs.
 
 **What you should see**: A confirmation prompt, reset, then a wait for neutral input; episode statistics appear after a successful episode.
 The following example follows the source output format. Its numbers are not measurements:
@@ -41,7 +44,7 @@ The following example follows the source output format. Its numbers are not meas
 
 **If it doesn't**:
 
-* ``--record must be a new .pkl path``: Choose a new filename. Do not overwrite earlier data.
+* ``--record must be a demo dataset directory (new or existing), not a file``: Give ``--record`` a directory name without ``.pkl``, and do not point it at an existing file.
 * ``teleop run requires --preset with home and task limits``: No preset has been remembered. Run ``rwrl use preset local/task.yaml``, or pass ``--preset local/task.yaml`` in the command.
 * Stuck at START_NEUTRAL: Release the SpaceMouse cap and buttons. In GELLO always mode, align the leader and follower as in the previous chapter; in toggle mode, turn off the physical toggle.
 * The quota never increases: Check the discarded reason. A successful episode with no human-controlled steps is not kept as a demonstration either.
@@ -67,13 +70,13 @@ The default event source in this chapter is ``stdin`` in the terminal running th
      - Mark failure and end the episode. An attempt containing a failure is not kept as a successful demonstration.
    * - r
      - rerecord
-     - Discard this round's candidate training steps and end the attempt. The full archive is still retained.
+     - End the attempt. The episode is still stored in the dataset, flagged discarded (rerecord), and is not used for training.
    * - Esc
      - episode_end
      - End the episode without automatically marking success.
    * - q
      - operator_quit + episode_end
-     - End the session and export the retained demonstrations. Also use this to exit control during hold.
+     - End the session. Also use this to exit control during hold. Finished episodes were already written to the dataset.
    * - n
      - next_episode
      - Request the next round only in session/hold mode. The neutral check must also pass.
@@ -111,7 +114,7 @@ SpaceMouse sessions require the top-level ``neutral_stable_s`` setting in the pr
 The default is 0.2 seconds, and the value must be finite and nonnegative. It changes the continuous neutral duration, not the neutral conditions.
 
 When the budget runs out, ``Episode budget reached; next is disabled.`` appears. The session still waits for q;
-it does not exit control automatically. q exports the .pkl and closes the devices. Evidence of a normal exit is saved in the session directory.
+it does not exit control automatically. q closes the devices; each episode was already written to the dataset when it ended. Evidence of a normal exit is saved in the session directory.
 
 .. warning::
 
@@ -122,7 +125,7 @@ it does not exit control automatically. q exports the .pkl and closes the device
 
 * Nothing moves after n: Check whether the budget is exhausted, the cap / buttons / physical toggle still indicate intervention, or the leader and follower are misaligned in GELLO always mode.
 * The robot moves home immediately after the episode: Check whether you bypassed teleop run and used the default auto behavior of ``rwrl record``.
-* No pkl after the episode ends: Exit normally with q first. If no successful demonstrations were retained, only the full archive remains.
+* No successful demonstration visible: Exit normally with q first, then use ``rwrl dataset list`` from the next chapter to see each episode's status and reason. Episodes that were not kept are still in the dataset, flagged discarded.
 
 4. Use scripted events or other event sources when needed
 --------------------------------------------------------------------------------
@@ -182,7 +185,7 @@ This chapter uses the terminal / JSONL for the remaining session controls, not a
 5. Find the recording artifacts
 --------------------------------------------------------------------------------
 
-After a normal exit, use the output basename to find the full archive, training demonstrations and session evidence.
+After a normal exit, use the output name to find the dataset directory and the session evidence.
 The paths below use first-demo as an example; the program generates uuid.
 
 .. literalinclude:: ../../examples/en/record-output.txt
@@ -190,21 +193,27 @@ The paths below use first-demo as an example; the program generates uuid.
    :start-after: # start files
    :end-before: # end files
 
-**What you should see**: SQLite records all episodes and steps, including steps without intervention, failures, rerecords and interruptions.
-The pkl exports only human-controlled steps from successful episodes, excluding ``teleop_syncing`` alignment steps by default.
-If no steps qualify, neither pkl nor contract is generated. The contract is the action / observation convention file with the same basename as the pkl.
-SQLite may also have temporary ``-wal`` and ``-shm`` files during recording. Close the recording before copying the archive.
+**What you should see**: The dataset has one directory per episode, and every episode is there, including those without intervention, failures, rerecords and interruptions.
+``meta.json`` records the status (kept or discarded), the reason, the step count, the intervention segments and the events; ``data.npz`` holds the per-step data;
+``frames/<key>.npz`` holds the lossless images; ``video/<key>.mp4`` is a review video at the control rate, for color cameras only.
+Training uses only the human-controlled steps of kept episodes, excluding ``teleop_syncing`` alignment steps by default.
+The action / observation convention lives in ``dataset.json``; there is no pkl, ``.contract.json``, SQLite or ``.trajectory.pt`` any more.
+An episode appears only once it is complete: the one being written is a ``.tmp-episode_...`` directory, which is removed automatically the next time the dataset is opened after a crash and is never read as an episode.
+
+.. note::
+
+   Images are stored losslessly, so the disk use is larger than the old pkl. One 224×224 RGB frame is about 150 KB, one frame per camera per control step, before compression;
+   at 10 Hz and 200 steps, one episode with one camera is about 30 MB. Check that the target disk has room before recording.
 
 In the session directory, resolved-config is the final configuration, provenance records its sources, and summary records the session result.
 diagnostics records control diagnostics; session-events records phases such as READY, ACTIVE and EPISODE_HOLD.
 The diagnostics, session-events and stop-trace filenames all contain a timestamp and random suffix.
 A normal stop generates stop-trace and an assessment with the same basename; these may be absent after a fault or if that phase was not reached.
 GELLO also saves the extracted leader-robot and leader-options.
-For a portable PT, set ``export_trajectory_pt: true`` at the top level of the task. It is off by default.
 
 **If it doesn't**:
 
-* Only the archive exists: Look for ``no demo pkl exported; trajectory archive retained`` in the terminal, then investigate the failure reason in the next chapter.
+* No kept episode in the dataset: Read the discarded reason on the terminal's ``[record] episode=...`` lines, then check with ``rwrl dataset list`` in the next chapter.
 * The summary's stop_assessment is BLOCKED: This session lacks evidence of a normal stop. Do not treat the session return code as verification that stopping worked.
 * You cannot find the output: Check output and report_directory in summary, and the working directory used for the run.
 
@@ -254,20 +263,21 @@ Also verify the direction settings as in :doc:`spacemouse`. Do not begin collect
 --------------------------------------------------------------------------------
 
 Read the supervisor log first. Check the station, robot faults and stop state before deciding whether to restart.
-Rerun the step 6 command with the same output path only if the pkl does not yet exist.
-The existing SQLite is retained, unfinished attempts are marked interrupted, and new attempts use new IDs.
-Archive durability begins when append returns; actions before that point may not have been written.
+Rerun the step 6 command with the same output directory to append: existing episodes are kept, new episodes continue the numbering, and indices are never reused.
+Appending requires this run's environment to match the dataset header (action contract, observation shapes, control rate); otherwise the recorder fails and asks for a new ``--output-dir``.
+An episode cut short by Ctrl-C or an error is stored as discarded (interrupted) once it has a step.
+Each episode is written to a temporary directory and renamed only when complete, so a crash loses only the episode being recorded.
 See :doc:`../reference/real-world-experiments` for process-crash and power-loss boundaries.
 
 .. warning::
 
    Restarting also resets and operates the gripper. Recheck the scene and reset path first. Reusing a filename does not remove the need to check motion.
 
-**What you should see**: New attempts are added to the old archive, and a pkl is exported after successful demonstrations are retained.
-The pkl contains only successes retained during this invocation. Successes from the old archive are not merged automatically; read them from the archive.
+**What you should see**: A start line such as ``[record] dataset local/ordinary-demo: 3 episodes (2 kept); recording until 5 kept``.
+``--num-successes`` counts the episodes already kept in the dataset (old ones included), so only the difference is recorded. When the quota is already met, no episode is recorded.
 
-**If it doesn't**: If the pkl already exists, use a new output name. There is no pkl append option.
-Do not delete a saved pkl to simulate appending, or use a teleop run session report directory as an entry point for resuming the ordinary recorder.
+**If it doesn't**: If the error says the dataset was recorded with a different ``action_contract``, ``obs_spec`` or similar key, use a new ``--output-dir``
+or rerun with the settings the dataset was recorded with. Do not edit ``dataset.json`` to get around it, and do not use a teleop run session report directory as an entry point for resuming the ordinary recorder.
 
 .. note::
 
@@ -278,6 +288,6 @@ Do not delete a saved pkl to simulate appending, or use a teleop run session rep
    JSONL format validation and offline archive inspection can confirm only the software paths.
 
 Checklist: Complete at least one successful episode and one failed attempt; observe EPISODE_HOLD;
-use n to start the next round and q to exit normally; locate SQLite, pkl and contract.
+use n to start the next round and q to exit normally; locate each episode's meta.json in the dataset directory.
 
 Next, use :doc:`inspect` to identify the segment you controlled.

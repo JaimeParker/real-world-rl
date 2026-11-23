@@ -1,3 +1,7 @@
+.. note::
+
+   本历史记录使用数据集格式之前的录制器（``--output-path`` pkl）。当前命令见 :ref:`recording-demos-recording-demos-on-the-real-robot`。
+
 Reference only: the first hardware session followed the long form of this page; keep for the next bimanual session, not maintained with the tutorials.
 
 仅供参考：首次实机测试使用本文的长版；保留给下次双臂测试，不随教程维护。
@@ -71,6 +75,7 @@ P00–P03-R 期间守护进程关闭。两侧 doctor 通过后，在第二终端
 
 ``record_case`` 每次 reset 前要求 GO，仅允许一次尝试（默认 1200 步），运行 supervisor、记录退出码并导出归档证据。以下为 T00 内层命令的参考展开；实际使用表格函数完成日志/证据导出，不要重复执行：
 
+.. tutorial-test: skip
 .. code-block:: bash
 
    rwrl supervise --log "$RUN_ROOT/T00/supervise.jsonl" -- \
@@ -163,3 +168,9 @@ inspect 为只读，不补写未结束回合。保留 recorder.log、exit-code.t
    :file: bimanual-gello-session-record.csv
    :header-rows: 1
    :encoding: utf-8-sig
+
+当前录制器语法（不属于历史运行记录）：
+
+.. code-block:: bash
+
+   rwrl supervise --log local/supervise.jsonl -- rwrl record --config local/gello-bimanual.yaml --output-dir local/bimanual-demo --num-successes 1 --max-episodes 1

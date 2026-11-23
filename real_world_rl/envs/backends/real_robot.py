@@ -1,6 +1,6 @@
 """Generic device-layer real-robot env backend — registered as ``"real_robot"``.
 
-``req.backend_config`` is a ``RealRobotEnvConfig``. Like ``franka_real``, this backend
+``req.backend_config`` is a ``RealRobotEnvConfig``. This backend
 ignores ``req.num_envs``/``req.num_eval_envs`` (a real robot is a batch of exactly one).
 Train and eval share one env instance per request: two envs would mean two connections
 (and two device claims) on the same robot.

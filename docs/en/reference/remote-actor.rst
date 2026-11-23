@@ -96,7 +96,7 @@ On the **actor machine**, use the project environment, from its repository root.
 In its ``hil.yaml``, remove ``real_robot.robot`` and set ``real_robot.remote`` to the
 NUC's reachable address and the station's daemon port (normally 50051). Set
 ``real_robot.token`` only if ``daemon.token`` is configured. With cameras, provide
-``obs.image_size`` because remote sizes are only known after connecting. Keep the
+``obs.image_size`` because remote sizes are only known after connecting (the tutorials recommend 224×224, which must match the recording of the demonstrations). Keep the
 same action mode, 50 Hz frequency and observation contract as recording.
 
 Install the gRPC client in the actor's project environment:

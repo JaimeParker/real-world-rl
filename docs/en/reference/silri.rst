@@ -117,8 +117,8 @@ Data flow
 -  Pretraining and refreshes may hold the training buffer lock. HTTP admission commits to the
    durable journal independently; the training thread applies queued rows afterwards. Actor
    retries retain message IDs, so missed ACKs do not duplicate admitted rows.
--  Demo pkls (``--demo-dataset-paths``) and crash-recovery snapshots load as in hil_serl. Demo
-   pkls without SiLRI's fields load as intervened, non-onset rows whose policy action is the
+-  Demos (dataset directories or pkls, ``--demo-dataset-paths``) and crash-recovery snapshots load as in hil_serl. Demos
+   without SiLRI's fields load as intervened, non-onset rows whose policy action is the
    recorded action.
 -  One learner iteration calls ``train(train_freq)``: ``utd`` is the number of critic updates inside
    each gradient step, not a multiplier of gradient steps (unlike ``LearnerLoop``'s default).
@@ -293,7 +293,7 @@ registry rebuilds the agent). The minimal shape, for a GELLO served by the robot
 
 .. code-block:: bash
 
-   rwrl train silri --role learner --config hil.yaml --demo-dataset-paths 'demos/*.pkl'
+   rwrl train silri --role learner --config hil.yaml --demo-dataset-paths demos/task
    rwrl train silri --role actor --config hil.yaml --teleop-device leader_arm \
        --robot-teleop-action-mode joint_delta --teleop-event-device keyboard --reward-from-teleop-events
 

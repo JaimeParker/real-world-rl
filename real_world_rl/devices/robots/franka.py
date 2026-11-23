@@ -54,6 +54,8 @@ class FrankaConfig(RobotConfig):
     # serl: SERL's Cartesian impedance controller (serl_controller wheel, parameters from ``serl``)
     # and SERL's joint reset for move_to_joints (franky backend).
     cartesian_controller: str = "impedance"
+    joint_controller: str = "impedance"
+    joint_trajectory: dict | None = None
     # cartesian_controller: serl: the robot's SERL compliance parameters (compliance_param.cfg names;
     # omitted ones keep the .cfg defaults). Task presets can switch named profiles on top of these.
     serl: dict | None = None
@@ -78,6 +80,14 @@ class FrankaConfig(RobotConfig):
                              f"choose from {list(_CARTESIAN_CONTROLLERS)}")
         if self.cartesian_controller in ("internal", "serl") and self.arm_backend not in ("franky", "fake"):
             raise ValueError(f"cartesian_controller: {self.cartesian_controller} needs arm_backend franky")
+        from real_world_rl.devices.backends.arms.franky import JOINT_CONTROLLERS
+        from real_world_rl.devices.joint_trajectory import joint_trajectory_updates
+        if self.joint_controller not in JOINT_CONTROLLERS:
+            raise ValueError(f"joint_controller '{self.joint_controller}' invalid; choose from {list(JOINT_CONTROLLERS)}")
+        if self.joint_controller == "trajectory_impedance" and self.arm_backend not in ("franky", "fake"):
+            raise ValueError("joint_controller: trajectory_impedance needs arm_backend franky")
+        if self.joint_trajectory is not None:
+            self.joint_trajectory = joint_trajectory_updates(self.joint_trajectory)
         if self.robot_model not in ROBOT_MODELS:
             raise ValueError(f"robot_model '{self.robot_model}' invalid; choose from {list(ROBOT_MODELS)}")
         from real_world_rl.devices.control import franka_load, serl_auto_recover_config, serl_param_updates

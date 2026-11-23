@@ -14,10 +14,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_smoke_preset_records_one_attempt_on_two_local_fake_daemons(tmp_path, station_daemons):  # noqa: F811 (fixture injected by name)
-    output = tmp_path / "left.pkl"
+    output = tmp_path / "left"
     args = parse_record_args([
         "--config", str(ROOT / "examples/presets/bimanual_gello_smoke.yaml"),
-        "--output-path", str(output), "--max-episodes", "1",
+        "--output-dir", str(output), "--max-episodes", "1",
     ])
     assert args.teleop_event_device is None  # headless: events arrive from device-side inputs
     assert not args.obs.rgb and args.teleop_onset == "arm"
@@ -33,14 +33,16 @@ def test_smoke_preset_records_one_attempt_on_two_local_fake_daemons(tmp_path, st
     args.teleop_arm_tolerance_rad = 0.2
     assert run_recorder(args) == output
     assert all(not daemon.service.robot.is_connected for daemon in station_daemons.values())
-    archive = output.with_suffix(".trajectory.sqlite3")
-    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    def digest():
+        return hashlib.sha256(b"".join(path.read_bytes() for path in sorted(output.rglob("*")) if path.is_file())).hexdigest()
+
+    before = digest()
     step_csv = tmp_path / "steps.csv"
-    summary = archive_inspect.inspect_archive(archive, step_csv)
+    summary = archive_inspect.inspect_archive(output, step_csv)
     assert summary["episode_starts"] == summary["episode_ends"] == 1
     assert summary["outcomes"][0]["task_success"] is True
     assert summary["human_mask_counts"]["1111111000000010"] >= 1
-    assert hashlib.sha256(archive.read_bytes()).hexdigest() == digest
+    assert digest() == before
     with step_csv.open(encoding="utf-8-sig", newline="") as stream:
         rows = list(csv.DictReader(stream))
     assert len(rows) == summary["transitions"]

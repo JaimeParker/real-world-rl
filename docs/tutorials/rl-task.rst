@@ -24,7 +24,7 @@
      - 怎么得到这个值
    * - ``obs``、``real_robot`` 的动作、状态、尺度、工作区字段
      - 从上一章实际使用的 session/resolved-config.yaml 复制；下面的脚本整块保留。
-       inspect 输出 rgb_wrist 为 [1,128,128,3] 时，对应 rgb: [wrist]、image_size: [128,128]。
+       inspect 输出 rgb_wrist 为 [1,224,224,3] 时，对应 rgb: [wrist]、image_size: [224,224]。
    * - ``real_robot.remote``、必要时 ``token``
      - 从 station 的 daemon 监听地址／端口取得。actor 与 daemon 同机、端口为 50051 时，
        填 127.0.0.1:50051；启用 token 的站点复制匹配 token。脚本删除原直接连接 robot 块。
@@ -38,10 +38,10 @@
      - 本章选择 true、1.0；成功判据由操作员按任务定义确认，例如物体已稳定放入目标区域。
        按键测试见第 3 节，不能由回合回报反推真实成功。
    * - ``--demo-dataset-paths`` （通过 CLI 传入）
-     - 使用 :doc:`inspect` 已确认的 local/first-demo.pkl，保留同名 contract.json；
-       也可在 YAML 中设置 ``demo_dataset_paths: [local/first-demo.pkl]``；CLI 参数优先。
+     - 使用 :doc:`inspect` 已确认的数据集目录 local/first-demo；
+       也可在 YAML 中设置 ``demo_dataset_paths: [local/first-demo]``；CLI 参数优先。
    * - ``buffer_size``、``demo_buffer_size``
-     - 模板各 1000 行，只用于短会话。用 :doc:`inspect` 得到的 pkl transitions 数调整 demo 容量，
+     - 模板各 1000 行，只用于短会话。用 :doc:`inspect` 得到的训练行（transitions）数调整 demo 容量，
        至少容纳全部种子示范并给在线纠正留空间；估算图像内存后再延长会话。
    * - ``log_dir``、``exp_name``、``run_id``、``actor_id``
      - 本次分别用 local/rl-runs、first-hil、first-hil、actor；独立实验换新名字及 outbox。
@@ -52,6 +52,7 @@ demo_data_ratio=0.5，train_freq=1，utd=1，publish_freq=10，log_freq=10，
 checkpoint_freq／buffer_period=100，save_final_checkpoint=true。
 这些是短会话的教程值，不是 HIL-SERL 全部默认值或推荐收敛参数；数据量和采集速度稳定后再调整。
 classifier_checkpoint=null、use_grasp_penalty=false 保持奖励来源单一。
+模板显式写了 ``encoder.plain_conv_pooling: gap``：plain_conv 默认的 flatten 池化只适配 128×128 与 64×64 的图像，224×224 要用 gap（原因见 :doc:`bc-train`）。
 HIL-SERL 的 Args 没有 BC 入口的 device 字段；策略构造使用自动选设备，所以本章命令显式隐藏 GPU。
 
 默认 HIL-SERL／residual_hil_serl 的 online 容量为 200000，demo 容量为 100000；
@@ -83,8 +84,8 @@ bundle 会把两份 replay 的已分配存储复制到主机并写盘，不能�
    :end-before: # end prepare
 
 生成脚本保留 session 的模型输入、动作和 teleop 标定，仅改成 remote 连接与本章训练设置。
-``local/station.yaml`` 和 ``local/task.yaml`` 保留原样。将生成的配置、pkl、contract 和
-被引用的 teleop 文件复制到 learner 机器；路径须在那里也能解析。learner 读取标定配置但不打开设备。
+``local/station.yaml`` 和 ``local/task.yaml`` 保留原样。将生成的配置、数据集目录和
+被引用的 teleop 文件复制到 learner 机器（数据集里的无损帧较大，先看 ``du -sh``）；路径须在那里也能解析。learner 读取标定配置但不打开设备。
 
 **你应该看到**：脚本打印 config 路径、remote、action_mode 和 teleop_device。
 应为 cartesian_delta，且与你选择的输入设备一致。用文本编辑器检查 real_robot 中不再有直接 robot 配置，
@@ -127,13 +128,13 @@ classifier_image_keys；必须先另行采集成功／失败图像并验证分�
 
 **如果不对**：demo_dataset_paths 应为路径字符串列表，不能写成单个字符串；
 ``recorded action contract does not match`` 时逐项对照 session，
-不要删除 sidecar；无标签时检查 stdin 是否确实连接到 actor 终端及 reward_from_teleop_events=true。
+不要改数据集头的 action_contract；无标签时检查 stdin 是否确实连接到 actor 终端及 reward_from_teleop_events=true。
 
 3. 确认一条成功和一条失败
 --------------------------------------------------------------------------------
 
-先检查已有录制归档；若前章没有失败回合，回到 :doc:`record` 再录一轮明确失败与一轮成功，
-换新的输出名并对应替换下面路径。失败仍在 SQLite，默认不会导出到成功人工示范 pkl。
+先检查已有数据集；若前章没有失败回合，回到 :doc:`record` 再录一轮明确失败与一轮成功，
+换新的输出名并对应替换下面路径。失败回合仍在数据集里（标为 discarded），默认不会进入训练用的成功人工示范。
 
 .. tutorial-test: skip
 .. literalinclude:: ../examples/rl-task.sh
@@ -141,10 +142,10 @@ classifier_image_keys；必须先另行采集成功／失败图像并验证分�
    :start-after: # start labels
    :end-before: # end labels
 
-**你应该看到**：两个不同 episode_id 的 episode_end.outcome，task_success 分别为 true 和 false，
-outcome_source 都为 manual；失败的 end_reason 为 manual_failure。
-再读同回合最后 transition，核对 reward、terminated、truncated。
-脚本以只读连接检查 SQLite；仅打开自己生成或可信的归档。
+**你应该看到**：两个不同回合各一行，task_success 分别为 true 和 false，
+outcome_source 都为 manual；失败的 end_reason 为 manual_failure，status 为 discarded、原因 failure event。
+再用 ``rwrl dataset view`` 或 ``archive inspect --csv`` 读同回合最后一步，核对 reward、terminated、truncated。
+脚本只读各回合的 meta.json。
 
 第三章提供不用硬件的 CPU 练习。以下是该练习实际输出的两条回合结束记录，
 UUID 与时刻由当次运行产生；并非真实任务标签：
@@ -154,7 +155,7 @@ UUID 与时刻由当次运行产生；并非真实任务标签：
    :start-after: # start labels
    :end-before: # end labels
 
-**如果不对**：只在 pkl 中查不到失败是正常筛选；unknown／timeout 表示没有明确结果，
+**如果不对**：训练行里查不到失败是正常筛选；unknown／timeout 表示没有明确结果，
 不能当成 failure 标签；outcome_source 不是 manual 时检查是否额外启用了分类器或版本化任务。
 
 .. note::
@@ -164,7 +165,7 @@ UUID 与时刻由当次运行产生；并非真实任务标签：
    home 路径、开爪、物体布置、工作区、复位等待、回合预算和人工判据都要现场确认。
    CPU 例子只证明成功与失败字段可以区分。新分类器必须独立验证，本章没有训练或部署分类器。
 
-检查清单：配置来自同一 session；两台机器都有数据与引用文件；成功／失败可在 SQLite 中区分；
+检查清单：配置来自同一 session；两台机器都有数据与引用文件；成功／失败可在数据集的 meta.json 中区分；
 知道 reset、hold 和截断各自何时发生。
 
 下一章 :doc:`rl-train`。

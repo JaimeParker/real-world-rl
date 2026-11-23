@@ -12,10 +12,10 @@ __all__ = [
     "RecordedEpisode",
     "check_leader_near_follower",
     "hold_action_fn_for",
+    "open_dataset",
     "parse_record_args",
     "record_demos",
     "run_recorder",
-    "save_demos",
 ]
 
 

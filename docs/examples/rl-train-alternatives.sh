@@ -30,7 +30,7 @@ rwrl train residual_hil_serl --config local/rl-task.yaml --role learner \
 # start silri-learner
 rwrl train silri --config local/rl-silri.yaml --role learner \
   --exp-name first-silri --run-id first-silri --sync-host 0.0.0.0 --sync-port 6000 \
-  --demo-dataset-paths local/first-demo.pkl
+  --demo-dataset-paths local/first-demo
 # end silri-learner
 
 # start residual-actor

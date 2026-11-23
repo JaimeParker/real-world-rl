@@ -39,11 +39,6 @@ def _args(backend="real_robot", **kwargs):
             args.real_robot, robot={"type": "unused"}, safety_box=[-1] * 3 + [1] * 3,
             safety_box_rpy_low=[0, -1, -1], safety_box_rpy_high=[3, 1, 1],
         )
-    else:
-        args.franka_real.env_kwargs_json = json.dumps({
-            "safety_box_low": [-1] * 3, "safety_box_high": [1] * 3,
-            "safety_box_rpy_low": [0, -1, -1], "safety_box_rpy_high": [3, 1, 1],
-        })
     return args
 
 
@@ -228,10 +223,9 @@ def test_serl_rejects_tracker_and_mode_keys_in_options_yaml(key, tmp_path):
         env_building.motion_teleop_kwargs(_args(teleop_options_yaml=str(options)))
 
 
-@pytest.mark.parametrize("backend", ["real_robot", "franka_real"])
+@pytest.mark.parametrize("backend", ["real_robot"])
 def test_serl_learner_contract_without_opening_device(backend, monkeypatch):
     from rl_garden.envs import backend_registry
-    from real_world_rl.envs.franka_real.env import FrankaRealEnv
     from real_world_rl.envs.real_robot.env import RealRobotEnv, RealRobotVectorEnv
 
     def forbidden_start(self):
@@ -240,11 +234,7 @@ def test_serl_learner_contract_without_opening_device(backend, monkeypatch):
     monkeypatch.setattr(SpaceMouseSerlTeleopSource, "start", forbidden_start)
 
     def make_env(name, request):
-        if name == "real_robot":
-            env = RealRobotVectorEnv(RealRobotEnv(request.backend_config, robot=SimpleNamespace(is_connected=False)))
-        else:
-            from real_world_rl.envs.backends.franka_real import FrankaRealBackend
-            env = FrankaRealEnv(FrankaRealBackend._make_cfg(request), bridge_client=object())
+        env = RealRobotVectorEnv(RealRobotEnv(request.backend_config, robot=SimpleNamespace(is_connected=False)))
         return env, None
 
     monkeypatch.setattr(backend_registry, "make_training_envs", make_env)
@@ -260,14 +250,11 @@ def test_serl_learner_contract_without_opening_device(backend, monkeypatch):
         env.close()
 
 
-@pytest.mark.parametrize("backend", ["real_robot", "franka_real"])
+@pytest.mark.parametrize("backend", ["real_robot"])
 def test_serl_mode_sets_env_cartesian_semantics(backend):
     args = _args(backend)
     request = env_building.hil_env_request(args, "test")
-    if backend == "real_robot":
-        assert request.backend_config.cartesian_semantics == "serl"
-    else:
-        assert json.loads(request.backend_config.env_kwargs_json)["cartesian_semantics"] == "serl"
+    assert request.backend_config.cartesian_semantics == "serl"
 
 
 def test_serl_mode_with_non_spacemouse_device_is_rejected():
@@ -409,7 +396,7 @@ def test_serl_record_train_deploy_mode_roundtrip(tmp_path, monkeypatch):
     )
     recorded = parse_record_args([
         "--config", str(preset), "--spacemouse-mode", "serl",
-        "--output-path", str(tmp_path / "demo.pkl"),
+        "--output-dir", str(tmp_path / "demo"),
     ])
     assert dataclasses.asdict(recorded)["real_robot"]["cartesian_semantics"] == "serl"
 
@@ -475,7 +462,7 @@ def test_serl_record_train_deploy_mode_roundtrip(tmp_path, monkeypatch):
     assert len(hid.devices) == opened
 
 
-@pytest.mark.parametrize("backend", ["real_robot", "franka_real"])
+@pytest.mark.parametrize("backend", ["real_robot"])
 def test_training_registry_finalizes_serl_before_preflight_serialization(backend):
     from real_world_rl.training.registry import RealWorldAlgorithmRegistry
 
@@ -483,15 +470,12 @@ def test_training_registry_finalizes_serl_before_preflight_serialization(backend
     sources = {}
     finalized, derived = RealWorldAlgorithmRegistry()._normalize_runtime(original, sources)
     serialized = dataclasses.asdict(finalized)
-    path = "real_robot.cartesian_semantics" if backend == "real_robot" else "franka_real.env_kwargs_json"
+    path = "real_robot.cartesian_semantics"
     assert serialized["spacemouse_mode"] == "serl"
     assert sources[path].kind == "runtime-derived"
     assert path in derived
-    if backend == "real_robot":
-        assert serialized["real_robot"]["cartesian_semantics"] == "serl"
-        assert original.real_robot.cartesian_semantics == "current"
-    else:
-        assert json.loads(serialized["franka_real"]["env_kwargs_json"])["cartesian_semantics"] == "serl"
+    assert serialized["real_robot"]["cartesian_semantics"] == "serl"
+    assert original.real_robot.cartesian_semantics == "current"
 
 
 @pytest.mark.parametrize("origin", ["CLI", "preset"])
@@ -524,21 +508,6 @@ def test_direct_learner_resolves_serl_before_saving_config(method, tmp_path, mon
     with pytest.raises(ConfigCaptured):
         module._run_learner(_args(log_dir=str(tmp_path)))
 
-
-def test_serl_rejects_explicit_current_in_franka_json():
-    args = _args("franka_real")
-    options = json.loads(args.franka_real.env_kwargs_json)
-    options["cartesian_semantics"] = "current"
-    args.franka_real.env_kwargs_json = json.dumps(options)
-    with pytest.raises(ValueError, match="conflicts.*current"):
-        env_building.hil_env_request(args, "conflict")
-
-
-def test_legacy_reward_collector_rejects_serl_before_startup():
-    from real_world_rl.reward.collect_data import main
-
-    with pytest.raises(ValueError, match="collect_data --env-backend real_robot"):
-        main(argv=["--output-dir", "unused", "--teleop-device", "spacemouse", "--spacemouse-mode", "serl"])
 
 
 def test_serl_rejects_partial_action_selection():

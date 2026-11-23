@@ -8,7 +8,7 @@ they do not automatically turn an openpi service into HIL-SERL's initial policy.
 
 These chapters use the single arm, seven-dimensional Cartesian actions, and manual success/failure labels verified earlier.
 SpaceMouse uses tracker; GELLO uses leader_cartesian. Reuse ``local/station.yaml``,
-``local/task.yaml``, and ``local/first-demo.pkl``. Write a separate ``local/rl-task.yaml`` for training settings.
+``local/task.yaml``, and the dataset directory ``local/first-demo``. Write a separate ``local/rl-task.yaml`` for training settings.
 Leave the classifier, grasp penalty, and reset-free FWBW disabled for now, so you can check exactly where each reward comes from.
 
 1. Distinguish the three processes

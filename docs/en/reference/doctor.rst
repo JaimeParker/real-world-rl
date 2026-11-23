@@ -271,8 +271,8 @@ A ``teleop:`` section affects dependency layer 0 and adds rows to layers 1, 2 an
      - ``deps``
      - the extras this robot needs: one per backend, plus ``grpc`` with a ``daemon:`` block; without one a missing ``grpc`` is only a ``WARN``
    * - 1 sdk
-     - ``sdk:arm``, ``sdk:gripper``, ``sdk:camera:<name>``, ``sdk:teleop:<backend>``; with ``cartesian_controller: serl`` also ``sdk:serl_controller``, ``config:serl_control``
-     - each backend resolves and its SDK imports; an unknown backend skips layers 3-5; the serl rows are in \ :ref:`SERL controller: doctor checks <en-serl-controller-doctor-checks>`\
+     - ``sdk:arm``, ``sdk:gripper``, ``sdk:camera:<name>``, ``sdk:teleop:<backend>``; with ``cartesian_controller: serl`` also ``sdk:serl_controller``, ``config:serl_control``; with ``joint_controller: trajectory_impedance`` also ``sdk:joint_controller``
+     - each backend resolves and its SDK imports; an unknown backend skips layers 3-5; the serl rows are in \ :ref:`SERL controller: doctor checks <en-serl-controller-doctor-checks>`\ and the joint controller rows in \ :ref:`joint controller checks <en-doctor-joint-controller-checks>`\
    * - 2 os
      - ``os:ping``, ``os:tcp``, ``os:camera:<name>``, ``os:teleop:<name>``, ``os:hid``, ``os:serial``, ``os:groups``, ``os:brltty``, ``os:latency_timer``, ``os:can_*``
      - network, device nodes, permissions; ``os:tcp`` is informational
@@ -283,7 +283,7 @@ A ``teleop:`` section affects dependency layer 0 and adds rows to layers 1, 2 an
      - ``feedback:arm``, ``feedback:gripper``, ``feedback:camera:<name>``, ``feedback:teleop:<name>``
      - each device returns data; a camera must deliver a frame within 2 s
    * - 5 mode
-     - ``mode:robot_mode``, ``mode:libfranka_version``, ``mode:realtime_kernel``, ``mode:robot_model``, ``mode:internal_realtime`` (``cartesian_controller: internal``), ``mode:serl_realtime`` (``cartesian_controller: serl``), or ``mode:none``
+     - ``mode:robot_mode``, ``mode:libfranka_version``, ``mode:realtime_kernel``, ``mode:robot_model``, ``mode:internal_realtime`` (``cartesian_controller: internal``), ``mode:serl_realtime`` (``cartesian_controller: serl``), ``mode:joint_trajectory_realtime`` (``joint_controller: trajectory_impedance``), or ``mode:none``
      - backend preflight
 
 ``<robot>.device`` is ``FAIL`` when the device probe itself fails and ``BLOCKED`` when another
@@ -733,6 +733,21 @@ Realtime kernel and limits
    * - ``<robot>.mode:serl_realtime`` WARN
      - ``cartesian_controller: serl`` without ``realtime: enforce`` (SERL ran with realtime enforced)
      - install an RT kernel and set ``realtime: enforce``
+   * - ``<robot>.mode:joint_trajectory_realtime`` WARN
+     - ``joint_controller: trajectory_impedance`` without ``realtime: enforce`` (a 1 kHz torque loop)
+     - install an RT kernel and set ``realtime: enforce``
+   * - ``<robot>.sdk:joint_controller`` FAIL
+     - the ``joint_controller`` package is missing, does not load next to the installed franky, or was built for a different franky version than the installed one
+     - rerun ``native/joint_controller/scripts/install-on-ubuntu.sh``, or reinstall the three wheels from one build directory
+
+.. _en-doctor-joint-controller-checks:
+
+Joint controller checks
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A robot with ``joint_controller: trajectory_impedance`` gets two more rows. ``<robot>.sdk:joint_controller`` (layer 1) imports ``joint_controller``, requires ``TrajectoryImpedanceMotion``,
+and compares the franky version recorded in its ``build_info`` (``franky_dist_version``) with the installed franky's version; a mismatch, a missing package or a package that does not load next to franky is a FAIL with an install hint.
+``<robot>.mode:joint_trajectory_realtime`` (layer 5) is a WARN when ``realtime`` is not ``enforce`` and a PASS otherwise. See :doc:`joint-controller`.
 
 Robot model
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -986,6 +1001,8 @@ Installing the right franky wheel
 The ``franky`` extra installs the default ``franky-control`` wheel, which bundles one libfranka
 version. A robot whose robot server version differs refuses the handshake, and the doctor
 reports ``libfranka mismatch: robot server <N>, installed library <M>``. With
+``joint_controller: trajectory_impedance``, do not use ``--install-sdk`` either: the doctor reports ``sdk.franky.joint_controller``
+``BLOCKED``, because the official wheel would replace the franky paired with ``joint_controller`` (see :doc:`joint-controller`). With
 ``cartesian_controller: serl``, do not use ``--install-sdk``: the doctor reports ``sdk.franky.serl``
 ``BLOCKED`` instead of planning the official wheel (it would replace the franky that
 ``serl_controller`` was built with) and names the rebuild,

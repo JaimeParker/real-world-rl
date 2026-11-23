@@ -1,4 +1,5 @@
-"""Offline recorder-archive evidence: ``rwrl archive inspect`` (no station, no device)."""
+"""Offline recording evidence: ``rwrl archive inspect`` on a demo dataset directory or a legacy
+recorder SQLite archive (no station, no device)."""
 import math
 
 from real_world_rl.demos.archive_args import add_inspect_arguments
@@ -58,13 +59,14 @@ def inspect(args, ctx):
 class ArchiveCommand:
     uses_selection = False  # --preset is not applicable
     name = "archive"
-    help = "inspect recorder archives offline (no station or robot)"
+    help = "inspect demo datasets and recorder archives offline (no station or robot)"
 
     def register(self, parser):
         sub = parser.add_subparsers(dest="archive_command", required=True)
         inspect_parser = sub.add_parser(
-            "inspect", help="hold drift, take-over jump and settle evidence from a recorder SQLite archive",
-            description="Read a recorder SQLite archive read-only. With --stop-time-s the exit code is "
+            "inspect", help="hold drift, take-over jump and settle evidence from a demo dataset or recorder archive",
+            description="Read a demo dataset directory or a legacy recorder SQLite archive read-only. "
+                        "With --stop-time-s the exit code is "
                         f"{SUCCESS_EXIT_CODE} when every stop settled, {STOP_TRACE_FAIL_EXIT_CODE} when one "
                         f"did not, {STOP_TRACE_BLOCKED_EXIT_CODE} when one lacks a spanning TCP episode.")
         add_inspect_arguments(inspect_parser)

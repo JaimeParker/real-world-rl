@@ -15,7 +15,7 @@
 # Check it without touching the robot:
 #   python examples/train_real_world.py hil_serl --config gello.yaml --print-config
 # Record demos with it:
-#   python -m real_world_rl.demos --config gello.yaml --output-path demos/task.pkl
+#   python -m real_world_rl.demos --config gello.yaml --output-dir demos/task
 env_backend: real_robot
 env_id: gello_cartesian
 obs:

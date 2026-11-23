@@ -183,7 +183,7 @@ class TeleopPartSource(TeleopSource):
         if real_env is None or contract is None:
             raise ValueError(
                 "device='robot' needs a real_robot backend env (RealRobotEnv with a device-layer "
-                "robot); franka_real has no teleop part"
+                "robot)"
             )
         robot = real_env.robot
         kwargs.setdefault("last_observation_getter", lambda: real_env.last_observation)

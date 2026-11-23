@@ -33,9 +33,9 @@ the same mode and preset as recording and training. See \ :ref:`mode details <en
    * - ``s``
      - success and episode end; recorder defaults to reward 1 and a terminal step; HIL requires ``--reward-from-teleop-events`` for key rewards
    * - ``f``
-     - failure; discard the recorder pkl attempt, or truncate HIL with ``--reward-from-teleop-events`` (task presets may define their own outcome rules)
+     - failure; flag the recorder attempt discarded (failure event), or truncate HIL with ``--reward-from-teleop-events`` (task presets may define their own outcome rules)
    * - ``r``
-     - discard and rerecord in the recorder; no rerecord action in HIL
+     - the recorder flags the episode discarded (rerecord) and records again; no rerecord action in HIL
    * - Esc
      - end the episode without a success label (``human_episode_end``)
    * - ``q``
@@ -81,7 +81,7 @@ GELLO
 4. Press ``h`` to hand back. In the recorder the measured pose is held; in HIL
    the policy resumes. Press ``t`` again for a fresh anchor on the next takeover.
 5. Use ``s``\ **/**\ ``f``\ **/**\ ``r`` for the outcome. In the recorder press ``s`` while intervening
-   so the successful terminal step enters the human-only pkl export (the archive
+   so the successful terminal step enters the human-only training rows (the dataset
    retains policy and human steps). After ``h``,
    use ``t`` to re-anchor before recording that label.
 6. Use **Esc** for an unlabeled episode end or ``q`` to end the run.
@@ -168,8 +168,8 @@ input-frame/diagnostic settings, rather than physical device identity; see
    Only these joint modes emit ``teleop_syncing``: initial catch-up in ``joint_delta``
    and any ``joint_abs`` step whose leader/follower gap exceeds the ramp limit,
    including after initial alignment. Executed actions and masks stay
-   in the archive; syncing supervision is excluded from archive-derived training
-   views. ``--keep-syncing-steps`` can retain these rows in recorder pkl exports.
+   in the dataset; syncing supervision is excluded from dataset-derived training
+   views. ``--keep-syncing-steps`` can retain these rows in the recorder's training rows (and exported pkls).
    Joint-space trigger takeover still needs the operator to match gripper state;
    the cartesian gripper latch does not apply to that route.
 
@@ -218,7 +218,7 @@ intervened step is always the executed one, the human's. What each method does w
      - Replay or export
    * - recorder
      - stores actual executed actions; human masks select supervised dimensions
-     - complete SQLite archive; successful human pkl view, excluding joint-space syncing by default
+     - complete dataset; successful human training view, excluding joint-space syncing by default
    * - ``hil_serl``
      - learns from all executed actions; human, nonsyncing rows also populate demo replay
      - online replay plus growing demo replay, mixed at ``--demo-data-ratio``
@@ -251,7 +251,7 @@ explicit outcomes and reset/termination rules; a TCP-position proxy remains a se
    actor and learner log a warning when neither is set.
 
 The rule for ``s``: press it **while you still hold control** in the recorder, because only intervened
-steps enter the human pkl export (all steps remain in the archive), and an ``s`` after the release leaves the demo with reward 0 everywhere. In HIL
+steps enter the human training rows (all steps remain in the dataset), and an ``s`` after the release leaves the demo with reward 0 everywhere. In HIL
 training ``s`` counts on any step, yours or the policy's: press it on the step the object lands in the
 bin. With a classifier the larger of the two rewards wins (the keys never lower the classifier's).
 

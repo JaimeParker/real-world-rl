@@ -1,0 +1,87 @@
+joint_controller -- licences and provenance
+===========================================
+
+joint_controller is real-world-rl code, distributed under the MIT License below. The joint
+impedance law, its velocity filter and the default gains are ported from the public GELLO
+controller (Apache License 2.0), and the joint limit tables are franka_description's
+(Apache License 2.0); those parts stay under the Apache License 2.0 (section 2). The package as a
+whole is therefore "MIT AND Apache-2.0".
+
+1. real-world-rl's own code (MIT)
+---------------------------------
+  include/joint_controller/planner.hpp, src/planner.cpp
+      the online quintic reference generator (duration selection, exact extrema, bounded stop),
+      derived from the standard quintic boundary-value problem;
+  include/joint_controller/{law,motion,params}.hpp, src/{law,motion,params}.cpp,
+  python/bindings.cpp, python/joint_controller/
+      the law around the ported impedance term (reference, timeout stop, coriolis, torque-rate
+      limit), the parameter table and validation, the franky torque motion and its mailboxes,
+      the Python binding;
+  tests/, tools/, docker/, scripts/.
+
+MIT License
+
+Copyright (c) real-world-rl contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+2. GELLO's franka_fr3_arm_controllers (Apache-2.0) -- impedance law, filter, default gains
+------------------------------------------------------------------------------------------
+Ported from wuphilipp/gello_software (https://github.com/wuphilipp/gello_software),
+commit 9fc8c26b6e1f6cbd278c0f8f05d0246e6903992c, directory ros2/src/franka_fr3_arm_controllers/:
+
+  src/law.cpp (TrajectoryImpedanceLaw::update, steps 3 and 4), include/joint_controller/law.hpp
+      <- src/joint_impedance_controller.cpp, JointImpedanceController::calculateTauDGains_
+         (dq_filtered_ = (1 - k_alpha_) dq_filtered_ + k_alpha_ dq_;
+          tau = k_gains_ .* (q_goal - q_) + d_gains_ .* (-dq_filtered_)) and on_activate
+         (dq_filtered_ zeroed at start);
+  src/params.cpp, include/joint_controller/params.hpp (defaults)
+      <- config/controllers.yaml (k_gains, d_gains, k_alpha) and
+         include/franka_fr3_arm_controllers/joint_impedance_controller.hpp (kJointStateTimeout,
+         the command_timeout_s default).
+
+  Copyright (c) 2025 Franka Robotics GmbH
+  Licensed under the Apache License, Version 2.0 (the "License"); you may not use these files
+  except in compliance with the License. A copy of the License is in LICENSE.Apache-2.0 (verbatim
+  from that directory). Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+  CONDITIONS OF ANY KIND, either express or implied.
+
+  Changes: re-expressed without ROS 2 on Eigen for franky's torque loop; the goal q_goal is the
+  quintic reference q_ref instead of the raw GELLO joint state; the coriolis term and the
+  torque-rate limit are added (new code, section 1).
+
+  NOTICE of the original directory:
+    franka_fr3_arm_controllers
+    Copyright 2025 Franka Robotics GmbH
+
+3. franka_ros franka_description (Apache-2.0) -- joint position limits
+----------------------------------------------------------------------
+The Panda / FR3 joint position limits (frankaJointPositionLimits in src/params.cpp, the
+lower_limit / upper_limit defaults of default_params) are the values of frankaemika/franka_ros
+(https://github.com/frankaemika/franka_ros) @ ddd2fff,
+franka_description/robots/{panda,fr3}/joint_limits.yaml (the same tables serl_controller uses).
+Copyright (c) Franka Robotics GmbH (formerly Franka Emika GmbH), Apache License 2.0
+(LICENSE.Apache-2.0).
+
+4. Build-time dependencies (not included)
+-----------------------------------------
+franky (TimSchneider42/franky, v2.0.0, MIT), libfranka (frankarobotics/libfranka, Apache-2.0),
+pybind11 (BSD-3-Clause), Eigen (MPL-2.0) and doctest (MIT, tests only) are used unmodified and
+are not part of this package's sources; the franky wheel built alongside carries its own licences.

@@ -131,6 +131,14 @@ class RemoteArm(_RemotePart, Arm):
         return dict(self._remote_control_metadata.get("effective", {}))
 
     @property
+    def joint_trajectory_params(self) -> dict | None:
+        return self._call("joint_trajectory_params")
+
+    def update_joint_trajectory_params(self, updates) -> dict:
+        from real_world_rl.devices.joint_trajectory import joint_trajectory_updates
+        return self._call("update_joint_trajectory_params", params=joint_trajectory_updates(updates))
+
+    @property
     def serl_params(self) -> dict | None:
         return self._call("serl_params")
 

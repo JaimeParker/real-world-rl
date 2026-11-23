@@ -173,7 +173,7 @@ Demo recording takes the same flags (\ :doc:`recording-demos.md <recording-demos
    rwrl record --config bimanual.yaml \
        --teleop-device bimanual --teleop-arm-device leader_arm \
        --robot-teleop-action-mode joint_abs --teleop-event-device keyboard \
-       --output-path demos/bimanual_20.pkl --num-successes 20 --max-episode-steps 300
+       --output-dir demos/bimanual_20 --num-successes 20 --max-episode-steps 300
 
 ``--teleop-device fake`` declares both arms too: a dry run of the two-arm actor without an operator.
 
@@ -219,17 +219,17 @@ robot served by its own gRPC daemon (``real_world_rl.server.daemon.build_daemon`
        --teleop-device bimanual --teleop-arm-device leader_arm --robot-teleop-action-mode joint_abs
    rwrl record --config bimanual.yaml \
        --teleop-device bimanual --teleop-arm-device leader_arm --robot-teleop-action-mode joint_abs \
-       --output-path demos/bimanual.pkl --num-successes 1
+       --output-dir demos/bimanual --num-successes 1
    rwrl train residual_hil_serl --role actor --config bimanual.yaml \
        --teleop-device bimanual --teleop-arm-device leader_arm --robot-teleop-action-mode joint_abs \
        --residual-variant hybrid --base-provider zero
    rwrl train silri --role actor --config bimanual.yaml \
        --teleop-device bimanual --teleop-arm-device leader_arm --robot-teleop-action-mode joint_abs
    rwrl train hil_serl --role learner --config bimanual.yaml \
-       --demo-dataset-paths demos/bimanual.pkl            # likewise residual_hil_serl
+       --demo-dataset-paths demos/bimanual            # likewise residual_hil_serl
                                                           # (--allow-base-less-demos) and silri
    rwrl train real_world_bc --config bimanual.yaml \
-       --demo-dataset-paths demos/bimanual.pkl
+       --demo-dataset-paths demos/bimanual
    rwrl deploy --checkpoint runs/bc-run/checkpoints/final.pt \
        --algo real_world_bc --env-backend real_robot_bimanual \
        --real_robot_bimanual.left.remote LEFT_PC:50051 --real_robot_bimanual.right.remote RIGHT_PC:50052 \
@@ -237,7 +237,7 @@ robot served by its own gRPC daemon (``real_world_rl.server.daemon.build_daemon`
 
 It checks the observation keys (``state`` and one ``rgb_<cam>`` per camera), the 16-D action and
 ``num_arms=2``; that intervened rows follow the left leader while the right arm is held with its
-gripper unchanged; that the demo pkl and its ``.contract.json`` sidecar (``num_arms``, ``arm_names``,
+gripper unchanged; that the demo's action contract (the dataset header's action_contract, or a pkl and its ``.contract.json`` sidecar; ``num_arms``, ``arm_names``,
 per-arm ``joint_limits``) load into the hil_serl, residual and SiLRI learners; that the agents get
 a 9-way gripper head (``num_grippers=2``, from the env contract); and that the BC checkpoint deploys
 on both daemons. The test is skipped when ``grpc`` is not installed.

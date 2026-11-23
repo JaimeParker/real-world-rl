@@ -1,8 +1,7 @@
 """Cartesian intervention from a joint-space leader arm through selectable forward kinematics
 (registered as ``device="leader_cartesian"``).
 
-For envs that only take a cartesian twist: ``franka_real`` (the SERL HTTP bridge has no joint
-command endpoint) and ``real_robot`` in ``cartesian_delta`` mode, whose step sends
+For ``real_robot`` in ``cartesian_delta`` mode, whose step sends
 ``measured + action * scale``. The leader's joints ``q`` become a requested end-effector pose,
 and a ``CartesianTargetTracker`` (``real_world_rl.teleop.core.targets.cartesian_tracker``) turns it into the
 emitted arm action: the tracker's persistent command advances towards the request at
@@ -243,8 +242,7 @@ class LeaderArmCartesianSource(ToggleableTeleopSource):
         robot yaml with a ``teleop:`` section, built here and connected in ``start()``).
 
         Unless passed, the follower pose, the scales and the safety box come from the env: a
-        ``FrankaRealEnv`` found down the wrapper chain (``last_tcp_pose``, ``cfg.action_scale``,
-        ``cfg.safety_box_low/high``), else a ``real_robot`` env in ``cartesian_delta`` mode
+        ``real_robot`` env in ``cartesian_delta`` mode found down the wrapper chain
         (``last_observation["state"]["tcp_pose"]``, ``xyz_scale_m``/``rot_scale_rad`` of its
         action contract, the configured ``safety_box`` of its experiment). A ``real_robot``
         env also supplies its station ``workspace`` and ``task_frame``, as for Pico.

@@ -70,6 +70,15 @@ FRANKY_VERSION_HINT = (
     "reads N from the handshake error and installs the wheel)"
 )
 _BLOCKING_ROBOT_MODES = ("Reflex", "UserStopped", "Guiding")
+JOINT_CONTROLLERS = ("impedance", "trajectory_impedance")
+JOINT_INSTALL_HINT = (
+    "franky, serl_controller and joint_controller must come from the same build: on the robot PC run "
+    "LIBFRANKA_VERSION=<x.y.z> bash native/joint_controller/scripts/install-on-ubuntu.sh, "
+    "or install the three wheels of one wheel build directory together: pip install "
+    "<dir>/franky_control-*.whl <dir>/serl_controller-*.whl <dir>/joint_controller-*.whl; "
+    f"see {docs_url('reference/joint-controller', 'en-joint-controller-installing')}"
+)
+
 CARTESIAN_CONTROLLERS = ("impedance", "internal", "serl")
 SERL_CONTROLLER_DISTRIBUTION = "serl-controller"
 SERL_WHEELS_DOC = (
@@ -227,6 +236,23 @@ def require_serl_controller(device: str) -> ModuleType:
     return module
 
 
+def require_joint_controller(device: str) -> ModuleType:
+    try:
+        module = importlib.import_module("joint_controller")
+    except ModuleNotFoundError as error:
+        if error.name not in ("joint_controller", "joint_controller._joint_controller"):
+            raise
+        raise SdkMissing("joint_controller: trajectory_impedance needs the 'joint_controller' package",
+                         hint=JOINT_INSTALL_HINT, device=device) from error
+    except ImportError as error:
+        raise VersionMismatch(f"joint_controller does not load next to the installed franky: {error}",
+                              hint=JOINT_INSTALL_HINT, device=device) from error
+    if not hasattr(module, "TrajectoryImpedanceMotion"):
+        raise VersionMismatch("joint_controller lacks TrajectoryImpedanceMotion",
+                              hint=JOINT_INSTALL_HINT, device=device)
+    return module
+
+
 def _package_dir(name: str) -> Path | None:
     """The directory of package ``name``, found without importing it."""
     try:
@@ -312,6 +338,7 @@ class _FrankyHandle:
     tracker: Any = None
     streaming: bool = False  # cartesian_controller: internal, a velocity motion was sent
     serl_motion: Any = None  # cartesian_controller: serl, the running SerlCartesianImpedanceMotion
+    joint_trajectory_motion: Any = None
     joint_reset: Any = None  # cartesian_controller: serl, a running SerlJointPositionMotion
 
 
@@ -329,6 +356,8 @@ class FrankyArm(Arm):
         relative_dynamics_factor: float = 0.2,
         realtime: str = "ignore",
         cartesian_controller: str = "impedance",
+        joint_controller: str = "impedance",
+        joint_trajectory: dict | None = None,
         home_joints: list[float] | None = None,
         safety: ArmSafety | None = None,
         serl: dict | None = None,
@@ -342,6 +371,12 @@ class FrankyArm(Arm):
         if cartesian_controller not in CARTESIAN_CONTROLLERS:
             raise ValueError(f"cartesian_controller '{cartesian_controller}' invalid; "
                              f"choose from {list(CARTESIAN_CONTROLLERS)}")
+        if joint_controller not in JOINT_CONTROLLERS:
+            raise ValueError(f"joint_controller '{joint_controller}' invalid; choose from {list(JOINT_CONTROLLERS)}")
+        self.joint_controller = joint_controller
+        from real_world_rl.devices.joint_trajectory import joint_trajectory_updates
+        self._joint_trajectory_params = joint_trajectory_updates(joint_trajectory)
+        self._joint_trajectory_resolved = False
         self.cartesian_controller = cartesian_controller
         # SERL compliance parameters: the station ``serl:`` block resolved over the .cfg defaults,
         # then every update_serl_params() merged in (they persist like dynamic_reconfigure values).
@@ -379,6 +414,8 @@ class FrankyArm(Arm):
             relative_dynamics_factor=config.relative_dynamics_factor,
             realtime=config.realtime,
             cartesian_controller=getattr(config, "cartesian_controller", "impedance"),
+            joint_controller=getattr(config, "joint_controller", "impedance"),
+            joint_trajectory=getattr(config, "joint_trajectory", None),
             home_joints=config.home_joints,
             safety=ArmSafety.from_config(config),
             serl=getattr(config, "serl", None),
@@ -554,6 +591,11 @@ class FrankyArm(Arm):
         handle.streaming = True
 
     def _servo_joints(self, q: np.ndarray) -> None:
+        if self.joint_controller == "trajectory_impedance":
+            motion = self._live_joint_trajectory_motion()
+            if not motion.set_target(self._checked(q, (self.num_joints,))):
+                raise DeviceFault("joint target rejected (non-finite)", device=self.name)
+            return
         tracker = self._live_tracker(ControlMode.JOINT_SERVO)
         tracker.set_target(self._checked(q, (self.num_joints,)))
 
@@ -573,6 +615,107 @@ class FrankyArm(Arm):
             return
         with self._control_exceptions_as_faults("move_to_joints"):
             self._handle.robot.move(franky.JointMotion(target), asynchronous=not blocking)
+
+    @property
+    def joint_trajectory_params(self) -> dict | None:
+        if self.joint_controller != "trajectory_impedance":
+            return None
+        if not self._joint_trajectory_resolved:
+            jc = require_joint_controller(self.name)
+            self._joint_trajectory_params = {**jc.default_params(self.robot_model), **self._joint_trajectory_params}
+            self._joint_trajectory_resolved = True
+        return copy.deepcopy(self._joint_trajectory_params)
+
+    def update_joint_trajectory_params(self, updates) -> dict:
+        if self.joint_controller != "trajectory_impedance":
+            return super().update_joint_trajectory_params(updates)
+        from real_world_rl.devices.joint_trajectory import joint_trajectory_updates
+        values = joint_trajectory_updates(updates)
+        merged = {**self.joint_trajectory_params, **values}
+        motion = self._handle.joint_trajectory_motion if self.is_connected else None
+        if motion is None:
+            # The native constructor validates the complete set even while idle.
+            motion = require_joint_controller(self.name).TrajectoryImpedanceMotion(merged)
+            effective = motion.params()
+        else:
+            effective = motion.update_params(values)
+        self._joint_trajectory_params = copy.deepcopy(effective)
+        return copy.deepcopy(effective)
+
+    def _new_joint_trajectory_motion(self, robot: Any) -> Any:
+        jc = require_joint_controller(self.name)
+        motion = jc.TrajectoryImpedanceMotion(self.joint_trajectory_params)
+        with self._control_exceptions_as_faults("starting the joint trajectory impedance controller"):
+            robot.move(motion, asynchronous=True)
+        return motion
+
+    def _live_joint_trajectory_motion(self) -> Any:
+        """The running joint trajectory controller; restarted after a plain stop(). A reflex (any motion error)
+        that ended it is cleared and the controller restarted here when serl_auto_recover allows
+        it (HIL-SERL's /clearerr before every /pose); otherwise, or past max_per_episode, it is a
+        recoverable fault (refused until recover())."""
+        self._require_servo_mode(ControlMode.JOINT_SERVO)
+        handle = self._handle
+        if handle.joint_trajectory_motion is not None and not handle.robot.is_in_control:
+            handle.joint_trajectory_motion = None
+            try:
+                handle.robot.join_motion()
+                error = None
+            except Exception as exc:
+                error = exc
+            text = "control ended without an error" if error is None else str(error)
+            if error is not None and _is_preemption(error):
+                error = None  # ended by a stop, not a reflex: not auto-recovered
+            message = f"franka joint trajectory impedance controller stopped: {text}"
+            policy = self._serl_auto_recover
+            if error is not None and policy["enabled"]:
+                if self._serl_recoveries_episode < policy["max_per_episode"]:
+                    return self._joint_auto_recover_motion(handle, text)
+                message += (f" (serl_auto_recover: max_per_episode {policy['max_per_episode']} reached, "
+                            f"{self._serl_recoveries_episode} auto-recoveries this episode)")
+            self._note_error(message)
+            raise DeviceFault(message, hint="call recover(); the next servo command restarts the controller",
+                              device=self.name, recoverable=True)
+        if handle.joint_trajectory_motion is None:
+            if self._errors:
+                raise DeviceFault(f"arm '{self.name}' has unrecovered errors: {self._errors}",
+                                  hint="call recover() before servoing", device=self.name, recoverable=True)
+            self._enter_control_mode(ControlMode.JOINT_SERVO)
+        return handle.joint_trajectory_motion
+
+    def _joint_auto_recover_motion(self, handle: _FrankyHandle, error_text: str) -> Any:
+        """Clear the errors (libfranka automatic error recovery, what franka_control's
+        error_recovery action runs) and start a fresh joint controller at the measured joints; the
+        caller then applies the new target. Waits briefly for the controller's first tick, whose
+        starting() would otherwise overwrite a target sent before it."""
+        robot = handle.robot
+        number = self._serl_recoveries_episode + 1
+        cap = self._serl_auto_recover["max_per_episode"]
+        logger.warning("arm '%s': joint trajectory impedance controller stopped (%s); auto-recovery %d/%d this episode: "
+                       "clearing errors and restarting the controller at the measured joints",
+                       self.name, error_text, number, cap)
+        try:
+            recovered = robot.recover_from_errors()
+        except Exception as recover_error:  # e.g. a franky CommandException while UserStopped
+            recovered, error_text = False, f"{error_text}; recover_from_errors failed: {recover_error}"
+        if not recovered:
+            message = f"franka joint trajectory impedance controller stopped: {error_text} (serl_auto_recover could not clear it)"
+            self._note_error(message)
+            raise DeviceFault(message, hint="release the external activation device / clear errors in Desk, "
+                              "then call recover()", device=self.name, recoverable=True)
+        self._clear_errors()
+        self._serl_recoveries_episode = number
+        self._serl_recoveries_total += 1
+        self._last_serl_recovery = {"error": error_text, "episode_count": number, "time_s": time.time(),
+                                    "joint_pos": self._read_state_from(robot)["joint_pos"].tolist()}
+        motion = self._new_joint_trajectory_motion(robot)
+        handle.joint_trajectory_motion = motion
+        snapshot = getattr(motion, "telemetry", None)
+        if callable(snapshot):
+            deadline = time.monotonic() + SERL_RESTART_FIRST_TICK_TIMEOUT_S
+            while int(dict(snapshot()).get("ticks", 0)) < 1 and time.monotonic() < deadline:
+                _sleep(0.001)
+        return motion
 
     # --- cartesian_controller: serl ---
 
@@ -675,7 +818,7 @@ class FrankyArm(Arm):
 
     @property
     def serl_auto_recovery(self) -> dict | None:
-        if self.cartesian_controller != "serl":
+        if self.cartesian_controller != "serl" and self.joint_controller != "trajectory_impedance":
             return None
         return {**self._serl_auto_recover, "episode_count": self._serl_recoveries_episode,
                 "total_count": self._serl_recoveries_total, "last": copy.deepcopy(self._last_serl_recovery)}
@@ -684,7 +827,8 @@ class FrankyArm(Arm):
         self._serl_recoveries_episode = 0
 
     def set_control_mode(self, mode: ControlMode) -> None:
-        if mode is ControlMode.CARTESIAN_SERVO and mode is not self._control_mode:
+        if (mode is ControlMode.CARTESIAN_SERVO or
+                (mode is ControlMode.JOINT_SERVO and self.joint_controller == "trajectory_impedance")) and mode is not self._control_mode:
             self._serl_recoveries_episode = 0  # entering Cartesian servo starts a serl_auto_recover episode
         super().set_control_mode(mode)
 
@@ -842,7 +986,8 @@ class FrankyArm(Arm):
             recorder = self._stop_recorder
             control_mode = self._control_mode.value
             try:
-                tracker_active = bool((self._handle.tracker is not None or self._handle.serl_motion is not None)
+                tracker_active = bool((self._handle.tracker is not None or self._handle.serl_motion is not None
+                                       or self._handle.joint_trajectory_motion is not None)
                                       and self._handle.robot.is_in_control)
             except Exception as error:
                 tracker_active = None
@@ -944,6 +1089,9 @@ class FrankyArm(Arm):
         if mode is ControlMode.CARTESIAN_SERVO and self.cartesian_controller == "serl":
             handle.serl_motion = self._new_serl_motion(handle.robot)
             return
+        if mode is ControlMode.JOINT_SERVO and self.joint_controller == "trajectory_impedance":
+            handle.joint_trajectory_motion = self._new_joint_trajectory_motion(handle.robot)
+            return
         if mode is not ControlMode.IDLE:
             handle.tracker = self._new_tracker(handle.robot, mode)
 
@@ -968,6 +1116,12 @@ class FrankyArm(Arm):
             results.append(self._serl_realtime_check(CheckResult))
         elif self.cartesian_controller == "internal":
             results.append(self._internal_realtime_check(CheckResult))
+        if self.joint_controller == "trajectory_impedance":
+            results.append(CheckResult(
+                5, "mode:joint_trajectory_realtime", True,
+                f"joint_controller: trajectory_impedance with realtime: {self.realtime}",
+                hint="install a PREEMPT_RT kernel and set realtime: enforce" if self.realtime != "enforce" else "",
+                warning=self.realtime != "enforce"))
         results.append(self._robot_model_check(CheckResult))
         return results
 
@@ -1213,14 +1367,16 @@ class FrankyArm(Arm):
         # but must not call the same failed tracker a second time.
         tracker, handle.tracker = handle.tracker, None
         serl_motion, handle.serl_motion = handle.serl_motion, None
+        joint_motion, handle.joint_trajectory_motion = handle.joint_trajectory_motion, None
         handle.joint_reset = None  # a running SERL joint reset is stopped like any position motion
         handle.streaming = False
         operation = ("impedance tracker" if tracker is not None
-                     else "SERL impedance controller" if serl_motion is not None else "franka motion")
+                     else "SERL impedance controller" if serl_motion is not None
+                     else "joint trajectory impedance controller" if joint_motion is not None else "franka motion")
         try:
             if tracker is not None:
                 tracker.stop()
-            elif serl_motion is not None:
+            elif serl_motion is not None or joint_motion is not None:
                 self._stop_torque_motion(handle.robot)
             elif handle.robot is not None and handle.robot.is_in_control:
                 handle.robot.stop()

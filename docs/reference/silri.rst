@@ -86,7 +86,7 @@ HIL-RL（SiLRI）
 -  预训练：learner 进程首次 ``train`` 前，若 agent 尚未 ``pretrained`` 且示范缓冲区有数据，进行 ``bc_pretrain_steps`` 轮，每轮在同一纯示范 batch 上先更新 ``L_beta``，再更新 ``L_bc + L_g``\ ，然后执行 ``actor_target <- actor``\ 。\ ``pretrained`` 标志写入 checkpoint，恢复运行不会重复预训练。
 -  行为刷新：示范缓冲区每增加 ``behavior_refresh_every`` 条数据，在训练线程下一次 ``train`` 前用纯示范 batch 执行 ``behavior_refresh_steps`` 步 ``L_beta``\ 。预训练重置新增计数。
 -  预训练和刷新可能持有训练缓冲区锁。HTTP 接收独立提交到持久 journal，随后训练线程应用排队记录。actor 重试保留消息 ID，丢失 ACK 不会重复接收记录。
--  示范 pkl（\ ``--demo-dataset-paths``\ ）和崩溃恢复快照按 hil_serl 的方式加载。缺少 SiLRI 字段的 pkl 按介入、非 onset 记录加载，策略动作为记录动作。
+-  示范（数据集目录或 pkl，\ ``--demo-dataset-paths``\ ）和崩溃恢复快照按 hil_serl 的方式加载。缺少 SiLRI 字段的示范按介入、非 onset 记录加载，策略动作为记录动作。
 -  每次 learner 迭代调用 ``train(train_freq)``\ ：\ ``utd`` 是每个梯度步骤内部的 critic 更新数，与 ``LearnerLoop`` 默认行为不同，不乘到梯度步骤数上。
 
 .. _silri-hyperparameters:
@@ -248,7 +248,7 @@ learner、actor、eval 的完整命令、环境预设和遥操作参数见\ :doc
 
 .. code-block:: bash
 
-   rwrl train silri --role learner --config hil.yaml --demo-dataset-paths 'demos/*.pkl'
+   rwrl train silri --role learner --config hil.yaml --demo-dataset-paths demos/task
    rwrl train silri --role actor --config hil.yaml --teleop-device leader_arm \
        --robot-teleop-action-mode joint_delta --teleop-event-device keyboard --reward-from-teleop-events
 

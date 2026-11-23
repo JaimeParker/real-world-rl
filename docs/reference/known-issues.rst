@@ -127,7 +127,7 @@ actor 快照使用 learner session/version 身份，仅在身份变化时加载�
 S2. 追赶动作与部分示范标签
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-接管追赶携带同步元数据：\ ``joint_delta`` 标记到主臂首次进入从臂一个 ``joint_scale_rad`` 范围内为止，\ ``joint_abs`` 标记 ramp 限速步骤。初次对齐后正常监督。持久化归档保留实际动作与真实人工掩码，训练投影排除同步监督；human/override 掩码也使保持补充不进入部分模仿损失。录制器启用 ``--keep-syncing-steps`` 后，pickle 导出将这些步骤作为普通监督保留。
+接管追赶携带同步元数据：\ ``joint_delta`` 标记到主臂首次进入从臂一个 ``joint_scale_rad`` 范围内为止，\ ``joint_abs`` 标记 ramp 限速步骤。初次对齐后正常监督。示范数据集保留实际动作与真实人工掩码，训练投影排除同步监督；human/override 掩码也使保持补充不进入部分模仿损失。录制器启用 ``--keep-syncing-steps`` 后，训练行（含导出的 pkl）将这些步骤作为普通监督保留。
 
 状态：已修复，回归测试见 ``tests/test_partial_imitation.py``\ 、\ ``tests/test_leader_arm_source.py`` 及录制器测试。
 

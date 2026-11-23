@@ -27,11 +27,11 @@
        特别保留 robot／remote、task_frame、workspace、control、preprocess 和动作语义。
        模板 remote 只是离线构造空间所需的地址，不要求那里运行服务。
    * - ``obs.rgb``、``obs.image_size``、``real_robot.state_fields``
-     - 对照上一章检查输出和 contract。例中 rgb_wrist 的形状是 [1,128,128,3]，
-       对应 rgb: [wrist]、image_size: [128,128]；state 为 27 维，对应模板中的四个 state_fields。
+     - 对照上一章检查输出和 contract。例中 rgb_wrist 的形状是 [1,224,224,3]，
+       对应 rgb: [wrist]、image_size: [224,224]；state 为 27 维，对应模板中的四个 state_fields。
    * - ``buffer_size``
      - 用上一章 transitions 数；准备脚本设为 max(64, 行数)，避免容量不足时只留下末尾示范。
-       扩展为多个 pkl 时要容纳总行数，并估计图像占用的 CPU 内存。
+       扩展为多个数据集目录时要容纳总行数，并估计图像占用的 CPU 内存（224×224 的 RGB 一行 obs 加 next_obs 约 0.3 MB）。
    * - ``log_dir``、``exp_name``
      - 本例写入 local/bc-runs/first-bc。开始新实验时换尚未使用的名字，避免覆盖 checkpoint 或混合日志。
    * - ``num_offline_steps``、``batch_size``
@@ -43,6 +43,8 @@ log_freq 为 1，checkpoint_freq 为 2，save_final_checkpoint 为 true，seed �
 actor_lr=0.0003、backbone_type=mlp、encoder.backbone=plain_conv、
 encoder.features_dim=256、tanh_squash=true、offline_sampling=with_replace。
 只有比较模型或优化设置时才调整它们；本章不需要下载预训练权重。
+唯一的例外是模板显式写了 ``encoder.plain_conv_pooling: gap``：plain_conv 默认的 flatten 池化只适配 128×128 与 64×64 的图像，
+224×224 输入会在第一次前向时报矩阵形状不匹配；gap 池化适配任意尺寸。
 
 代码默认值与本章小练习不同：buffer_size=1000000、buffer_device=cuda、
 num_offline_steps=100000、log_freq=1000，log_type=tensorboard。
@@ -65,16 +67,16 @@ num_offline_steps 计梯度步，不是回合数；本章显式覆盖这些值�
    :start-after: # start synthetic-prepare
    :end-before: # end synthetic-prepare
 
-**你应该看到**：配置路径、输入 pkl 路径、行数与 buffer_size。
+**你应该看到**：配置路径、输入数据集路径、行数与 buffer_size。
 合成例子实跑为 8 行、buffer_size 64；输出文件是 ``local/bc-train.yaml``。
 脚本只从 session 复制 env_backend、env_id、obs、real_robot，训练参数来自模板；
-teleop 来源约定由训练器从 demo contract 恢复，不会打开设备。
+teleop 来源约定由训练器从数据集头的 action_contract 恢复，不会打开设备。
 
 **如果不对**：
 
 * ``FileExistsError``：准备脚本不覆盖已有配置；先检查旧文件或改输出名。
 * ``empty demonstration``：返回上一章确认示范确实有行。
-* session 指向别的任务：重新选择匹配 pkl 的目录，不手动删掉 contract 来绕过检查。
+* session 指向别的任务：重新选择匹配数据集的目录，不手动改 ``dataset.json`` 的 action_contract 来绕过检查。
 
 2. 启动训练
 --------------------------------------------------------------------------------
@@ -87,8 +89,8 @@ teleop 来源约定由训练器从 demo contract 恢复，不会打开设备。
    :end-before: # end train
 
 ``rwrl train`` 转发到本仓 training 注册表；``examples/train_real_world.py``
-也调用同一个入口，不是另一个 BC 实现。输入为 ``local/first-demo.pkl``，
-其同名 contract 会自动读取。准备脚本把示范路径写入 YAML 的 ``demo_dataset_paths`` 列表；
+也调用同一个入口，不是另一个 BC 实现。输入为数据集目录 ``local/first-demo``：训练直接读取其中 kept 回合的人工步骤，
+数据集头的 action_contract 会自动用来核对，图像历史按本次运行的 ``obs.frame_stack`` 重建（旧的 pkl 仍可加载）。准备脚本把示范路径写入 YAML 的 ``demo_dataset_paths`` 列表；
 需要临时覆盖时仍可使用 ``--demo-dataset-paths`` CLI 参数。
 
 本次验证所用 rlg 环境未安装 rwrl console script 与后端 entry point，
@@ -103,7 +105,7 @@ teleop 来源约定由训练器从 demo contract 恢复，不会打开设备。
 
 已安装完整包的环境可用上面的 rwrl 命令；两种命令都从 local/bc-train.yaml 读取示范路径。
 合成练习用 synthetic-prepare 生成的配置；真实数据用 prepare 生成的配置。
-临时切换输入时，在训练命令后加 ``--demo-dataset-paths local/first-demo.pkl``。
+临时切换输入时，在训练命令后加 ``--demo-dataset-paths local/first-demo``。
 这些命令不是先后重复执行的步骤，同一个实验目录只跑一次。
 
 **你应该看到**：进程正常退出，生成下一节列出的文件。当前 BC 循环把数值写到
@@ -165,7 +167,7 @@ next_obs、reward、done 会进入缓冲，但不进入这个 BC 损失。
 
 日志的 ``losses/behavior_mse`` 是确定性动作与目标在人工维度上的均方误差；
 它按人工维度总数平均，与 NLL 的逐行缩放不同。
-本例训练 MSE 从约 0.225 降到 0.063，说明参数更新能拟合这些合成样本。
+本例训练 MSE 从约 0.214 降到 0.068，说明参数更新能拟合这些合成样本。
 NLL 初值很大，不能把它当作位置误差；边界动作的逆 tanh 和策略标准差都会影响其数值。
 四次更新不足以证明收敛，随机图像更不能证明任务成功。下一章检查具体一行输出。
 
@@ -182,6 +184,16 @@ NLL 初值很大，不能把它当作位置误差；边界动作的逆 tanh 和�
 
 这一步替代 BC 训练，仍然离线，不连接机器人。ACT 一次预测一块动作；
 下面保留前章 rgb_wrist 视觉输入，用独立 first-act 目录保存，避免覆盖 BC。
+rl-garden 的 ACT 训练器和 ``deploy-act`` 仍读 pkl 加同名 contract sidecar，不读数据集目录，
+所以先从数据集导出一份（导出会把全部训练行读入内存）：
+
+.. tutorial-test: skip
+.. literalinclude:: ../examples/bc-train-act.sh
+   :language: bash
+   :start-after: # start export
+   :end-before: # end export
+
+再训练：
 
 .. literalinclude:: ../examples/bc-train-act.sh
    :language: bash
@@ -203,7 +215,7 @@ state 和 action 按训练数据的均值／标准差归一化，统计值保存
 周期文件名为 <iter>.pt。它不是 BC 的 checkpoint 格式；检查约定见 :doc:`bc-check` 第 4 步，
 独立部署见 :doc:`deploy` 第 6 步。
 
-**如果不对**：先核对 pkl 路径、state 与 RGB 键及完整回合边界；缺 torchvision 时补齐
+**如果不对**：先核对导出的 pkl 路径与 sidecar、state 与 RGB 键及完整回合边界；缺 torchvision 时补齐
 ACT 所需学习依赖。本次 rlg 环境在加载训练模块时即缺 torchvision，未实跑 ACT 训练，
 上述参数和预处理由当前源码核对，不能把预期产物当成训练验收。
 

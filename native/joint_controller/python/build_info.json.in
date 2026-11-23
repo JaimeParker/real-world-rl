@@ -1,0 +1,14 @@
+{
+  "joint_controller_version": "@PROJECT_VERSION@",
+  "gello_commit": "9fc8c26",
+  "with_franky": @JOINT_CONTROLLER_WITH_FRANKY_JSON@,
+  "franky_dist_version": "@JOINT_CONTROLLER_FRANKY_DIST_VERSION@",
+  "franky_commit": "@JOINT_CONTROLLER_FRANKY_COMMIT@",
+  "libfranky_sha256": "@JOINT_CONTROLLER_LIBFRANKY_SHA256@",
+  "libfranka_file": "@JOINT_CONTROLLER_LIBFRANKA_FILE@",
+  "libfranka_version": "@JOINT_CONTROLLER_LIBFRANKA_VERSION@",
+  "franky_layout": "@JOINT_CONTROLLER_FRANKY_LAYOUT@",
+  "libfranka_path": "@JOINT_CONTROLLER_LIBFRANKA_PATH@",
+  "libfranka_sha256": "@JOINT_CONTROLLER_LIBFRANKA_SHA256@",
+  "build_id": "@JOINT_CONTROLLER_BUILD_ID@"
+}

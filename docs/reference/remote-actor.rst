@@ -67,7 +67,7 @@ GPU 机器上的设备 RPC 和 RemoteRobot 见\ :doc:`机器人守护进程 <dae
 将远程 actor 指向 NUC
 --------------------------------------------------------------------------------
 
-在 **actor 机器**\ 仓库根目录使用项目环境。在其 ``hil.yaml`` 移除 ``real_robot.robot``\ ，将 ``real_robot.remote`` 设为 NUC 可达地址和站点守护进程端口（通常 50051）。仅配置 ``daemon.token`` 时设置 ``real_robot.token``\ 。有相机时需提供 ``obs.image_size``\ ，因为远程尺寸连接后才知道。保持录制时相同动作模式、50 Hz 和观测契约。
+在 **actor 机器**\ 仓库根目录使用项目环境。在其 ``hil.yaml`` 移除 ``real_robot.robot``\ ，将 ``real_robot.remote`` 设为 NUC 可达地址和站点守护进程端口（通常 50051）。仅配置 ``daemon.token`` 时设置 ``real_robot.token``\ 。有相机时需提供 ``obs.image_size``\ ，因为远程尺寸连接后才知道（教程推荐 224×224，须与录制示范时一致）。保持录制时相同动作模式、50 Hz 和观测契约。
 
 在 actor 项目环境安装 gRPC 客户端：
 

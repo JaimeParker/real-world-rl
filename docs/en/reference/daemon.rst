@@ -76,7 +76,7 @@ Pillow/OpenCV fails at ``connect()`` with ``SdkMissing: JPEG frames need Pillow 
 
 
 Across an SSH tunnel from a robot NUC to a GPU server, set ``real_robot.image_size`` to the
-required frame size (height, width). With daemon-side preprocessing, the daemon returns only the
+required frame size (height, width); the tutorials recommend 224×224. A larger size makes the recorded dataset and the training buffer larger (one lossless RGB frame is about 150 KB, one per camera per control step). With daemon-side preprocessing, the daemon returns only the
 configured streams. It crops each requested ROI and resizes before optional JPEG encoding.
 ``robot.describe`` advertises ``frame_preprocess_v1`` for Pillow bilinear resize and
 ``frame_preprocess_cv2_v1`` for OpenCV ``INTER_LINEAR``. Install the ``jpeg`` extra on the daemon

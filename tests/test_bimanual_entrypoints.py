@@ -7,6 +7,7 @@ two-gripper rlpd_hybrid checkpoint. The loops are monkeypatched; the backend ret
 from __future__ import annotations
 
 import json
+import pickle
 
 import pytest
 import real_world_rl.devices.claims as claims
@@ -17,8 +18,7 @@ from rl_garden.observations import ObservationConfig
 from real_world_rl.devices.teleop import TeleopConfig
 
 import real_world_rl.envs.backends.real_robot_bimanual  # noqa: F401  (registers the backend)
-from real_world_rl.contracts.action import demo_contract_of
-from real_world_rl.demos.record import save_demos
+from real_world_rl.contracts.action import demo_contract_of, write_contract_sidecar
 from real_world_rl.deploy.checkpoint import (
     DeployArgs,
     _gripper_count_kwargs,
@@ -225,7 +225,9 @@ def _write_two_arm_demo(path) -> None:
         }
         for _ in range(6)
     ]
-    save_demos(transitions, path, demo_contract_of(contract_env))
+    with open(path, "wb") as stream:  # a legacy pkl demo with its contract sidecar
+        pickle.dump(transitions, stream)
+    write_contract_sidecar(path, demo_contract_of(contract_env))
 
 
 def test_real_world_bc_trains_on_a_two_arm_demo_and_deploy_restores_it(bimanual_backend, tmp_path):

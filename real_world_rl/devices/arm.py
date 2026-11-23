@@ -146,6 +146,14 @@ class Arm(ControllablePart, BackendRegistry, ABC):
     # -- SERL compliance parameters (cartesian_controller: serl) --------------------------
 
     @property
+    def joint_trajectory_params(self) -> dict | None:
+        return None
+
+    def update_joint_trajectory_params(self, updates) -> dict:
+        raise DeviceFault(f"{type(self).__name__} has no joint trajectory parameters",
+                          hint="use franky with joint_controller: trajectory_impedance", device=self.name)
+
+    @property
     def serl_params(self) -> dict | None:
         """The full SERL compliance parameter set the Cartesian controller runs with (or will
         start with), or None when this arm does not run SERL's controller."""

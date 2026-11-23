@@ -89,7 +89,7 @@ the derived ones. Use it for device options the CLI has no flags for, for exampl
 
 or ``device_index: 1`` (and ``deadzone``, ``invert_axes``) for a second SpaceMouse, or, for
 ``--teleop-device leader_cartesian`` on the
-``franka_real`` stack, the robot daemon serving the leader arm (see
+``real_robot`` stack, the robot daemon serving the leader arm (see
 \ :ref:`Leader arm on a cartesian robot <en-teleop-leader-arm-on-a-cartesian-robot-leader_cartesian>`\ ):
 
 .. code-block:: yaml
@@ -181,7 +181,7 @@ them) are not the env's in the env's order.
      - kwargs: ``motion``, ``events`` (registry names), ``motion_kwargs``, ``events_kwargs``, ``intervention_from="events"`` (or ``"motion"``). hil_serl builds it from ``--teleop-event-device``.
    * - ``leader_cartesian``
      - ``LeaderArmCartesianSource``
-     - a joint-space leader arm turned into a cartesian twist by Panda forward kinematics (the ``franka_real`` stack)
+     - a joint-space leader arm turned into a cartesian twist by Panda forward kinematics (the ``real_robot`` stack)
      - cartesian_delta, 6 + gripper
      - see \ :ref:`Leader arm on a cartesian robot <en-teleop-leader-arm-on-a-cartesian-robot-leader_cartesian>`\ .
    * - ``bimanual``
@@ -265,9 +265,7 @@ existing base-frame contract.
 For SERL, configure the station's **xyz and RPY safety boxes** first. Missing
 either box is a construction error. On ``real_robot``, these are ``safety_box``
 (``[xmin, ymin, zmin, xmax, ymax, zmax]``), ``safety_box_rpy_low`` and
-``safety_box_rpy_high``; scales remain ``xyz_scale_m``/``rot_scale_rad``. On
-``franka_real``, put ``safety_box_low``, ``safety_box_high`` and the two RPY limits in
-``franka_real.env_kwargs_json``; the existing position/rotation scales still apply.
+``safety_box_rpy_high``; scales remain ``xyz_scale_m``/``rot_scale_rad``.
 The mode selects ``cartesian_semantics: serl`` before env construction even on a
 learner that opens no teleop device. An explicitly configured ``current`` conflicts
 with this mode; an unset programmatic dataclass default is promoted to ``serl``.
@@ -381,7 +379,7 @@ HID node must also be passed into the container. The legacy ``SpaceMouseExpert``
 ``legacy-bridge`` extra keep their separate ``pyspacemouse`` API.
 
 On the NUC, repository root, with the project environment active and the station's
-``hil.yaml`` configured, for a ``cartesian_delta`` env (``real_robot`` in ``cartesian_delta`` mode, or ``franka_real``), with the
+``hil.yaml`` configured, for a ``cartesian_delta`` env (``real_robot`` in ``cartesian_delta`` mode), with the
 operator's labels on the terminal (the SpaceMouse Compact has two buttons, both taken):
 
 .. code-block:: bash
@@ -389,7 +387,7 @@ operator's labels on the terminal (the SpaceMouse Compact has two buttons, both 
 
    rwrl record --config hil.yaml \
        --teleop-device spacemouse --teleop-event-device stdin \
-       --output-path demos/task_20.pkl --num-successes 20
+       --output-dir demos/task_20 --num-successes 20
 
 The HIL actor takes the same two flags. Add ``--spacemouse-mode serl`` to select
 the native behavior in the table above, after configuring both safety boxes.
@@ -534,7 +532,7 @@ Onset (``--teleop-onset``, source kwarg ``onset``):
 -  ``ramp`` (default): in ``joint_abs`` the emitted target is
    ``q_follower + clip(q_leader - q_follower, +-ramp_step_rad)`` (``--teleop-ramp-step-rad``, 0.05),
    normalized onto the joint limits, so the recorded action is the executed command; those
-   intervened steps carry ``info["teleop_events"]["teleop_syncing"] = True``. The archive retains
+   intervened steps carry ``info["teleop_events"]["teleop_syncing"] = True``. The dataset retains
    them, while training excludes syncing expert labels. In ``joint_delta``, initial catch-up is
    marked until the leader first comes within ``joint_scale_rad``; later saturated motion of the
    same takeover is ordinary teaching.
@@ -573,11 +571,11 @@ leader's joints into a requested end-effector pose, and a ``CartesianTargetTrack
 Why
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The legacy ``franka_real`` stack talks to the SERL HTTP bridge, which only knows ``/pose`` (an
+A ``real_robot`` with a ``serl_http`` arm talks to the SERL HTTP bridge, which only knows ``/pose`` (an
 absolute cartesian impedance target), ``/open_gripper``/``/close_gripper``, ``/jointreset``,
 ``/startimp``/``/stopimp`` and ``/getstate``. There is no streaming joint command, so the joint-space
 leader sources (``--teleop-device leader_arm``/``gello``, see \ :ref:`Leader arms <en-teleop-leader-arms-gello>`\ ) cannot drive it, and
-``FrankaRealEnv`` takes a 7-D action: base-frame twist (6) + gripper. The conversion therefore
+``real_robot`` in cartesian_delta mode takes a 7-D action: base-frame twist (6) + gripper. The conversion therefore
 happens on the actor side:
 
 .. code-block:: text
@@ -605,8 +603,8 @@ Pieces
    * - ``LeaderArmCartesianSource``
      - ``real_world_rl/teleop/leader/cartesian.py``
      - the teleop source; any ``joint_abs`` part matching the selected kinematics' joint count is a valid leader.
-   * - ``FrankaRealEnv.last_tcp_pose``
-     - ``real_world_rl/envs/franka_real/env.py``
+   * - ``RealRobotEnv.last_observation``
+     - ``real_world_rl/envs/real_robot/env.py``
      - the measured TCP pose (``O_T_EE``, xyz + quat xyzw) of the latest reset/step; the source's follower pose.
    * - stub-robot yaml
      - ``examples/stations/robot.gello_station.example.yaml``
@@ -651,15 +649,13 @@ The source needs exactly one leader:
 -  ``leader=<part or resolver>``: a teleop part the caller owns (tests, custom setups).
 
 The follower pose, the per-step scales and the safety box come from the env:
-``FrankaRealEnv.last_tcp_pose``, ``cfg.action_scale`` and ``cfg.safety_box_low/high``, found down the
-wrapper chain; on a ``real_robot`` cartesian env, ``last_observation["state"]["tcp_pose"]``, the action
+on a ``real_robot`` cartesian env, ``last_observation["state"]["tcp_pose"]``, the action
 contract's ``xyz_scale_m``/``rot_scale_rad`` and the configured ``safety_box`` (``None``: no legacy box
 check in the source). Pass ``follower_pose_getter=``,
 ``pos_scale_m=``, ``rot_scale_rad=`` and ``safety_box=`` to override them. The scales must be at least
 the lead caps (``xyz_scale_m >= lead_cap_m``, ``rot_scale_rad >= lead_cap_rad``), else the source
 refuses to build: the default scales (0.02 m / 0.1 rad) need either larger ones
-(``--real-robot.xyz-scale-m 0.05 --real-robot.rot-scale-rad 0.3`` as in the preset, or
-``--franka-real.action-scale-pos``/``--franka-real.action-scale-rot``) or lower caps.
+(``--real-robot.xyz-scale-m 0.05 --real-robot.rot-scale-rad 0.3`` as in the preset) or lower caps.
 
 On ``real_robot``, the station ``workspace`` and ``task_frame`` are read from the env config,
 falling back to its local robot YAML, as for Pico. Explicit source kwargs override them.
@@ -674,7 +670,7 @@ The log reads ``WORKSPACE HOLD: <axes>; the follower holds its pose and the lead
    from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
 
    env = TeleopInterventionWrapper(
-       franka_real_env,
+       real_robot_env,
        device="leader_cartesian",
        remote_address="robot-host:50052",
        mapping="anchored",
@@ -694,7 +690,7 @@ kwargs as a yaml mapping with ``--teleop-options-yaml`` (merged into the motion 
 .. code-block:: bash
    :dedent: 0
 
-   rwrl train hil_serl --role actor --env-backend franka_real \
+   rwrl train hil_serl --role actor --env-backend real_robot --config hil.yaml \
        --teleop-device leader_cartesian --teleop-options-yaml station.yaml
 
 With the default ``intervention: always`` the operator drives on every step (pure teleop or demo
@@ -867,7 +863,7 @@ Gripper
 The leader's width target ``w`` in ``[0, 1]`` (1 = open) becomes ``+1`` (open) if
 ``w > gripper_binarize_threshold`` and ``-1`` (close) otherwise; the default 0.5 closes the gripper
 once the trigger passes half travel. The exact +-1 values are clean labels for the hybrid
-(discrete) gripper critic, and ``franka_real`` (open on ``a > 0.5``) executes them unambiguously;
+(discrete) gripper critic, and ``real_robot`` executes them unambiguously;
 ``gripper_binarize_threshold=None`` emits the continuous ``2w - 1`` instead. A leader
 without a gripper channel holds the gripper action last sent to the env, which needs
 ``last_gripper_action_getter`` (as for ``--teleop-device robot``).
@@ -895,12 +891,18 @@ about ``(0.307, 0, 0.590)``), but has not been compared with a real robot yet. B
    import numpy as np
    from scipy.spatial.transform import Rotation
 
-   from real_world_rl.envs.franka_real.bridge_client import FrankaBridgeClient
+   from real_world_rl.server import RemoteRobot, RemoteRobotConfig
    from real_world_rl.kinematics import PandaKinematics
 
-   state = FrankaBridgeClient("http://robot-host:5000").get_state()  # q and pose (O_T_EE)
-   position, quat = PandaKinematics().ee_pose(state["q"])
-   pose = np.asarray(state["pose"])
+   # Use a daemon with joint feedback (e.g. a franky arm).
+   robot = RemoteRobot(RemoteRobotConfig(address="robot-host:50051"))
+   robot.connect()
+   try:
+       state = robot.get_observation()["state"]
+   finally:
+       robot.disconnect()
+   position, quat = PandaKinematics().ee_pose(state["joint_pos"])
+   pose = np.asarray(state["tcp_pose"])
    print("position error [m]:", np.linalg.norm(position - pose[:3]))
    print("rotation error [rad]:", (Rotation.from_quat(quat) * Rotation.from_quat(pose[3:]).inv()).magnitude())
 
@@ -1140,7 +1142,7 @@ Pico
 --------------------------------------------------------------------------------
 
 ``--teleop-device pico`` (``PicoTeleopSource``, ``real_world_rl/teleop/pico/source.py``) drives a
-``cartesian_delta`` env (``real_robot`` in ``cartesian_delta`` mode, or ``franka_real``) from a Pico VR
+``cartesian_delta`` env (``real_robot`` in ``cartesian_delta`` mode) from a Pico VR
 controller. The Pico is a **pose** device: the hand pose is anchored onto the same
 ``CartesianTargetTracker`` as ``leader_cartesian`` and ``spacemouse`` (see \ :ref:`Mapping <en-teleop-mapping>`\ ), so the
 follower never jumps at a take-over, never leads its measured pose by more than the lead cap, and
@@ -1329,7 +1331,7 @@ default lead caps), with the operator's labels on the terminal:
 
    rwrl record --config hil.yaml \
        --teleop-device pico --teleop-options-yaml local/pico.yaml --teleop-event-device stdin \
-       --output-path demos/task_20.pkl --num-successes 20
+       --output-dir demos/task_20 --num-successes 20
 
 The HIL actor takes the same three flags (``rwrl train hil_serl --role actor --config hil.yaml --teleop-device pico --teleop-options-yaml local/pico.yaml --teleop-event-device stdin``).
 
@@ -1356,7 +1358,7 @@ own subscriber:
 
    robot_teleop: true
 
-On the ``franka_real`` stack, a robot daemon that serves the Pico as its teleop part is read with
+On the ``real_robot`` stack, a robot daemon that serves the Pico as its teleop part is read with
 ``remote_address: <robot-host>:<port>`` (and ``remote_token``), as for ``leader_cartesian``.
 
 .. _en-teleop-basic-usage:
@@ -1409,10 +1411,10 @@ the episode. It is for the sim only; on a real robot use ``--teleop-device space
 Recording demos on the real robot
 --------------------------------------------------------------------------------
 
-``examples/record_real_demos.py`` records teleoperated episodes on the ``real_robot``,
-``real_robot_bimanual`` or ``franka_real`` env of a HIL run (same env and teleop flags as its actor)
-into the demo pkl format the learners
-load with ``--demo-dataset-paths``, keeping only the intervened steps. See
+``examples/record_real_demos.py`` records teleoperated episodes on the ``real_robot`` or
+``real_robot_bimanual`` env of a HIL run (same env and teleop flags as its actor)
+into a demo dataset directory (``--output-dir``) that the learners
+load with ``--demo-dataset-paths``; training takes only the intervened steps. See
 \ :doc:`recording-demos.md <recording-demos>`\ ; for a GELLO, \ :ref:`gello.md <en-gello-5-recording-demos>`\ .
 
 .. _en-teleop-recording-wsrl-data:

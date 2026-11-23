@@ -42,11 +42,6 @@ def find_in_wrapper_chain(env: Any, env_cls: type) -> Optional[Any]:
 
 def follower_pose_from_env(env: Any, contract: Optional[Mapping[str, Any]]) -> tuple[PoseGetter, tuple]:
     """The follower TCP pose getter and ``(pos_scale_m, rot_scale_rad)`` of ``env``."""
-    from real_world_rl.envs.franka_real.env import FrankaRealEnv
-
-    franka_env = find_in_wrapper_chain(env, FrankaRealEnv)
-    if franka_env is not None:
-        return (lambda: franka_env.last_tcp_pose), tuple(franka_env.cfg.action_scale)
     real_env = _find_last_observation_owner(env)
     if real_env is not None and contract is not None and contract["action_mode"] == _CARTESIAN_ACTION_MODE:
 
@@ -58,19 +53,13 @@ def follower_pose_from_env(env: Any, contract: Optional[Mapping[str, Any]]) -> t
 
         return tcp_pose_from_observation, (contract["xyz_scale_m"], contract["rot_scale_rad"])
     raise ValueError(
-        "the follower's TCP pose is read from a franka_real env (FrankaRealEnv.last_tcp_pose) or "
-        "a real_robot env with action_mode cartesian_delta (and tcp_pose in its state_fields); "
+        "the follower's TCP pose is read from a real_robot env with action_mode cartesian_delta (and tcp_pose in its state_fields); "
         "otherwise pass follower_pose_getter=..."
     )
 
 
 def safety_box_from_env(env: Any, contract: Optional[Mapping[str, Any]]) -> Optional[list]:
     """``[xmin, ymin, zmin, xmax, ymax, zmax]`` the env clips commands to, if configured."""
-    from real_world_rl.envs.franka_real.env import FrankaRealEnv
-
-    franka_env = find_in_wrapper_chain(env, FrankaRealEnv)
-    if franka_env is not None:
-        return [*franka_env.cfg.safety_box_low, *franka_env.cfg.safety_box_high]
     experiment = (contract or {}).get("experiment") or {}
     box = experiment.get("safety_box")
     return None if box is None else list(box)

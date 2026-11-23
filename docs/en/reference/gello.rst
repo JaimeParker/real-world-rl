@@ -38,7 +38,7 @@ Which path to use:
      - ``cartesian_delta``
      - ``--teleop-device leader_cartesian`` with a separate leader-options mapping
      - local robot host or daemon host; see section 4
-   * - ``franka_real`` (SERL HTTP bridge, cartesian only)
+   * - ``real_robot`` (SERL HTTP bridge, cartesian only)
      - ``cartesian_delta``
      - ``--teleop-device leader_cartesian`` (Panda forward kinematics)
      - the robot host, through a stub-robot daemon
@@ -216,6 +216,15 @@ same limits:
    of ``+-1`` asks for ``+-0.05`` rad per step, and the daemon's cap clips anything beyond
    ``joint_rad``. ``state_fields`` must contain ``joint_pos`` (the leader source compares against it).
 
+-  **Joint controller.** The default ``joint_controller: impedance`` receives a step target every ``control_hz`` period. For GELLO joint teleoperation set ``joint_controller: trajectory_impedance`` in the robot YAML, so each target is turned by a quintic planner into a continuous reference trajectory before it is tracked, and the follower moves more smoothly; also raise ``real_robot.control_hz`` in the actor preset to 15–30 Hz (the same value for collection, training and deployment). While the leader moves, the follower trails by about one braking distance (about 0.06 rad by default for a leader at 0.5 rad/s); tune it with ``joint_trajectory.max_acceleration``. For choosing, installing and the parameters, see step 10 of :doc:`../tutorials/controller` and :doc:`joint-controller`.
+
+.. code-block:: yaml
+   :dedent: 0
+
+   joint_controller: trajectory_impedance   # default: impedance
+   realtime: enforce                        # PREEMPT_RT kernel recommended
+   joint_trajectory: {}                     # optional overrides, see joint-controller
+
 Serve it on the robot PC:
 
 .. code-block:: bash
@@ -249,12 +258,12 @@ A GELLO on the actor's machine instead (``--teleop-device gello``): leave the ``
 out of the robot yaml and give the calibration ``options`` as a flat mapping with
 ``--teleop-options-yaml gello.yaml`` (\ :ref:`teleop.md <en-teleop-devices>`\ ).
 
-.. _en-gello-4-franka_real-the-stub-robot-daemon:
+.. _en-gello-4-cartesian-the-stub-robot-daemon:
 
-4. ``franka_real``: the stub-robot daemon
+4. ``real_robot``: the stub-robot daemon
 --------------------------------------------------------------------------------
 
-``franka_real`` talks to the SERL HTTP bridge, which takes only cartesian targets. The GELLO is
+A ``real_robot`` with a ``serl_http`` arm talks to the SERL HTTP bridge, which takes only cartesian targets. The GELLO is
 plugged into the robot host and served by a stub robot (``type: franka``, ``arm_backend: fake``, no
 gripper, no cameras) whose only real device is the GELLO,
 ``examples/stations/robot.gello_station.example.yaml``:
@@ -271,8 +280,7 @@ The actor turns the leader joints into a cartesian twist with Panda forward kine
 target: a fixed hold pose while nobody drives, a command that leads the measured TCP by at most
 ``--teleop-lead-cap-m 0.05`` / ``--teleop-lead-cap-rad 0.3`` and advances at most
 ``--teleop-target-speed-m-s 0.05`` / ``--teleop-target-speed-rad-s 0.3``. The env's scales must be at
-least the lead caps (``--real-robot.xyz-scale-m 0.05 --real-robot.rot-scale-rad 0.3``, or the
-``franka_real`` action scales). The same source drives a ``real_robot`` arm in ``cartesian_delta``;
+least the lead caps (``--real-robot.xyz-scale-m 0.05 --real-robot.rot-scale-rad 0.3``). The same source drives a ``real_robot`` arm in ``cartesian_delta``;
 ``examples/presets/gello_cartesian.yaml`` is a single-arm 50 Hz state-only preset for it. Mapping,
 tracker, gripper and the DH check are in
 \ :ref:`teleop.md <en-teleop-leader-arm-on-a-cartesian-robot-leader_cartesian>`\ .
@@ -283,7 +291,7 @@ tracker, gripper and the DH check are in
 --------------------------------------------------------------------------------
 
 Follow \ :doc:`08 Record demos <../tutorials/record>`\  for supervised recording, operator
-labels, archive inspection and action-contract compatibility. Use the same action mode for
+labels, dataset inspection and action-contract compatibility. Use the same action mode for
 the demonstrations and the run that loads them; joint-space syncing/export details are in
 \ :doc:`07 leader-follower <../tutorials/gello>`\ 
 and the \ :doc:`recorder reference <recording-demos>`\ .

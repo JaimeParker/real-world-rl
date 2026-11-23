@@ -1,0 +1,20 @@
+# Tutorial snippet: station fields for joint_controller: trajectory_impedance (see station.yaml for other fields).
+type: franka
+name: franka
+arm_backend: franky
+robot_ip: REPLACE_WITH_FCI_IP
+gripper:
+  backend: franky
+  max_width_m: 0.08
+  mode: binary
+# start controller
+joint_controller: trajectory_impedance   # Default is impedance; choose this for GELLO joint teleoperation
+robot_model: fr3                         # Use panda for Desk system 4.x, fr3 for 5.x
+realtime: enforce                        # PREEMPT_RT recommended; enforce fails to connect on a regular kernel
+joint_trajectory: {}                     # Empty = every value from joint_controller's defaults (limits follow robot_model)
+# end controller
+# start override
+joint_trajectory:                        # Write only the keys to change; the rest keep their defaults
+  max_acceleration: [6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0]   # rad/s^2; larger means less following lag
+  command_timeout_s: 0.5                                  # s; with no new target this long, a controlled stop
+# end override

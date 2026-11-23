@@ -91,7 +91,7 @@ Supervisor 进程
 .. code-block:: bash
 
    rwrl supervise --log runs/<run>/supervise.jsonl -- \
-       rwrl record --config hil.yaml --output-path demos/session.pkl --num-successes 1
+       rwrl record --config hil.yaml --output-dir demos/session --num-successes 1
 
 .. list-table::
    :header-rows: 1
@@ -144,7 +144,7 @@ Supervisor 杀进程后的恢复
 1. 确认机器人静止、工位安全、物理停止可达。
 2. 读 stderr 原因及 log 的 escalate 事件。
 3. Reflex 时释放外部激活装置，在 Desk 清错，或 ``rwrl doctor --station robot.yaml --fix`` 恢复并复查模式。
-4. 被杀运行未完成收尾。SQLite outbox/journal 保留已提交行，recorder 归档也保留已提交步，重开时将未完成回合标为中断；只有执行后尚未持久追加的数据不在保证范围内。用同一 outbox 路径重启续传。
+4. 被杀运行未完成收尾。SQLite outbox/journal 保留已提交行；录制器已结束的回合都在数据集里，只丢失正在录的那一个（Ctrl-C 或错误能收尾时存为 interrupted）；只有执行后尚未持久追加的数据不在保证范围内。用同一 outbox 路径重启续传。
 
 .. _real-world-experiments-learner-checkpoints-and-recovery:
 
@@ -194,7 +194,7 @@ bundle 默认包含完整回放，因此占用磁盘、保存时间和临时 CPU
 
 默认 ``--teleop-idle-behavior hold``\ ，部分接管期间，未选机械臂在 ``joint_abs`` 下保持当前从臂姿态，增量模式使用零增量；夹爪保持最后目标。\ ``--teleop-idle-behavior policy`` 让未选部件继续使用策略。\ ``human_action_mask`` 标记真实人工控制，\ ``override_mask`` 还包括保持补充。空人工掩码没有专家标签，保持补充不训练模仿损失。旧全动作介入沿用完整掩码行为。
 
-主臂追赶会实际执行并归档。\ ``joint_abs`` 的 ``ramp`` 每个限速步骤都是追赶；\ ``joint_delta`` 仅将接管到主臂首次进入从臂一个 ``joint_scale_rad`` 范围内的初始步骤视为追赶，同次接管之后因操作员更快而产生的饱和步骤正常教学。追赶记录的 ``syncing`` 禁用示范监督。录制器 ``--keep-syncing-steps`` 将其作为普通监督保留在 pickle，归档仍保留 ``syncing``\ ，归档训练视图也继续排除。无夹爪通道主臂只保持前一目标，不提供专家夹爪标签。
+主臂追赶会实际执行并记录。\ ``joint_abs`` 的 ``ramp`` 每个限速步骤都是追赶；\ ``joint_delta`` 仅将接管到主臂首次进入从臂一个 ``joint_scale_rad`` 范围内的初始步骤视为追赶，同次接管之后因操作员更快而产生的饱和步骤正常教学。追赶记录的 ``syncing`` 禁用示范监督。录制器 ``--keep-syncing-steps`` 将其作为普通监督保留在训练行里，数据集仍保留 ``syncing`` 标记；不设该选项时训练视图排除它们。无夹爪通道主臂只保持前一目标，不提供专家夹爪标签。
 
 BC、SiLRI 行为拟合及 actor 预训练只监督人工维度。连续 NLL 每个监督数据行采用 ``D / k * sum(mask * NLL)``\ ，\ ``D`` 是完整连续宽度，\ ``k`` 是该行监督宽度。空掩码不贡献梯度，完整掩码恢复原目标。残差 BC 还与非零残差缩放求交集。SiLRI 联合夹爪头使用已观测人工夹爪的边缘概率，对未观测夹爪选项求和；在线行为先验距离和乘子约束仍保持完整连续动作语义。
 
@@ -202,14 +202,14 @@ BC、SiLRI 行为拟合及 actor 预训练只监督人工维度。连续 NLL 每
 
 .. _real-world-experiments-trajectory-archives-and-training-views:
 
-轨迹归档与训练视图
+示范数据集与训练视图
 --------------------------------------------------------------------------------
 
-录制在成功示范 ``.pkl`` 旁创建 ``<output stem>.trajectory.sqlite3``\ 。回合开始、每步和回合结束均通过与接收相同的 SQLite 持久层提交。归档含策略提案、实际动作、human/override 掩码、同步、终止与截断、奖励分量、结果来源和实验身份，保留失败与重录。迭代采用分页，重新打开不会把历史相机帧全部加载成内存列表。
+录制把每个回合写进示范数据集目录（\ ``--output-dir``\ ，格式见\ :doc:`录制示范 <recording-demos>`\ ）：每个回合先写成 ``.tmp-`` 临时目录，写完并落盘后整体改名，因此读取方只会看到完整的回合。数据集含策略提案、实际动作、human/override 掩码、同步、终止与截断、奖励、事件和结果来源，保留失败、重录与中断的回合（标为 discarded 并带原因）。读取按回合进行，训练一次只在内存里放一个回合的图像，不会把历史相机帧全部加载进内存。
 
-突然停止后，再开同一归档会将未结束回合标为中断，后续尝试使用新回合 ID。恢复保证从 durable append 返回时开始；此前已执行但未提交的动作仍存在执行到提交的间隙。\ ``--export-trajectory-pt`` 显式生成可移植普通记录导出，SQLite 仍是默认归档和恢复来源。
+突然停止后，已结束的回合都在数据集里，只丢失正在录的那一个（它的临时目录在下次打开时清掉）；被 Ctrl-C 或错误打断且已有一步的回合，存为 discarded（``interrupted``\ ）。恢复保证从回合目录改名完成时开始；此前已执行的动作和那个回合的数据不在保证范围内。对同一数据集目录再次录制即追加，回合序号只增不减。
 
-``--demo-dataset-paths`` 接受旧 ``.pkl``\ 、\ ``.trajectory.sqlite3`` 和显式 ``.trajectory.pt`` 导出。归档视图选择完整成功回合中的非同步人工步骤，保留原始 step index，过滤不会虚构时间邻接或将终止奖励转移到较早人工步骤。缺介入列的旧人工示范沿用全维度监督；显式 false 标签与来源未知在线 checkpoint 保持非专家身份。
+``--demo-dataset-paths`` 接受数据集目录，以及旧 ``.pkl``\ 、\ ``.trajectory.sqlite3`` 和显式 ``.trajectory.pt`` 导出。数据集视图选择 kept 回合中的非同步人工步骤（录制时设了 ``--keep-syncing-steps`` 则含追赶步），保留原始 step index，过滤不会虚构时间邻接或将终止奖励转移到较早人工步骤。缺介入列的旧人工示范沿用全维度监督；显式 false 标签与来源未知在线 checkpoint 保持非专家身份。
 
 版本化实验约定包含比较部分和来源部分。比较部分决定策略看到什么及动作如何解释：任务、控制设置、\ ``control_hz``\ 、\ ``joint_limits``\ 、深度相机、\ ``image_size``\ 、图像预处理、最终观测布局（键、形状、相机顺序、帧堆叠），以及遥操作选择和空闲行为。录制、训练、部署、评估需一致，不符即拒绝；仅这部分进入实验哈希。来源部分随约定保存并显示于差异错误，但不参与比较：奖励来源，包括分类器路径、内容、阈值、\ ``reward_from_teleop_events``\ 、\ ``teleop_success_reward``\ 、抓取惩罚，以及命令行管理的工作站事实 ``safety_box``\ 、\ ``home_joints``\ 、\ ``reset_settle_s``\ 、\ ``max_episode_steps``\ 、\ ``cameras``\ 。相机名称和顺序通过观测布局比较。因此按键奖励示范可用于分类器训练运行，部署也可更改归位姿态或回合上限。早于实验元数据的数据通常带警告加载，除非运行任务、控制、深度或预处理必须依赖这些元数据。双臂保留逐臂结果，一臂成功不能确认整个并行任务；全任务确认使用 ``task_success`` / ``task_failure``\ 。checkpoint 与 actor 参数还核对策略动作边界、残差缩放和离散动作缓冲区；动作宽度相同但含义不同会在 reset 前拒绝，分离夹爪头时连续头维持自身形状。
 

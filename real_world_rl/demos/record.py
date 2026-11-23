@@ -1,12 +1,16 @@
-"""Teleoperated demo recording on the real robot.
+"""Teleoperated demo recording on the real robot, into a demo dataset (``real_world_rl.dataset``).
 
 The env is the HIL actor's env (``build_hil_env(args, role="actor")``): the operator drives the
 robot through its teleop source and the intervention wrapper executes the operator's actions.
-While nobody intervenes the recorder holds the robot still. Only intervened steps are recorded,
-in the pkl transition-dict format ``load_demo_pkls`` reads (``obs``, ``next_obs``, ``action``,
-``reward``, ``done``, plus ``grasp_penalty`` when ``GraspPenaltyWrapper`` is in the stack, as
-the hil_serl learner's demo snapshots hold them), with the env's action-contract sidecar next to
-the pkl. See ``https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/recording-demos.html``.
+While nobody intervenes the recorder holds the robot still. Every step of every episode (hold
+steps too) is written to the dataset at ``--output-dir`` when the episode ends, kept and
+discarded episodes alike (``meta.json`` ``status``/``discard_reason``); only the episode being
+recorded is held in memory. Rerunning with an existing ``--output-dir`` appends to it (its header
+must match this run's env) and its kept episodes count toward ``--num-successes``. The training
+view (``real_world_rl.dataset.iter_transitions``, what ``load_demo_pkls`` loads from a dataset
+directory) is the kept episodes' intervened steps, as the old recorder's pkl held them. Review
+videos (``video/<key>.mp4`` per ``rgb_*`` key) are written by the dataset, at the control rate.
+See ``https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/recording-demos.html``.
 
 Episode outcome, read from the intervention wrapper's info keys so any event path works:
 
@@ -14,28 +18,28 @@ Episode outcome, read from the intervention wrapper's info keys so any event pat
 - it counts as a success when an explicit success outcome or ``success`` event is reported (a reward
   classifier), and no ``failure`` event fired;
 - a ``rerecord`` event discards the episode at once; a new attempt starts if its budget remains;
-- only successful episodes with at least one recorded transition are kept;
-- an ``operator_quit`` event (the ``q`` key) ends the episode and stops recording after it; the
-  kept episodes are saved as after Ctrl-C.
+- only successful episodes with at least one training row are kept;
+- an ``operator_quit`` event (the ``q`` key) ends the episode and stops recording after it;
+- an episode cut short by Ctrl-C or an error is stored as discarded (``interrupted``) when it
+  has a step, after the env released the robot.
 
 The hold policy (``hold_action_fn_for``, injectable through ``run_recorder``'s
 ``hold_action_fn_factory``) is reset after every env reset and observes every step; on a
 ``cartesian_delta`` arm it holds a fixed pose (``real_world_rl.teleop.core.hold.CartesianHold``).
 
-The stored ``reward``/``done`` are the env's. Without a reward classifier, pass
+The stored ``reward``/``terminated`` are the env's. Without a reward classifier, pass
 ``--reward-from-teleop-events`` (``TeleopEventRewardWrapper`` in the ``build_hil_env`` chain): a
-``success`` event then ends the episode at once and its transition is stored with
-``reward=--teleop-success-reward`` and ``done=True``; otherwise every transition carries reward 0.
+``success`` event then ends the episode at once and its step is stored with
+``reward=--teleop-success-reward`` and ``terminated=True``; otherwise every step carries reward 0.
 """
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
 import sys
-import pickle
-import uuid
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Sequence
 
@@ -48,15 +52,14 @@ from rl_garden.common.env_args import EnvBackendArgs, EnvRunArgs
 
 from real_world_rl.contracts.action import (
     LEGACY_ACTION_CONTRACT,
+    action_dim_of,
     arm_block_slices,
     demo_contract_of,
     get_env_action_contract,
     num_arms_of,
     num_grippers_of,
-    write_contract_sidecar,
-    validate_transitions_against_contract,
-    experiment_hash,
 )
+from real_world_rl.dataset import DatasetMismatchError, DatasetWriter
 from real_world_rl.envs.wrappers.intervention import InterventionWrapper
 from real_world_rl.loops.actor import ActorLoop
 from real_world_rl.teleop.core.hold import (
@@ -74,7 +77,6 @@ from real_world_rl.teleop.core.composite import (
 )
 from real_world_rl.teleop.leader.joint import TELEOP_SYNCING_EVENT
 from real_world_rl.training.args import (
-    FrankaRealConfig,
     HilEnvArgs,
     RealWorldFrankaArgs,
 )
@@ -86,20 +88,24 @@ __all__ = [
     "RecordDemosArgs",
     "RecordedEpisode",
     "check_leader_near_follower",
+    "dataset_header_of",
     "executed_gripper_actions",
     "gripper_actions_after_reset",
     "hold_action_fn_for",
     "intervention_wrapper_of",
+    "obs_spec_of",
+    "open_dataset",
     "parse_args_with_preset",
     "parse_record_args",
     "record_demos",
     "run_recorder",
-    "save_demos",
 ]
 
 # Both real backends open the gripper on reset, and +1 means open for both.
 _GRIPPER_ACTION_AFTER_RESET = 1.0
-_DEMO_SUFFIX = ".pkl"
+_STATE_KEY = "state"
+# Config keys never copied into the dataset header (daemon credentials).
+_REDACTED_CONFIG_KEYS = ("token",)
 
 # Gripper action(s) to hold, one per arm (a number for one arm) -> the (A,) action that keeps the
 # arms where they are. A ``HoldPolicy`` also receives the recorder's reset/step hooks.
@@ -111,12 +117,11 @@ HoldPolicyFactory = Callable[[Any], HoldActionFn]
 @dataclass
 class RecordDemosArgs(HilEnvArgs, RealWorldFrankaArgs, EnvRunArgs, ObservationArgs, EnvBackendArgs):
     """Env, teleop and observation flags are the HIL training entrypoints' (``--env-backend``,
-    ``--real-robot.*``/``--franka-real.*``, ``--teleop-device``, ``--spacemouse-mode``, ``--teleop-event-device``,
+    ``--real-robot.*``, ``--teleop-device``, ``--spacemouse-mode``, ``--teleop-event-device``,
     ``--teleop-onset``, ``--obs.*``, ...): pass the ones of the run that will load the demos, so
     the recorded observations and actions match its env."""
 
-    franka_real: FrankaRealConfig = field(default_factory=FrankaRealConfig)
-    # The recorder never evaluates; no eval env (franka_real would open a second bridge client).
+    # The recorder never evaluates; no eval env.
     eval_freq: int = 0
     # On by default here (off for training): the operator marks every successful demo with the
     # success key anyway, and a success stored as reward 0 / done False cannot be relabelled later.
@@ -124,18 +129,17 @@ class RecordDemosArgs(HilEnvArgs, RealWorldFrankaArgs, EnvRunArgs, ObservationAr
     # the env's own reward.
     reward_from_teleop_events: bool = True
 
-    # Where the demo pkl goes (``<stem>.contract.json`` is written next to it). Required; an
-    # existing file is never overwritten.
-    output_path: Optional[str] = None
-    # Additionally export the full SQLite archive as a portable PT file.
-    export_trajectory_pt: bool = False
-    # Stop after this many kept (successful) episodes.
+    # The demo dataset directory (``real_world_rl.dataset``). Required. A new directory is
+    # created; an existing dataset is appended to when its header matches this run's env.
+    output_dir: Optional[str] = None
+    # Stop once the dataset holds this many kept (successful) episodes, counting the ones an
+    # appended-to dataset already has.
     num_successes: int = 20
     # Stop after this many completed attempts, including failures, rerecords and timeouts.
     # None keeps recording until num_successes; 1 enables manually restarted commissioning runs.
     max_episodes: Optional[int] = None
     # Episode step cap for the env: replaces --real-robot.max-episode-steps,
-    # --real-robot-bimanual.max-episode-steps or --franka-real.max-episode-steps when set.
+    # --real-robot-bimanual.max-episode-steps when set.
     max_episode_steps: Optional[int] = None
     # joint_abs: refuse to start an episode while the leader is further than this from the
     # follower in any joint (rad). Below it, --teleop-onset (ramp or arm) handles the takeover.
@@ -147,16 +151,19 @@ class RecordDemosArgs(HilEnvArgs, RealWorldFrankaArgs, EnvRunArgs, ObservationAr
 
 @dataclass(frozen=True)
 class RecordedEpisode:
-    """One finished episode. ``transitions`` holds its recorded transitions when it was kept and
-    is empty otherwise; ``discarded_reason`` says why it was not kept (``None`` when kept);
-    ``operator_quit`` whether the operator asked to stop recording during it."""
+    """One finished episode, already written to the dataset (its rows live on disk, not here).
+    ``index`` counts this run's attempts; ``dataset_index`` is the episode's index in the dataset.
+    ``discarded_reason`` says why it was not kept (``None`` when kept); ``training_rows`` is the
+    number of its steps the training view selects; ``operator_quit`` whether the operator asked
+    to stop recording during it."""
 
     index: int
     steps: int
     success: bool
-    transitions: list = field(default_factory=list)
     discarded_reason: Optional[str] = None
     operator_quit: bool = False
+    training_rows: int = 0
+    dataset_index: Optional[int] = None
 
     @property
     def kept(self) -> bool:
@@ -265,22 +272,27 @@ def record_demos(
     args: RecordDemosArgs,
     *,
     hold_action_fn: HoldActionFn,
+    writer: DatasetWriter,
     on_episode: Optional[Callable[[RecordedEpisode], None]] = None,
-) -> list[dict]:
-    """Runs episodes on ``env`` (a HIL env with the intervention wrapper) until
-    ``args.num_successes`` episodes were kept or ``args.max_episodes`` attempts ended, and
-    returns their kept transitions, in order. Failed/rerecorded/truncated attempts count too.
+) -> list[RecordedEpisode]:
+    """Runs episodes on ``env`` (a HIL env with the intervention wrapper), writing each one to
+    ``writer`` when it ends, until the dataset holds ``args.num_successes`` kept episodes (those
+    it already had count) or ``args.max_episodes`` attempts of this run ended, and returns this
+    run's episodes. Failed/rerecorded/truncated attempts count as attempts too.
 
     Every step sends ``hold_action_fn(last executed gripper action)``; the intervention wrapper
     replaces it with the operator's action while the operator intervenes. A ``HoldPolicy``
     (``hold_action_fn_for``; a plain callable gets no-op hooks) is reset after every env reset
-    and observes whether every step was intervened. A step is recorded when
-    ``info["intervened"]``, with the executed action (``info["intervene_action"]``); ramp-onset
-    steps (``teleop_syncing``) only with ``args.keep_syncing_steps``. In ``joint_abs``, each
-    episode starts with ``check_leader_near_follower`` (``args.start_tolerance_rad``).
-    ``on_episode`` is called with every finished episode; an episode with the operator's quit
-    key is the last one.
+    and observes whether every step was intervened. Every step is written with the executed
+    action (``info["intervene_action"]``) and its flags; the training view later selects the
+    intervened ones (ramp-onset ``teleop_syncing`` steps only with ``args.keep_syncing_steps``).
+    In ``joint_abs``, each episode starts with ``check_leader_near_follower``
+    (``args.start_tolerance_rad``). ``on_episode`` is called with every finished episode; an
+    episode with the operator's quit key is the last one. An exception leaves the episode being
+    recorded open in ``writer`` (``writer.active_episode``) for the caller to finish or abort.
     """
+    from real_world_rl.training.runtime_paths import actor_control_hz
+
     _validate_episode_limit(args)
     hold = as_hold_policy(hold_action_fn)
     wrapper = intervention_wrapper_of(env)
@@ -290,15 +302,12 @@ def record_demos(
         require_session_source(wrapper.source)
     contract = get_env_action_contract(env) or LEGACY_ACTION_CONTRACT
     num_grippers = num_grippers_of(contract)
-    control_period_s = 1.0 / args.control_hz
+    control_hz = actor_control_hz(args)
+    control_period_s = 1.0 / control_hz
+    named_state = _named_state_reader(env)
 
-    from real_world_rl.contracts.trajectory import DurableArchive
-    if getattr(env, "_record_archive", None) is None:
-        import tempfile
-        archive_path = Path(args.output_path).with_suffix(".trajectory.sqlite3") if args.output_path else Path(tempfile.mkdtemp(prefix="rl-record-")) / "trajectory.sqlite3"
-        env._record_archive = DurableArchive(archive_path, run_id=args.run_id, actor_id=args.actor_id, experiment_hash=experiment_hash(env))
-    kept: list[dict] = []
-    num_kept = 0
+    episodes: list[RecordedEpisode] = []
+    num_kept = writer.num_kept
     index = 0
     heartbeat = Heartbeat.from_env()
     while num_kept < args.num_successes and (args.max_episodes is None or index < args.max_episodes):
@@ -310,12 +319,12 @@ def record_demos(
             check_leader_near_follower(env, wrapper.source, contract, args.start_tolerance_rad)
         if args.episode_end_behavior == "hold":
             from real_world_rl.teleop.core.session import wait_before_episode
-            if wait_before_episode(env, wrapper.source, control_hz=args.control_hz,
+            if wait_before_episode(env, wrapper.source, control_hz=control_hz,
                                    neutral_threshold=args.neutral_threshold,
                                    neutral_stable_s=args.neutral_stable_s) == "quit":
                 break
             from real_world_rl.teleop.core.session import session_observe
-            obs = session_observe(env)
+            obs = session_observe(env)  # row 0 of the episode: the frame after the gate
         episode = _record_episode(
             env,
             obs,
@@ -324,10 +333,11 @@ def record_demos(
             index=index,
             num_grippers=num_grippers,
             control_period_s=control_period_s,
+            writer=writer,
+            named_state=named_state,
         )
-        if episode.kept:
-            kept.extend(episode.transitions)
-            num_kept += 1
+        episodes.append(episode)
+        num_kept += int(episode.kept)
         if on_episode is not None:
             on_episode(episode)
         index += 1
@@ -340,10 +350,10 @@ def record_demos(
             from real_world_rl.teleop.core.session import wait_after_episode
             allow_next = num_kept < args.num_successes and (args.max_episodes is None or index < args.max_episodes)
             if wait_after_episode(env, wrapper.source, allow_next=allow_next,
-                                  control_hz=args.control_hz, neutral_threshold=args.neutral_threshold,
+                                  control_hz=control_hz, neutral_threshold=args.neutral_threshold,
                                   neutral_stable_s=args.neutral_stable_s) == "quit":
                 break
-    return kept
+    return episodes
 
 
 def _record_episode(
@@ -355,49 +365,47 @@ def _record_episode(
     index: int,
     num_grippers: int,
     control_period_s: float,
+    writer: DatasetWriter,
+    named_state: Callable[[], Optional[dict]],
 ) -> RecordedEpisode:
-    from real_world_rl.contracts.trajectory import begin_episode, transition_record, end_episode
-    archive = getattr(env, "_record_archive", None)
-    if archive is None:
-        archive = []
-        env._record_archive = archive
-    episode_id = uuid.uuid4().hex
-    from real_world_rl.contracts.action import experiment_hash
-    archive.append(begin_episode(episode_id, run_id=args.run_id or "unknown", actor_id=args.actor_id, experiment_hash=experiment_hash(env), action_contract=demo_contract_of(env)))
-    transitions: list[dict] = []
-    gripper_action = gripper_actions_after_reset(num_grippers)
     from real_world_rl.contracts.outcomes import EpisodeOutcomeAccumulator
 
+    episode = writer.begin_episode()
+    episode.add_observation(_policy_obs(obs), named_state(), time_s=time.time(), stack_reset=True)
+    gripper_action = gripper_actions_after_reset(num_grippers)
     outcome_accumulator = EpisodeOutcomeAccumulator()
     failure = False
     operator_quit = False
-    steps = 0
+    rerecord = False
+    training_rows = 0
     heartbeat = Heartbeat.from_env()
     while True:
         step_start = time.perf_counter()
         action = hold(gripper_action).reshape(1, -1).to(ActorLoop.env_device(obs))
         next_obs, reward, terminated, truncated, info = env.step(action)
         heartbeat.beat()
-        hold.observe_step(bool(info.get("intervened", False)))
+        intervened = bool(info.get("intervened", False))
+        hold.observe_step(intervened)
         operator_quit = operator_quit or operator_quit_requested(info)
-        steps += 1
         executed = info.get("intervene_action", action)
         if num_grippers:
             gripper_action = executed_gripper_actions(executed, num_grippers)
         events = info.get("teleop_events") or {}
-        record = transition_record(_transition(obs, next_obs, executed, reward, terminated, info), episode_id=episode_id, step_index=steps - 1, timestamp_s=time.time(), experiment_hash=experiment_hash(env), run_id=args.run_id or "unknown", actor_id=args.actor_id, terminated=terminated, truncated=truncated, policy_action=info.get("policy_action", action), human_action_mask=info.get("human_action_mask", torch.full_like(executed, bool(info.get("intervened", False)), dtype=torch.bool)), override_mask=info.get("override_mask", torch.full_like(executed, bool(info.get("intervened", False)), dtype=torch.bool)), teleop_events=dict(events), syncing=bool(events.get(TELEOP_SYNCING_EVENT, False)), task_reward=info.get("task_reward", reward), manual_reward=info.get("manual_reward", 0.0), intervention_reward=info.get("intervention_reward", 0.0), outcome_source=info.get("task_success_source", "unknown"), reward_components=info.get("reward_components", {"task": info.get("task_reward", reward), "manual": info.get("manual_reward", 0.0), "intervention": info.get("intervention_reward", 0.0)}), task_success=info.get("task_success"))
-        archive.append(record)
-        record = archive[-1]
+        syncing = bool(events.get(TELEOP_SYNCING_EVENT, False))
+        mask = torch.full_like(torch.as_tensor(executed), intervened, dtype=torch.bool)
+        episode.add_step(
+            executed, info.get("policy_action", action), info.get("human_action_mask", mask),
+            info.get("override_mask", mask), intervened, reward, terminated, truncated, syncing, events,
+            grasp_penalty=info.get("grasp_penalty"),
+        )
+        episode.add_observation(_policy_obs(next_obs), named_state(), time_s=time.time())
         outcome_accumulator.observe(info)
         if events.get("rerecord", False):
-            archive.append(end_episode(episode_id, step_count=steps, outcome=outcome_accumulator.finish(discarded=True)))
-            return RecordedEpisode(index, steps, success=False, discarded_reason="rerecord",
-                                   operator_quit=operator_quit)
+            rerecord = True
+            break
         failure = failure or bool(events.get("failure", False))
-        syncing = bool(events.get(TELEOP_SYNCING_EVENT, False))
-        if info["intervened"] and (args.keep_syncing_steps or not syncing):
-            # A kept syncing step is wanted as supervision; only the archive keeps the flag.
-            transitions.append(dict(record, syncing=False))
+        if intervened and (args.keep_syncing_steps or not syncing):
+            training_rows += 1
         if bool(terminated) or bool(truncated) or operator_quit:
             break
         obs = next_obs
@@ -405,43 +413,42 @@ def _record_episode(
         if remaining > 0:
             time.sleep(remaining)
 
-    for row_index, row in enumerate(transitions):
-        following = transitions[row_index + 1] if row_index + 1 < len(transitions) else None
-        if following is None or following["step_index"] != row["step_index"] + 1:
-            row["training_segment_end"] = True
-    outcome = outcome_accumulator.finish(terminated=terminated, truncated=truncated)
-    archive.append(end_episode(episode_id, step_count=steps, outcome=outcome))
-    success = outcome.task_success is True
-    if failure:
-        reason: Optional[str] = "failure event"
-    elif not success:
-        reason = "no success"
-    elif not transitions:
-        reason = "no intervened steps"
+    if rerecord:
+        outcome = outcome_accumulator.finish(discarded=True)
+        reason: Optional[str] = "rerecord"
+        success: Optional[bool] = None
     else:
-        reason = None
+        outcome = outcome_accumulator.finish(terminated=terminated, truncated=truncated)
+        success = outcome.task_success is True and not failure
+        if failure:
+            reason = "failure event"
+        elif outcome.task_success is not True:
+            reason = "no success"
+        elif not training_rows:
+            reason = "no intervened steps"
+        else:
+            reason = None
+    info = episode.finish(
+        status="kept" if reason is None else "discarded",
+        discard_reason=reason,
+        success=success,
+        operator_quit=operator_quit,
+        extra={"outcome": outcome.to_dict()},
+    )
     return RecordedEpisode(
         index,
-        steps,
-        success=success and not failure,
-        transitions=transitions if reason is None else [],
+        episode.num_steps,
+        success=bool(success),
         discarded_reason=reason,
         operator_quit=operator_quit,
+        training_rows=training_rows,
+        dataset_index=info.index,
     )
 
 
-def _transition(obs: Any, next_obs: Any, action: torch.Tensor, reward, terminated, info: dict) -> dict:
-    transition = {
-        "obs": obs,
-        "next_obs": next_obs,
-        "action": action,
-        "reward": reward,
-        "done": terminated,
-    }
-    for key in ("grasp_penalty", "human_action_mask", "override_mask", "policy_action", "intervened"):
-        if key in info:
-            transition[key] = info[key]
-    return transition
+def _policy_obs(obs: Any) -> Mapping[str, Any]:
+    # A state-only env may return its state as a bare tensor (as load_demo_pkls reads it).
+    return obs if isinstance(obs, Mapping) else {_STATE_KEY: obs}
 
 
 def intervention_wrapper_of(env: Any) -> InterventionWrapper:
@@ -460,18 +467,109 @@ def intervention_wrapper_of(env: Any) -> InterventionWrapper:
 # -- output ------------------------------------------------------------------------------
 
 
-def save_demos(
-    transitions: Sequence[dict], output_path: str | Path, contract: Optional[Mapping[str, Any]]
-) -> Path:
-    """Pickles ``transitions`` (a list of transition dicts) to ``output_path`` and writes the
-    contract sidecar next to it (none for a contract-less backend)."""
-    path = Path(output_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "wb") as stream:
-        pickle.dump(list(transitions), stream)
-    if contract is not None:
-        write_contract_sidecar(path, contract)
-    return path
+def _env_attr(env: Any, name: str) -> Any:
+    getter = getattr(env, "get_wrapper_attr", None)
+    try:
+        return getter(name) if getter is not None else getattr(env, name)
+    except AttributeError:
+        return None
+
+
+def obs_spec_of(env: Any, frame_stack: int = 1) -> dict:
+    """The dataset ``obs_spec`` of ``env``: one un-stacked frame per key of its
+    ``single_observation_space`` (an image key's leading frame-stack dim is dropped when
+    ``frame_stack > 1``)."""
+    space = _env_attr(env, "single_observation_space")
+    if space is None or not hasattr(space, "spaces"):
+        raise ValueError("recording needs the env's single_observation_space (a Dict of state/rgb_*/depth_* keys)")
+    spec = {}
+    for key, entry in space.spaces.items():
+        shape = [int(size) for size in entry.shape]
+        if key != _STATE_KEY and frame_stack > 1 and len(shape) == 4:
+            shape = shape[1:]
+        spec[key] = {"shape": shape, "dtype": np.dtype(entry.dtype).name}
+    return spec
+
+
+def _named_state_owner(env: Any) -> Any:
+    # The base RealRobotEnv / BimanualRealRobotEnv (``named_state``), walking ``.env`` down.
+    node, seen = env, set()
+    while node is not None and id(node) not in seen:
+        seen.add(id(node))
+        if isinstance(getattr(type(node), "named_state", None), property):
+            return node
+        node = vars(node).get("env") if hasattr(node, "__dict__") else None
+    return None
+
+
+def _named_state_reader(env: Any) -> Callable[[], Optional[dict]]:
+    owner = _named_state_owner(env)
+    return (lambda: None) if owner is None else (lambda: owner.named_state)
+
+
+def _config_snapshot(args: Any) -> dict:
+    def redacted(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: None if key in _REDACTED_CONFIG_KEYS else redacted(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [redacted(item) for item in value]
+        return value
+
+    from real_world_rl.dataset.format import json_normalize
+
+    # default=str: paths and enums become their text; the snapshot is for review, never compared.
+    return redacted(json.loads(json.dumps(json_normalize(dataclasses.asdict(args)), default=str)))
+
+
+def dataset_header_of(env: Any, args: RecordDemosArgs, *, obs_spec: Optional[Mapping[str, Any]] = None) -> dict:
+    """The ``DatasetWriter.open`` fields of a recording on ``env`` with ``args``: ``obs_spec``
+    (``obs_spec_of`` unless given), the base env's ``named_state_spec`` (empty without one),
+    ``demo_contract_of(env)``, the actor's control rate, the env's task description and the
+    recorder args as ``config`` (daemon tokens removed)."""
+    from real_world_rl.training.runtime_paths import actor_control_hz
+
+    owner = _named_state_owner(env)
+    contract = get_env_action_contract(env) or LEGACY_ACTION_CONTRACT
+    return dict(
+        control_hz=float(actor_control_hz(args)),
+        obs_spec=dict(obs_spec) if obs_spec is not None else obs_spec_of(env, args.obs.frame_stack),
+        action_dim=action_dim_of(contract),
+        action_contract=demo_contract_of(env),
+        named_state_spec={} if owner is None else owner.named_state_spec,
+        task_description=_env_attr(env, "task_description") or "",
+        recorded_frame_stack=int(args.obs.frame_stack),
+        config=_config_snapshot(args),
+    )
+
+
+def open_dataset(
+    env: Any, args: RecordDemosArgs, root: Optional[str | Path] = None, *,
+    obs_spec: Optional[Mapping[str, Any]] = None,
+) -> DatasetWriter:
+    """Creates the dataset at ``root`` (default ``args.output_dir``) for a recording on ``env``,
+    or opens the one there to append to; a header recorded with other settings is refused with
+    the differing keys named."""
+    root = Path(args.output_dir if root is None else root)
+    try:
+        return DatasetWriter.open(root, **dataset_header_of(env, args, obs_spec=obs_spec))
+    except DatasetMismatchError as error:
+        raise ValueError(
+            f"--output-dir {root} holds a dataset recorded with a different {', '.join(error.keys)} "
+            "than this run's env; use a new --output-dir (or rerun with the settings it was recorded with)"
+        ) from error
+
+
+def _finish_interrupted(writer: DatasetWriter) -> Optional[int]:
+    """Stores the episode an interruption left open as discarded (``interrupted``) when it has
+    a complete step, else drops it. Returns its step count when stored."""
+    episode = writer.active_episode
+    if episode is None:
+        return None
+    if episode.num_steps < 1 or episode.num_observations != episode.num_steps + 1:
+        episode.abort()
+        return None
+    episode.finish(status="discarded", discard_reason="interrupted")
+    return episode.num_steps
 
 
 def parse_record_args(argv: Optional[Sequence[str]] = None) -> RecordDemosArgs:
@@ -498,7 +596,9 @@ def parse_args_with_preset(args_cls: type, argv: Optional[Sequence[str]] = None)
     import tyro
     from rl_garden.common.effective_config import apply_strict_mapping, load_preset
 
-    preset_path, cli_args = _pop_config_flag(list(sys.argv[1:] if argv is None else argv))
+    from real_world_rl.training.backend_migration import check_backend_cli
+
+    preset_path, cli_args = _pop_config_flag(check_backend_cli(argv))
     defaults = args_cls()
     explicit_semantics = False
     if preset_path is not None:
@@ -540,14 +640,14 @@ def _pop_config_flag(cli_args: list[str]) -> tuple[Optional[str], list[str]]:
     return preset_path, remaining
 
 
-def _demo_output_path(output_path: Optional[str]) -> Path:
-    if output_path is None:
-        raise ValueError("--output-path is required (a .pkl file)")
-    path = Path(output_path)
-    if path.suffix != _DEMO_SUFFIX:
-        raise ValueError(f"--output-path must be a {_DEMO_SUFFIX} file, got {output_path}")
-    if path.exists():
-        raise ValueError(f"--output-path {output_path} exists; pick a new file")
+def _dataset_dir(output_dir: Optional[str]) -> Path:
+    if output_dir is None:
+        raise ValueError("--output-dir is required (the demo dataset directory; an existing dataset is appended to)")
+    path = Path(output_dir)
+    if path.suffix == ".pkl":
+        raise ValueError(f"--output-dir is a dataset directory, not a .pkl file: got {output_dir}")
+    if path.exists() and not path.is_dir():
+        raise ValueError(f"--output-dir {output_dir} is a file; pass a dataset directory")
     return path
 
 
@@ -560,16 +660,22 @@ def _with_episode_step_cap(args: RecordDemosArgs) -> RecordDemosArgs:
     if args.env_backend == "real_robot_bimanual":
         bimanual = dataclasses.replace(args.real_robot_bimanual, max_episode_steps=args.max_episode_steps)
         return dataclasses.replace(args, real_robot_bimanual=bimanual)
-    franka_real = dataclasses.replace(args.franka_real, max_episode_steps=args.max_episode_steps)
-    return dataclasses.replace(args, franka_real=franka_real)
+    raise ValueError(f"unsupported env backend: {args.env_backend}")
+
+
+def _dataset_line(root: Path, writer: DatasetWriter) -> str:
+    infos = writer.episodes()
+    return f"[record] dataset {root}: {len(infos)} episodes ({sum(info.kept for info in infos)} kept)"
 
 
 def run_recorder(
     args: RecordDemosArgs, *, hold_action_fn_factory: Optional[HoldPolicyFactory] = None
 ) -> Optional[Path]:
-    """Builds the actor's HIL env, records demos until ``args.num_successes`` and saves the kept
-    episodes to ``args.output_path`` (also when stopped early, e.g. by Ctrl-C, the operator's
-    quit key or max_episodes). Returns the pkl path, or ``None`` when no episode was kept.
+    """Builds the actor's HIL env and records demos into the dataset at ``args.output_dir``
+    until it holds ``args.num_successes`` kept episodes (or Ctrl-C, the operator's quit key or
+    ``max_episodes`` stops it). Every episode is on disk once it ends; an episode cut short is
+    stored as discarded (``interrupted``) after the env is closed. Returns the dataset directory
+    when it holds a kept episode, else ``None``.
 
     ``hold_action_fn_factory`` builds the hold policy from the built env (default
     ``hold_action_fn_for``)."""
@@ -577,46 +683,33 @@ def run_recorder(
 
     make_hold = hold_action_fn_for if hold_action_fn_factory is None else hold_action_fn_factory
     _validate_episode_limit(args)
-    output_path = _demo_output_path(args.output_path)
+    output_dir = _dataset_dir(args.output_dir)
+    if args.record_video_dir is not None:
+        raise ValueError(
+            "the demo recorder does not take --record-video-dir: the dataset writes each episode's "
+            "review videos (video/<rgb key>.mp4 in the episode directory)"
+        )
     if args.fwbw:
         raise ValueError("the demo recorder does not support --fwbw")
     env = env_building.build_hil_env(_with_episode_step_cap(args), role="actor")
-    if args.record_video_dir is not None:
-        from real_world_rl.envs.wrappers.video_recorder import (
-            VideoRecorderWrapper,
-        )
-
-        env = VideoRecorderWrapper(env, save_dir=args.record_video_dir)
-
-    from real_world_rl.contracts.trajectory import DurableArchive
     try:
-        env._record_archive = DurableArchive(output_path.with_suffix(".trajectory.sqlite3"), run_id=args.run_id, actor_id=args.actor_id, experiment_hash=experiment_hash(env))
-        for record in env._record_archive:
-            if record["record_type"] == "episode_start":
-                validate_transitions_against_contract([], demo_contract_of(env), source=str(output_path), saved=record.get("action_contract"))
+        writer = open_dataset(env, args, output_dir)
     except BaseException:
         try:
             env.close()
         except BaseException:
-            logging.getLogger(__name__).exception("environment close failed after archive initialization error")
-        archive = getattr(env, "_record_archive", None)
-        if archive is not None:
-            try:
-                archive.close()
-            except BaseException:
-                logging.getLogger(__name__).exception("archive close also failed")
+            logging.getLogger(__name__).exception("environment close failed after dataset open error")
         raise
-    kept: list[dict] = []
-    num_kept = 0
+    num_kept = writer.num_kept
+    print(f"{_dataset_line(output_dir, writer)}; recording until {args.num_successes} kept", flush=True)
 
     def report(episode: RecordedEpisode) -> None:
         nonlocal num_kept
-        kept.extend(episode.transitions)
         num_kept += int(episode.kept)
         status = "kept" if episode.kept else f"discarded ({episode.discarded_reason})"
         print(
-            f"[record] episode={episode.index} steps={episode.steps} "
-            f"transitions={len(episode.transitions)} {status} "
+            f"[record] episode={episode.dataset_index} steps={episode.steps} "
+            f"transitions={episode.training_rows if episode.kept else 0} {status} "
             f"successes={num_kept}/{args.num_successes}",
             flush=True,
         )
@@ -624,7 +717,7 @@ def run_recorder(
             print("[record] operator quit: stopping after this episode", flush=True)
 
     try:
-        record_demos(env, args, hold_action_fn=make_hold(env), on_episode=report)
+        record_demos(env, args, hold_action_fn=make_hold(env), writer=writer, on_episode=report)
     finally:
         active_failure = sys.exc_info()[0] is not None
         cleanup_failures = []
@@ -637,50 +730,19 @@ def run_recorder(
             Heartbeat.from_env().begin_long_operation()
         except BaseException as error:
             cleanup_failure("finalization heartbeat", error)
-        # Release control before exports, even if heartbeat setup failed.
+        # Release control before any disk work, even if heartbeat setup failed.
         try:
             env.close()
         except BaseException as error:
             cleanup_failure("environment close", error)
         try:
-            archive = getattr(env, "_record_archive", [])
-            if archive:
-                from real_world_rl.contracts.trajectory import end_episode
-                if archive[-1]["record_type"] != "episode_end":
-                    episode_id = archive[-1]["episode_id"]
-                    from real_world_rl.contracts.outcomes import EpisodeOutcomeAccumulator
-                    interrupted_outcome = EpisodeOutcomeAccumulator()
-                    for record in archive:
-                        if record["record_type"] == "transition" and record["episode_id"] == episode_id:
-                            interrupted_outcome.observe(record)
-                    archive.append(end_episode(episode_id, step_count=interrupted_outcome.steps,
-                                               outcome=interrupted_outcome.finish(interrupted=True), interrupted=True))
-                from real_world_rl.contracts.outcomes import EpisodeMetrics, EpisodeOutcome
-                metrics = EpisodeMetrics()
-                for record in archive:
-                    if record["record_type"] == "episode_end":
-                        outcome = record.get("outcome")
-                        if outcome is not None:
-                            metrics.add(EpisodeOutcome(**outcome))
-                        elif record.get("interrupted"):
-                            metrics.add(EpisodeOutcome(None, False, record.get("step_count", 0), 0,
-                                                       completed=False, interrupted=True))
-                print(f"[record] outcomes={metrics.summary()}", flush=True)
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-                if args.export_trajectory_pt:
-                    torch.save({"schema_version": 1, "records": list(archive), "action_contract": demo_contract_of(env)}, output_path.with_suffix(".trajectory.pt"))
-            if kept:
-                save_demos(kept, output_path, demo_contract_of(env))
-                print(f"[record] saved {num_kept} episodes ({len(kept)} transitions) to {output_path}", flush=True)
-            else:
-                print("[record] no demo pkl exported; trajectory archive retained", flush=True)
+            index = None if writer.active_episode is None else writer.active_episode.index
+            steps = _finish_interrupted(writer)
+            if steps is not None:
+                print(f"[record] episode={index} steps={steps} discarded (interrupted)", flush=True)
+            print(_dataset_line(output_dir, writer), flush=True)
         except BaseException as error:
-            cleanup_failure("archive finalization/export", error)
-        finally:
-            try:
-                env._record_archive.close()
-            except BaseException as error:
-                cleanup_failure("archive close", error)
+            cleanup_failure("interrupted episode write", error)
         if cleanup_failures and not active_failure:
             raise cleanup_failures[0]
-    return output_path if kept else None
+    return output_dir if writer.num_kept else None

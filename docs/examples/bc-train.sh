@@ -1,9 +1,9 @@
 # start prepare
 # Replace <uuid> with the directory printed in bc-data; do not type it literally.
-python docs/examples/bc-train-prepare.py 'local/first-demo.session-<uuid>/resolved-config.yaml' local/first-demo.pkl local/bc-train.yaml
+python docs/examples/bc-train-prepare.py 'local/first-demo.session-<uuid>/resolved-config.yaml' local/first-demo local/bc-train.yaml
 # end prepare
 # start synthetic-prepare
-python docs/examples/bc-train-prepare.py local/bc-synthetic/resolved-config.yaml local/bc-synthetic/demos.pkl local/bc-train.yaml
+python docs/examples/bc-train-prepare.py local/bc-synthetic/resolved-config.yaml local/bc-synthetic/demos local/bc-train.yaml
 # end synthetic-prepare
 # start train
 export CUDA_VISIBLE_DEVICES=""

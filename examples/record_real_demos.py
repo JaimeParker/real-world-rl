@@ -2,11 +2,11 @@
 
     python examples/record_real_demos.py --config hil.yaml --teleop-device leader_arm \\
         --robot-teleop-action-mode joint_abs --teleop-event-device keyboard \\
-        --output-path demos/task_20.pkl --num-successes 20
+        --output-dir demos/task --num-successes 20
 
 Takes the env, teleop and observation flags (and the ``--config`` preset) of the HIL training
 entrypoints; pass the ones of the run that will load the demos (``--demo-dataset-paths
-demos/task_20.pkl``). Logic lives in ``real_world_rl/demos/record.py``; see
+demos/task``, the dataset directory). Logic lives in ``real_world_rl/demos/record.py``; see
 ``https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/recording-demos.html``.
 """
 from __future__ import annotations

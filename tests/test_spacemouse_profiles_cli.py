@@ -72,7 +72,7 @@ def test_run_builds_supervised_child_with_hold(tmp_path, capsys, monkeypatch, ex
     monkeypatch.setattr('subprocess.run', run)
     monkeypatch.delenv('RWRL_HEARTBEAT_FD', raising=False)
     result = main(['--station', str(path), '--preset', str(preset), '--json', '--yes',
-                   'teleop', 'run', '--record', str(tmp_path / 'demo.pkl'), *extra])
+                   'teleop', 'run', '--record', str(tmp_path / 'demos'), *extra])
     assert result == 0
     payload = json.loads(capsys.readouterr().out)
     from pathlib import Path
@@ -155,7 +155,7 @@ def test_motion_diagnostic_launches_supervised_limited_session(tmp_path, capsys,
     monkeypatch.delenv('RWRL_HEARTBEAT_FD', raising=False)
     assert main(['--station', str(path), '--preset', str(preset), '--json', '--yes',
                  'teleop', 'run', '--diagnose', axes, '--duration-s', '2',
-                 '--record', str(tmp_path / 'diagnostic.pkl'), *([] if gain is None else ['--gain', str(gain)])]) == 0
+                 '--record', str(tmp_path / 'diagnostic'), *([] if gain is None else ['--gain', str(gain)])]) == 0
     payload = json.loads(capsys.readouterr().out)
     from pathlib import Path
     resolved = yaml.safe_load((Path(payload['report_directory']) / 'resolved-config.yaml').read_text())

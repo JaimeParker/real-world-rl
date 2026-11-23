@@ -771,3 +771,21 @@ def test_probe_realtime_kernel_reads_the_flag_file(tmp_path):
     assert probes.probe_realtime_kernel(str(flag)) is True
     flag.write_text("0\n")
     assert probes.probe_realtime_kernel(str(flag)) is False
+
+
+def test_joint_trajectory_flags_write_station(tmp_path):
+    out = tmp_path / "joint.yaml"
+    code, output = run([*_flagged("--robot-model", "fr3", "--joint-controller", "trajectory_impedance"),
+                        "--output", out], never_asked)
+    assert code in (0, 1), output
+    text = out.read_text()
+    assert "joint_controller: trajectory_impedance" in text
+    assert "joint_trajectory: {}" in text
+    assert "command_timeout_s = 0.5" in text
+    config = load_station(out).select().config
+    assert config.joint_controller == "trajectory_impedance"
+    assert config.joint_trajectory == {}
+    assert config.realtime == "enforce"
+    again = tmp_path / "again.yaml"
+    assert run(["--mock", "--non-interactive", "--station", out, "--output", again], never_asked)[0] in (0, 1)
+    assert again.read_text() == text

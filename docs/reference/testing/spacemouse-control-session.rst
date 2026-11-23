@@ -1,3 +1,7 @@
+.. note::
+
+   本历史记录使用数据集格式之前的录制器（``--output-path`` pkl）。当前命令见 :ref:`recording-demos-recording-demos-on-the-real-robot`。
+
 .. _testing-spacemouse-control-session-spacemouse-tabletop-control-and-normal-stop-acceptance:
 
 SpaceMouse 桌面控制与正常停止验收
@@ -71,6 +75,7 @@ C：受监督的方向检查
 
 C1 平移、C2 旋转、C3 全轴使用低诊断增益。每条命令都在 ``robot_infra.supervise`` 下启动录制器；不要再套第二层 supervisor。reset 可能使机械臂回 home。达到名义步数预算后保持到 q；\ ``--duration-s`` 不是墙钟终止截止时间。
 
+.. tutorial-test: skip
 .. code-block:: bash
 
    rwrl --station local/station.yaml --preset local/task.yaml teleop run --mode tracker --diagnose translation --gain 0.2 --duration-s 10 --record local/check-translation.pkl
@@ -84,6 +89,7 @@ C1 平移、C2 旋转、C3 全轴使用低诊断增益。每条命令都在 ``ro
 D：轨迹控制归属与结束保持
 --------------------------------------------------------------------------------
 
+.. tutorial-test: skip
 .. code-block:: bash
 
    rwrl --station local/station.yaml --preset local/task.yaml teleop run --mode tracker --record local/check-session.pkl --num-successes 2 --max-episodes 3

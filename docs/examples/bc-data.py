@@ -1,24 +1,24 @@
-"""Inspect a trusted single-arm demo, without connecting any devices."""
+"""Inspect the training view of a single-arm demo dataset, without connecting any devices."""
 import argparse
 from collections import Counter
 import json
 from pathlib import Path
-import pickle
 
 import torch
 
 from real_world_rl.contracts.action import validate_transitions_against_contract
+from real_world_rl.dataset import Dataset, iter_transitions
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("demo", type=Path)
+    parser.add_argument("demo", type=Path, help="demo dataset directory")
     args = parser.parse_args()
-    with args.demo.open("rb") as stream:
-        rows = pickle.load(stream)
+    dataset = Dataset(args.demo)
+    rows = list(iter_transitions(dataset, frame_stack=1))
     if not rows:
-        raise ValueError("empty demonstration")
-    contract = json.loads(args.demo.with_suffix(".contract.json").read_text())
+        raise ValueError("empty demonstration: the dataset has no kept episode with intervened steps")
+    contract = dataset.header["action_contract"]
     validate_transitions_against_contract(rows, contract, source=str(args.demo), saved=contract)
     masks = Counter()
     reference = rows[0]["obs"]

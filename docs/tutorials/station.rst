@@ -62,8 +62,8 @@
      - 臂为 ``franky``、``serl_http`` 或 ``fake``；夹爪还可选 ``none``。
    * - ``--robot-model``
      - ``panda`` 或 ``fr3``，决定默认关节限位；非交互创建新臂时必填。
-   * - ``--cartesian-controller``、``--realtime``
-     - 控制器默认 ``impedance``，也可选 ``internal``／``serl``；实时设置为 ``ignore``／``enforce``。internal、serl 或 PREEMPT_RT 内核默认 enforce；其他情况默认 ignore。SERL 安装见 :doc:`controller`。
+   * - ``--cartesian-controller``、``--joint-controller``、``--realtime``
+     - 控制器默认 ``impedance``，也可选 ``internal``／``serl``；实时设置为 ``ignore``／``enforce``。internal、serl 或 PREEMPT_RT 内核默认 enforce；其他情况默认 ignore。``--joint-controller`` 默认 ``impedance``，GELLO 关节遥操作可选 ``trajectory_impedance``\ （也建议 enforce）。SERL 和关节控制器的安装见 :doc:`controller`。
    * - ``--home-joints``、``--joint-limits``、``--safety-box``
      - 逗号分隔的关节角、各关节 lo/hi 对、基座系位置盒；home 可填 ``none`` 留待第 4 步实测。不要拿向导建议值当工位验收结果。
    * - ``--max-delta-xyz-m``、``--max-delta-joint-rad``、``--control``
@@ -590,13 +590,15 @@ doctor 会连接后断开，不执行归位或机械臂运动；设备初始化�
    * - ``obs.rgb``
      - 从刚检查过的 station 相机 ``name`` 填入；本章是 ``[wrist]``。
    * - ``obs.image_size``
-     - 按模型需要填写高、宽；本例先用 ``[128, 128]``，录制、训练和部署保持一致。
+     - 按模型需要填写高、宽；本例推荐 ``[224, 224]``，录制、训练和部署保持一致。
+       尺寸越大占用越多：一帧无损 224×224 RGB 约 150 KB（每个相机每个控制步一帧，压缩前），
+       录制数据集的磁盘和训练缓冲的内存都按它放大；资源紧张时可改用较小尺寸，但各阶段要一致。
 
 其余字段保持默认：``env_backend: real_robot``、``env_id: pick_and_place``、
 ``obs.state: true``、``obs.depth: []``。换实验时可改 ``env_id`` 作为标识；
 它不自动提供成功判定。需要深度时才同步修改 station 的深度开关与 ``obs.depth``。
 
-**你应该看到**：配置使用 ``wrist``，采集尺寸仍为 640 × 480，模型输入为 128 × 128。
+**你应该看到**：配置使用 ``wrist``，采集尺寸仍为 640 × 480，模型输入为 224 × 224。
 环境会做缩放。后续策略收到的键是 ``state`` 和 ``rgb_wrist``，
 RGB 张量是 ``(1, H, W, 3)`` 的 uint8。
 若要裁剪画面，先从保存的彩色图量像素坐标。在 ``real_robot.preprocess.wrist`` 中，
@@ -606,7 +608,7 @@ ROI 必须在原图内，设置 ROI 时也必须提供 source_resolution；实�
 或归一化的 ``[top, left, bottom, right]``（0–1，边界递增）代替像素 ROI，不能同时设置两者；
 ``crop_region`` 按相机原始尺寸解析，并要求提供 ``image_size``。
 ``resize`` 默认 ``pil_bilinear``，也可选 ``cv2_linear``；RGB 使用对应的双线性插值，深度使用最近邻。
-不要把缩放后的 128×128 当原图尺寸。ROI、深度选择和缩放尺寸都是观测契约，录制、训练和部署必须一致。
+不要把缩放后的 224×224 当原图尺寸。ROI、深度选择和缩放尺寸都是观测契约，录制、训练和部署必须一致。
 这一节只检查文件，还没有启动策略。
 
 **如果不对**：

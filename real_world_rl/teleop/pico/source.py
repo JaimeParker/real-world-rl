@@ -232,7 +232,7 @@ class PicoTeleopSource(TeleopPartSource, ToggleableTeleopSource):
         robot behind the ``real_robot`` env (its robot yaml's ``teleop: {backend: pico}``, local or
         served by the robot daemon; the robot owns it); with ``remote_address`` (``host:port``) the
         teleop part of another robot daemon (a ``RemoteRobot`` connected in ``start()``, as for
-        ``leader_cartesian`` on the ``franka_real`` stack); else a Pico subscriber built here."""
+        ``leader_cartesian`` on the robot stack); else a Pico subscriber built here."""
         from real_world_rl.teleop.core.targets.follower import (
             follower_kwargs_from_env,
             workspace_from_env,

@@ -207,6 +207,7 @@ def _run_learner(args) -> None:
             train_freq=args.train_freq,
             publish_freq=args.publish_freq,
             action_contract=demo_contract_of(env),
+            demo_frame_stack=args.obs.frame_stack,
             allow_base_less_demos=args.allow_base_less_demos,
         )
         try:

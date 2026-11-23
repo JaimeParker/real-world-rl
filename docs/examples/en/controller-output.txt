@@ -76,3 +76,14 @@ franka SERL impedance controller stopped: <error text> (serl_auto_recover: max_p
 Example: when the error cannot be cleared (for example the external enabling button is still held):
 franka SERL impedance controller stopped: <error text>; recover_from_errors failed: <reason> (serl_auto_recover could not clear it)
 # end recover-log
+# start joint-doctor
+Example: rows doctor adds for joint_controller: trajectory_impedance (following the source format, not hardware measurements).
+PASS           franka.sdk:joint_controller: joint_controller franky build 2.0.0+libfranka.0.17.0; installed franky 2.0.0+libfranka.0.17.0
+PASS           franka.mode:realtime_kernel: PREEMPT_RT kernel; realtime: enforce
+PASS           franka.mode:joint_trajectory_realtime: joint_controller: trajectory_impedance with realtime: enforce
+# end joint-doctor
+# start joint-doctor-warn
+Example: common FAIL/WARN rows (also format examples).
+FAIL           franka.sdk:joint_controller: joint_controller unavailable: joint_controller: trajectory_impedance needs the 'joint_controller' package
+WARN           franka.mode:joint_trajectory_realtime: joint_controller: trajectory_impedance with realtime: ignore
+# end joint-doctor-warn

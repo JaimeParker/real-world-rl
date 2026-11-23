@@ -8,7 +8,6 @@ the base ones under HIL-SERL names.
 from __future__ import annotations
 
 import glob
-import hashlib
 import os
 import pickle
 import time
@@ -28,6 +27,7 @@ from real_world_rl.loops.learner import _TRANSITION_TENSOR_KEYS, _BUFFER_EXTRA_K
 from real_world_rl.loops.sync import ActorSyncClient, LearnerSyncServer
 from real_world_rl.training.demo_loading import (
     as_dict_observation,
+    demo_source_digest,
     load_demo_pkls,
     training_extras,
 )
@@ -246,7 +246,9 @@ class HilSerlLearnerLoop(LearnerLoop):
     directories are reloaded only when no complete bundle or durable journal
     provides the online recovery source.
 
-    Also loads ``demo_dataset_paths`` (pre-collected demo transitions, HIL-SERL's
+    Also loads ``demo_dataset_paths`` (pre-collected demo transitions: demo dataset
+    directories, whose images are stacked to ``demo_frame_stack`` (the run's
+    ``obs.frame_stack``), or pkls; HIL-SERL's
     ``--demo_path`` equivalent -- ``train_rlpd.py:458-466``) into the demo buffer
     on every start, unconditionally, before the crash-recovery snapshot reload --
     matching HIL-SERL's own always-reload-``demo_path`` behavior exactly. Uses
@@ -278,6 +280,7 @@ class HilSerlLearnerLoop(LearnerLoop):
         publish_freq: int = 100,
         idle_poll_interval: float = 0.1,
         action_contract: Optional[Mapping[str, Any]] = None,
+        demo_frame_stack: int = 1,
         journal_path: Optional[str] = None,
         resume_bundle_path: Optional[str] = None,
         resume_replay: bool = True,
@@ -291,14 +294,10 @@ class HilSerlLearnerLoop(LearnerLoop):
         self._action_contract = action_contract
         self._checkpoint_dir = checkpoint_dir
         self._buffer_period = buffer_period
-        self._seed_datasets = []
-        for pattern in demo_dataset_paths:
-            for path in sorted(glob.glob(pattern)):
-                digest = hashlib.sha256()
-                with open(path, "rb") as stream:
-                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                        digest.update(chunk)
-                self._seed_datasets.append({"path": os.path.abspath(path), "sha256": digest.hexdigest(), "bytes": os.path.getsize(path)})
+        # The training run's obs.frame_stack: dataset directories are stacked to it on load.
+        self._demo_frame_stack = int(demo_frame_stack)
+        self._seed_datasets = [demo_source_digest(path) for pattern in demo_dataset_paths
+                               for path in sorted(glob.glob(pattern))]
         self._pending_online: list[dict[str, Any]] = []
         self._pending_demo: list[dict[str, Any]] = []
         self._step_since_snapshot = 0
@@ -327,6 +326,7 @@ class HilSerlLearnerLoop(LearnerLoop):
             self._add_preloaded_demo,
             self.agent.buffer_device,
             expected_contract=self._action_contract,
+            frame_stack=self._demo_frame_stack,
         )
 
     def _add_preloaded_demo(self, obs, next_obs, action, reward, done, **extra):

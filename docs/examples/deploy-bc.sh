@@ -14,10 +14,10 @@ cat local/station.yaml
 python docs/examples/deploy-bc.py local/bc-runs/first-bc/checkpoints/final.pt --xyz-scale-m 0.04
 # end mismatch
 # start offline
-python docs/examples/bc-check.py local/bc-runs/first-bc/checkpoints/final.pt local/first-demo.pkl --row 0 --record local/bc-runs/first-bc/deploy-bc-offline.json
+python docs/examples/bc-check.py local/bc-runs/first-bc/checkpoints/final.pt local/first-demo --row 0 --record local/bc-runs/first-bc/deploy-bc-offline.json
 # end offline
 # start synthetic
-python docs/examples/bc-check.py local/bc-runs/first-bc/checkpoints/final.pt local/bc-synthetic/demos.pkl --row 0 --record local/bc-runs/first-bc/deploy-bc-offline.json
+python docs/examples/bc-check.py local/bc-runs/first-bc/checkpoints/final.pt local/bc-synthetic/demos --row 0 --record local/bc-runs/first-bc/deploy-bc-offline.json
 # end synthetic
 # start help
 rwrl deploy --help

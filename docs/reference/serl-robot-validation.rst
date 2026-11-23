@@ -110,9 +110,9 @@ SERL 控制器：真机验证
 
    rwrl --station local/station.yaml --preset local/task.yaml teleop run \
      --mode tracker --diagnose translation --gain 0.2 --duration-s 10 \
-     --record local/serl-first-01.pkl
+     --record local/serl-first-01
 
-按 button 0 接管，轻轻向前（+x）推帽约 1 cm，然后松开。观察并记录：
+``--record`` 是数据集目录；这次诊断的回合也存在 ``local/serl-first-01/`` 里，可用 ``rwrl dataset view`` 回放。按 button 0 接管，轻轻向前（+x）推帽约 1 cm，然后松开。观察并记录：
 
 -  stderr 上的 ``INTERVENTION ON: the operator drives the arm``\ ，以及交还后 0.3 s 出现的 ``INTERVENTION OFF: the operator handed back``\ ；
 -  机械臂向前移动，没有侧向或竖直漂移；零点几秒内开始动（每次控制器启动后刚度在约 0.2 s 内从 0 爬升）；松开后停下；
@@ -174,7 +174,7 @@ SERL 控制器：真机验证
 .. code-block:: bash
 
    rwrl --station local/station.yaml --preset local/task.yaml teleop run \
-     --mode serl --diagnose translation --gain 0.5 --duration-s 20 --record local/cmp-C-01.pkl
+     --mode serl --diagnose translation --gain 0.5 --duration-s 20 --record local/cmp-C-01
 
 .. tutorial-test: skip
 .. code-block:: bash

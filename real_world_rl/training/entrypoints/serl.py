@@ -67,7 +67,7 @@ def _run_learner(args) -> None:
     checkpointing) and drives ``real_world_rl.loops.serl.SerlLearnerLoop``.
 
     The env built here is used only for its observation/action-space shape
-    -- the learner never calls ``reset()``/``step()`` on it. ``FrankaRealEnv``
+    -- the learner never calls ``reset()``/``step()`` on it. ``RealRobotEnv``
     doesn't make any network call until one of those is actually invoked, so
     building it is safe even when the learner machine (e.g. a remote GPU box)
     has no network route to the robot at all.
@@ -154,11 +154,10 @@ def run_serl(args: "SerlArgs") -> None:
 # Args + registration
 # ---------------------------------------------------------------------------
 
-from dataclasses import dataclass, field  # noqa: E402
+from dataclasses import dataclass  # noqa: E402
 
 from rl_garden.training.online.entrypoints.rlpd import RLPDArgs  # noqa: E402
 from real_world_rl.training.args import (  # noqa: E402
-    FrankaRealConfig,
     RealWorldFrankaArgs,
 )
 from real_world_rl.training.registry import registry  # noqa: E402
@@ -166,7 +165,7 @@ from real_world_rl.training.registry import registry  # noqa: E402
 
 @dataclass
 class SerlArgs(RealWorldFrankaArgs, RLPDArgs):
-    franka_real: FrankaRealConfig = field(default_factory=FrankaRealConfig)
+    """SERL settings for a device-layer robot."""
 
 
 registry.register("serl", SerlArgs, run_serl)

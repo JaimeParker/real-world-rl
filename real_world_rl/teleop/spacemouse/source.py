@@ -271,7 +271,7 @@ class SpaceMouseTeleopSource(SpaceMouseOptions, ToggleableTeleopSource):
     def from_env(cls, env: Any, **kwargs: Any) -> "TeleopSource":
         """Source for ``env``. Unless passed, the follower pose, the scales and the safety box
         come from the env as for ``leader_cartesian`` (``follower_pose_from_env``): a
-        ``FrankaRealEnv`` down the wrapper chain, else a ``real_robot`` env in ``cartesian_delta``
+        ``real_robot`` env down the wrapper chain in ``cartesian_delta``
         mode with ``tcp_pose`` in its state."""
         mode = kwargs.pop("mode", "tracker")
         if mode == "serl":

@@ -38,14 +38,19 @@ The legacy ManiSkill scripts are ``rl-garden/rl_garden/models/act/train.py`` and
 ``train_rgbd.py``; the baseline commands are in the same directory's ``baselines.sh``.
 They depend on ManiSkill and legacy top-level ``act``/``envs`` imports and are not
 repository-root entrypoints. For this repository's real-robot demonstrations, use
-``python -m rl_garden.models.act.train_trajectories`` below; it needs no simulator.
+``python -m rl_garden.models.act.train_trajectories`` below; it needs no simulator. It reads a pkl plus a contract sidecar, while ``rwrl record`` writes a dataset directory, so export one first with ``rwrl dataset export DIR --format pkl --out demos/task.pkl`` (see :doc:`Recording demos <recording-demos>`).
 
 .. _en-act-training-from-trajectory-pkls:
 
 Training from trajectory pkls
 --------------------------------------------------------------------------------
 
-``train_trajectories.py`` trains ACT from lists of transitions saved in pickle format, without a simulator or ManiSkill, for data such as teleoperated demonstrations recorded on a real robot. Run from the repository root:
+``train_trajectories.py`` trains ACT from lists of transitions saved in pickle format, without a simulator or ManiSkill, for data such as teleoperated demonstrations recorded on a real robot (exported to a pkl from the dataset first). Run from the repository root:
+
+.. code-block:: bash
+
+   rwrl dataset export demos/task --format pkl --out demos/task.pkl
+
 
 .. code-block:: bash
 
@@ -61,7 +66,7 @@ Training from trajectory pkls
 
 The ACT trajectory loader does not consume ``human_action_mask`` or the versioned
 training-segment metadata used by BC/HIL. Use fully supervised demonstrations and
-retain observation-gap splitting; it cannot supply mask-aware partial imitation.
+retain observation-gap splitting; it cannot supply mask-aware partial imitation. The exported pkl carries the masks, but ACT does not read them.
 
 .. _en-act-citation:
 

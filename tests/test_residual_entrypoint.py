@@ -71,9 +71,9 @@ def _args(**overrides) -> ResidualHilSerlArgs:
 
 @pytest.fixture
 def fake_backend(monkeypatch):
-    # The env request resolves the franka_real backend's config: register it even when
+    # The env request resolves the real_robot backend's config: register it even when
     # this file runs on its own (the entry point is not loaded without an install).
-    import real_world_rl.envs.backends.franka_real  # noqa: F401
+    import real_world_rl.envs.backends.real_robot  # noqa: F401
 
     envs = []
 

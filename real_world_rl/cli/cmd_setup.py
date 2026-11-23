@@ -48,6 +48,8 @@ def build_parser(parser=None) -> argparse.ArgumentParser:
     questions.add_argument("--robot-model", nargs="+", default=None,
                            help=f"per arm: {' | '.join(ROBOT_MODELS)} (Desk system 4.x = panda, 5.x = fr3); picks the "
                                 "joint-limit defaults; needed for a new arm with --non-interactive")
+    questions.add_argument("--joint-controller", nargs="+", choices=("impedance", "trajectory_impedance"),
+                           default=None, help="per arm joint controller (default impedance)")
     questions.add_argument("--cartesian-controller", nargs="+", default=None,
                            help=f"per arm: {' | '.join(CARTESIAN_CONTROLLERS)} (default impedance; internal and serl "
                                 "need arm backend franky, serl also franky + serl_controller built together)")

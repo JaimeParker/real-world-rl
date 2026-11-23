@@ -310,8 +310,10 @@ def test_train_record_deploy_rgb_depth_contract_roundtrip_and_early_rejection(tm
     from real_world_rl.training.entrypoints.hil_serl import HilSerlArgs
     from real_world_rl.training.env_building import build_hil_env
     from real_world_rl.deploy.checkpoint import DeployArgs, build_deploy_env
-    from real_world_rl.contracts.action import save_experiment_metadata, read_contract_sidecar
-    from real_world_rl.demos.record import save_demos
+    from real_world_rl.contracts.action import save_experiment_metadata
+    from real_world_rl.contracts.action import json_normalize
+    from real_world_rl.dataset import Dataset
+    from real_world_rl.demos.record import open_dataset
     robot = {"type":"franka", "arm_backend":"fake", "claim":False,
              "gripper":{"backend":"fake"}, "cameras":[{"name":"wrist","backend":"fake",
              "height":24,"width":32,"fps":120,"enable_depth":True}]}
@@ -325,8 +327,13 @@ def test_train_record_deploy_rgb_depth_contract_roundtrip_and_early_rejection(tm
     try:
         obs,_ = trained.reset(seed=3)
         contract = demo_contract_of(trained)
-        save_demos([],tmp_path/"demos.pkl",contract)
-        assert read_contract_sidecar(tmp_path/"demos.pkl")["experiment"] == contract["experiment"]
+        open_dataset(trained,args,tmp_path/"demos")
+        header = Dataset(tmp_path/"demos").header
+        assert header["action_contract"]["experiment"] == json_normalize(contract["experiment"])
+        # One un-stacked frame per key; the recording's frame stack is noted beside it.
+        assert header["obs_spec"]["rgb_wrist"] == {"shape":[8,8,3],"dtype":"uint8"}
+        assert header["obs_spec"]["depth_wrist"]["shape"] == [8,8,1] and header["recorded_frame_stack"] == 2
+        assert set(header["named_state_spec"]) == set(config.state_fields)
         save_experiment_metadata(trained,tmp_path/"experiment.json")
         first = {key:value.clone() for key,value in obs.items()}
     finally: trained.close()

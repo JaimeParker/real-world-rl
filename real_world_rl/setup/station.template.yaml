@@ -18,9 +18,15 @@ bridge_url: {{bridge_url}}    # serl_http only: URL of controller/real/franka_br
 realtime: {{realtime}}        # ignore | enforce (enforce needs a PREEMPT_RT kernel)
 relative_dynamics_factor: {{relative_dynamics_factor}}  # franky velocity/acc/jerk scale for move_to_* (and internal servo)
 cartesian_controller: {{cartesian_controller}}  # impedance (franky torque tracker, `control` gains) | internal (the robot's own controller follows velocity motions; wants realtime: enforce) | serl (SERL's controller + joint reset, `serl` gains; needs franky + serl_controller built together, wants realtime: enforce); see https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/serl-controller.html
+joint_controller: {{joint_controller}}
+joint_trajectory: {{joint_trajectory}}  # optional overrides; empty = joint_controller.default_params(robot_model)
+# joint_trajectory defaults: stiffness/damping/velocity_filter_alpha = upstream GELLO defaults;
+# max_velocity = [0.6, 0.6, 0.6, 0.6, 0.75, 0.75, 0.75], max_acceleration = [4, 4, 4, 4, 4, 4, 4],
+# min_segment_duration_s = 0.1, lower_limit/upper_limit = robot_model joint limits, limit_margin = 0.05,
+# command_timeout_s = 0.5, max_delta_tau = 1.0, compensate_coriolis = true.
 serl: {{serl}}                # cartesian_controller: serl: SERL compliance parameters (compliance_param.cfg names); null or omitted keys = the .cfg defaults (K 2000/150, D 89/7, clips 0.01/0.05)
 robot_model: {{robot_model}}  # panda (Franka Emika Robot / FER, Desk system 4.x) | fr3 (Franka Research 3, Desk system 5.x). Picks the wizard's joint_limits default and SERL's joint reset limits
-serl_auto_recover: {{serl_auto_recover}}  # cartesian_controller: serl: {enabled, max_per_episode}; a reflex is cleared on the next servo target and SERL's controller restarted (HIL-SERL's /clearerr), at most max_per_episode times per episode; null = {enabled: true, max_per_episode: 5}
+serl_auto_recover: {{serl_auto_recover}}  # native torque controllers (cartesian_controller: serl and joint_controller: trajectory_impedance): {enabled, max_per_episode}; a reflex is cleared on the next servo target and the controller restarted (HIL-SERL's /clearerr), at most max_per_episode times per episode; null = {enabled: true, max_per_episode: 5}
 load: {{load}}                # optional payload {mass_kg, center_of_mass_m: [x, y, z], inertia: 3x3}, set after every connect; null leaves the robot's
 home_joints: {{home_joints}}  # 7 values, rad
 # Safety limits, enforced by the arm (and so by the daemon): servo targets are clipped,
@@ -32,7 +38,7 @@ workspace: {{workspace}}    # optional task-frame bounds; targets outside are re
 # Both are nonnegative feedback-only margins; target checks keep 1e-9 tolerance.
 joint_limits: {{joint_limits}}  # 7 [lo, hi] pairs, rad (wizard default: the robot_model datasheet, Panda or FR3); home_joints must lie inside
 max_delta_per_step: {{max_delta_per_step}}  # servo step cap from the measured state; default {xyz_m: 0.05, joint_rad: 0.04}
-control: {{control}}          # optional franky impedance settings (cartesian_controller: impedance; joint servo in every mode), applied while IDLE; null keeps SDK defaults
+control: {{control}}          # optional franky impedance settings (cartesian_controller: impedance; joint_controller: impedance), applied while IDLE; null keeps SDK defaults
 claim: {{claim}}              # default true: daemon robot claim and SpaceMouse HID endpoint claim
 {{gripper}}
 {{cameras}}

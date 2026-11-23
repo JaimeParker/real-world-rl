@@ -128,7 +128,7 @@ Intervened transitions are also copied into the demo buffer, as in hil_serl.
 
 Pre-collected demos (``--demo-dataset-paths``) are human actions: a transition without
 ``intervened`` / ``policy_action`` gets ``intervened=True`` and ``policy_action=action``. The
-learner cannot recover base actions, so a demo pkl without ``base_actions`` /
+learner cannot recover base actions, so a demo (dataset directory or pkl) without ``base_actions`` /
 ``next_base_actions`` (hil_serl snapshots, teleop recordings) is rejected with a
 ``ValueError`` naming the file. ``--allow-base-less-demos`` loads such rows with zero base
 actions instead (with one warning): the critic target and the BC term then learn them as
@@ -196,7 +196,7 @@ Limitations
    one env (one robot), no ``--fwbw``.
 -  No simulator ``learn()`` path and no ``rl-garden-eval``: both call ``policy.predict`` without a
    base action (``checkpoint_eval_unsupported_reason`` says so).
--  Demo pkls without base actions need ``--allow-base-less-demos``, and their rows are then
+-  Demos (dataset directories or pkls) without base actions need ``--allow-base-less-demos``, and their rows are then
    learned as residuals from a zero base (see "Human intervention").
 -  The checkpoint provider rebuilds an agent from the base run's Args; a base checkpoint
    needs the same observation and action spaces as the residual run.

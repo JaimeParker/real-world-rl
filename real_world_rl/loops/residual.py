@@ -194,6 +194,7 @@ class ResidualLearnerLoop(HilSerlLearnerLoop):
                     self._demo_adder(self.agent.add_demo_transition, pkl_path),
                     self.agent.buffer_device,
                     expected_contract=self._action_contract,
+                    frame_stack=self._demo_frame_stack,
                 )
 
     def _demo_adder(self, adder: Callable[..., None], pkl_path: str) -> Callable[..., None]:

@@ -221,14 +221,33 @@ The robot configuration must also provide ``max_delta_per_step.joint_rad``; for 
 Keep ``joint_pos`` in ``state_fields`` and check remote, token, cameras and home/reset. Changing only the action mode is insufficient.
 If the source options file contains multiple robots, select one with ``--teleop-robot NAME``.
 
+**Make the follower track more smoothly.** The station's default joint controller ``impedance`` receives a step target every ``control_hz`` period.
+For joint following you can switch to ``joint_controller: trajectory_impedance``: each target is turned by a planner into a continuous trajectory and tracked with GELLO's joint impedance law.
+It is written in the **robot-side station**, needs franky, ``serl_controller`` and ``joint_controller`` built together, and a realtime kernel is recommended;
+choose, install and check it with doctor as in step 10 of :doc:`controller`; no recalibration is needed. Also raise ``real_robot.control_hz`` in the configuration to 15–30 Hz:
+
+.. literalinclude:: ../../examples/en/controller-joint.yaml
+   :language: yaml
+   :start-after: # start controller
+   :end-before: # end controller
+
+.. code-block:: yaml
+
+   real_robot:
+     control_hz: 20     # default 10; GELLO joint collection can use 15 to 30
+
+After raising ``control_hz``, the speeds implied by ``joint_scale_rad`` and ``max_delta_per_step.joint_rad``, which are counted **per step**, rise with it; review them again.
+Collection, training and deployment must use the same ``control_hz``, so settle it **before** you start collecting.
+While the leader moves, the follower trails by about one braking distance (about 0.06 rad by default); tune it with ``joint_trajectory.max_acceleration``, see :doc:`../reference/joint-controller`.
+
 ``--teleop-onset arm`` waits until the maximum joint difference is no greater than ``--teleop-arm-tolerance-rad`` before taking over;
 the default tolerance is 0.1 rad. Steps before alignment are not human steps, and alignment is required again after reset.
 The default onset policy ``ramp`` takes over immediately: each joint_abs target advances relative to the follower by at most
 ``--teleop-ramp-step-rad`` (default 0.05 rad) per step. Limited steps are marked teleop_syncing.
 joint_delta is already capped by joint_scale_rad; the initial catch-up flag persists until the leader first comes within one step.
 
-The full archive retains these executed actions. By default, the recorder excludes syncing steps from the human pkl;
-``--keep-syncing-steps`` retains them, but archive-derived training views still exclude syncing supervision.
+The dataset retains these executed actions. By default, the recorder excludes syncing steps from the training rows;
+``--keep-syncing-steps`` retains them, but dataset-derived training views still exclude syncing supervision.
 The joint route lacks the Cartesian gripper take-over latch. Match the trigger to the current gripper state before taking over.
 See :doc:`record` for recording artifacts and recovery. Use a separate dataset for each action mode.
 
@@ -241,7 +260,7 @@ See :doc:`record` for recording artifacts and recovery. Use a separate dataset f
    :start-after: # start joint
    :end-before: # end joint
 
-**What you should see**: the new archive contract has action_mode joint_delta and arm_action_dim 7.
+**What you should see**: the new dataset header's action_contract has action_mode joint_delta and arm_action_dim 7.
 For a joint_abs environment, the recorder also checks the maximum leader–follower difference at episode start (default 0.8 rad).
 
 **If it doesn't**: stop if action dimensions or joint limits do not match. Check leader and follower joint order and corresponding ranges;

@@ -1,15 +1,22 @@
-"""Shared glob+pickle demo-transition loading, factored out of
+"""Shared glob+load demo-transition loading, factored out of
 ``HilSerlLearnerLoop._load_demo_datasets`` so the real-world BC entrypoint
 (``training/entrypoints/bc.py``) and the online HIL-SERL demo-buffer preload share one
-implementation of the pkl-list-of-transition-dicts format instead of two
-copies that could silently drift apart.
+implementation instead of two copies that could silently drift apart.
+
+A demo source is a demo dataset directory (``real_world_rl.dataset``: a directory holding
+``dataset.json``, the recorder's output), a pkl (a pickled list of transition dicts) with its
+``.contract.json`` sidecar, or a legacy ``.trajectory.pt`` / ``.trajectory.sqlite3`` archive.
+Every source's rows go through the same projection to the adder.
 """
 from __future__ import annotations
 
 import glob
+import hashlib
 import inspect
+import os
 import pickle
-from typing import Any, Callable, Mapping, Sequence
+from pathlib import Path
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 import torch
 
@@ -38,9 +45,52 @@ def as_dict_observation(obs: Any) -> Any:
     rl-garden replay buffers are Dict-only (state-only observations live
     under the ``"state"`` key), but pkls written before that change (and
     state-only demo pkls) store ``obs``/``next_obs`` as bare tensors.
-    Dict observations (what ``FrankaRealEnv`` emits) pass through untouched.
+    Dict observations in legacy franka_real demos pass through untouched.
     """
     return obs if isinstance(obs, Mapping) else {"state": obs}
+
+
+def is_dataset_dir(path: str | os.PathLike) -> bool:
+    """Whether ``path`` is a demo dataset directory (it holds ``dataset.json``)."""
+    from real_world_rl.dataset.format import DATASET_FILE
+
+    return os.path.isdir(path) and os.path.isfile(os.path.join(path, DATASET_FILE))
+
+
+def _dataset_source(path: str, frame_stack: int) -> tuple[Iterable[Mapping[str, Any]], Any, list]:
+    """The training rows of the dataset at ``path`` (streamed, one episode in memory), its
+    recorded action contract, and a one-row stand-in carrying the header's action width for the
+    contract check."""
+    from real_world_rl.dataset import Dataset, iter_transitions
+
+    dataset = Dataset(path)
+    header = dataset.header
+    # The recording's own choice: whether ramp-onset (syncing) steps are supervision rows.
+    keep_syncing = bool((header.get("config") or {}).get("keep_syncing_steps", False))
+    rows = iter_transitions(dataset, frame_stack=frame_stack, keep_syncing_steps=keep_syncing)
+    width_probe = [{"action": torch.zeros(1, int(header["action_dim"]))}]
+    return rows, header.get("action_contract"), width_probe
+
+
+def demo_source_digest(path: str) -> dict[str, Any]:
+    """``{"path", "sha256", "bytes"}`` of a demo source; a dataset directory hashes its header and
+    visible episode files in path order (unfinished ``.tmp-`` writes are skipped)."""
+    digest = hashlib.sha256()
+    if is_dataset_dir(path):
+        root = Path(path)
+        files = sorted(file for file in root.rglob("*") if file.is_file()
+                       and not any(part.startswith(".tmp-") for part in file.relative_to(root).parts))
+    else:
+        files = [Path(path)]
+    size = 0
+    for file in files:
+        if len(files) > 1:
+            digest.update(file.relative_to(path).as_posix().encode() + b"\0")
+        with open(file, "rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        size += file.stat().st_size
+    return {"path": os.path.abspath(path), "sha256": digest.hexdigest(), "bytes": size}
 
 
 def load_demo_pkls(
@@ -49,27 +99,40 @@ def load_demo_pkls(
     device: torch.device | str,
     expected_contract: Mapping[str, Any] | None = None,
     on_contract: Callable[[Mapping[str, Any] | None], None] | None = None,
+    *,
+    frame_stack: int = 1,
 ) -> int:
-    """Glob each pattern in ``paths``, load every pkl (a pickled list of
-    transition dicts), and call ``adder(obs, next_obs, action, reward, done,
-    **extra)`` for each transition, moving every tensor value to ``device``
+    """Glob each pattern in ``paths``, load every match (a demo dataset directory, a pkl of
+    transition dicts or a legacy trajectory archive), and call ``adder(obs, next_obs, action,
+    reward, done, **extra)`` for each transition, moving every tensor value to ``device``
     first. Returns the number of transitions loaded.
 
+    A dataset directory yields ``real_world_rl.dataset.iter_transitions`` rows (its kept
+    episodes' training view, the old recorder's pkl rows) with images stacked to
+    ``frame_stack``, the training run's ``obs.frame_stack``; pkls and archives hold rows
+    already stacked as they were recorded.
+
     With ``expected_contract`` (``action_contract.DEMO_CONTRACT_KEYS`` of the target env), every
-    pkl is checked before any of its transitions is added: a ``<pkl stem>.contract.json``
-    sidecar must match on action_mode/arm_action_dim/gripper_in_action and the limits, scales and
-    state_fields it records, and without one only the action width is checked (with a warning).
-    ``None`` skips all checks."""
+    source is checked before any of its transitions is added: a dataset's header
+    ``action_contract`` or a ``<pkl stem>.contract.json`` sidecar must match on
+    action_mode/arm_action_dim/gripper_in_action and the limits, scales and state_fields it
+    records, and without one only the action width is checked (with a warning). ``None`` skips
+    all checks."""
     count = 0
     seen_paths = set()
     for pattern in paths:
         for pkl_path in sorted(glob.glob(pattern)):
-            from pathlib import Path
             canonical = Path(pkl_path).resolve()
             if canonical in seen_paths:
                 continue
             seen_paths.add(canonical)
-            if pkl_path.endswith((".trajectory.pt", ".trajectory.sqlite3")):
+            checked = None
+            if is_dataset_dir(pkl_path):
+                transitions, saved_contract, checked = _dataset_source(pkl_path, frame_stack)
+            elif os.path.isdir(pkl_path):
+                raise ValueError(f"demo path {pkl_path} is a directory without a dataset.json; "
+                                 "pass a demo dataset directory or a .pkl")
+            elif pkl_path.endswith((".trajectory.pt", ".trajectory.sqlite3")):
                 from real_world_rl.contracts.trajectory import validate_record
                 archive_store = None
                 if pkl_path.endswith(".sqlite3"):
@@ -120,7 +183,7 @@ def load_demo_pkls(
                     transitions = pickle.load(f)
                 saved_contract = read_contract_sidecar(pkl_path)
             validate_transitions_against_contract(
-                transitions,
+                transitions if checked is None else checked,
                 expected_contract,
                 source=pkl_path,
                 saved=saved_contract,
@@ -155,10 +218,15 @@ def load_demo_pkls(
 
 
 def read_demo_contract(paths: Sequence[str]) -> Mapping[str, Any] | None:
-    """Read the first available demo contract without constructing a robot or learner."""
+    """Read the first available demo contract (a dataset header's, a pkl sidecar's or an
+    archive's) without constructing a robot or learner."""
     for pattern in paths:
         for path in sorted(glob.glob(pattern)):
-            if path.endswith(".trajectory.pt"):
+            if is_dataset_dir(path):
+                from real_world_rl.dataset import Dataset
+
+                saved = Dataset(path).header.get("action_contract")
+            elif path.endswith(".trajectory.pt"):
                 saved = torch.load(path, map_location="cpu", weights_only=True).get("action_contract")
             elif path.endswith(".trajectory.sqlite3"):
                 from real_world_rl.loops.durable import DurableStore, decode

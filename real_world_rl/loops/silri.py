@@ -124,6 +124,7 @@ class SilriLearnerLoop(HilSerlLearnerLoop):
             self._add_demo_with_defaults,
             self.agent.buffer_device,
             expected_contract=self._action_contract,
+            frame_stack=self._demo_frame_stack,
         )
 
     def _add_demo_with_defaults(self, obs, next_obs, action, reward, done, **extra) -> None:

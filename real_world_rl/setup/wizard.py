@@ -53,6 +53,7 @@ NONE = "none"
 ARM_BACKENDS = ("franky", "serl_http", "fake")
 GRIPPER_CHOICES = (*ARM_BACKENDS, NONE)
 TELEOP_CHOICES = ("gello", "spacemouse", "fake", NONE)
+JOINT_CONTROLLERS = ("impedance", "trajectory_impedance")
 CARTESIAN_CONTROLLERS = ("impedance", "internal", "serl")
 REALTIME_MODES = ("ignore", "enforce")
 # Controllers whose 1 kHz loop wants a PREEMPT_RT kernel (realtime: enforce).
@@ -217,6 +218,7 @@ class Answers:
     arm_backends: list[str] | None = None
     grippers: list[str] | None = None
     cartesian_controllers: list[str] | None = None
+    joint_controllers: list[str] | None = None
     robot_models: list[str] | None = None
     realtimes: list[str] | None = None
     home_joints: list[str] | None = None
@@ -707,10 +709,16 @@ def _ask_controller(
     elif answers.for_arm("cartesian_controllers", "--cartesian-controller", index, count) not in (None, "impedance"):
         raise WizardError(f"--cartesian-controller internal / serl need arm backend franky, '{context.name}' "
                           f"uses {config.arm_backend}")
+    joint_controller = answers.for_arm("joint_controllers", "--joint-controller", index, count)
+    if joint_controller is None:
+        joint_controller = config.joint_controller
+    joint_controller = _parse_choice(JOINT_CONTROLLERS)(joint_controller)
+    if joint_controller == "trajectory_impedance" and config.arm_backend not in CONTROLLER_BACKENDS:
+        raise WizardError("--joint-controller trajectory_impedance needs arm backend franky")
     realtime = config.realtime
     if config.arm_backend == "franky":
         kernel = probe.realtime_kernel
-        suggested = "enforce" if controller in REALTIME_CONTROLLERS or kernel else "ignore"
+        suggested = "enforce" if controller in REALTIME_CONTROLLERS or joint_controller == "trajectory_impedance" or kernel else "ignore"
         if controller in REALTIME_CONTROLLERS and kernel is False:
             prompt.echo(
                 f"warning: cartesian_controller: {controller} wants realtime: enforce, but this kernel is not "
@@ -740,7 +748,9 @@ def _ask_controller(
             prompt.echo(f"cartesian_controller: serl: dropped the impedance gains {dropped} from control: "
                         "(SERL's gains are serl:, its defaults when null)")
     return dataclasses.replace(config, robot_model=robot_model, cartesian_controller=controller,
-                               realtime=realtime, control=control)
+                               realtime=realtime, control=control, joint_controller=joint_controller,
+                               joint_trajectory=(config.joint_trajectory or {})
+                               if joint_controller == "trajectory_impedance" else config.joint_trajectory)
 
 
 def _float_list_text(values: Sequence[float] | None) -> str:

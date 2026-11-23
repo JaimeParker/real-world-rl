@@ -13,7 +13,7 @@ rwrl daemon --watchdog-s 5
 export CUDA_VISIBLE_DEVICES=''
 rwrl train hil_serl --config local/rl-task.yaml --role learner \
   --sync-host 0.0.0.0 --sync-port 6000 \
-  --demo-dataset-paths local/first-demo.pkl
+  --demo-dataset-paths local/first-demo
 # end learner
 # start actor
 # Robot PC: replace with the learner's reachable LAN address; localhost if co-located.

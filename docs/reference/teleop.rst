@@ -71,7 +71,7 @@ hil_serl（以及 residual、SiLRI）从参数推导源 kwargs（\ ``robot``/``l
    gripper_closed_rad: ...
    hold_s: 0.0
 
-或第二个 SpaceMouse 的 ``device_index: 1``\ （以及 ``deadzone``\ 、\ ``invert_axes``\ ）；\ ``franka_real`` 技术栈上的 ``--teleop-device leader_cartesian`` 则可配置提供主臂服务的机器人 daemon（见\ :ref:`笛卡尔机器人上的主臂 <teleop-leader-arm-on-a-cartesian-robot-leader_cartesian>`\ ）：
+或第二个 SpaceMouse 的 ``device_index: 1``\ （以及 ``deadzone``\ 、\ ``invert_axes``\ ）；\ ``real_robot`` 技术栈上的 ``--teleop-device leader_cartesian`` 则可配置提供主臂服务的机器人 daemon（见\ :ref:`笛卡尔机器人上的主臂 <teleop-leader-arm-on-a-cartesian-robot-leader_cartesian>`\ ）：
 
 .. code-block:: yaml
    :dedent: 0
@@ -153,7 +153,7 @@ hil_serl（以及 residual、SiLRI）从参数推导源 kwargs（\ ``robot``/``l
      - kwargs：\ ``motion``\ 、\ ``events``\ （注册名）、\ ``motion_kwargs``\ 、\ ``events_kwargs``\ 、\ ``intervention_from="events"``\ （或 ``"motion"``\ ）。hil_serl 根据 ``--teleop-event-device`` 构建。
    * - ``leader_cartesian``
      - ``LeaderArmCartesianSource``
-     - 经 Panda 正向运动学把关节空间主臂转为笛卡尔 twist（\ ``franka_real`` 技术栈）
+     - 经 Panda 正向运动学把关节空间主臂转为笛卡尔 twist（\ ``real_robot`` 技术栈）
      - cartesian_delta，6 + 夹爪
      - 见\ :ref:`笛卡尔机器人上的主臂 <teleop-leader-arm-on-a-cartesian-robot-leader_cartesian>`\ 。
    * - ``bimanual``
@@ -197,7 +197,7 @@ SpaceMouse tracker 在发送请求目标前、速度/领先限制后均检查任
 
 命名操作员档案使用 \ :ref:`CLI 标定流程 <spacemouse-commissioning-spacemouse-profiles-and-task-frame-workspace>`\ 。平移和角向量的组合输入旋转均为 ``base_R_task @ Rz(operator_yaw)``\ 。固定 HID 轴映射是设备约定，不是实测安装变换。不要对已标定 ``base_R_task`` 再加 roll 修正。绝对位置使用含原点的完整任务变换；反馈观测和策略动作保留原基坐标约定。
 
-SERL 须先配置工作站 **XYZ 和 RPY 安全框**\ ，缺任一个均为构建错误。\ ``real_robot`` 中为 ``safety_box``\ （\ ``[xmin, ymin, zmin, xmax, ymax, zmax]``\ ）、\ ``safety_box_rpy_low``\ 、\ ``safety_box_rpy_high``\ ；缩放仍为 ``xyz_scale_m``/``rot_scale_rad``\ 。\ ``franka_real`` 中将 ``safety_box_low``\ 、\ ``safety_box_high`` 和两项 RPY 限制放入 ``franka_real.env_kwargs_json``\ ，使用原位置/旋转缩放。模式在构建环境前选择 ``cartesian_semantics: serl``\ ，不打开遥操作设备的 learner 也如此。显式配置 ``current`` 与此模式冲突；未设置的程序化 dataclass 默认值会提升为 ``serl``\ 。训练/录制参数序列化前完成模式解析，所以保存的 SERL 配置同时含 ``spacemouse_mode: serl`` 与 ``cartesian_semantics: serl``\ 。Deploy 保留保存的环境语义；\ ``--spacemouse-mode serl`` 覆盖与已存 ``cartesian_semantics: current`` 冲突。
+SERL 须先配置工作站 **XYZ 和 RPY 安全框**\ ，缺任一个均为构建错误。\ ``real_robot`` 中为 ``safety_box``\ （\ ``[xmin, ymin, zmin, xmax, ymax, zmax]``\ ）、\ ``safety_box_rpy_low``\ 、\ ``safety_box_rpy_high``\ ；缩放仍为 ``xyz_scale_m``/``rot_scale_rad``\ 。模式在构建环境前选择 ``cartesian_semantics: serl``\ ，不打开遥操作设备的 learner 也如此。显式配置 ``current`` 与此模式冲突；未设置的程序化 dataclass 默认值会提升为 ``serl``\ 。训练/录制参数序列化前完成模式解析，所以保存的 SERL 配置同时含 ``spacemouse_mode: serl`` 与 ``cartesian_semantics: serl``\ 。Deploy 保留保存的环境语义；\ ``--spacemouse-mode serl`` 覆盖与已存 ``cartesian_semantics: current`` 冲突。
 
 录制、训练、部署使用同一模式。SERL 记录以下参与比较的 ``teleop_control`` 约定（非默认 ``invert_axes`` 还会加入该列表，带 ``input_rotation`` 的选项还会加入 ``use_profile_rotation``\ ）：
 
@@ -259,14 +259,14 @@ SpaceMouse 安装与 Linux 权限
 
 打开/权限失败会指向规则文件及安装命令。Doctor 分别检查 ``hid`` SDK 和 ``/dev/hidraw*`` 访问；Docker 内还须传入 HID 节点。旧 ``SpaceMouseExpert`` 与 ``legacy-bridge`` 保留独立 ``pyspacemouse`` API。
 
-在 NUC 仓库根目录、项目环境激活、工作站 ``hil.yaml`` 已配置时，针对 ``cartesian_delta`` 环境（该模式的 ``real_robot`` 或 ``franka_real``\ ），用终端输入操作员标记（SpaceMouse Compact 两按钮均已占用）：
+在 NUC 仓库根目录、项目环境激活、工作站 ``hil.yaml`` 已配置时，针对 ``cartesian_delta`` 环境（该模式的 ``real_robot``\ ），用终端输入操作员标记（SpaceMouse Compact 两按钮均已占用）：
 
 .. code-block:: bash
    :dedent: 0
 
    rwrl record --config hil.yaml \
        --teleop-device spacemouse --teleop-event-device stdin \
-       --output-path demos/task_20.pkl --num-successes 20
+       --output-dir demos/task_20 --num-successes 20
 
 HIL actor 接受相同两个参数。配置两种安全框后，加 ``--spacemouse-mode serl`` 选择上表原生行为。以下描述默认 **tracker** 模式。\ ``SpaceMouseTeleopSource``\ （\ ``real_world_rl/teleop/spacemouse/source.py``\ ）通过设备层 ``SpaceMouseTeleop`` 打开设备（\ ``TeleopConfig(backend="spacemouse")``\ ，轮询线程为 ``read()`` 供样本；twist 在 ``[-1, 1]``\ ，HID 读取器状态轴映射 ``[-y, x, z, -roll, -pitch, -yaw]``\ ，\ ``invert_axes`` 反转所列输出索引 0–5），并驱动与 ``leader_cartesian`` 相同的 ``CartesianTargetTracker``\ （见\ :ref:`映射 <teleop-mapping>`\ ）：
 
@@ -346,7 +346,7 @@ HIL actor 接受相同两个参数。配置两种安全框后，加 ``--spacemou
 
 接管起始（\ ``--teleop-onset``\ ，源 kwarg ``onset``\ ）：
 
--  ``ramp``\ （默认）：\ ``joint_abs`` 发出目标 ``q_follower + clip(q_leader - q_follower, +-ramp_step_rad)``\ （\ ``--teleop-ramp-step-rad``\ ，0.05），归一化到关节限制，所以记录动作为执行命令；这些介入步带 ``info["teleop_events"]["teleop_syncing"] = True``\ 。归档保留，训练排除同步专家标签。\ ``joint_delta`` 下初始追赶标记到主臂首次进入 ``joint_scale_rad`` 范围；同一次接管之后的饱和运动是正常教学。
+-  ``ramp``\ （默认）：\ ``joint_abs`` 发出目标 ``q_follower + clip(q_leader - q_follower, +-ramp_step_rad)``\ （\ ``--teleop-ramp-step-rad``\ ，0.05），归一化到关节限制，所以记录动作为执行命令；这些介入步带 ``info["teleop_events"]["teleop_syncing"] = True``\ 。数据集保留，训练排除同步专家标签。\ ``joint_delta`` 下初始追赶标记到主臂首次进入 ``joint_scale_rad`` 范围；同一次接管之后的饱和运动是正常教学。
 -  ``arm``\ ：仅在 ``|q_leader - q_follower|_inf <= arm_tolerance_rad``\ （\ ``--teleop-arm-tolerance-rad``\ ，0.1）时切换生效。此前步骤不算介入，逐关节误差最多每秒记录一次：需将主臂移动到从臂位置。就绪后保持直到交还；每次 reset 解除就绪。
 
 ``q_follower`` 来自环境最新观测的 ``joint_pos``\ ，所以 ``state_fields`` 须包含它。除非事件设备提供切换，切换状态来自部件 ``intervening``\ （机器人 PC 上 evdev ``event_device`` 配合 ``intervention: toggle``\ ，或 ``always``\ ）：
@@ -365,7 +365,7 @@ HIL actor 接受相同两个参数。配置两种安全框后，加 ``--spacemou
 使用原因
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-旧 ``franka_real`` 通过 SERL HTTP 桥接，只支持 ``/pose``\ （绝对笛卡尔阻抗目标）、\ ``/open_gripper``/``/close_gripper``\ 、\ ``/jointreset``\ 、\ ``/startimp``/``/stopimp``\ 、\ ``/getstate``\ 。没有流式关节命令，所以关节空间主臂源（\ ``--teleop-device leader_arm``/``gello``\ ，见\ :ref:`主臂 <teleop-leader-arms-gello>`\ ）无法驱动它，\ ``FrankaRealEnv`` 接受 7 维动作：基坐标 twist（6）+ 夹爪。因此转换在 actor 侧执行：
+使用 ``serl_http`` 臂的 ``real_robot`` 通过 SERL HTTP 桥接，只支持 ``/pose``\ （绝对笛卡尔阻抗目标）、\ ``/open_gripper``/``/close_gripper``\ 、\ ``/jointreset``\ 、\ ``/startimp``/``/stopimp``\ 、\ ``/getstate``\ 。没有流式关节命令，所以关节空间主臂源（\ ``--teleop-device leader_arm``/``gello``\ ，见\ :ref:`主臂 <teleop-leader-arms-gello>`\ ）无法驱动它，\ 笛卡尔模式的 ``real_robot`` 接受 7 维动作：基坐标 twist（6）+ 夹爪。因此转换在 actor 侧执行：
 
 .. code-block:: text
    :dedent: 0
@@ -391,8 +391,8 @@ HIL actor 接受相同两个参数。配置两种安全框后，加 ``--spacemou
    * - ``LeaderArmCartesianSource``
      - ``real_world_rl/teleop/leader/cartesian.py``
      - 遥操作源；任何关节数与所选运动学一致的 ``joint_abs`` 部件均可作为主臂。
-   * - ``FrankaRealEnv.last_tcp_pose``
-     - ``real_world_rl/envs/franka_real/env.py``
+   * - ``RealRobotEnv.last_observation``
+     - ``real_world_rl/envs/real_robot/env.py``
      - 最新 reset/step 实测 TCP（\ ``O_T_EE``\ ，xyz + quat xyzw），作为从臂位姿。
    * - 占位机器人 YAML
      - ``examples/stations/robot.gello_station.example.yaml``
@@ -431,7 +431,7 @@ Actor 侧
 -  ``robot_yaml=<path>``\ ：本机加载相同占位 YAML（GELLO 接 actor 机器），由 ``start()`` 连接；
 -  ``leader=<part or resolver>``\ ：调用者拥有的 teleop 部件（测试、自定义配置）。
 
-从臂位姿、每步缩放、安全框来自环境：沿包装器链找到 ``FrankaRealEnv.last_tcp_pose``\ 、\ ``cfg.action_scale``\ 、\ ``cfg.safety_box_low/high``\ ；\ ``real_robot`` 笛卡尔环境则用 ``last_observation["state"]["tcp_pose"]``\ 、动作约定 ``xyz_scale_m``/``rot_scale_rad`` 和配置的 ``safety_box``\ （\ ``None`` 时源不检查旧式安全框）。可用 ``follower_pose_getter=``\ 、\ ``pos_scale_m=``\ 、\ ``rot_scale_rad=``\ 、\ ``safety_box=`` 覆盖。缩放至少须等于领先上限（\ ``xyz_scale_m >= lead_cap_m``\ 、\ ``rot_scale_rad >= lead_cap_rad``\ ），否则拒绝构建；默认 0.02 m / 0.1 rad 需增大（预设中的 ``--real-robot.xyz-scale-m 0.05 --real-robot.rot-scale-rad 0.3``\ ，或 ``--franka-real.action-scale-pos``/``--franka-real.action-scale-rot``\ ），或减小上限。
+从臂位姿、每步缩放、安全框来自环境：沿包装器链找到 ``real_robot`` 笛卡尔环境，使用 ``last_observation["state"]["tcp_pose"]``\ 、动作约定 ``xyz_scale_m``/``rot_scale_rad`` 和配置的 ``safety_box``\ （\ ``None`` 时源不检查旧式安全框）。可用 ``follower_pose_getter=``\ 、\ ``pos_scale_m=``\ 、\ ``rot_scale_rad=``\ 、\ ``safety_box=`` 覆盖。缩放至少须等于领先上限（\ ``xyz_scale_m >= lead_cap_m``\ 、\ ``rot_scale_rad >= lead_cap_rad``\ ），否则拒绝构建；默认 0.02 m / 0.1 rad 需增大（预设中的 ``--real-robot.xyz-scale-m 0.05 --real-robot.rot-scale-rad 0.3``\ ），或减小上限。
 
 ``real_robot`` 中，与 Pico 一样，从环境配置读取工作站 ``workspace``\ 、\ ``task_frame``\ ，回退到本地机器人 YAML。显式源 kwargs 可覆盖。任务坐标系定义 workspace 位置轴与可选姿态约束。\ ``workspace`` 与基坐标 ``safety_box`` 同时生效。任一越界请求都会交还并保持实测从臂位姿；回到框内不会自动恢复跟随。日志为 ``WORKSPACE HOLD: <axes>; the follower holds its pose and the leader handed back; toggle again to take over``\ 。释放接管请求，再请求以重新锚定。
 
@@ -441,7 +441,7 @@ Actor 侧
    from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
 
    env = TeleopInterventionWrapper(
-       franka_real_env,
+       real_robot_env,
        device="leader_cartesian",
        remote_address="robot-host:50052",
        mapping="anchored",
@@ -460,7 +460,7 @@ Actor 侧
 .. code-block:: bash
    :dedent: 0
 
-   rwrl train hil_serl --role actor --env-backend franka_real \
+   rwrl train hil_serl --role actor --env-backend real_robot --config hil.yaml \
        --teleop-device leader_cartesian --teleop-options-yaml station.yaml
 
 默认 ``intervention: always`` 每步由人工驱动（纯遥操作/示范采集）。HIL 时可在机器人主机设置 ``intervention: toggle`` 加 ``event_device``\ ，或从 actor 事件设备读取介入（\ ``--teleop-event-device stdin`` 或 ``keyboard``\ ：\ ``t`` 接管、\ ``h`` 交还，见\ :ref:`主臂 <teleop-leader-arms-gello>`\ ）。
@@ -557,7 +557,7 @@ recorder 保持策略（\ ``real_world_rl/teleop/core/hold.py``\ ，\ ``Cartesia
 夹爪
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-主臂宽度目标 ``w`` 在 ``[0, 1]``\ （1 为打开），当 ``w > gripper_binarize_threshold`` 时变为 ``+1``\ （开），否则 ``-1``\ （闭）；默认 0.5 使扳机超过半程后关闭。精确 +-1 是混合（离散）夹爪 critic 的清晰标签，\ ``franka_real``\ （\ ``a > 0.5`` 打开）也能明确执行。\ ``gripper_binarize_threshold=None`` 则输出连续 ``2w - 1``\ 。无夹爪主臂保持环境最后夹爪动作，需要 ``last_gripper_action_getter``\ （同 ``--teleop-device robot``\ ）。
+主臂宽度目标 ``w`` 在 ``[0, 1]``\ （1 为打开），当 ``w > gripper_binarize_threshold`` 时变为 ``+1``\ （开），否则 ``-1``\ （闭）；默认 0.5 使扳机超过半程后关闭。精确 +-1 是混合（离散）夹爪 critic 的清晰标签，\ ``real_robot``也能明确执行。\ ``gripper_binarize_threshold=None`` 则输出连续 ``2w - 1``\ 。无夹爪主臂保持环境最后夹爪动作，需要 ``last_gripper_action_getter``\ （同 ``--teleop-device robot``\ ）。
 
 接管时扳机与夹爪最后命令状态不一致（打开为 action > 0，由包装器经 ``last_gripper_action_getter`` 提供），源会持续发送最后动作，直到扳机跨到夹爪当前状态，再跟随扳机。因此扳机打开时接管不会松开已抓物体。
 
@@ -574,12 +574,18 @@ recorder 保持策略（\ ``real_world_rl/teleop/core/hold.py``\ ，\ ``Cartesia
    import numpy as np
    from scipy.spatial.transform import Rotation
 
-   from real_world_rl.envs.franka_real.bridge_client import FrankaBridgeClient
+   from real_world_rl.server import RemoteRobot, RemoteRobotConfig
    from real_world_rl.kinematics import PandaKinematics
 
-   state = FrankaBridgeClient("http://robot-host:5000").get_state()  # q and pose (O_T_EE)
-   position, quat = PandaKinematics().ee_pose(state["q"])
-   pose = np.asarray(state["pose"])
+   # Use a daemon with joint feedback (e.g. a franky arm).
+   robot = RemoteRobot(RemoteRobotConfig(address="robot-host:50051"))
+   robot.connect()
+   try:
+       state = robot.get_observation()["state"]
+   finally:
+       robot.disconnect()
+   position, quat = PandaKinematics().ee_pose(state["joint_pos"])
+   pose = np.asarray(state["tcp_pose"])
    print("position error [m]:", np.linalg.norm(position - pose[:3]))
    print("rotation error [rad]:", (Rotation.from_quat(quat) * Rotation.from_quat(pose[3:]).inv()).magnitude())
 
@@ -762,7 +768,7 @@ JSONL 事件输入的 reset 清除接管锁存，但保留文件/管道中未读
 Pico
 --------------------------------------------------------------------------------
 
-``--teleop-device pico``\ （\ ``PicoTeleopSource``\ ，\ ``real_world_rl/teleop/pico/source.py``\ ）从 Pico VR 控制器驱动 ``cartesian_delta`` 环境（该模式的 ``real_robot`` 或 ``franka_real``\ ）。Pico 是\ **位姿**\ 设备：手位姿锚定到与 ``leader_cartesian``\ 、\ ``spacemouse`` 相同的 ``CartesianTargetTracker``\ （见\ :ref:`映射 <teleop-mapping>`\ ），从臂接管不跳变，领先实测位姿不超过领先上限，移动不超过目标速度。设备本身是设备层 teleop 部件 ``PicoTeleop``\ （\ ``backend: pico``\ ，\ ``real_world_rl/teleop/pico/backend.py``\ ），也可放在机器人 YAML 的 ``teleop:``\ 、通过 daemon 提供，并出现在 ``rwrl doctor``\ （\ ``pico`` 扩展、\ ``pyzmq``\ ）。
+``--teleop-device pico``\ （\ ``PicoTeleopSource``\ ，\ ``real_world_rl/teleop/pico/source.py``\ ）从 Pico VR 控制器驱动 ``cartesian_delta`` 环境（该模式的 ``real_robot``\ ）。Pico 是\ **位姿**\ 设备：手位姿锚定到与 ``leader_cartesian``\ 、\ ``spacemouse`` 相同的 ``CartesianTargetTracker``\ （见\ :ref:`映射 <teleop-mapping>`\ ），从臂接管不跳变，领先实测位姿不超过领先上限，移动不超过目标速度。设备本身是设备层 teleop 部件 ``PicoTeleop``\ （\ ``backend: pico``\ ，\ ``real_world_rl/teleop/pico/backend.py``\ ），也可放在机器人 YAML 的 ``teleop:``\ 、通过 daemon 提供，并出现在 ``rwrl doctor``\ （\ ``pico`` 扩展、\ ``pyzmq``\ ）。
 
 ``--teleop-device`` 无默认值：所有构建源的 actor、eval、\ ``rwrl record``\ 、奖励采集与 deploy 命令须指定设备（\ ``--teleop-device {spacemouse,gello,leader_arm,leader_cartesian,pico,keyboard,robot,bimanual,fake,spacemouse_twist}``\ ），或在 ``--config`` 预设中设置 ``teleop_device``\ 。两者都没有时以用法错误停止，不再打开 Pico（旧默认）。Learner 不构建源，无需设备。
 
@@ -912,7 +918,7 @@ Pico 侧在 ZeroMQ ``PUB`` socket（如 ``tcp://*:7777``\ ）发布 JSON 数组�
 
    rwrl record --config hil.yaml \
        --teleop-device pico --teleop-options-yaml local/pico.yaml --teleop-event-device stdin \
-       --output-path demos/task_20.pkl --num-successes 20
+       --output-dir demos/task_20 --num-successes 20
 
 HIL actor 接受相同三个参数（\ ``rwrl train hil_serl --role actor --config hil.yaml --teleop-device pico --teleop-options-yaml local/pico.yaml --teleop-event-device stdin``\ ）。
 
@@ -936,7 +942,7 @@ HIL actor 接受相同三个参数（\ ``rwrl train hil_serl --role actor --conf
 
    robot_teleop: true
 
-``franka_real`` 中，提供 Pico teleop 的机器人 daemon 可通过 ``remote_address: <robot-host>:<port>``\ （及 ``remote_token``\ ）读取，同 ``leader_cartesian``\ 。
+``real_robot`` 中，提供 Pico teleop 的机器人 daemon 可通过 ``remote_address: <robot-host>:<port>``\ （及 ``remote_token``\ ）读取，同 ``leader_cartesian``\ 。
 
 .. _teleop-basic-usage:
 
@@ -981,7 +987,7 @@ ManiSkill 仿真可视化遥操作，使用原始 twist Pico 源 ``pico_twist``\
 在真机上录制示范
 --------------------------------------------------------------------------------
 
-``examples/record_real_demos.py`` 在 HIL 的 ``real_robot``\ 、\ ``real_robot_bimanual`` 或 ``franka_real`` 环境（与 actor 相同环境/遥操作参数）录制遥操作回合，保存为 learner 经 ``--demo-dataset-paths`` 加载的示范 pkl，仅保留介入步骤。见 \ :doc:`recording-demos.md <recording-demos>`\ ；GELLO 见 \ :ref:`gello.md <gello-5-recording-demos>`\ 。
+``examples/record_real_demos.py`` 在 HIL 的 ``real_robot``\ 、\ ``real_robot_bimanual`` 环境（与 actor 相同环境/遥操作参数）录制遥操作回合，写成 learner 经 ``--demo-dataset-paths`` 加载的示范数据集目录（``--output-dir``\ ），训练只取其中的介入步骤。见 \ :doc:`recording-demos.md <recording-demos>`\ ；GELLO 见 \ :ref:`gello.md <gello-5-recording-demos>`\ 。
 
 .. _teleop-recording-wsrl-data:
 

@@ -161,3 +161,21 @@ def serl_pair_rebuild_hint(server_version: int) -> str:
         f"then rebuild the pair on this PC: LIBFRANKA_VERSION=<x.y.z> bash {SERL_NATIVE_INSTALL} "
         f"({docs_url('reference/serl-controller')}); or set cartesian_controller: impedance and rerun --install-sdk"
     )
+
+
+def joint_controller_pairing() -> tuple[bool, str, str, dict]:
+    """Check the native API and the franky version recorded by its build."""
+    import importlib.metadata
+    from real_world_rl.devices.backends.arms.franky import JOINT_INSTALL_HINT, require_joint_controller
+
+    try:
+        module = require_joint_controller("doctor")
+        info = dict(module.build_info())
+        installed = importlib.metadata.version(FRANKY_DISTRIBUTION)
+    except Exception as error:
+        return False, f"joint_controller unavailable: {error}", JOINT_INSTALL_HINT, {}
+    # Match SERL's build-info field; accept the API-style spelling as well.
+    built = info.get("franky_dist_version", info.get("franky_version"))
+    ok = bool(built) and built == installed
+    message = f"joint_controller franky build {built}; installed franky {installed}"
+    return ok, message, "" if ok else JOINT_INSTALL_HINT, info

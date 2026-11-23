@@ -3,6 +3,8 @@
 HIL-SERL 路线图
 ================================================================================
 
+franka_real 环境已移除，由 real_robot + serl_http 替代。
+
 `中文入口 <https://github.com/JaimeParker/real-world-rl/blob/main/docs/README.zh-CN.md>`__ · :doc:`English <../en/reference/hil-serl-roadmap>`
 
 本文保留历史移植记录。当前操作请使用\ :doc:`教程 <../index>`\ 、\ :doc:`真机实验 <real-world-experiments>`\ 和\ :doc:`已知问题 <known-issues>`\ 。当前实现已包含示范录制器、主从臂与双臂支持、持久 outbox/journal、回放 bundle，以及显式的自主和辅助结果。下文条目描述保留迁移时期的行为，当前支持范围请查阅上述文档。
@@ -48,8 +50,8 @@ HIL-SERL 的 ``--demo_path``\ （\ ``train_rlpd.py:458-466``\ ）接收原始 pi
 
 **第 8 项更正，已修复，以下保留原发现。** ``_load_demo_datasets()`` 在 ``HilSerlLearnerLoop.__init__`` 中先于 ``_reload_snapshots()`` 调用，曾为每条预加载示范递增 ``self._received``\ ，即使数据仅进入 ``agent.add_demo_transition``\ ，从未进入在线 ``agent.replay_buffer``\ 。\ ``received_transitions`` 控制 ``LearnerLoop.run()`` 的 ``learning_starts`` 等待，见 ``real_world_rl/loops/learner.py``\ ；HIL-SERL 则用 ``while len(replay_buffer) < config.training_starts``\ （\ ``train_rlpd.py:278``\ ），只计算在线数据，\ ``--demo_path`` 填充的 ``demo_buffer`` 不计入。于是 ``--demo_dataset_paths`` 提供至少 ``learning_starts`` 条示范时，\ ``hil_serl`` 在零在线 transition 时就能开始训练，而 HIL-SERL 始终等待真实在线数据。\ ``tests/test_real_world_hil_serl_loops.py`` 的 ``test_hil_serl_learner_loop_preloads_demo_dataset_paths`` 甚至断言预加载后 ``received_transitions == 3``\ ，固定了错误行为。\ **修复后**\ ，\ ``real_world_rl/loops/hil_serl.py`` 的 ``_load_demo_datasets()`` 不再把预加载示范计入 ``received_transitions``\ ，\ ``learning_starts`` 等待在线数据；测试改为断言 ``received_transitions == 0``\ 。
 
-**现已支持**\ ：``rwrl record``（``real_world_rl/demos/record.py``）归档完整回合，
-并为 ``--demo-dataset-paths`` 导出成功人工示范。见 :doc:`录制示范 <recording-demos>`。
+**现已支持**\ ：``rwrl record``（``real_world_rl/demos/record.py``）把完整回合写入示范数据集目录，
+``--demo-dataset-paths`` 直接读取其中保留回合的人工示范。见 :doc:`录制示范 <recording-demos>`。
 
 .. _hil-serl-roadmap-9-real-world-agentpolicy-checkpointing----landed:
 
@@ -127,14 +129,14 @@ HIL-SERL actor 支持 ``--eval_checkpoint_step`` / ``--eval_n_trajs``\ ，加载
 3. 奖励分类器训练脚本与采集约定已落地
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-原先 ``rl_garden/envs/franka_real/classifier.py`` 只有模型 ``SuccessClassifier`` 和推理加载器 ``load_classifier_fn``\ ，足够让 ``RewardClassifierWrapper`` 消费已有 checkpoint，却无法生成 checkpoint。
+原先 最初的分类器模块 只有模型 ``SuccessClassifier`` 和推理加载器 ``load_classifier_fn``\ ，足够让 ``RewardClassifierWrapper`` 消费已有 checkpoint，却无法生成 checkpoint。
 
 现已补齐，并将整个奖励模型接口移至 ``rl_garden/models/reward/``\ 。该目录原有尚未导入使用的离线 HDF5 标注分类器 ``classifiers/{base,color,alignment,hsv}``\ ，此次整理为奖励模型目录；未来 VLM 或规则奖励模型可作为同级模块加入。新增的 ``success/`` 对应在线真机成功分类器：
 
--  ``rl_garden/models/reward/success/model.py``\ ：从 ``franka_real/classifier.py`` 原样迁入 ``SuccessClassifier`` / ``load_classifier_fn``\ 。
+-  ``rl_garden/models/reward/success/model.py``\ ：从 最初的分类器模块 原样迁入 ``SuccessClassifier`` / ``load_classifier_fn``\ 。
 -  ``rl_garden/models/reward/success/data.py``\ ：\ ``SuccessClassifierDataset`` 按成功/失败通配模式读取 ``{"obs": obs}`` pickle 列表，对应 HIL-SERL 的 ``classifier_data/*_{success,failure}_*.pkl``\ 。
 -  ``rl_garden/models/reward/success/train.py``\ ：独立 argparse CLI。监督分类训练不适合 RL Args/env_backend 结构，因此不经 ``BaseAlgorithmRegistry``\ 。流程仿照 HIL-SERL ``examples/train_reward_classifier.py``\ ，使用平衡成功失败批次、\ ``binary_cross_entropy_with_logits``\ 、来自 ``rl_garden/encoders/augment.py`` 的 ``RandomShiftsAug``\ ，不划分训练验证集，固定 epoch 数。
--  ``real_world_rl/reward/collect_data.py``\ ：移植 ``examples/record_success_fail.py`` 机制，使用 ``pynput`` 全局空格监听，将最近步进 transition 标记成功，其余默认失败，这是旧 ``franka_real`` 路线。当前 ``--env-backend real_robot`` 路线通过 ``real_world_rl/reward/collect_real_robot.py`` 使用工作站相机和 ``s``/``f`` 事件。旧路线相机采集由调用方提供，参见 ``env.py`` 模块说明；这是原 ``franka_real`` 栈已有条件，\ ``envs/backends/franka_real.py`` 始终以 ``camera_capture=None`` 构建环境。CLI 当时未接相机，真实图像需要工作单元脚本调用 ``main(camera_capture=...)``\ 。
+-  ``real_world_rl/reward/collect_data.py`` 委托 ``real_world_rl/reward/collect_real_robot.py``，使用工作站相机和 ``s``/``f`` 事件，并保留成功/失败 pickle 文件格式。
 
 修复 ``classifiers/hsv/__init__.py`` 已有错误导入 ``rl_garden.reward_models...`` 为 ``rl_garden.models.reward...`` 时，还发现并修复 ``classifiers/base/`` 的两处导入问题：\ ``metrics.py`` 急切导入未在 ``pyproject.toml`` 声明的 ``sklearn``\ ，\ ``transforms.py`` 急切导入同样未声明的 ``torchvision``\ ，均改为函数内懒加载。此外 ``classifiers/hsv/generate_labels.py`` 开头有两个模块 docstring，导致后续 ``from __future__ import annotations`` 触发 ``SyntaxError``\ ，现合并为一个。
 
@@ -146,7 +148,7 @@ HIL-SERL actor 支持 ``--eval_checkpoint_step`` / ``--eval_n_trajs``\ ，加载
 
 ``RLPDHybrid`` 现有 ``3 ** num_grippers`` 联合离散头。
 ``real_world_rl/envs/real_robot_bimanual/`` 支持双臂，两个夹爪对应九种联合选择。
-旧 ``franka_real`` 后端仍为单臂。
+已移除的旧后端当时仅支持单臂。
 
 .. _hil-serl-roadmap-5-franka-bridge-server-endpoints-set_load-close_gripper_slow-move_gripper-update_param:
 
@@ -160,7 +162,7 @@ HIL-SERL actor 支持 ``--eval_checkpoint_step`` / ``--eval_n_trajs``\ ，加载
 -  ``/move_gripper``\ （POST，\ ``franka_server.py:339-345``\ ）：连续夹爪位置控制，在 ``franka_gripper_server.py`` 和 ``robotiq_gripper_server.py`` 上都调用 ``move()``\ 。当前 ``rl-garden`` 夹爪服务器仅提供二值开闭，经此桥接无法运行依赖连续宽度的策略。
 -  ``/update_param``\ （POST，\ ``franka_server.py:223-225,378-381``\ ）：通过 ``ReconfClient`` 动态调整笛卡尔阻抗控制器刚度与阻尼。\ ``franka_bridge.py`` 尚无对应路由，无法经 HTTP 运行时调参。
 
-细粒度读取路由已被有意合并：HIL-SERL 的 ``/getpos``\ 、\ ``/getvel``\ 、\ ``/getforce``\ 、\ ``/getq``\ 、\ ``/getdq``\ 、\ ``/getjacobian`` 等集中在 ``franka_bridge.py`` 的 ``/getstate`` 响应中，接口范围以 ``FrankaBridgeClient`` 的实际调用为准。该响应具体缺少 ``q`` / ``dq`` / ``jacobian``\ ，当前下游没有读取；\ ``real_world_rl/envs/franka_real/bridge_client.py`` 的 docstring 却称字段存在但未用，这一文档错误可独立修正。
+细粒度读取路由已被有意合并：HIL-SERL 的 ``/getpos``\ 、\ ``/getvel``\ 、\ ``/getforce``\ 、\ ``/getq``\ 、\ ``/getdq``\ 、\ ``/getjacobian`` 等集中在 ``franka_bridge.py`` 的 ``/getstate`` 响应中，接口范围以旧桥接客户端的实际调用为准。该响应具体缺少 ``q`` / ``dq`` / ``jacobian``\ ，当前下游没有读取；\ 已移除的桥接客户端曾错误地说明这些字段存在但未使用。
 
 .. _hil-serl-roadmap-6-robotiq-gripper-support:
 
@@ -208,21 +210,21 @@ HIL-SERL 的 ``robotiq_gripper_server.py`` 与已移植 Franka Hand 版相比，
 13. 安全盒仅裁剪位置而未裁剪方向 已有实现
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**更正**\ ：后续审计发现初始条目过时，方向裁剪原已存在。\ ``FrankaRealEnvConfig`` 位于 ``envs/franka_real/config.py``\ ，包含默认关闭、必须成对设置的 ``Optional`` 字段 ``safety_box_rpy_low`` / ``safety_box_rpy_high``\ 。\ ``FrankaRealEnv._clip_orientation()`` 位于 ``envs/franka_real/env.py``\ ，转为 Euler ``"xyz"``\ ，第一角保留符号按绝对值裁剪，与 HIL-SERL ``clip_safety_box()`` 的环绕特例相同，其余角直接裁剪后转换回去。设置 ``safety_box_rpy_low`` 时在 ``step()`` 应用。真正差异是本项目默认 ``None``\ 、按需开启，而 HIL-SERL 始终开启。
+**更正**\ ：后续审计发现初始条目过时，方向裁剪原已存在。\ 旧环境配置包含默认关闭、必须成对设置的 ``Optional`` 字段 ``safety_box_rpy_low`` / ``safety_box_rpy_high``\ 。\ 旧环境的方向裁剪函数转为 Euler ``"xyz"``\ ，第一角保留符号按绝对值裁剪，与 HIL-SERL ``clip_safety_box()`` 的环绕特例相同，其余角直接裁剪后转换回去。设置 ``safety_box_rpy_low`` 时在 ``step()`` 应用。真正差异是本项目默认 ``None``\ 、按需开启，而 HIL-SERL 始终开启。
 
 .. _hil-serl-roadmap-14-no-quaternion-to-eulerrotvec-conversion-on-the-observation-side----landed-correction-already-was:
 
 14. 观测侧四元数到欧拉角或旋转向量转换 已有实现
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**更正**\ ：该能力原已存在。\ ``RotvecObsWrapper`` 将 ``obs["state"]`` 中四元数片段转为三维旋转向量。HIL-SERL 使用 ``Quat2EulerWrapper`` 转欧拉角；本项目有意使用 rotvec，避免万向节锁与环绕特例，并保持动作约定一致。它接入 ``training/env_building.py::compose_hil_env``\ ，原入口为 ``hil_serl.py::_build_env``\ ，由默认关闭的 ``--convert_obs_rotation`` 控制。后续位置审计将文件从 ``rl_garden/envs/wrappers/rotvec_obs.py`` 移至 ``real_world_rl/envs/wrappers/rotvec_obs.py``\ ，因为其硬编码 ``FrankaRealEnv`` 精确 20 维布局，属于真机层；对应测试原已位于 ``real_world/tests/``\ 。
+**更正**\ ：该能力原已存在。\ ``RotvecObsWrapper`` 将 ``obs["state"]`` 中四元数片段转为三维旋转向量。HIL-SERL 使用 ``Quat2EulerWrapper`` 转欧拉角；本项目有意使用 rotvec，避免万向节锁与环绕特例，并保持动作约定一致。它接入 ``training/env_building.py::compose_hil_env``\ ，原入口为 ``hil_serl.py::_build_env``\ ，由默认关闭的 ``--convert_obs_rotation`` 控制。后续位置审计将文件从 ``rl_garden/envs/wrappers/rotvec_obs.py`` 移至 ``real_world_rl/envs/wrappers/rotvec_obs.py``\ ，因为其硬编码旧环境精确 20 维布局，属于真机层；对应测试原已位于 ``real_world/tests/``\ 。
 
 .. _hil-serl-roadmap-15-missing-franka_env-wrapper-variants-humanclassifierwrapper-multistagebinaryrewardclassifierwrapper-grippercloseenv----landed:
 
 15. ``franka_env`` 包装器变体 ``HumanClassifierWrapper``\ 、\ ``MultiStageBinaryRewardClassifierWrapper``\ 、\ ``GripperCloseEnv`` 已落地
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-现已采用批量 torch 实现并遵循 ``RewardClassifierWrapper`` 约定。\ ``HumanClassifierWrapper`` 位于 ``real_world_rl/envs/wrappers/human_classifier.py``\ ，阻塞 ``input()`` 仅适用于实时遥操作，因此放在 ``real_world/``\ 。\ ``MultiStageBinaryRewardClassifierWrapper`` 位于通用 ``rl_garden/envs/wrappers/multi_stage_classifier.py``\ ，不依赖形状或动作空间，每个阶段仅奖励一次，全部阶段完成后置 ``terminated``\ 。\ ``GripperCloseEnv`` 位于 ``real_world_rl/envs/wrappers/gripper_close.py``\ ，把 7 维动作缩为 6 维，转发前补零，并裁剪 ``info["intervene_action"]``\ 。它原先放在 ``rl_garden/``\ ，后因其 7 维且末维夹爪约定专属 ``FrankaRealEnv`` 而迁入真机层；ManiSkill/RoboTwin 没有采用该约定，通用多阶段包装器则不受此限制。
+现已采用批量 torch 实现并遵循 ``RewardClassifierWrapper`` 约定。\ ``HumanClassifierWrapper`` 位于 ``real_world_rl/envs/wrappers/human_classifier.py``\ ，阻塞 ``input()`` 仅适用于实时遥操作，因此放在 ``real_world/``\ 。\ ``MultiStageBinaryRewardClassifierWrapper`` 位于通用 ``rl_garden/envs/wrappers/multi_stage_classifier.py``\ ，不依赖形状或动作空间，每个阶段仅奖励一次，全部阶段完成后置 ``terminated``\ 。\ ``GripperCloseEnv`` 位于 ``real_world_rl/envs/wrappers/gripper_close.py``\ ，把 7 维动作缩为 6 维，转发前补零，并裁剪 ``info["intervene_action"]``\ 。它原先放在 ``rl_garden/``\ ，后因其 7 维且末维夹爪约定专属旧环境而迁入真机层；ManiSkill/RoboTwin 没有采用该约定，通用多阶段包装器则不受此限制。
 
 以下保留原说明供参考：
 
@@ -254,8 +256,7 @@ Pico 仍使用 bind 门控。见 :doc:`遥操作 <teleop>`。
 
 ``real_robot`` 与 ``real_robot_bimanual`` 已集成设备层相机，包括
 ``real_world_rl/devices/backends/cameras/`` 中的 RealSense、ZED 后端。
-HIL 可在本地或通过 daemon 获取图像。旧 ``franka_real`` 仍需调用方提供
-``camera_capture``：``real_world_rl/envs/backends/franka_real.py`` 不注入采集器。
+HIL 可在本地或通过 daemon 获取图像。
 
 .. _hil-serl-roadmap-18-no-real-world-rollout-video-recording----landed:
 
@@ -285,7 +286,7 @@ HIL-SERL 的 ``VideoRecorder`` / ``VideoWrapper`` 位于 ``3rd_party/hil-serl/se
 20. 真机路径的时间观测堆叠已落地
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``ImageFrameStackWrapper`` 位于 ``rl_garden/envs/wrappers/frame_stack.py``\ ，新增非 ManiSkill 通用途径，通过显式 ``image_keys`` 指定相机键，因为 ``FrankaRealEnv`` 相机名由用户定义，未必有 ``rgb*`` / ``depth*`` 前缀。堆叠的 ``single_observation_space`` 直接由空间定义推导，构建时绝不调用 ``env.reset()``\ ，避免物理机器人意外运动。接入 ``training/env_building.py::compose_hil_env``\ ，原入口为 ``hil_serl.py::_build_env``\ ，位于 ``make_training_envs(...)`` 后，由 ``RLPDHybridArgs`` 继承的既有 ``obs.frame_stack`` 控制，无重复字段。ManiSkill 的 ``image_keys=None`` 路径不变。
+``ImageFrameStackWrapper`` 位于 ``rl_garden/envs/wrappers/frame_stack.py``\ ，新增非 ManiSkill 通用途径，通过显式 ``image_keys`` 指定相机键，因为旧环境相机名由用户定义，未必有 ``rgb*`` / ``depth*`` 前缀。堆叠的 ``single_observation_space`` 直接由空间定义推导，构建时绝不调用 ``env.reset()``\ ，避免物理机器人意外运动。接入 ``training/env_building.py::compose_hil_env``\ ，原入口为 ``hil_serl.py::_build_env``\ ，位于 ``make_training_envs(...)`` 后，由 ``RLPDHybridArgs`` 继承的既有 ``obs.frame_stack`` 控制，无重复字段。ManiSkill 的 ``image_keys=None`` 路径不变。
 
 以下保留原说明供参考：
 

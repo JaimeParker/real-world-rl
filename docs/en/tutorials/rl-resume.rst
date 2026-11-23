@@ -45,7 +45,7 @@ With two machines, run the corresponding lines of the following file on each mac
 These are complementary evidence: an empty outbox can mean everything was delivered. An unfinished episode from a killed process cannot count as success;
 on restart, the actor adds a process_restart interruption boundary for its persisted active episode.
 
-Keep the complete run directory, original demonstrations and sidecars, generated configuration, teleop reference files, and station version.
+Keep the complete run directory, original demonstration datasets, generated configuration, teleop reference files, and station version.
 SQLite uses local WAL; keep the database and any -wal/-shm files. To migrate, stop writers and copy the complete directory;
 do not copy only the main .sqlite3 file while it is live. Do not mix a journal with another experiment's bundle.
 Read only checkpoints/pickles you generated or trust.

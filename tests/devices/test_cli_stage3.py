@@ -95,7 +95,7 @@ def test_exit_code_table_and_development_leftovers():
     assert 'sys.path' not in inspector.read_text() and 'REPO_ROOT' not in inspector.read_text()
     assert not (root / 'real_world_rl/legacy/teleop/examples/run_twist_input_inspector.py').exists()
     bridge = root / 'real_world_rl/legacy/controller/real/franka_bridge.py'
-    assert 'rl_garden.envs.franka_real' not in bridge.read_text().split('from __future__')[0]
+    assert 'rl_garden.envs' not in bridge.read_text().split('from __future__')[0]
 
 
 def test_missing_station_hint_uses_canonical_flag(tmp_path):

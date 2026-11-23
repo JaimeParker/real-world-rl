@@ -3,6 +3,8 @@
 HIL-SERL Roadmap
 ================================================================================
 
+The franka_real env was removed; real_robot + serl_http replaces it.
+
 This is a historical porting record. For current operation use the :doc:`tutorial <../index>`\ ,
 :doc:`Real-world experiments <real-world-experiments>` and :doc:`Known issues <known-issues>`\ .
 The current implementation includes the demo recorder, leader-arm and dual-arm support,
@@ -128,8 +130,8 @@ the test encoded this behavior rather than catching it. **Fixed**:
 demos toward ``received_transitions``, so ``learning_starts`` waits for online transitions as in
 HIL-SERL, and the test now asserts ``received_transitions == 0`` after the preload.
 
-**Now available**: ``rwrl record`` (``real_world_rl/demos/record.py``) archives complete
-episodes and exports successful human demonstrations for ``--demo-dataset-paths``.
+**Now available**: ``rwrl record`` (``real_world_rl/demos/record.py``) writes complete
+episodes into a demo dataset directory, and ``--demo-dataset-paths`` reads the human demonstrations of its kept episodes directly.
 See :doc:`Recording demos <recording-demos>`.
 
 .. _en-hil-serl-roadmap-9-real-world-agentpolicy-checkpointing----landed:
@@ -325,7 +327,7 @@ both expose it.
 3. Reward classifier training script + data-collection convention -- LANDED
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Originally, ``rl_garden/envs/franka_real/classifier.py`` only had the model
+Originally, the original classifier module only had the model
 class (``SuccessClassifier``) and the inference-side loader
 (``load_classifier_fn``) -- enough for ``RewardClassifierWrapper`` to consume an
 already-trained checkpoint, but nothing to produce one.
@@ -339,7 +341,7 @@ expected to land as further siblings). ``success/`` is the new sibling for the
 online real-robot success classifier:
 
 -  ``rl_garden/models/reward/success/model.py`` -- ``SuccessClassifier``/
-   ``load_classifier_fn``, moved here unchanged from ``franka_real/classifier.py``.
+   ``load_classifier_fn``, moved here unchanged from the original classifier module.
 -  ``rl_garden/models/reward/success/data.py`` -- ``SuccessClassifierDataset``,
    reading ``{"obs": obs}`` pickle lists split by success/failure glob pattern
    (mirrors HIL-SERL's ``classifier_data/*_{success,failure}_*.pkl`` convention).
@@ -350,18 +352,9 @@ online real-robot success classifier:
    sampling, ``binary_cross_entropy_with_logits``, ``RandomShiftsAug``
    (``rl_garden/encoders/augment.py``, reused as-is) for augmentation, no
    train/val split, fixed epoch count.
--  ``real_world_rl/reward/collect_data.py`` -- ported HIL-SERL's
-   ``examples/record_success_fail.py`` mechanism: ``pynput`` global spacebar
-   listener marks the most recently stepped transition a success, everything
-   else defaults to failure, on the legacy ``franka_real`` route. The current
-   ``--env-backend real_robot`` route uses station cameras and ``s``/``f`` events
-   through ``real_world_rl/reward/collect_real_robot.py``. On the legacy route,
-   camera capture is caller-supplied (see
-   ``env.py``'s module docstring -- this was already true of the whole
-   ``franka_real`` stack before this round: ``envs/backends/franka_real.py``
-   always constructs the env with ``camera_capture=None``), so the CLI
-   entrypoint has no camera wired up; call ``main(camera_capture=...)`` from a
-   cell-specific script to actually record images.
+-  ``real_world_rl/reward/collect_data.py`` delegates to
+   ``real_world_rl/reward/collect_real_robot.py``, using station cameras and
+   ``s``/``f`` events while preserving success/failure pickle files.
 
 While fixing ``classifiers/hsv/__init__.py``'s pre-existing broken import
 (``rl_garden.reward_models...`` -> ``rl_garden.models.reward...``, which made
@@ -383,7 +376,7 @@ immediately after them; reduced to one.
 
 ``RLPDHybrid`` now has a ``3 ** num_grippers`` joint discrete head.
 ``real_world_rl/envs/real_robot_bimanual/`` supports two arms; two grippers
-therefore use nine joint choices. The legacy ``franka_real`` backend remains single-arm.
+therefore use nine joint choices. The removed legacy backend was single-arm.
 
 .. _en-hil-serl-roadmap-5-franka-bridge-server-endpoints-set_load-close_gripper_slow-move_gripper-update_param:
 
@@ -415,10 +408,9 @@ Not a gap: the many fine-grained getter routes HIL-SERL exposes (``/getpos``,
 ``/getvel``, ``/getforce``, ``/getq``, ``/getdq``, ``/getjacobian``, etc.) are
 deliberately consolidated into ``franka_bridge.py``'s single ``/getstate``
 response instead of being ported 1:1 -- see that file's own docstring, which
-scopes it to only what ``FrankaBridgeClient`` actually calls. ``/getstate``'s
+scopes it to only what the old bridge client actually calls. ``/getstate``'s
 response is missing ``q``/``dq``/``jacobian`` specifically (nothing downstream
-currently reads them), which makes ``real_world_rl/envs/franka_real/bridge_client.py``'s docstring -- which claims those fields are present but
-unused -- inaccurate; worth a doc fix independent of any behavior change.
+currently reads them), the removed bridge client originally documented these fields inaccurately.
 
 .. _en-hil-serl-roadmap-6-robotiq-gripper-support:
 
@@ -552,10 +544,9 @@ caught:
 
 **Correction**: this item's original text was stale/inaccurate by the time
 of a later audit -- orientation clamping already existed.
-``FrankaRealEnvConfig`` (``envs/franka_real/config.py``) has
+The historical env config had
 ``safety_box_rpy_low``/``safety_box_rpy_high`` (``Optional``, both-or-neither, off
-by default). ``FrankaRealEnv._clip_orientation()`` (``envs/franka_real/env.py``)
-converts to Euler ``"xyz"``, clips the first angle by absolute value with sign
+by default). Its orientation helper converted to Euler ``"xyz"``, clips the first angle by absolute value with sign
 preserved (the same wraparound special-case HIL-SERL's
 ``clip_safety_box()`` uses), clips the rest directly, and converts back --
 applied in ``step()`` whenever ``safety_box_rpy_low`` is set. Nothing to build;
@@ -577,7 +568,7 @@ wired into ``training/env_building.py::compose_hil_env`` (formerly ``hil_serl.py
 default). Nothing to build; noted here only so this doesn't get re-flagged.
 Moved from ``rl_garden/envs/wrappers/rotvec_obs.py`` to
 ``real_world_rl/envs/wrappers/rotvec_obs.py`` during a later placement
-audit (it hardcodes ``FrankaRealEnv``'s exact 20-dim state layout, so it never
+audit (it hardcodes the legacy env's exact 20-dim state layout, so it never
 belonged in the general ``rl_garden/`` wrappers package -- its own test was
 already correctly in ``real_world/tests/``).
 
@@ -595,7 +586,7 @@ reward exactly once, ``terminated`` flips once all stages received);
 ``GripperCloseEnv`` (``real_world_rl/envs/wrappers/gripper_close.py`` --
 7D->6D action space, zero-pads back before forwarding, truncates
 ``info["intervene_action"]`` too. Originally landed under ``rl_garden/``, moved
-here: the 7D/last-dim-is-gripper shape it asserts is ``FrankaRealEnv``'s own
+here: the 7D/last-dim-is-gripper shape it asserts is the legacy env's own
 action convention, not a generic one -- no ManiSkill/RoboTwin sim task uses
 it, unlike ``MultiStageBinaryRewardClassifierWrapper``'s genuine
 shape-agnosticism).
@@ -659,8 +650,7 @@ Pico remains bind-gated. See :doc:`Teleop <teleop>`.
 The ``real_robot`` and ``real_robot_bimanual`` backends have device-layer camera
 integration, including RealSense and ZED backends in
 ``real_world_rl/devices/backends/cameras/``. HIL runs can receive these images locally
-or through the daemon. The legacy ``franka_real`` backend still needs caller-supplied
-``camera_capture``: ``real_world_rl/envs/backends/franka_real.py`` does not supply one.
+or through the daemon.
 
 .. _en-hil-serl-roadmap-18-no-real-world-rollout-video-recording----landed:
 
@@ -717,7 +707,7 @@ Both pieces built:
 
 ``ImageFrameStackWrapper`` (``rl_garden/envs/wrappers/frame_stack.py``) gained a
 generic (non-ManiSkill) path: an explicit ``image_keys`` constructor param
-(``FrankaRealEnv``'s camera keys are user-configured, not necessarily
+(the legacy env's camera keys are user-configured, not necessarily
 ``rgb*``/``depth*``-prefixed) that derives the stacked ``single_observation_space``
 directly from the space definition -- deliberately never calls ``env.reset()``
 to seed it, since a construction-time side effect would physically move the

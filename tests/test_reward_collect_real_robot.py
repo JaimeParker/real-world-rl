@@ -87,26 +87,13 @@ def _steps_of(entries) -> list[int]:
 # -- command line --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "argv, real_robot",
-    [
-        (["--output-dir", "x"], False),
-        (["--env-backend", "real_robot"], True),
-        (["--env-backend=real_robot"], True),
-        (["--env_backend", "real_robot"], True),
-        (["--teleop-device", "pico"], False),
-    ],
-)
-def test_an_env_backend_flag_selects_the_real_robot_collector(argv, real_robot):
-    assert collect_data.selects_real_robot(argv) is real_robot
-
-
-def test_main_parses_the_hil_flags_for_the_real_robot_backend(tmp_path, monkeypatch):
+@pytest.mark.parametrize("backend_flags", [[], ["--env-backend", "real_robot"], ["--env_backend=real_robot"]])
+def test_main_parses_the_hil_flags_for_the_real_robot_backend(tmp_path, monkeypatch, backend_flags):
     received = []
     monkeypatch.setattr(collect_real_robot, "run_real_robot_collector", received.append)
     collect_data.main(
         argv=[
-            "--env-backend", "real_robot",
+            *backend_flags,
             "--output-dir", str(tmp_path),
             "--successes-needed", "50",
             "--teleop-device", "leader_arm",
@@ -126,7 +113,7 @@ def test_main_parses_the_hil_flags_for_the_real_robot_backend(tmp_path, monkeypa
 @pytest.mark.parametrize(
     "argv, flags",
     [
-        (["--help"], ["--bridge-url", "--successes-needed"]),
+        (["--help"], ["--teleop-event-device", "--successes-needed"]),
         (["--env-backend", "real_robot", "--help"], ["--successes-needed", "--teleop-event-device"]),
     ],
 )
@@ -143,32 +130,23 @@ def test_the_real_robot_collector_takes_no_camera_capture():
         collect_data.main(camera_capture=lambda: None, argv=["--env-backend", "real_robot"])
 
 
-def test_the_legacy_collector_requires_the_teleop_device(tmp_path, capsys):
-    with pytest.raises(SystemExit) as exit_info:
-        collect_data.main(argv=["--output-dir", str(tmp_path)])
-    assert exit_info.value.code != 0
-    captured = capsys.readouterr()
-    assert "--teleop-device" in captured.err + captured.out
-    assert collect_data.Args(output_dir="x", teleop_device="pico").teleop_device == "pico"
-    with pytest.raises(TypeError):
-        collect_data.Args(output_dir="x")  # no default device
+def test_default_collector_requires_the_teleop_device(tmp_path):
+    with pytest.raises(ValueError, match="--teleop-device"):
+        collect_data.main(argv=["--output-dir", str(tmp_path),
+                                "--real-robot.remote", "robot:50051"])
+    assert RealRobotCollectArgs(teleop_device="pico").teleop_device == "pico"
+    assert RealRobotCollectArgs().teleop_device is None
 
 
-def test_legacy_serl_mode_error_names_a_command_the_collector_parses(tmp_path, monkeypatch):
-    with pytest.raises(ValueError) as error:
-        collect_data.main(argv=["--output-dir", str(tmp_path), "--teleop-device", "spacemouse",
-                                "--spacemouse-mode", "serl"])
-    assert collect_data.SERL_REAL_ROBOT_COMMAND in str(error.value)
-
+def test_default_collector_accepts_serl_mode(tmp_path, monkeypatch):
     preset = tmp_path / "preset.yaml"
     # serl semantics need the xyz and RPY safety boxes, as in any serl preset.
     preset.write_text(
         "real_robot:\n  remote: robot:50051\n  safety_box: [-1, -1, -1, 1, 1, 1]\n"
         "  safety_box_rpy_low: [0, -1, -1]\n  safety_box_rpy_high: [3, 1, 1]\n",
         encoding="utf-8")
-    module_flag, module, *argv = collect_data.SERL_REAL_ROBOT_COMMAND.split()[1:]
-    assert (module_flag, module) == ("-m", "real_world_rl.reward.collect_data")
-    argv = [{"PRESET.yaml": str(preset), "DIR": str(tmp_path)}.get(token, token) for token in argv]
+    argv = ["--config", str(preset), "--output-dir", str(tmp_path),
+            "--teleop-device", "spacemouse", "--spacemouse-mode", "serl"]
     received = []
     monkeypatch.setattr(collect_real_robot, "run_real_robot_collector", received.append)
     collect_data.main(argv=argv)

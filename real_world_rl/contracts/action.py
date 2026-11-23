@@ -2,8 +2,8 @@
 
 A contract is the dict ``RealRobotEnv.action_contract`` exposes; the demo contract
 (``DEMO_CONTRACT_KEYS``) is the subset persisted next to pkl transition files, so a
-replayed transition can be checked against the env it is replayed into. Backends
-without a contract (``franka_real``) yield ``None`` and keep their legacy behavior.
+replayed transition can be checked against the env it is replayed into.
+Legacy franka_real demo data without a contract keeps its compatibility behavior.
 
 Action layout: an env drives ``num_arms`` arms named ``arm_names`` (one arm, ``["arm"]``,
 by default), each with ``arm_action_dim`` arm dims. The action is the arm blocks in

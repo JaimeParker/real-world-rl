@@ -27,11 +27,11 @@ The template is at ``docs/examples/bc-train.yaml``:
        In particular, preserve robot / remote, task_frame, workspace, control, preprocess and action semantics.
        The template remote is only an address needed to construct the spaces offline; no service needs to run there.
    * - ``obs.rgb``, ``obs.image_size``, ``real_robot.state_fields``
-     - Compare with the previous chapter's checking output and contract. The example rgb_wrist shape is [1,128,128,3],
-       corresponding to rgb: [wrist] and image_size: [128,128]. state has 27 dimensions, corresponding to the template's four state_fields.
+     - Compare with the previous chapter's checking output and contract. The example rgb_wrist shape is [1,224,224,3],
+       corresponding to rgb: [wrist] and image_size: [224,224]. state has 27 dimensions, corresponding to the template's four state_fields.
    * - ``buffer_size``
      - Use the previous chapter's transitions count. The preparation script sets max(64, row count), so insufficient capacity does not retain only the last demonstrations.
-       For multiple pkls, allow for all rows and estimate the images' CPU memory use.
+       For multiple dataset directories, allow for all rows and estimate the images' CPU memory use (one 224×224 RGB obs plus next_obs row is about 0.3 MB).
    * - ``log_dir``, ``exp_name``
      - This example writes to local/bc-runs/first-bc. Use a new name for a new experiment to avoid overwriting checkpoints or mixing logs.
    * - ``num_offline_steps``, ``batch_size``
@@ -43,6 +43,8 @@ Reduce logging and saving frequency for longer training. Unlisted model settings
 actor_lr=0.0003, backbone_type=mlp, encoder.backbone=plain_conv,
 encoder.features_dim=256, tanh_squash=true and offline_sampling=with_replace.
 Change these only when comparing models or optimization settings. This chapter requires no pretrained weight downloads.
+The one exception is that the template explicitly sets ``encoder.plain_conv_pooling: gap``: plain_conv's default flatten pooling only fits 128×128 and 64×64 images,
+and 224×224 input fails with a matrix shape mismatch on the first forward pass; gap pooling fits any size.
 
 The code defaults differ from this small exercise: buffer_size=1000000, buffer_device=cuda,
 num_offline_steps=100000, log_freq=1000 and log_type=tensorboard.
@@ -65,16 +67,16 @@ For the synthetic-data exercise, use this instead. Choose only one of the two:
    :start-after: # start synthetic-prepare
    :end-before: # end synthetic-prepare
 
-**What you should see**: The configuration path, input pkl path, row count and buffer_size.
+**What you should see**: The configuration path, input dataset path, row count and buffer_size.
 The synthetic example's actual run has 8 rows and buffer_size 64; the output file is ``local/bc-train.yaml``.
 The script copies only env_backend, env_id, obs and real_robot from the session; training parameters come from the template.
-The trainer restores the teleop source conventions from the demo contract without opening devices.
+The trainer restores the teleop source conventions from the dataset header's action_contract without opening devices.
 
 **If it doesn't**:
 
 * ``FileExistsError``: The preparation script does not overwrite an existing configuration. Inspect the old file first or change the output name.
 * ``empty demonstration``: Return to the previous chapter and confirm that the demonstration contains rows.
-* The session points to another task: Select the directory matching the pkl. Do not manually delete the contract to bypass checks.
+* The session points to another task: Select the directory matching the dataset. Do not edit the action_contract in ``dataset.json`` to bypass checks.
 
 2. Start training
 --------------------------------------------------------------------------------
@@ -87,8 +89,8 @@ Load this configuration with the repository's training entry point, reading demo
    :end-before: # end train
 
 ``rwrl train`` forwards to this repository's training registry. ``examples/train_real_world.py``
-calls the same entry point; it is not another BC implementation. The input is ``local/first-demo.pkl``,
-and its matching contract is read automatically. The preparation script writes demonstration paths into the YAML ``demo_dataset_paths`` list.
+calls the same entry point; it is not another BC implementation. The input is the dataset directory ``local/first-demo``: training reads the human-controlled steps of its kept episodes directly,
+checks the dataset header's action_contract automatically, and rebuilds the image history to this run's ``obs.frame_stack`` (old pkls still load). The preparation script writes demonstration paths into the YAML ``demo_dataset_paths`` list.
 You can still use the ``--demo-dataset-paths`` CLI parameter for a temporary override.
 
 The rlg environment used for this verification lacked the rwrl console script and backend entry point.
@@ -103,7 +105,7 @@ The following imports this repository's backend first, then calls the same train
 
 An environment with the full package installed can use the rwrl command above. Both commands read demonstration paths from local/bc-train.yaml.
 Use the configuration generated by synthetic-prepare for the synthetic exercise, or by prepare for real data.
-To switch input temporarily, append ``--demo-dataset-paths local/first-demo.pkl`` to the training command.
+To switch input temporarily, append ``--demo-dataset-paths local/first-demo`` to the training command.
 These commands are alternatives, not successive repeated steps. Run only once in a given experiment directory.
 
 **What you should see**: The process exits normally and generates the files listed in the next section. The current BC loop writes values to
@@ -165,7 +167,7 @@ The loader treats old data with neither mask nor intervened as fully human demon
 
 The logged ``losses/behavior_mse`` is the mean squared error between deterministic actions and targets on human-controlled dimensions.
 It averages over the total number of human-controlled dimensions, unlike NLL's per-row scaling.
-Here, training MSE falls from about 0.225 to 0.063, showing that parameter updates can fit these synthetic samples.
+Here, training MSE falls from about 0.214 to 0.068, showing that parameter updates can fit these synthetic samples.
 The initial NLL is large. Do not interpret it as position error; inverse tanh at boundary actions and the policy standard deviation both affect its value.
 Four updates cannot establish convergence, and random images cannot establish task success. The next chapter checks a specific output row.
 
@@ -182,6 +184,16 @@ Four updates cannot establish convergence, and random images cannot establish ta
 
 This step replaces BC training. It is still offline and does not connect to the robot. ACT predicts a chunk of actions at once.
 The following keeps the previous chapter's rgb_wrist visual input and saves to a separate first-act directory to avoid overwriting BC.
+rl-garden's ACT trainer and ``deploy-act`` still read a pkl plus its contract sidecar, not a dataset directory,
+so export one from the dataset first (the export reads all training rows into memory):
+
+.. tutorial-test: skip
+.. literalinclude:: ../../examples/bc-train-act.sh
+   :language: bash
+   :start-after: # start export
+   :end-before: # end export
+
+Then train:
 
 .. literalinclude:: ../../examples/bc-train-act.sh
    :language: bash
@@ -203,7 +215,7 @@ Chunks do not cross done, truncated or demonstration file boundaries. By default
 and periodic files are named <iter>.pt. This is not the BC checkpoint format. See step 4 of :doc:`bc-check` for convention checks
 and step 6 of :doc:`deploy` for standalone deployment.
 
-**If it doesn't**: Check the pkl path, state and RGB keys, and full episode boundaries first. If torchvision is missing, install
+**If it doesn't**: Check the exported pkl path and sidecar, state and RGB keys, and full episode boundaries first. If torchvision is missing, install
 ACT's required learning dependencies. The rlg environment used here lacked torchvision when loading the training module, so ACT training was not run.
 The parameters and preprocessing above were checked against the current source. Expected artifacts are not evidence that training passed verification.
 

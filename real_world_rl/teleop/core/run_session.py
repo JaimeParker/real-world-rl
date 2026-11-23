@@ -35,7 +35,7 @@ def add_common_run_arguments(parser):
     """Recorder flags accepted by every session backend, displayed once by dispatch."""
     add = getattr(parser, "add_shared_argument", parser.add_argument)
     add("--events-file", help="append-only JSONL file, or - for piped stdin")
-    add("--record", required=True, help="new output .pkl path")
+    add("--record", required=True, help="demo dataset directory (new, or an existing dataset to append to)")
     add("--num-successes", type=int, help="default: 20; 1 with --diagnose")
     add("--max-episodes", type=int)
 
@@ -71,8 +71,9 @@ def run_supervised_session(args, ctx, plan: SessionPlan) -> Result:
     if args.max_episodes is None and plan.diagnose:
         args.max_episodes = 1
     output = Path(args.record).resolve()
-    if output.suffix != ".pkl" or output.exists():
-        raise CliError("--record must be a new .pkl path", code=USAGE_EXIT_CODE)
+    if output.suffix == ".pkl" or (output.exists() and not output.is_dir()):
+        raise CliError("--record must be a demo dataset directory (new or existing), not a file",
+                       code=USAGE_EXIT_CODE)
     if args.num_successes < 1 or (args.max_episodes is not None and args.max_episodes < 1):
         raise CliError("episode limits must be positive", code=USAGE_EXIT_CODE)
     preset = Preset.load(args.preset)
@@ -97,7 +98,7 @@ def run_supervised_session(args, ctx, plan: SessionPlan) -> Result:
                                        if args.events_file and args.events_file != "-" else "-"),
                 **{key: value for key, value in plan.settings.items() if key != "teleop_device"},
                 "num_successes": args.num_successes, "max_episodes": args.max_episodes,
-                "output_path": str(output)}
+                "output_dir": str(output)}
     env.update(plan.env_overrides)
     if plan.diagnose:
         import math
@@ -105,7 +106,7 @@ def run_supervised_session(args, ctx, plan: SessionPlan) -> Result:
                         max_episode_steps=max(1, math.ceil(plan.diagnose["duration_s"] * settings.get("control_hz", env.get("control_hz", 10.)))))
     # Resolve all typed configuration before asking for hardware execution.
     output.parent.mkdir(parents=True, exist_ok=True)
-    report = output.parent / (output.stem + ".session-" + uuid.uuid4().hex)
+    report = output.parent / (output.name + ".session-" + uuid.uuid4().hex)
     report.mkdir(mode=0o700)
     files = {"station": path, "preset": args.preset, **plan.provenance_files}
     if plan.prepare_report is not None:

@@ -6,7 +6,7 @@ obs:
   state: true
   rgb: [wrist]
   depth: []
-  image_size: [128, 128]
+  image_size: [224, 224]
 # end observations
 real_robot:
   # start action

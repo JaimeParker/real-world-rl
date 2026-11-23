@@ -146,7 +146,7 @@
    rwrl record --config bimanual.yaml \
        --teleop-device bimanual --teleop-arm-device leader_arm \
        --robot-teleop-action-mode joint_abs --teleop-event-device keyboard \
-       --output-path demos/bimanual_20.pkl --num-successes 20 --max-episode-steps 300
+       --output-dir demos/bimanual_20 --num-successes 20 --max-episode-steps 300
 
 ``--teleop-device fake`` 同样声明两臂，可在无操作员时演练双臂 actor。
 
@@ -181,23 +181,23 @@
        --teleop-device bimanual --teleop-arm-device leader_arm --robot-teleop-action-mode joint_abs
    rwrl record --config bimanual.yaml \
        --teleop-device bimanual --teleop-arm-device leader_arm --robot-teleop-action-mode joint_abs \
-       --output-path demos/bimanual.pkl --num-successes 1
+       --output-dir demos/bimanual --num-successes 1
    rwrl train residual_hil_serl --role actor --config bimanual.yaml \
        --teleop-device bimanual --teleop-arm-device leader_arm --robot-teleop-action-mode joint_abs \
        --residual-variant hybrid --base-provider zero
    rwrl train silri --role actor --config bimanual.yaml \
        --teleop-device bimanual --teleop-arm-device leader_arm --robot-teleop-action-mode joint_abs
    rwrl train hil_serl --role learner --config bimanual.yaml \
-       --demo-dataset-paths demos/bimanual.pkl            # likewise residual_hil_serl
+       --demo-dataset-paths demos/bimanual            # likewise residual_hil_serl
                                                           # (--allow-base-less-demos) and silri
    rwrl train real_world_bc --config bimanual.yaml \
-       --demo-dataset-paths demos/bimanual.pkl
+       --demo-dataset-paths demos/bimanual
    rwrl deploy --checkpoint runs/bc-run/checkpoints/final.pt \
        --algo real_world_bc --env-backend real_robot_bimanual \
        --real_robot_bimanual.left.remote LEFT_PC:50051 --real_robot_bimanual.right.remote RIGHT_PC:50052 \
        --real_robot_bimanual.left.image_size 64 64 --real_robot_bimanual.right.image_size 64 64
 
-测试检查观测键 ``state`` 与逐相机 ``rgb_<cam>``\ 、16 维动作和 ``num_arms=2``\ ；检查介入时跟随左主臂而右臂及夹爪保持不变；检查示范 pkl 与 ``.contract.json`` 中的 ``num_arms``\ 、\ ``arm_names``\ 、逐臂 ``joint_limits`` 可加载到 hil_serl、残差与 SiLRI learner；检查智能体从环境约定推断 ``num_grippers=2`` 并得到 9 分类夹爪头；检查 BC checkpoint 可通过两个守护进程部署。未安装 ``grpc`` 时跳过该测试。
+测试检查观测键 ``state`` 与逐相机 ``rgb_<cam>``\ 、16 维动作和 ``num_arms=2``\ ；检查介入时跟随左主臂而右臂及夹爪保持不变；检查示范（数据集头的 action_contract，或 pkl 与 ``.contract.json``）中的 ``num_arms``\ 、\ ``arm_names``\ 、逐臂 ``joint_limits`` 可加载到 hil_serl、残差与 SiLRI learner；检查智能体从环境约定推断 ``num_grippers=2`` 并得到 9 分类夹爪头；检查 BC checkpoint 可通过两个守护进程部署。未安装 ``grpc`` 时跳过该测试。
 
 .. _bimanual-two-arms-the-tutorial-steps:
 

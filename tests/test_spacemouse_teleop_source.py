@@ -15,13 +15,14 @@ import sys
 import numpy as np
 import pytest
 import torch
+from _recorder_dataset import record_into_dataset
 from _teleop_fakes import HOME_TCP, CartesianPoseEnv, ContractEnv, FakeEnv, make_hid
 from scipy.spatial.transform import Rotation
 
 from real_world_rl.devices import DeviceFault, SdkMissing
 from real_world_rl.devices.teleop import EVENT_KEYS, TeleopSample
 
-from real_world_rl.demos.record import RecordDemosArgs, record_demos
+from real_world_rl.demos.record import RecordDemosArgs
 from real_world_rl.envs.wrappers.intervention import TeleopInterventionWrapper
 from real_world_rl.teleop import TeleopReading, make_teleop_source
 from real_world_rl.teleop.core.targets.cartesian_tracker import CartesianTrackerConfig
@@ -570,7 +571,7 @@ def test_composite_takes_the_labels_from_the_keys_and_the_take_over_from_button_
     assert reading.intervened and reading.episode_end
 
 
-def test_recording_a_demo_with_the_spacemouse_and_scripted_operator_events():
+def test_recording_a_demo_with_the_spacemouse_and_scripted_operator_events(tmp_path):
     """One recorder episode through the intervention wrapper's registry path: take over with
     button 0, move 3 polls along x, close the gripper with button 1, then success + episode end
     from the event device. The recorder's hold shares the source's tracker."""
@@ -595,12 +596,8 @@ def test_recording_a_demo_with_the_spacemouse_and_scripted_operator_events():
     assert isinstance(source, SpaceMouseTeleopSource)
     assert isinstance(hold, CartesianHold) and hold.tracker is source.cartesian_tracker
 
-    episodes = []
-    transitions = record_demos(
-        wrapper,
-        RecordDemosArgs(num_successes=1, control_hz=1e6, max_episodes=1),
-        hold_action_fn=hold,
-        on_episode=episodes.append,
+    transitions, episodes, _ = record_into_dataset(
+        wrapper, RecordDemosArgs(num_successes=1, control_hz=1e6, max_episodes=1), tmp_path / "demos", hold_action_fn=hold
     )
     assert len(episodes) == 1 and episodes[0].success
     actions = torch.cat([torch.as_tensor(row["action"]).reshape(1, -1) for row in transitions]).numpy()

@@ -8,7 +8,7 @@
 
 这几章选用前面验证过的单臂、七维笛卡尔动作和人工成功／失败标注。
 SpaceMouse 使用 tracker；GELLO 使用 leader_cartesian。复用 ``local/station.yaml``、
-``local/task.yaml`` 和 ``local/first-demo.pkl``，另写 ``local/rl-task.yaml`` 保存训练设置。
+``local/task.yaml`` 和 数据集目录 ``local/first-demo``，另写 ``local/rl-task.yaml`` 保存训练设置。
 先不启用分类器、抓取惩罚或免复位的 FWBW，便于核对一次奖励到底从哪里来。
 
 1. 先分清三个进程

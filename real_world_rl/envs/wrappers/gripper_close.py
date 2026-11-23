@@ -7,7 +7,7 @@ grippers as the last ``num_grippers`` dims (see ``action_contract``); all of
 them are removed.
 
 Lives in ``real_world/`` rather than ``rl_garden/envs/wrappers/``: the 7D,
-last-dim-is-gripper action shape it asserts is ``FrankaRealEnv``'s own
+last-dim-is-gripper action shape it asserts is the cartesian robot
 convention (also the convention ``RLPDHybridPolicy``'s hybrid
 continuous+discrete action head was built to match -- see its module
 docstring), not a generic rl-garden convention -- no ManiSkill or RoboTwin

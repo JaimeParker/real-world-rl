@@ -78,7 +78,7 @@ resolve_deploy_robot_config，不建立设备连接。
      - 当前工作站要核对什么
    * - cameras、observation_shapes、observation_dtypes
      - local/task.yaml 的 obs 与恢复结果一致；station 中有 wrist，实际视角、序列号和安装位置与示范一致。
-       本例 rgb_wrist 为 [1,128,128,3] uint8；也核对 depth、preprocess、frame_stack。
+       本例 rgb_wrist 为 [1,224,224,3] uint8；也核对 depth、preprocess、frame_stack。
    * - state_fields
      - 本例按 tcp_pose、tcp_vel、joint_pos、joint_vel 拼成 27 维；保持顺序、单位、xyzw 四元数和任务坐标系。
        核对 experiment 中是否有旋转转换。
@@ -152,14 +152,14 @@ CLI 提供连接地址。它不会自动读取当前 local/task.yaml 或 local/s
    :start-after: # start offline
    :end-before: # end offline
 
-预测 x 约 0.1761，按本例尺度请求约 0.0088 m；它是请求增量，不是实测位移。
+预测 x 约 -0.1588，按本例尺度请求约 -0.0079 m；它是请求增量，不是实测位移。
 模型还输出了示范没有的其他方向运动。这份四步合成模型不能用于现场任务。
 自己的模型应检查多个独立回合的观测，再决定是否进入下一步。
 
 **如果不对**：
 
 * ``recorded action contract does not match`` 或 ``saved experiment contract/hash differs``：
-  按错误字段核对数据和训练目录，不删除 sidecar 来绕过验证。
+  按错误字段核对数据和训练目录，不删除 contract 来绕过验证。
 * ``prediction/action/mask shape mismatch`` 或 ``non-finite prediction or no supervised dimensions``：
   返回 :doc:`bc-check` 检查输入、动作和 mask。
 * ``FileExistsError``：保留旧记录，给 --record 一个新文件名。
@@ -327,6 +327,7 @@ SpaceMouse 应显式选 spacemouse 并保持原 tracker／SERL 契约，参见 :
 
 ACT 默认 temporal_agg=true，回合开始时清空块／集成状态；
 ``--no-temporal-agg`` 改为逐块回放，不应在评估中途混用两种设置。
+``--demo-contract`` 要的是 :doc:`bc-train` 第 4 步 ``rwrl dataset export --format pkl`` 在 pkl 旁写出的 ``.contract.json``。
 
 通用 deploy 与 deploy-act 共用 run_deploy，不执行训练 eval 角色的 START_NEUTRAL／
 EPISODE_HOLD／n 流程，也不在循环里按 control_hz 补足等待；保存的 hold 配置不会改变这一点。
@@ -334,7 +335,7 @@ EPISODE_HOLD／n 流程，也不在循环里按 control_hz 补足等待；保存
 
 **你应该看到**：通过加载／约定检查后出现 [deploy] 回合及 summary。
 本次未执行 ACT 真机回合，缺 torchvision 的本地环境也未完成 ACT 模型加载。
-**如果不对**：缺 --checkpoint 或 --demo-contract 会拒绝；相机或宽度不匹配时找回匹配的配置和示范 sidecar，
+**如果不对**：缺 --checkpoint 或 --demo-contract 会拒绝；相机或宽度不匹配时找回匹配的配置和示范 contract（数据集头的 action_contract，或导出 pkl 时写出的 sidecar），
 不要编辑 contract 使检查通过。部署无训练更新和数据上传，评估结果另行归档。
 
 .. note::

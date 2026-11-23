@@ -665,6 +665,22 @@ def test_last_observation_is_none_before_reset_and_dict_after(rig):
     env.close()
 
 
+def test_named_state_is_the_raw_state_fields_of_the_latest_observation(rig):
+    env = rig.env()
+    assert env.named_state is None
+    spec = env.named_state_spec
+    assert list(spec) == list(env.config.state_fields)
+    env.reset()
+    named = env.named_state
+    assert list(named) == list(spec)
+    for field, shape in spec.items():
+        assert list(named[field].shape) == shape
+        np.testing.assert_array_equal(named[field], env.last_observation["state"][field])
+    if "tcp_pose" in spec:
+        assert spec["tcp_pose"] == [7]  # xyz + quaternion, before any rotvec conversion
+    env.close()
+
+
 # -- device-layer safety inheritance --------------------------------------------------
 
 DEVICE_BOX = [-0.01, -0.01, -0.01, 0.01, 0.01, 0.01]

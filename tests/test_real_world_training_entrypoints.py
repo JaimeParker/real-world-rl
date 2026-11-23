@@ -144,15 +144,14 @@ def test_serl_args_parse_real_robot_backend():
     assert args.resolve_backend_config() is args.real_robot
 
 
-def test_serl_default_env_request_is_franka_real():
+def test_serl_default_env_request_is_real_robot():
     import dataclasses
 
     from real_world_rl.envs.real_robot import RealRobotEnvConfig
-    from real_world_rl.training.args import FrankaRealConfig
     from real_world_rl.training.entrypoints.serl import _serl_env_request
 
     args = SerlArgs()
-    assert args.env_backend == "franka_real"
+    assert args.env_backend == "real_robot"
     assert args.real_robot == RealRobotEnvConfig()
     request = _serl_env_request(args, run_name="snapshot")
     snapshot = {
@@ -173,7 +172,7 @@ def test_serl_default_env_request_is_franka_real():
         "video_fps": args.video_fps,
         "num_eval_steps": args.num_eval_steps,
         "create_eval_env": True,
-        "backend_config": FrankaRealConfig(),
+        "backend_config": RealRobotEnvConfig(),
     }
     assert request.observation == args.obs
 

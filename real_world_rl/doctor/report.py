@@ -452,7 +452,14 @@ def inspect(args, host: Host):
                 name for name, config, *_ in targets
                 if getattr(config, "cartesian_controller", None) == "serl"
             ]
-            if serl_robots:
+            joint_robots = [name for name, config, *_ in targets
+                            if getattr(config, "joint_controller", None) == "trajectory_impedance"]
+            if joint_robots:
+                from real_world_rl.devices.backends.arms.franky import JOINT_INSTALL_HINT
+                host.add("sdk.franky.joint_controller", "BLOCKED",
+                         f"{', '.join(joint_robots)}: --install-sdk would replace the franky build paired with joint_controller",
+                         JOINT_INSTALL_HINT)
+            elif serl_robots:
                 # The official wheel would silently replace the franky serl_controller is paired
                 # with (built from source or from one wheel build): never propose it here.
                 host.add(

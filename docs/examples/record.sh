@@ -1,11 +1,11 @@
 # start record
 # Selects the backend from station.teleop.backend (spacemouse or gello).
-rwrl teleop run --record local/first-demo.pkl --num-successes 2 --max-episodes 5
+rwrl teleop run --record local/first-demo --num-successes 2 --max-episodes 5
 # end record
 # start events
 # Before starting, create a new empty event file in a second terminal.
 touch local/record-events.jsonl
-rwrl teleop run --events-file local/record-events.jsonl --record local/events-demo.pkl --num-successes 1 --max-episodes 2
+rwrl teleop run --events-file local/record-events.jsonl --record local/events-demo --num-successes 1 --max-episodes 2
 # end events
 # start success
 # In the second terminal, after completing the task:
@@ -28,7 +28,7 @@ rwrl supervise --log runs/record-ordinary/supervise.jsonl -- \
     rwrl record --config local/record-cartesian.yaml \
     --teleop-device leader_cartesian --teleop-event-device stdin \
     --episode-end-behavior auto --real_robot.watchdog_s 0.3 \
-    --output-path local/ordinary-demo.pkl --num-successes 1
+    --output-dir local/ordinary-demo --num-successes 1
 # end ordinary
 
 # start ordinary-spacemouse
@@ -37,5 +37,5 @@ rwrl supervise --log runs/record-spacemouse/supervise.jsonl -- \
     --teleop-device spacemouse --teleop-options-yaml None \
     --teleop-event-device stdin --episode-end-behavior auto \
     --real_robot.watchdog_s 0.3 \
-    --output-path local/ordinary-spacemouse.pkl --num-successes 1
+    --output-dir local/ordinary-spacemouse --num-successes 1
 # end ordinary-spacemouse

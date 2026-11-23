@@ -8,14 +8,6 @@ specific fields (e.g. SERL's RLPD hyperparameters) belong in each method's own
 ``real_world_rl/training/entrypoints/<method>.py``, not here.
 ``HilEnvArgs`` holds the env/teleop/classifier/demo fields every HIL-style
 method (hil_serl, residual, SiLRI) shares.
-
-``FrankaRealConfig`` lives here (not in ``rl_garden/common/env_args.py``,
-where the other env backends' configs live) because it's exclusively used by
-real-robot training methods -- online/offline/off2on never target
-``env_backend="franka_real"``. Each method's Args class opts in to it as a
-field explicitly (e.g. ``SerlArgs.franka_real``), the same way
-``rl_garden/training/online/entrypoints/rlpd.py``'s ``RLPDArgs`` composes
-``EnvBackendArgs`` itself rather than inheriting it implicitly.
 """
 from __future__ import annotations
 
@@ -85,28 +77,11 @@ class RealWorldFrankaArgs:
     train_freq: int = 1
     publish_freq: int = 100
 
-    # "franka_real" (FrankaRealEnv over the HTTP bridge, ``--franka_real.*``),
     # "real_robot" (any device-layer robot, ``--real_robot.*``) or "real_robot_bimanual"
     # (two device-layer arms as one env, ``--real_robot_bimanual.{left,right}.*``).
-    env_backend: Literal["franka_real", "real_robot", "real_robot_bimanual"] = "franka_real"
+    env_backend: Literal["real_robot", "real_robot_bimanual"] = "real_robot"
     real_robot: RealRobotEnvConfig = field(default_factory=RealRobotEnvConfig)
     real_robot_bimanual: BimanualRealRobotEnvConfig = field(default_factory=BimanualRealRobotEnvConfig)
-
-
-@dataclass
-class FrankaRealConfig:
-    """Real-Franka env settings. CLI prefix: ``--franka_real.<field>``"""
-
-    bridge_url: str = "http://localhost:5000"
-    action_scale_pos: float = 0.02
-    action_scale_rot: float = 0.1
-    gripper_threshold: float = 0.5
-    max_episode_steps: int = 100
-    # JSON-encoded dict forwarded verbatim to FrankaRealEnvConfig, taking
-    # precedence over the named fields above. Escape hatch for cell-specific
-    # settings (safety_box_low/high, camera_keys, device) that don't belong
-    # as named CLI fields here (see adding-env-backend.md Step 3).
-    env_kwargs_json: str = "{}"
 
 
 @dataclass
@@ -219,9 +194,9 @@ class HilEnvArgs(TeleopArgs, _HilEnvArgsBeforeTeleop):
     ``HilSerlLearnerLoop`` read from the Args. Combine with ``RealWorldFrankaArgs``
     and an rl-garden Args class, as ``HilSerlArgs`` does."""
 
-    # Converts FrankaRealEnv's raw quaternion state slice to a rotation
+    # Converts the TCP quaternion state slice to a rotation
     # vector (matching the action side's own rotvec convention). Off by
-    # default -- changes "state"'s observation shape (20 -> 19), so it's an
+    # default -- reduces the state width by one per quaternion, so it's an
     # explicit opt-in, not a silent default change.
     convert_obs_rotation: bool = False
 

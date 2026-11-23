@@ -45,7 +45,7 @@ manifest 原子发布后该代才成为恢复点。正常 Ctrl-C 会尝试 final
 它们是互补证据：空 outbox 可以表示已全部交付。被杀进程的未结束回合不能算成功；
 actor 重启会给其已持久化的活动回合补 process_restart 中断边界。
 
-保留完整 run 目录、原示范和 sidecar、生成配置、teleop 引用文件及 station 版本。
+保留完整 run 目录、原示范数据集、生成配置、teleop 引用文件及 station 版本。
 SQLite 使用本地 WAL，保留数据库及存在的 -wal／-shm 文件；迁移时停止写入者后复制完整目录，
 不要在线只拷主 .sqlite3 文件。journal 不要与其他实验的 bundle 混用。
 只读取自己生成或可信的 checkpoint／pickle。

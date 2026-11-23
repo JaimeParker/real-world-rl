@@ -1,10 +1,4 @@
-"""Tests for the real-world BC entrypoint. Mirrors
-test_hil_serl_training_entrypoints.py's style (mock make_training_envs, real
-Logger/persist_resolved_config with log_type="none") -- note franka_real
-backend registration is a known pre-existing environment quirk (also
-affecting several hil_serl entrypoint tests): these pass as part of the full
-real_world/tests/ suite (another test module's import registers the backend
-as a side effect) but fail if this file is run in isolation.
+"""Real-world BC entrypoint tests with mocked env construction and real logging.
 """
 from __future__ import annotations
 

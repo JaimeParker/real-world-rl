@@ -10,9 +10,11 @@
 
 **旧桥接：**\ ``real_world_rl/legacy/controller/real/franka_bridge.py`` 将 HTTP
 请求转发到 ROS ``serl_franka_controllers``；同目录 ``gripper_server.py`` 也依赖 ROS。
-``FrankaRealEnv`` 经 HTTP 使用此路线。当前 ``real_robot`` 路线在本地或经 daemon
+``SerlHttpArm`` 经 HTTP 使用此路线。当前 ``real_robot`` 路线在本地或经 daemon
 使用 ``real_world_rl/devices/backends/arms/franky.py`` 等设备后端，无需此 ROS 桥接。
 真机控制仍由原生 SDK/控制器执行，不使用 torch 仿真控制器。
+
+franka_real 环境已移除，由 real_robot + serl_http 替代。
 
 .. _devices-roadmap-v1-boundary:
 

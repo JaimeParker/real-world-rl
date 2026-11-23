@@ -58,6 +58,8 @@ def test_extras():
         "gello-events": ["evdev"],
         "franka-gello": ["franky-control", "dynamixel-sdk>=3.7.31,<3.9", "evdev", "grpcio>=1.60", "websockets>=13"],
         "reward-collection": ["pynput"],
+        "viewer": ["rerun-sdk==0.42.0"],
+        "lerobot": ["lerobot[dataset]==0.7.0"],
         "dev": ["pytest", "scipy"],
         "test": ["pytest", "opencv-python-headless", "ipython", "torchvision", "grpcio>=1.60"],
     }

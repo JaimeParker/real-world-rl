@@ -1,0 +1,37 @@
+{
+  "version": 5,
+  "cmakeMinimumRequired": { "major": 3, "minor": 24, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "dev",
+      "displayName": "Core + C++ tests (no franky, no Python)",
+      "binaryDir": "${sourceDir}/build/dev",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "JOINT_CONTROLLER_WITH_FRANKY": "OFF",
+        "JOINT_CONTROLLER_BUILD_PYTHON": "OFF",
+        "JOINT_CONTROLLER_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "docker",
+      "displayName": "Everything inside franky's build image (pass FRANKY_* via -D, see docker/build-wheels.sh)",
+      "binaryDir": "${sourceDir}/build/docker",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "JOINT_CONTROLLER_WITH_FRANKY": "ON",
+        "JOINT_CONTROLLER_BUILD_PYTHON": "OFF",
+        "JOINT_CONTROLLER_BUILD_TESTS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "dev", "configurePreset": "dev" },
+    { "name": "docker", "configurePreset": "docker" }
+  ],
+  "testPresets": [
+    { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true, "verbosity": "verbose" } },
+    { "name": "docker", "configurePreset": "docker", "output": { "outputOnFailure": true, "verbosity": "verbose" } }
+  ]
+}

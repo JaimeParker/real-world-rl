@@ -5,13 +5,20 @@ EPISODE_HOLD: motion input ignored; q exits control. n starts the next episode (
 EPISODE_HOLD: motion input ignored; q exits control. Episode budget reached; next is disabled.
 # end hold
 # start episode
-Example: assume the first episode has 20 steps, 12 human-controlled steps, and a success quota of 2.
+Example: assume the dataset holds no episode yet; the first episode has 20 steps, 12 human-controlled steps, and a success quota of 2.
+[record] dataset local/first-demo: 0 episodes (0 kept); recording until 2 kept
 [record] episode=0 steps=20 transitions=12 kept successes=1/2
+[record] episode=1 steps=9 transitions=0 discarded (rerecord) successes=1/2
 # end episode
 # start files
-local/first-demo.trajectory.sqlite3
-local/first-demo.pkl
-local/first-demo.contract.json
+local/first-demo/
+  dataset.json
+  episode_000000/
+    meta.json
+    data.npz
+    frames/rgb_wrist.npz
+    video/rgb_wrist.mp4
+  episode_000001/         # failed and re-recorded episodes are stored too, flagged discarded in meta.json
 local/first-demo.session-<uuid>/
   resolved-config.yaml
   provenance.json
@@ -22,5 +29,4 @@ local/first-demo.session-<uuid>/
   stop-trace-<timestamp>-<id>.assessment.json
   leader-robot.yaml       # GELLO only
   leader-options.yaml     # GELLO only
-local/first-demo.trajectory.pt  # only with export_trajectory_pt: true
 # end files

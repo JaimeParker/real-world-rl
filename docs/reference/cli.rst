@@ -7,7 +7,7 @@ rwrl：站点命令行
 
 ``rwrl`` 统一训练、录制、部署和站点操作。人和 agent 使用相同命令；\ ``--json``\ 、\ ``--yes`` 和退出码使内置原语可非交互调用。本页为参考；\ :doc:`教程 <../index>`\ 按顺序介绍命令。
 
-安装 ``real-world-rl`` 及站点设备扩展后，环境中即可使用 ``rwrl``\ （\ :doc:`安装 <../tutorials/install>`\ ），等价于 ``python -m real_world_rl.cli``\ 。\ ``train``\ 、\ ``record``\ 、\ ``deploy``\ 、\ ``deploy-act``\ 、\ ``deploy-openpi``\ 、\ ``collect-reward``\ 、\ ``teleop run``\ 、``archive inspect`` 还需 ``learning``\ ；缺失时退出 2，提示 ``pip install -e ./rl-garden -e '.[learning]'``\ 。硬件命令在连接设备的\ **机器人主机**\ 、\ **激活项目环境**\ 后运行。相对站点/预设路径从当前目录解析。各原语调用时连接，结束后断开，包括失败情况。
+安装 ``real-world-rl`` 及站点设备扩展后，环境中即可使用 ``rwrl``\ （\ :doc:`安装 <../tutorials/install>`\ ），等价于 ``python -m real_world_rl.cli``\ 。\ ``train``\ 、\ ``record``\ 、\ ``deploy``\ 、\ ``deploy-act``\ 、\ ``deploy-openpi``\ 、\ ``collect-reward``\ 、\ ``teleop run``\ 、``archive inspect``\ 、\ ``dataset export --format pkl`` 还需 ``learning``\ ；缺失时退出 2，提示 ``pip install -e ./rl-garden -e '.[learning]'``\ 。硬件命令在连接设备的\ **机器人主机**\ 、\ **激活项目环境**\ 后运行。相对站点/预设路径从当前目录解析。各原语调用时连接，结束后断开，包括失败情况。
 
 全局选项放在\ **命令之前**\ ，包括 ``home`` 或 ``doctor`` 前的 ``--preset``\ 。\ ``rwrl --help`` 列命令；\ ``rwrl <command> --help`` 显示各命令选项。
 
@@ -211,8 +211,11 @@ Franka FCI 仅允许一个控制连接。直连时先结束录制器或 actor，
      - 记住、显示或忘掉本目录的默认站点和预设（\ :ref:`详情 <cli-remembered-station-and-preset>`\ ）
      - 0 / 2
    * - ``archive inspect ARCHIVE``
-     - 离线读录制器 SQLite 归档（\ :ref:`详情 <cli-archive-inspect>`\ ）
+     - 离线读示范数据集目录（也接受旧的录制器 SQLite 归档）（\ :ref:`详情 <cli-archive-inspect>`\ ）
      - 0；带 ``--stop-time-s``\ ：0 PASS / 3 FAIL / 4 BLOCKED；2
+   * - ``dataset list|view|drop|undrop|prune|export DIR``
+     - 离线列出、回放（Rerun）、丢弃／恢复／清理回合，导出 pkl 或 LeRobot（\ :ref:`详情 <cli-dataset>`\ ）
+     - 0 / 2
 
 **学习：** ``train``、``record``、``deploy``、``deploy-act``、``deploy-openpi``、``collect-reward``\ （\ :ref:`上文 <cli-learning-commands>`\ ）。
 
@@ -268,7 +271,14 @@ workspace frame set
 archive inspect
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-只读归档，打印缩进 JSON：结果、掩码计数、保持漂移及各 ``human_action_mask`` 段接管跳变/残差。\ ``--csv PATH``\ 、\ ``--measurements PATH`` 写新步/测量 CSV；\ ``--drift-window-s``\ （默认 10）设漂移窗口；每个 ``--stop-time-s T``\ （可重复）按 ``--settle-speed-mm-s``\ （默认 2）、\ ``--settle-hold-s``\ （默认 0.5）增加稳定评估。\ ``--json`` 同字段单行，非有限数为 ``null``\ ，另含 ``status``\ （\ ``REPORT``\ 、\ ``PASS``\ 、\ ``FAIL``\ 、\ ``BLOCKED``\ ；停止时刻无跨越 TCP 回合为 ``BLOCKED``\ ）。不加载站点：\ ``--station``\ 、\ ``--robot``\ 、\ ``--preset``\ 、\ ``--direct``\ 、\ ``--mock``\ 、\ ``--yes`` 均为用法错误。别名 ``python examples/inspect_teleop_archive.py`` 的退出码忽略稳定状态。
+只读数据集目录（或旧 SQLite 归档），打印缩进 JSON：结果、掩码计数、保持漂移及各 ``human_action_mask`` 段接管跳变/残差。\ ``--csv PATH``\ 、\ ``--measurements PATH`` 写新步/测量 CSV；\ ``--drift-window-s``\ （默认 10）设漂移窗口；每个 ``--stop-time-s T``\ （可重复）按 ``--settle-speed-mm-s``\ （默认 2）、\ ``--settle-hold-s``\ （默认 0.5）增加稳定评估。\ ``--json`` 同字段单行，非有限数为 ``null``\ ，另含 ``status``\ （\ ``REPORT``\ 、\ ``PASS``\ 、\ ``FAIL``\ 、\ ``BLOCKED``\ ；停止时刻无跨越 TCP 回合为 ``BLOCKED``\ ）。不加载站点：\ ``--station``\ 、\ ``--robot``\ 、\ ``--preset``\ 、\ ``--direct``\ 、\ ``--mock``\ 、\ ``--yes`` 均为用法错误。别名 ``python examples/inspect_teleop_archive.py`` 的退出码忽略稳定状态。
+
+.. _cli-dataset:
+
+dataset
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``rwrl dataset <list|view|drop|undrop|prune|export> DIR`` 离线操作 ``rwrl record --output-dir`` 写出的示范数据集（格式与用法见\ :doc:`录制示范 <recording-demos>`\ ）。\ ``list`` 打印回合表；\ ``view`` 在 Rerun 查看器里回放（\ ``-e N`` 可重复，\ ``--web`` 起网页查看器，\ ``--save PATH.rrd`` 只写文件；需要 ``viewer`` extra）；\ ``drop DIR N...``\ （\ ``--note TEXT``\ ）与 ``undrop DIR N...`` 可逆地丢弃或恢复回合；\ ``prune DIR --yes`` 删除所有 discarded 回合目录，不带 ``--yes``（或全局 ``--yes``\ ）为用法错误；\ ``export DIR --format pkl|lerobot --out PATH`` 导出（\ ``--frame-stack``\ 、\ ``--keep-syncing-steps`` 只用于 pkl，\ ``--repo-id``\ 、\ ``--fps``\ 、\ ``--vcodec`` 只用于 lerobot；lerobot 需要 ``lerobot`` extra）。\ ``--json`` 输出对应的结构化结果。不加载站点：\ ``--station``\ 、\ ``--robot``\ 、\ ``--preset``\ 、\ ``--direct``\ 、\ ``--mock`` 均为用法错误。未知回合、不是数据集的目录等读取错误退出 2。
 
 .. _cli-robot-host-diagnosis-and-repair:
 

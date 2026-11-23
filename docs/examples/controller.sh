@@ -59,3 +59,24 @@ W=path/to/wheels
 pip uninstall -y franky-control serl-controller
 pip install $W/franky_control-*.whl $W/serl_controller-*.whl
 # end wheels-install
+# start install-joint-native
+LIBFRANKA_VERSION=0.17.0 bash native/joint_controller/scripts/install-on-ubuntu.sh
+# end install-joint-native
+# start install-joint-check
+python -c 'import franky, joint_controller as jc; print(jc.build_info())'
+# end install-joint-check
+# start setup-joint
+rwrl setup --station local/station.yaml --non-interactive --joint-controller trajectory_impedance --robot-model fr3 --realtime enforce
+# end setup-joint
+# start wheels-joint-docker
+# Optional, on a build machine with Docker (not the robot PC): one build produces the franky, serl_controller and joint_controller wheels.
+WORK=$HOME/rwrl-franky-build LIBFRANKA_VERSION=0.17.0 native/joint_controller/docker/build-on-host.sh
+ls $HOME/rwrl-franky-build/out/wheels
+# end wheels-joint-docker
+# start wheels-joint-install
+# On the robot PC, with the whole wheel directory copied over:
+W=path/to/wheels
+(cd $W && sha256sum -c SHA256SUMS)
+pip uninstall -y franky-control serl-controller joint-controller
+pip install $W/franky_control-*.whl $W/serl_controller-*.whl $W/joint_controller-*.whl
+# end wheels-joint-install

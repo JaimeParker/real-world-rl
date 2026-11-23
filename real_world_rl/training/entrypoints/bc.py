@@ -53,7 +53,7 @@ def run_real_world_bc(args: "RealWorldBCArgs") -> None:
     from real_world_rl.training.demo_loading import load_demo_pkls
 
     import importlib
-    for backend in ("franka_real", "real_robot", "real_robot_bimanual"):
+    for backend in ("real_robot", "real_robot_bimanual"):
         importlib.import_module(f"real_world_rl.envs.backends.{backend}")
     seed_everything(args.seed)
 
@@ -77,7 +77,7 @@ def run_real_world_bc(args: "RealWorldBCArgs") -> None:
     )
 
     # Env is used only for its observation/action-space shape -- BC never
-    # calls reset()/step() on it, and FrankaRealEnv makes no network call
+    # calls reset()/step() on it, and RealRobotEnv makes no network call
     # until one of those is (mirrors serl.py's/hil_serl.py's learner-side
     # env construction). Reuses the offline-args-shaped request builder
     # (BCArgs has no online-training num_envs; _eval_env_request resolves
@@ -108,6 +108,7 @@ def run_real_world_bc(args: "RealWorldBCArgs") -> None:
                 agent.buffer_device,
                 expected_contract=demo_contract_of(env),
                 on_contract=saved_contracts.append,
+                frame_stack=original_observation.frame_stack,
             )
         if loaded == 0:
             raise ValueError(
@@ -152,7 +153,6 @@ from dataclasses import dataclass, field  # noqa: E402
 
 from rl_garden.training.offline.entrypoints.bc import BCArgs  # noqa: E402
 from real_world_rl.training.args import (  # noqa: E402
-    FrankaRealConfig,
     RealWorldFrankaArgs,
     TeleopArgs,
 )
@@ -162,13 +162,12 @@ from real_world_rl.training.registry import registry  # noqa: E402
 @dataclass
 class RealWorldBCArgs(TeleopArgs, RealWorldFrankaArgs, BCArgs):
     """RealWorldFrankaArgs is composed for its env-backend fields
-    (franka_real, env_backend) only -- role/sync_host/sync_port/control_hz/
+    (real_robot, real_robot_bimanual, env_backend) only -- role/sync_host/sync_port/control_hz/
     deterministic_actor/train_freq/publish_freq are inherited but unused:
     BC has no actor/learner split to apply them to. TeleopArgs is included
     to share station presets; BC ignores its fields and never requires or
     constructs a teleop source."""
 
-    franka_real: FrankaRealConfig = field(default_factory=FrankaRealConfig)
     demo_dataset_paths: tuple[str, ...] = field(default_factory=tuple)
     num_offline_steps: int = 100_000
 

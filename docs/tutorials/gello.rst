@@ -221,14 +221,33 @@ station 声明了 daemon、但 daemon 已停止时，把全局 ``--direct`` 放�
 保留 ``state_fields`` 中的 ``joint_pos``，核对 remote、token、相机与 home/reset，不能只改动作模式。
 源选项文件含多个机器人时，用 ``--teleop-robot NAME`` 选择对应机器人。
 
+**让从臂更平滑地跟随。** station 默认的关节控制器 ``impedance`` 在每个 ``control_hz`` 周期收到一个阶跃目标。
+关节跟随可以改用 ``joint_controller: trajectory_impedance``：每个目标经规划器变成连续轨迹，再用 GELLO 的关节阻抗律跟踪。
+它写在\ **机器人端的 station**\ 里，需要一起构建的 franky、``serl_controller`` 和 ``joint_controller``，建议实时内核；
+选择、安装和 doctor 检查按 :doc:`controller` 第 10 步做，不用重新标定。同时把配置里 ``real_robot.control_hz`` 提高到 15–30 Hz：
+
+.. literalinclude:: ../examples/controller-joint.yaml
+   :language: yaml
+   :start-after: # start controller
+   :end-before: # end controller
+
+.. code-block:: yaml
+
+   real_robot:
+     control_hz: 20     # 默认 10；GELLO 关节采集可提到 15 到 30
+
+``control_hz`` 提高后，``joint_scale_rad`` 和 ``max_delta_per_step.joint_rad`` 按\ **每步**\ 计的速度也随之提高，重新核对它们。
+采集、训练和部署必须用同一个 ``control_hz``，所以这一步要在开始采集\ **之前**\ 定下来。
+主臂移动时从臂会落后约一个刹车距离（默认约 0.06 rad），用 ``joint_trajectory.max_acceleration`` 调整，见 :doc:`../reference/joint-controller`。
+
 ``--teleop-onset arm`` 等到最大关节差不超过 ``--teleop-arm-tolerance-rad`` 才接管；
 默认容差 0.1 rad，对齐前不算人工步骤，reset 后需重新对齐。
 默认起始策略 ``ramp`` 则立即接管：joint_abs 目标相对从臂每步最多前进
 ``--teleop-ramp-step-rad`` （默认 0.05 rad），受限步骤标为 teleop_syncing。
 joint_delta 已按 joint_scale_rad 限幅，初次追赶标记持续到主臂首次进入一个步长以内。
 
-完整归档保留这些执行动作；录制器默认从人工 pkl 排除同步步，
-``--keep-syncing-steps`` 可保留，但归档派生训练视图仍排除同步监督。
+数据集保留这些执行动作；录制器默认从训练行排除同步步，
+``--keep-syncing-steps`` 可保留，但数据集派生的训练视图仍排除同步监督。
 关节路径没有笛卡尔夹爪接管锁存，接管前先让触发器匹配当前夹爪状态。
 录制产物与恢复方式见 :doc:`record`；各动作模式使用独立数据集。
 
@@ -241,7 +260,7 @@ joint_delta 已按 joint_scale_rad 限幅，初次追赶标记持续到主臂首
    :start-after: # start joint
    :end-before: # end joint
 
-**你应该看到**：新归档 contract 的 action_mode 为 joint_delta，arm_action_dim 为 7。
+**你应该看到**：新数据集头 action_contract 的 action_mode 为 joint_delta，arm_action_dim 为 7。
 若选择 joint_abs 环境，录制器还会在回合开始检查主从最大差值（默认 0.8 rad）。
 
 **如果不对**：动作维数或关节限位不匹配时停止运行，核对主从关节顺序和对应范围；

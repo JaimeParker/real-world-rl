@@ -335,16 +335,9 @@ def parse_deploy(argv: Sequence[str]) -> None:
 
 
 def parse_collector(argv: Sequence[str]) -> None:
-    from real_world_rl.reward.collect_data import Args, selects_real_robot
+    from real_world_rl.reward.collect_real_robot import parse_collect_args
 
-    if selects_real_robot(argv):
-        from real_world_rl.reward.collect_real_robot import parse_collect_args
-
-        parse_collect_args(list(argv))
-        return
-    import tyro
-
-    tyro.cli(Args, args=list(argv))
+    parse_collect_args(list(argv))
 
 
 def parse_act_trainer(argv: Sequence[str]) -> None:

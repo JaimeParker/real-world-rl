@@ -1,3 +1,7 @@
+.. note::
+
+   本历史记录使用数据集格式之前的录制器（``--output-path`` pkl）。当前命令见 :ref:`recording-demos-recording-demos-on-the-real-robot`。
+
 .. _testing-single-arm-gripper-session2-second-single-arm-and-gripper-hardware-session-gello--spacemouse:
 
 第二次单臂＋夹爪现场测试：GELLO / SpaceMouse

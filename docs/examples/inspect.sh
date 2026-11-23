@@ -1,17 +1,31 @@
+# start list
+rwrl dataset list local/first-demo
+# end list
+# start view
+rwrl dataset view local/first-demo
+# end view
+# start view-options
+rwrl dataset view local/first-demo -e 0 -e 2
+rwrl dataset view local/first-demo --web
+rwrl dataset view local/first-demo --save local/first-demo.rrd
+# end view-options
+# start forward
+# On your own computer: forward both the web viewer and the gRPC port, then open the printed URL.
+ssh -L 9090:localhost:9090 -L 9876:localhost:9876 USER@ROBOT_PC
+# end forward
 # start inspect
-rwrl archive inspect local/first-demo.trajectory.sqlite3 --csv local/first-demo-steps.csv --measurements local/first-demo-measurements.csv
+rwrl archive inspect local/first-demo --csv local/first-demo-steps.csv --measurements local/first-demo-measurements.csv
 # end inspect
 # start synthetic
-# Requires the test extra; reuses the existing test's scripted trajectory.
+# Requires the test extra; reuses the existing test's scripted trajectory, written as a dataset.
 mkdir -p local/inspect-example
 python - <<'PYCODE'
 import runpy
 from pathlib import Path
 fixture = runpy.run_path('tests/test_inspect_teleop_archive.py')
-fixture['write_archive'](Path('local/inspect-example/demo.trajectory.sqlite3'),
-                         contract=fixture['CARTESIAN_CONTRACT'])
+fixture['write_dataset'](Path('local/inspect-example/demo'), named=True)
 PYCODE
-rwrl archive inspect local/inspect-example/demo.trajectory.sqlite3 --csv local/inspect-example/steps.csv --measurements local/inspect-example/measurements.csv --drift-window-s 0.85 --stop-time-s 1002.4
+rwrl archive inspect local/inspect-example/demo --csv local/inspect-example/steps.csv --measurements local/inspect-example/measurements.csv --drift-window-s 0.85 --stop-time-s 1002.4
 # end synthetic
 # start rows
 python - <<'PYCODE'
@@ -32,19 +46,18 @@ next_xyz = json.loads(row['next_state'])[0][7:10]
 print('delta_xyz_mm:', [round((b-a)*1000, 3) for a,b in zip(xyz, next_xyz)])
 PYCODE
 # end rows
-# start pkl
-# Only open a pickle you recorded yourself or otherwise trust.
+# start training-view
 python - <<'PYCODE'
 import json
-import pickle
-from pathlib import Path
-path = Path('local/first-demo.pkl')
-with path.open('rb') as stream:
-    rows = pickle.load(stream)
-contract = json.loads(path.with_suffix('.contract.json').read_text())
+from real_world_rl.dataset import Dataset, iter_transitions
+dataset = Dataset('local/first-demo')
+rows = list(iter_transitions(dataset, frame_stack=1))
+print('episodes:', [(info.index, info.meta['status']) for info in dataset.episodes()])
 print('transitions:', len(rows))
 print('keys:', sorted(rows[0]) if rows else [])
-print('first human_action_mask:', rows[0].get('human_action_mask') if rows else None)
-print(json.dumps(contract, indent=2, ensure_ascii=False))
+print('first human_action_mask:', rows[0]['human_action_mask'] if rows else None)
+print('segment ends:', [row['step_index'] for row in rows if row.get('training_segment_end')])
+print(json.dumps(dataset.header['action_contract'], indent=2, ensure_ascii=False))
+print('obs_spec:', json.dumps(dataset.header['obs_spec']))
 PYCODE
-# end pkl
+# end training-view

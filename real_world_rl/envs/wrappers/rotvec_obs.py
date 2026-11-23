@@ -1,6 +1,6 @@
 """Converts the quaternion slice(s) of a Franka real-robot env's ``state``
 observation into 3D rotation vectors, matching the rotation representation
-the action side already uses (``FrankaRealEnv.step()``'s rotvec deltas).
+the action side already uses (cartesian rotvec deltas).
 Optional and off by default -- HIL-SERL converts to Euler via
 ``Quat2EulerWrapper`` instead, but rotvec avoids Euler's gimbal-lock/wraparound
 special-casing and stays consistent with this repo's own action convention.

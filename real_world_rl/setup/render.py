@@ -37,7 +37,7 @@ _ROBOT_INDENT = "    "
 # Every field each section of the template writes; rendering a config with another field fails
 # instead of silently dropping it.
 _ROBOT_FIELDS = {
-    "name", "arm_backend", "robot_ip", "bridge_url", "realtime", "relative_dynamics_factor", "cartesian_controller", "serl", "robot_model", "serl_auto_recover", "load", "home_joints",
+    "name", "arm_backend", "robot_ip", "bridge_url", "realtime", "relative_dynamics_factor", "cartesian_controller", "joint_controller", "joint_trajectory", "serl", "robot_model", "serl_auto_recover", "load", "home_joints",
     "task_frame", "workspace", "safety_box", "joint_limits", "max_delta_per_step", "control", "claim", "gripper", "cameras", "teleop",
 }
 _GRIPPER_FIELDS = {"backend", "max_width_m", "mode", "binary_threshold", "shares_arm_session",

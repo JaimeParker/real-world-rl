@@ -3,13 +3,13 @@ import argparse
 import dataclasses
 import json
 from pathlib import Path
-import pickle
 
 import torch
 
 from real_world_rl.contracts.action import (
     demo_contract_of, validate_experiment, validate_transitions_against_contract,
 )
+from real_world_rl.dataset import Dataset, iter_transitions
 from real_world_rl.deploy.checkpoint import (
     DeployArgs, restore_policy, restore_training_args,
 )
@@ -21,7 +21,7 @@ from rl_garden.training.offline.runner import _eval_env_request
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("checkpoint", type=Path)
-    parser.add_argument("demo", type=Path)
+    parser.add_argument("demo", type=Path, help="demo dataset directory")
     parser.add_argument("--row", type=int, default=0)
     parser.add_argument("--record", type=Path, required=True)
     args = parser.parse_args()
@@ -29,9 +29,9 @@ def main() -> None:
     if not (run / "config.json").is_file():
         raise FileNotFoundError(run / "config.json")
     metadata = json.loads((run / "experiment.json").read_text())
-    contract = json.loads(args.demo.with_suffix(".contract.json").read_text())
-    with args.demo.open("rb") as stream:
-        rows = pickle.load(stream)
+    dataset = Dataset(args.demo)
+    contract = dataset.header["action_contract"]
+    rows = list(iter_transitions(dataset, frame_stack=1))
     row = rows[args.row]
     deploy = DeployArgs(checkpoint=str(args.checkpoint), algo="real_world_bc", device="cpu")
     training = restore_training_args(deploy)

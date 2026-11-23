@@ -1,5 +1,5 @@
-"""RotvecObsWrapper: converts FrankaRealEnv's quaternion state slice into a
-rotation vector, against a fake bridge client (no HTTP/ROS/hardware)."""
+"""RotvecObsWrapper: converts real_robot's quaternion state slice into a
+rotation vector, against a fake device-layer robot (no hardware)."""
 from __future__ import annotations
 
 import gymnasium as gym
@@ -9,30 +9,48 @@ import torch
 from gymnasium import spaces
 from scipy.spatial.transform import Rotation
 
-from real_world_rl.envs.franka_real.config import FrankaRealEnvConfig
-from real_world_rl.envs.franka_real.env import FrankaRealEnv
+from real_world_rl.envs.real_robot import RealRobotEnv, RealRobotEnvConfig
+from real_world_rl.envs.real_robot.env import RealRobotVectorEnv
 from real_world_rl.envs.wrappers.rotvec_obs import RotvecObsWrapper, quat_xyzw_to_rotvec
-
-from test_franka_real_env import _FakeBridgeClient
-
-
-def _make_wrapped_env(initial_pose=None) -> RotvecObsWrapper:
-    bridge = _FakeBridgeClient(initial_pose=initial_pose)
-    cfg = FrankaRealEnvConfig(bridge_url="http://unused")
-    env = FrankaRealEnv(cfg, bridge_client=bridge, camera_capture=None)
-    return RotvecObsWrapper(env)
+from test_real_robot_env import _fake_franka
 
 
-def test_observation_space_shrinks_state_by_one():
-    env = _make_wrapped_env()
+@pytest.fixture
+def make_wrapped_env(tmp_path, monkeypatch):
+    import real_world_rl.devices.claims as claims
+
+    monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
+    envs = []
+
+    def make(initial_pose=None):
+        robot = _fake_franka()
+        robot.connect()
+        if initial_pose is not None:
+            robot.arm._tcp_pose = np.asarray(initial_pose, dtype=np.float64)
+        config = RealRobotEnvConfig(
+            robot={"type": "franka", "arm_backend": "fake"},
+            state_fields=("tcp_pose", "tcp_vel", "gripper_pos", "tcp_force", "tcp_torque"),
+            home_joints=[0.0] * 7, reset_settle_s=0.0, control_hz=1000.0,
+        )
+        env = RotvecObsWrapper(RealRobotVectorEnv(RealRobotEnv(config, robot=robot)))
+        envs.append(env)
+        return env
+
+    yield make
+    for env in envs:
+        env.close()
+
+
+def test_observation_space_shrinks_state_by_one(make_wrapped_env):
+    env = make_wrapped_env()
     assert env.single_observation_space["state"].shape == (19,)
     assert env.observation_space["state"].shape == (1, 19)
 
 
-def test_reset_converts_quat_to_rotvec():
+def test_reset_converts_quat_to_rotvec(make_wrapped_env):
     quat = Rotation.from_euler("xyz", [0.1, 0.2, 0.3]).as_quat()
     pose = [0.5, 0.0, 0.2, *quat]
-    env = _make_wrapped_env(initial_pose=pose)
+    env = make_wrapped_env(initial_pose=pose)
 
     obs, _ = env.reset()
     assert obs["state"].shape == (1, 19)
@@ -40,11 +58,11 @@ def test_reset_converts_quat_to_rotvec():
     expected_rotvec = Rotation.from_quat(quat).as_rotvec()
     np.testing.assert_allclose(obs["state"][0, 3:6].numpy(), expected_rotvec, atol=1e-6)
     # rest of the state (vel/gripper/force/torque) passes through unchanged.
-    np.testing.assert_allclose(obs["state"][0, 6:].numpy(), np.zeros(13), atol=1e-6)
+    np.testing.assert_allclose(obs["state"][0, 6:].numpy(), np.array([0.] * 6 + [1.] + [0.] * 6), atol=1e-6)
 
 
-def test_step_converts_quat_to_rotvec():
-    env = _make_wrapped_env()
+def test_step_converts_quat_to_rotvec(make_wrapped_env):
+    env = make_wrapped_env()
     env.reset()
     obs, _, _, _, _ = env.step(torch.zeros(1, 7))
     assert obs["state"].shape == (1, 19)

@@ -71,17 +71,17 @@ Interpret each printed value using the recording conventions, distinguishing num
      - [1,27]: tcp_pose has 7 entries, tcp_vel 6, joint_pos 7 and joint_vel 7.
        This example does not convert quaternions or stack multiple frames.
    * - Input rgb_wrist
-     - [1,128,128,3], uint8, RGB. The contents are synthetic random pixels, not a real scene.
+     - [1,224,224,3], uint8, RGB. The contents are synthetic random pixels, not a real scene.
    * - Demonstration action
      - [0.2,0,0,0,0,0,1]: under the current Cartesian convention, this requests an x increase of 0.01 m, no rotation and an open gripper.
    * - Predicted action
-     - The x component is about 0.1761, corresponding to about 0.0088 m; y is about 0.3752, corresponding to about 0.0188 m.
+     - The x component is about -0.1588, corresponding to about -0.0079 m; y is about 0.0467, corresponding to about 0.0023 m.
        The model still outputs y, z and rotation requests absent from the demonstration.
    * - Predicted gripper
-     - About 0.1481, corresponding to a normalized opening request of about 0.5741. With the binary Hand used for the earlier recording, this still exceeds the 0.5 opening threshold.
+     - About 0.0207, corresponding to a normalized opening request of about 0.5104. With the binary Hand used for the earlier recording, this just exceeds the 0.5 opening threshold.
        The training loss compares continuous action values, not whether the binary device ultimately opens.
    * - Mask and error
-     - All seven dimensions in row 0 are human-controlled; masked MSE is about 0.131285. This is error in normalized action space, not m or rad.
+     - All seven dimensions in row 0 are human-controlled; masked MSE is about 0.194124. This is error in normalized action space, not m or rad.
 
 The final training-log MSE comes from a sampled batch before the update; this value comes from row 0 after the update. They need not match.
 If you inspect a row with mask=1111110, the gripper still outputs a value, but it does not enter that row's supervised error.
@@ -128,7 +128,7 @@ Before deployment, check at least these groups of items:
 **If it doesn't**:
 
 * The record differs from the expected data path: Confirm whether the previous chapter actually trained on first-demo or synthetic demos. Do not label a synthetic checkpoint as real-hardware training.
-* Only final.pt remains, with no input record or conventions: Archive the entire run directory with the demonstration sidecar before continuing to deployment.
+* Only final.pt remains, with no input record or conventions: Archive the entire run directory with the demonstration dataset before continuing to deployment.
 * The camera, coordinate frame or action mode changed: Recheck / prepare data and the model first. Do not merely change deployment parameters to make dimensions match.
 
 4. Check input and action conventions separately for ACT or a residual base policy

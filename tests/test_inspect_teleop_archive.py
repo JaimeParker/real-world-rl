@@ -186,3 +186,76 @@ def test_measurements_must_be_a_csv_path(tmp_path):
     archive = write_archive(tmp_path / "demo.trajectory.sqlite3", contract=CARTESIAN_CONTRACT)
     with pytest.raises(ValueError, match="measurements export"):
         archive_inspect.inspect_archive(archive, measurements_path=tmp_path / "measurements.txt")
+
+
+# -- a demo dataset directory ----------------------------------------------------------------
+
+
+def _flat_state32(offset_mm) -> torch.Tensor:
+    return state_of(offset_mm, "flat").float()
+
+
+def write_float32_archive(path: Path, episode_id: str = "episode-0") -> Path:
+    """``write_archive``'s episode with a float32 state, as the dataset stores it."""
+    offsets = scripted_offsets_mm()
+    archive = DurableArchive(path)
+    try:
+        archive.append(begin_episode(episode_id, action_contract=CARTESIAN_CONTRACT))
+        for step in range(NUM_STEPS):
+            mask = INTERVENE_MASK if 16 <= step < INTERVENE_STOP else HOLD_MASK
+            transition = {"obs": {"state": _flat_state32(offsets[step])},
+                          "next_obs": {"state": _flat_state32(offsets[min(step + 1, NUM_STEPS - 1)])},
+                          "action": torch.zeros(1, 7), "reward": 0.0, "done": False}
+            archive.append(transition_record(
+                transition, episode_id=episode_id, step_index=step, timestamp_s=step_time(step),
+                terminated=False, truncated=step == NUM_STEPS - 1,
+                human_action_mask=torch.tensor([mask]), override_mask=torch.tensor([mask])))
+        archive.append(end_episode(episode_id, step_count=NUM_STEPS))
+    finally:
+        archive.close()
+    return path
+
+
+def write_dataset(root: Path, *, named: bool, episode_id: str = "episode-0") -> Path:
+    """The same episode recorded into a dataset: observation row ``t`` is the archive's step-``t``
+    obs (row ``T`` its last ``next_obs``), timed at the previous step's archive timestamp."""
+    from real_world_rl.dataset import DatasetWriter
+
+    offsets = scripted_offsets_mm()
+    rows = [*offsets, offsets[-1]]
+    writer = DatasetWriter.open(root, control_hz=10.0, obs_spec={"state": {"shape": [14], "dtype": "float32"}},
+                                action_dim=7, action_contract=CARTESIAN_CONTRACT,
+                                named_state_spec={"tcp_pose": [7]} if named else None)
+    episode = writer.begin_episode(episode_id=episode_id)
+
+    def observe(row):
+        state = _flat_state32(rows[row])
+        episode.add_observation({"state": state}, {"tcp_pose": state[0, 7:]} if named else None,
+                                time_s=step_time(row - 1))
+
+    observe(0)
+    for step in range(NUM_STEPS):
+        mask = INTERVENE_MASK if 16 <= step < INTERVENE_STOP else HOLD_MASK
+        episode.add_step(torch.zeros(1, 7), torch.zeros(1, 7), torch.tensor([mask]), torch.tensor([mask]),
+                         any(mask), 0.0, False, step == NUM_STEPS - 1, False, {})
+        observe(step + 1)
+    episode.finish(status="kept", success=True)
+    return root
+
+
+@pytest.mark.parametrize("named", [True, False])
+def test_a_dataset_directory_inspects_as_its_legacy_archive(tmp_path, named):
+    archive = write_float32_archive(tmp_path / "demo.trajectory.sqlite3")
+    dataset = write_dataset(tmp_path / "demo", named=named)
+    options = dict(stop_times_s=[step_time(LEADER_STOP_STEP), START_S - 1.0], drift_window_s=DRIFT_WINDOW_S)
+    legacy = archive_inspect.inspect_archive(archive, measurements_path=tmp_path / "legacy.csv", **options)
+    before = sorted((path.name, path.read_bytes()) for path in dataset.rglob("*") if path.is_file())
+    summary = archive_inspect.inspect_archive(dataset, tmp_path / "steps.csv",
+                                              measurements_path=tmp_path / "dataset.csv", **options)
+    assert summary["archive"] == str(dataset.resolve())
+    assert {key: value for key, value in summary.items() if key != "archive"} == {
+        key: value for key, value in legacy.items() if key != "archive"}
+    assert summary["episodes"][0]["tcp_metrics"] and summary["settle"][0]["settled"]
+    assert (tmp_path / "dataset.csv").read_text() == (tmp_path / "legacy.csv").read_text()
+    assert len((tmp_path / "steps.csv").read_text(encoding="utf-8-sig").splitlines()) == NUM_STEPS + 1
+    assert sorted((path.name, path.read_bytes()) for path in dataset.rglob("*") if path.is_file()) == before

@@ -1,15 +1,17 @@
 """Combine recorded observation/control settings with the tutorial's BC settings."""
 import argparse
 from pathlib import Path
-import pickle
 
 import yaml
+
+from real_world_rl.dataset import Dataset
+from real_world_rl.dataset.transitions import selected_steps
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("session_config", type=Path)
-    parser.add_argument("demo", type=Path)
+    parser.add_argument("demo", type=Path, help="demo dataset directory")
     parser.add_argument("output", type=Path)
     args = parser.parse_args()
     recorded = yaml.safe_load(args.session_config.read_text())
@@ -19,8 +21,10 @@ def main() -> None:
     for key in ("env_backend", "env_id", "obs", "real_robot"):
         config[key] = recorded[key]
     config["demo_dataset_paths"] = [str(args.demo)]
-    with args.demo.open("rb") as stream:
-        count = len(pickle.load(stream))
+    # The rows training will see: kept episodes' intervened, non-syncing steps (images are not loaded).
+    dataset = Dataset(args.demo)
+    count = sum(len(selected_steps(dataset.episode(info.index).data))
+                for info in dataset.episodes() if info.kept)
     if count == 0:
         raise ValueError("empty demonstration")
     # Buffer must hold all selected rows, otherwise it silently retains only a suffix.

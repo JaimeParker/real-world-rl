@@ -19,7 +19,6 @@ from rl_garden.common.cli_args import CheckpointArgs, ObservationArgs
 from rl_garden.common.env_args import EnvBackendArgs, EnvRunArgs
 from rl_garden.encoders.config import EncoderConfig
 from real_world_rl.training.args import (
-    FrankaRealConfig,
     HilEnvArgs,
     RealWorldFrankaArgs,
 )
@@ -38,7 +37,6 @@ class SilriArgs(
     interventions under a state-wise Lagrange multiplier. Defaults follow the reference
     Franka configuration."""
 
-    franka_real: FrankaRealConfig = field(default_factory=FrankaRealConfig)
     role: Literal["actor", "learner", "eval"] = "actor"
     encoder: EncoderConfig = field(
         default_factory=lambda: EncoderConfig(
@@ -281,6 +279,7 @@ def _run_learner(args) -> None:
             train_freq=args.train_freq,
             publish_freq=args.publish_freq,
             action_contract=demo_contract_of(env),
+            demo_frame_stack=args.obs.frame_stack,
         )
         try:
             loop_owns_env = True

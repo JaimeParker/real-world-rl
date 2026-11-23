@@ -276,8 +276,7 @@ def restore_training_args(args: DeployArgs) -> Any:
 def _restore_real_world_fields(training_args: Any, saved: Mapping[str, Any]) -> None:
     """Attach the real-world-only training fields the online ``<algo>`` Args do not declare.
 
-    ``real_robot`` is attached only for ``env_backend == "real_robot"`` runs (franka_real runs
-    persist a default, meaningless ``real_robot``), ``real_robot_bimanual`` only for
+    ``real_robot`` is attached only for ``env_backend == "real_robot"`` runs, ``real_robot_bimanual`` only for
     ``env_backend == "real_robot_bimanual"`` runs; ``convert_obs_rotation`` and
     ``classifier_image_keys`` (the frame-stacked camera keys) come from hil_serl.
     """
@@ -342,7 +341,7 @@ def resolve_deploy_robot_config(args: DeployArgs, training_args: Any) -> RealRob
     trained = getattr(training_args, "real_robot", None)
     if trained is None:
         _LOGGER.warning(
-            "training config has no real_robot section (older run or franka_real); using the "
+            "training config has no real_robot section (older run); using the "
             "--real_robot.* CLI config as is, so action/observation contract is NOT verified"
         )
         return cli
@@ -717,6 +716,9 @@ def run_cli(argv: Optional[Sequence[str]] = None) -> int:
     exit code."""
     import tyro
 
+    from real_world_rl.training.backend_migration import check_backend_cli
+
+    check_backend_cli(argv)
     return main(tyro.cli(DeployArgs, args=argv))
 
 
@@ -724,6 +726,9 @@ def main_cli(argv: Optional[Sequence[str]] = None) -> int:
     """rwrl adapter; preserve the existing deployment parser and runner."""
     import tyro
 
+    from real_world_rl.training.backend_migration import check_backend_cli
+
+    check_backend_cli(argv)
     return main(tyro.cli(DeployArgs, args=argv))
 
 

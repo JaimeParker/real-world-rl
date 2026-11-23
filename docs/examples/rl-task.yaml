@@ -6,7 +6,7 @@ obs:
   state: true
   rgb: [wrist]
   depth: []
-  image_size: [128, 128]
+  image_size: [224, 224]
 real_robot:
   remote: 127.0.0.1:50051
   num_joints: 7
@@ -27,6 +27,10 @@ teleop_event_device: stdin
 episode_end_behavior: hold
 reward_from_teleop_events: true
 teleop_success_reward: 1.0
+# plain_conv with the default flatten pooling only fits 128x128 or 64x64 images;
+# gap pooling fits any image size, here 224x224.
+encoder:
+  plain_conv_pooling: gap
 classifier_checkpoint: null
 use_grasp_penalty: false
 buffer_device: cpu

@@ -147,7 +147,7 @@ Run the recorder or the actor as the child of a supervisor:
 .. code-block:: bash
 
    rwrl supervise --log runs/<run>/supervise.jsonl -- \
-       rwrl record --config hil.yaml --output-path demos/session.pkl --num-successes 1
+       rwrl record --config hil.yaml --output-dir demos/session --num-successes 1
 
 .. list-table::
    :header-rows: 1
@@ -221,8 +221,7 @@ Recovering after a supervisor kill
    the errors in Desk, or run ``rwrl doctor --station robot.yaml --fix``, which
    recovers the arm and re-runs the mode check.
 4. The killed run did not finalize. The SQLite outbox/journal keeps every committed row;
-   the recorder archive retains committed steps and marks the unfinished episode interrupted
-   when reopened. Only execution before durable append is outside that guarantee. Restart
+   the recorder's finished episodes are all in the dataset and only the episode being recorded is lost (stored as interrupted when Ctrl-C or an error lets it finish). Only execution before durable append is outside that guarantee. Restart
    with the same outbox path to deliver pending rows.
 
 .. _en-real-world-experiments-learner-checkpoints-and-recovery:
@@ -328,14 +327,14 @@ last commanded target. ``--teleop-idle-behavior policy`` leaves those parts with
 hold supplements. An empty human mask supplies no expert label, and hold supplements do
 not train imitation losses. Legacy full-action interventions retain full-mask behavior.
 
-Leader catch-up executes and remains in the archive. In ``joint_abs`` with the ``ramp`` onset,
+Leader catch-up executes and is recorded. In ``joint_abs`` with the ``ramp`` onset,
 every rate-limited step is catch-up. In ``joint_delta``, only the steps from the takeover until
 the leader is first within ``joint_scale_rad`` of the follower are catch-up; later saturated
 steps of the same takeover (the operator moving faster than the follower) are ordinary human
 teaching and supervise like any other intervened step. The catch-up rows' ``syncing`` marker
 disables demonstration supervision. The recorder's ``--keep-syncing-steps`` keeps them in its
-pickle export as ordinary supervised rows (the archive still marks them ``syncing``);
-archive-derived training views continue to exclude them. A leader with no gripper channel holds the
+training rows as ordinary supervised rows (the dataset still marks them ``syncing``);
+without the option the training view excludes them. A leader with no gripper channel holds the
 previous target instead of supplying an expert gripper label.
 
 BC, SiLRI behavior fitting and actor pretraining supervise only human dimensions. For
@@ -352,25 +351,25 @@ require at least one gripper and reject a zero-gripper configuration before roll
 
 .. _en-real-world-experiments-trajectory-archives-and-training-views:
 
-Trajectory archives and training views
+Demo datasets and training views
 --------------------------------------------------------------------------------
 
-Recording creates ``<output stem>.trajectory.sqlite3`` alongside the successful-demo ``.pkl``.
-Episode start, every step and episode end are committed through the same SQLite durability
-layer as ingestion. The archive includes policy proposals, executed actions, human/override
-masks, syncing, termination/truncation, reward components, outcome source and experiment
-identity. Failed and rerecorded attempts remain archived. Iteration is paginated, so reopening
-an archive does not load the historical camera frames into an in-memory list.
+Recording writes every episode into a demo dataset directory (``--output-dir``; the format is in
+\ :doc:`Recording demos <recording-demos>`\ ): each episode is first written to a ``.tmp-`` directory and renamed once
+complete and synced, so readers only ever see complete episodes. The dataset includes policy proposals, executed actions,
+human/override masks, syncing, termination/truncation, rewards, events and outcome source. Failed, rerecorded and
+interrupted episodes are kept, flagged discarded with a reason. Reading is per episode, and training holds only one
+episode's images in memory at a time instead of loading the historical camera frames.
 
-After an abrupt stop, reopening the same archive marks an unfinished episode interrupted
-and starts future attempts under new episode IDs. The recovery guarantee starts when a
-record's durable append returns; an action executed before that append remains subject to
-the execution-to-commit gap. ``--export-trajectory-pt`` explicitly creates a portable plain
-record export; SQLite is the default archive and recovery source.
+After an abrupt stop, every finished episode is in the dataset and only the episode being recorded is lost (its temporary
+directory is removed the next time the dataset is opened); an episode cut short by Ctrl-C or an error, if it has at least one step, is stored
+as discarded (``interrupted``). The recovery guarantee starts when the episode directory rename completes; actions executed
+before it, and that episode's data, are outside the guarantee. Recording again into the same dataset directory appends, and
+episode indices only grow.
 
-``--demo-dataset-paths`` accepts legacy ``.pkl``, ``.trajectory.sqlite3`` and explicit
-``.trajectory.pt`` exports. Archive training views select human, nonsyncing steps from complete
-successful episodes. Original step indices remain in the archive, so filtering does not
+``--demo-dataset-paths`` accepts dataset directories, and also legacy ``.pkl``, ``.trajectory.sqlite3`` and explicit
+``.trajectory.pt`` exports. The dataset view selects human, nonsyncing steps from kept episodes (including the catch-up steps when
+recording used ``--keep-syncing-steps``). Original step indices remain, so filtering does not
 invent temporal adjacency or move terminal rewards to earlier human steps. Legacy human
 demo datasets without an intervention column retain full-dimension supervision; explicit
 false labels and unknown online-checkpoint provenance remain nonexpert.

@@ -80,18 +80,10 @@ def _real_env(**overrides) -> RealRobotVectorEnv:
 
 def _cartesian_contract_env(backend, semantics):
     limits = dict(safety_box_rpy_low=[0, -1, -1], safety_box_rpy_high=[3, 1, 1])
-    if backend == "real_robot":
-        return _real_env(cartesian_semantics=semantics, safety_box=[-1] * 3 + [1] * 3, **limits)
-    from real_world_rl.envs.franka_real.config import FrankaRealEnvConfig
-    from real_world_rl.envs.franka_real.env import FrankaRealEnv
-
-    return FrankaRealEnv(FrankaRealEnvConfig(
-        bridge_url="http://unused", cartesian_semantics=semantics,
-        safety_box_low=(-1,) * 3, safety_box_high=(1,) * 3, **limits,
-    ), bridge_client=object())
+    return _real_env(cartesian_semantics=semantics, safety_box=[-1] * 3 + [1] * 3, **limits)
 
 
-@pytest.mark.parametrize("backend", ["real_robot", "franka_real"])
+@pytest.mark.parametrize("backend", ["real_robot"])
 def test_serl_env_contract_rejects_current_data(backend):
     from real_world_rl.contracts.action import (
         experiment_contract_of, validate_experiment, validate_transitions_against_contract,
@@ -137,7 +129,7 @@ def test_serl_source_contract_rejects_legacy_or_tracker_control(saved_mode):
         validate_transitions_against_contract([], expected, source="different-mode.pkl", saved=saved)
 
 
-@pytest.mark.parametrize("backend", ["real_robot", "franka_real"])
+@pytest.mark.parametrize("backend", ["real_robot"])
 def test_serl_contract_rejects_missing_or_legacy_semantics(backend):
     from real_world_rl.contracts.action import validate_experiment, validate_transitions_against_contract
 
@@ -150,7 +142,7 @@ def test_serl_contract_rejects_missing_or_legacy_semantics(backend):
         validate_experiment(env, None)
 
 
-@pytest.mark.parametrize("backend", ["real_robot", "franka_real"])
+@pytest.mark.parametrize("backend", ["real_robot"])
 @pytest.mark.parametrize("key,value", [
     ("safety_box_low", [-0.5, -1, -1]),
     ("safety_box_rpy_low", [0.1, -1, -1]),
@@ -168,7 +160,7 @@ def test_serl_contract_compares_pose_limits_and_gripper_semantics(backend, key, 
         validate_transitions_against_contract([], expected, source="different.pkl", saved=saved)
 
 
-@pytest.mark.parametrize("backend", ["real_robot", "franka_real"])
+@pytest.mark.parametrize("backend", ["real_robot"])
 def test_serl_contract_sidecar_round_trips(backend, tmp_path):
     from real_world_rl.contracts.action import validate_transitions_against_contract, write_contract_sidecar
 

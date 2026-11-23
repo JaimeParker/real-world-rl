@@ -19,6 +19,7 @@ temp/
 docs/internal/
 
 .venv/
+.venv.storage-backup/
 
 # --- C/C++ / CMake / scikit-build / pybind11 (native/) ---
 build/

@@ -118,3 +118,14 @@ def test_the_example_script_remains_an_alias():
                             capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
     assert "--stop-time-s" in result.stdout and "Sampling assumption" in result.stdout
+
+
+def test_a_dataset_directory_gets_the_settle_status_of_its_archive(tmp_path, capsys):
+    dataset = scripted_archive.write_dataset(tmp_path / "demo", named=True)
+    assert main(["--json", "archive", "inspect", str(dataset), "--stop-time-s", repr(STOP_S)]) == SUCCESS_EXIT_CODE
+    assert json_result(capsys)["status"] == "PASS"
+    assert main(["--json", "archive", "inspect", str(dataset), "--stop-time-s", repr(OUTSIDE_S)]) == \
+        STOP_TRACE_BLOCKED_EXIT_CODE
+    assert json_result(capsys)["status"] == "BLOCKED"
+    assert main(["--json", "archive", "inspect", str(tmp_path)]) == USAGE_EXIT_CODE  # not a dataset
+    assert "not a dataset" in json_result(capsys)["error"]

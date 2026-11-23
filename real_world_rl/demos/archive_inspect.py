@@ -1,4 +1,13 @@
-"""Inspect a recorder SQLite archive without modifying it; optionally export step evidence.
+"""Inspect a demo dataset directory or a legacy recorder SQLite archive without modifying it;
+optionally export step evidence.
+
+A dataset (``real_world_rl.dataset``) gives the same summary as the archive of the same
+recording: every episode (kept or discarded) is one ``episode_start``, its steps' transitions and
+one ``episode_end`` (whose outcome is the ``meta.json`` ``extra.outcome`` the recorder stored).
+Step ``t``'s sample is observation row ``t`` (``next_obs`` row ``t + 1``) at time
+``obs_time_s[t + 1]``, the recorder's wall clock after the step, as the archive timed it. The TCP
+xyz comes from ``named.tcp_pose`` when the dataset has it, else from the ``state`` slice the
+header's action contract places, as for an archive.
 
 Besides outcome and mask counts, each episode whose state carries the TCP position (one arm,
 ``tcp_pose`` in the recorded ``state_fields``) is split into segments, the maximal runs of
@@ -45,6 +54,7 @@ import sqlite3
 from types import SimpleNamespace
 from typing import Any, Mapping, NamedTuple, Optional, Sequence
 
+import numpy as np
 import torch
 
 from real_world_rl.contracts.action import num_arms_of
@@ -235,9 +245,62 @@ def measurement_rows(episodes: Sequence[dict], settles: Sequence[dict]) -> list[
     return [{**dict.fromkeys(MEASUREMENT_FIELDS, ""), **row, "evidence": MEASUREMENT_EVIDENCE} for row in rows]
 
 
+_STEP_FIELDS = ["episode_id", "step_index", "timestamp_s", "run_id", "human_action_mask", "override_mask",
+                "action", "policy_action", "state", "next_state", "teleop_events", "terminated", "truncated"]
+
+
+def _dataset_records(root: Path):
+    """The archive records equivalent to the dataset at ``root``, one episode in memory at a
+    time, with the transition fields the inspector reads (tensors, as the archive decodes them).
+    With ``named.tcp_pose`` a transition also carries its ``xyz``/``next_xyz``."""
+    from real_world_rl.dataset import Dataset
+    from real_world_rl.dataset.format import EVENT_PREFIX, NAMED_PREFIX
+
+    dataset = Dataset(root)
+    contract = dataset.header.get("action_contract")
+    run_id = (dataset.header.get("config") or {}).get("run_id")
+    for info in dataset.episodes():
+        episode = dataset.episode(info.index)
+        episode_id = info.meta["episode_id"]
+        yield {"record_type": "episode_start", "episode_id": episode_id, "action_contract": contract}
+        data = episode.data
+        tcp = data.get(NAMED_PREFIX + "tcp_pose")
+        events = {key[len(EVENT_PREFIX):]: data[key] for key in data if key.startswith(EVENT_PREFIX)}
+
+        def observation(row: int) -> dict:
+            return {"state": torch.from_numpy(data["state"][row:row + 1].copy()) if "state" in data else None}
+
+        def xyz(row: int) -> tuple[float, ...]:
+            return tuple(np.asarray(tcp[row, :3], dtype=np.float64).tolist())
+
+        for step in range(info.steps):
+            positions = {} if tcp is None else {"xyz": xyz(step), "next_xyz": xyz(step + 1)}
+            yield {**positions, "record_type": "transition", "episode_id": episode_id, "step_index": step,
+                   "timestamp_s": float(data["obs_time_s"][step + 1]), "run_id": run_id,
+                   "human_action_mask": torch.from_numpy(data["human_action_mask"][step:step + 1].copy()),
+                   "override_mask": torch.from_numpy(data["override_mask"][step:step + 1].copy()),
+                   "action": torch.from_numpy(data["action"][step:step + 1].copy()),
+                   "policy_action": torch.from_numpy(data["policy_action"][step:step + 1].copy()),
+                   "obs": observation(step), "next_obs": observation(step + 1),
+                   "teleop_events": {name: bool(flags[step]) for name, flags in events.items()},
+                   "terminated": bool(data["terminated"][step]), "truncated": bool(data["truncated"][step])}
+        yield {"record_type": "episode_end", "episode_id": episode_id,
+               "outcome": (info.meta.get("extra") or {}).get("outcome")}
+
+
+def _archive_records(path: Path, exits: ExitStack):
+    # mode=ro prevents schema creation and interrupted-episode recovery writes.
+    connection = exits.enter_context(closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)))
+    connection.execute("PRAGMA query_only=ON")
+    for (payload,) in connection.execute("SELECT payload FROM messages ORDER BY seq"):
+        yield decode(payload)
+
+
 def inspect_archive(path: Path, csv_path: Path | None = None, *, measurements_path: Path | None = None,
                     stop_times_s: Sequence[float] = (), drift_window_s: float = DRIFT_WINDOW_S,
                     settle_speed_mm_s: float = SETTLE_SPEED_MM_S, settle_hold_s: float = SETTLE_HOLD_S):
+    """The summary of a demo dataset directory or a legacy recorder SQLite archive at ``path``
+    (both read-only); see the module docstring."""
     path = path.resolve(strict=True)
     for export, name in ((csv_path, "step export"), (measurements_path, "measurements export")):
         if export is not None and export.suffix.lower() != ".csv":
@@ -246,18 +309,14 @@ def inspect_archive(path: Path, csv_path: Path | None = None, *, measurements_pa
                         (settle_hold_s, "--settle-hold-s")):
         if not value > 0:
             raise ValueError(f"{flag} must be positive, got {value}")
-    fields = ["episode_id", "step_index", "timestamp_s", "run_id", "human_action_mask", "override_mask",
-              "action", "policy_action", "state", "next_state", "teleop_events", "terminated", "truncated"]
+    fields = _STEP_FIELDS
     summary = {"archive": str(path), "records": 0, "episode_starts": 0, "episode_ends": 0,
                "transitions": 0, "human_mask_counts": Counter(), "outcomes": []}
     contracts: dict[str, Any] = {}  # insertion order is the episodes' archive order
     xyz_offsets: dict[str, Optional[int]] = {}
     samples_by_episode: dict[str, list[PositionSample]] = {}
     with ExitStack() as exits:
-        # mode=ro prevents schema creation and interrupted-episode recovery writes.
-        connection = exits.enter_context(closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)))
-        connection.execute("PRAGMA query_only=ON")
-        cursor = connection.execute("SELECT payload FROM messages ORDER BY seq")
+        records = _dataset_records(path) if path.is_dir() else _archive_records(path, exits)
         writer = None
         if csv_path is not None:
             stream = exits.enter_context(csv_path.open("x", encoding="utf-8-sig", newline=""))
@@ -266,8 +325,7 @@ def inspect_archive(path: Path, csv_path: Path | None = None, *, measurements_pa
         measurements = None
         if measurements_path is not None:
             measurements = exits.enter_context(measurements_path.open("x", encoding="utf-8", newline=""))
-        for (payload,) in cursor:
-            record = decode(payload)
+        for record in records:
             summary["records"] += 1
             kind = record["record_type"]
             episode_id = record["episode_id"]
@@ -286,8 +344,9 @@ def inspect_archive(path: Path, csv_path: Path | None = None, *, measurements_pa
                     xyz_offsets[episode_id] = tcp_xyz_offset(contracts[episode_id])
                 offset = xyz_offsets[episode_id]
                 samples_by_episode.setdefault(episode_id, []).append(PositionSample(
-                    float(record["timestamp_s"]), bits, tcp_xyz(record["obs"], offset),
-                    tcp_xyz(record["next_obs"], offset)))
+                    float(record["timestamp_s"]), bits,
+                    record["xyz"] if "xyz" in record else tcp_xyz(record["obs"], offset),
+                    record["next_xyz"] if "next_xyz" in record else tcp_xyz(record["next_obs"], offset)))
                 if writer is not None:
                     row = {key: packed(record.get(key)) for key in fields}
                     row.update(human_action_mask=bits, override_mask=mask_bits(record["override_mask"]),

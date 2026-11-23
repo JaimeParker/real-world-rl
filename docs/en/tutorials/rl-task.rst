@@ -24,7 +24,7 @@ Do not treat the template below as an already calibrated on-site configuration.
      - How to obtain the value
    * - ``obs`` and the action, state, scale, and workspace fields in ``real_robot``
      - Copy from the session/resolved-config.yaml actually used in the previous chapter; the script below preserves these blocks in full.
-       If inspect reports rgb_wrist as [1,128,128,3], the corresponding settings are rgb: [wrist] and image_size: [128,128].
+       If inspect reports rgb_wrist as [1,224,224,3], the corresponding settings are rgb: [wrist] and image_size: [224,224].
    * - ``real_robot.remote`` and, if needed, ``token``
      - Use the station's daemon listening address/port. If the actor and daemon share a machine and the port is 50051,
        use 127.0.0.1:50051; copy the matching token for stations that enable one. The script removes the original direct-connection robot block.
@@ -38,10 +38,10 @@ Do not treat the template below as an already calibrated on-site configuration.
      - This chapter selects true and 1.0. The operator confirms success against the task definition, such as the object resting stably in the target area.
        See Section 3 for the key test; do not infer real success from episode return.
    * - ``--demo-dataset-paths`` (passed through the CLI)
-     - Use local/first-demo.pkl verified in :doc:`inspect`, and keep its matching contract.json;
-       you can also set ``demo_dataset_paths: [local/first-demo.pkl]`` in YAML. CLI arguments take precedence.
+     - Use the dataset directory local/first-demo verified in :doc:`inspect`;
+       you can also set ``demo_dataset_paths: [local/first-demo]`` in YAML. CLI arguments take precedence.
    * - ``buffer_size``, ``demo_buffer_size``
-     - The template allocates 1000 rows each, for short sessions only. Adjust demo capacity using the pkl transition count from :doc:`inspect`.
+     - The template allocates 1000 rows each, for short sessions only. Adjust demo capacity using the training-row (transition) count from :doc:`inspect`.
        It must hold all seed demonstrations and leave room for online corrections; estimate image memory before extending the session.
    * - ``log_dir``, ``exp_name``, ``run_id``, ``actor_id``
      - Here these are local/rl-runs, first-hil, first-hil, and actor respectively. Use new names and a new outbox for an independent experiment.
@@ -52,6 +52,7 @@ demo_data_ratio=0.5, train_freq=1, utd=1, publish_freq=10, log_freq=10,
 checkpoint_freq/buffer_period=100, save_final_checkpoint=true.
 These are tutorial values for a short session, not all HIL-SERL defaults or recommended convergence settings. Adjust them after data volume and collection speed stabilize.
 classifier_checkpoint=null and use_grasp_penalty=false keep a single reward source.
+The template explicitly sets ``encoder.plain_conv_pooling: gap``: plain_conv's default flatten pooling only fits 128×128 and 64×64 images, so 224×224 needs gap (the reason is in :doc:`bc-train`).
 HIL-SERL's Args has no device field like the BC entry point. Policy construction selects a device automatically, so these commands explicitly hide the GPU.
 
 The default HIL-SERL/residual_hil_serl online capacity is 200000 and demo capacity is 100000;
@@ -83,8 +84,8 @@ List the previous chapter's artifacts first, then replace ``<uuid>`` in the comm
    :end-before: # end prepare
 
 The generation script preserves the session's model inputs, actions, and teleop calibration. It changes only the connection to remote and applies this chapter's training settings.
-``local/station.yaml`` and ``local/task.yaml`` stay unchanged. Copy the generated configuration, pkl, contract, and
-referenced teleop files to the learner machine; the paths must resolve there too. The learner reads the calibration configuration but does not open devices.
+``local/station.yaml`` and ``local/task.yaml`` stay unchanged. Copy the generated configuration, the dataset directory, and
+referenced teleop files to the learner machine (the lossless frames in a dataset are large; check ``du -sh`` first); the paths must resolve there too. The learner reads the calibration configuration but does not open devices.
 
 **What you should see**: the script prints the config path, remote, action_mode, and teleop_device.
 The action mode should be cartesian_delta and the device should match your chosen input device. In a text editor, check that real_robot no longer contains a direct robot configuration,
@@ -127,13 +128,13 @@ but changing task changes the experiment contract; it cannot directly reuse the 
 
 **If it doesn't**: demo_dataset_paths must be a list of path strings, not a single string.
 On ``recorded action contract does not match``, compare each field with the session;
-do not delete the sidecar. If labels are missing, check that stdin is actually connected to the actor terminal and reward_from_teleop_events=true.
+do not edit the dataset header's action_contract. If labels are missing, check that stdin is actually connected to the actor terminal and reward_from_teleop_events=true.
 
 3. Confirm one success and one failure
 --------------------------------------------------------------------------------
 
-Inspect the existing recording archive first. If the previous chapter has no failure episode, return to :doc:`record` and record one explicit failure and one success.
-Use a new output name and replace the paths below accordingly. Failures remain in SQLite; by default they are not exported to the successful human-demonstration pkl.
+Inspect the existing dataset first. If the previous chapter has no failure episode, return to :doc:`record` and record one explicit failure and one success.
+Use a new output name and replace the paths below accordingly. Failed episodes remain in the dataset (flagged discarded); by default they do not enter the successful human demonstrations used for training.
 
 .. tutorial-test: skip
 .. literalinclude:: ../../examples/rl-task.sh
@@ -141,10 +142,10 @@ Use a new output name and replace the paths below accordingly. Failures remain i
    :start-after: # start labels
    :end-before: # end labels
 
-**What you should see**: episode_end.outcome for two different episode_id values, with task_success true and false respectively,
-both with outcome_source=manual; the failure has end_reason=manual_failure.
-Read the last transition of each episode too, and check reward, terminated, and truncated.
-The script inspects SQLite through a read-only connection; open only archives you generated or trust.
+**What you should see**: One line for each of two different episodes, with task_success true and false respectively,
+both with outcome_source=manual; the failure has end_reason=manual_failure, status discarded and reason failure event.
+Read the last step of each episode too, with ``rwrl dataset view`` or ``archive inspect --csv``, and check reward, terminated, and truncated.
+The script only reads each episode's meta.json.
 
 Chapter 3 provides a hardware-free CPU exercise. Below are two episode-end records actually produced by that exercise;
 the UUIDs and timestamps came from that run. These are not real task labels:
@@ -154,7 +155,7 @@ the UUIDs and timestamps came from that run. These are not real task labels:
    :start-after: # start labels
    :end-before: # end labels
 
-**If it doesn't**: not finding failures in the pkl alone is normal filtering. unknown/timeout means no explicit outcome,
+**If it doesn't**: not finding failures in the training rows alone is normal filtering. unknown/timeout means no explicit outcome,
 not a failure label. If outcome_source is not manual, check whether a classifier or versioned task was additionally enabled.
 
 .. note::
@@ -164,7 +165,7 @@ not a failure label. If outcome_source is not manual, check whether a classifier
    Confirm the home path, gripper opening, object placement, workspace, reset wait, episode budget, and manual criteria on site.
    The CPU example only proves that success and failure fields can be distinguished. A new classifier needs independent validation; this chapter neither trains nor deploys one.
 
-Checklist: the configuration comes from the same session; both machines have the data and reference files; success/failure can be distinguished in SQLite;
+Checklist: the configuration comes from the same session; both machines have the data and reference files; success/failure can be distinguished in the dataset's meta.json;
 know when reset, hold, and truncation each occur.
 
 Next: :doc:`rl-train`.

@@ -326,7 +326,9 @@ the command previews the session and uses the normal motion confirmation.
    :dedent: 0
 
    rwrl --station local/station.yaml --preset local/task.yaml teleop run \
-     --mode tracker --record local/demo.pkl
+     --mode tracker --record local/demo
+
+``--record`` names the demo dataset directory (``local/demo``, with no suffix): each episode is written as an ``episode_NNNNNN/`` subdirectory when it ends, and running again with the same directory appends; see :doc:`Recording demos <recording-demos>`.
 
 Use ``--mode serl`` for native SERL takeover semantics; its preset must provide the
 required position and RPY limits. ``--profile NAME`` overrides the station default.
@@ -600,7 +602,7 @@ active, an already reviewed station workspace and a task preset:
    :dedent: 0
 
    rwrl --station local/station.yaml --preset local/task.yaml teleop run \
-     --diagnose translation --duration-s 10 --record local/diag-translation.pkl
+     --diagnose translation --duration-s 10 --record local/diag-translation
 
 Choose ``translation``, ``rotation`` or ``all``; ``--mode tracker|serl`` selects the
 original control mode. ``--gain`` defaults to 0.2 and scales input relative to the

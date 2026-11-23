@@ -370,25 +370,29 @@ def _check_actor_env(env) -> None:
 
 @dataclass
 class RecordedDemos:
-    path: Path
+    path: Path  # the dataset directory
     transitions: list
+    pkl: Path  # its export_pkl, for the consumers that read pkls (ACT)
 
 
 @pytest.fixture(scope="module")
 def recorded_demos(station, preset, workdir) -> RecordedDemos:
-    """``real-world-rl-record $ENV_FLAGS --teleop-onset arm --output-path demos/task.pkl
+    """``real-world-rl-record $ENV_FLAGS --teleop-onset arm --output-dir demos/task
     --num-successes 1``."""
-    demo_path = workdir / "demos" / "task.pkl"
+    from real_world_rl.dataset import Dataset, export_pkl, iter_transitions
+
+    demo_path = workdir / "demos" / "task"
     args = parse_record_args(
-        [*_env_flags(preset), "--teleop-onset", "arm", "--output-path", str(demo_path), "--num-successes", "1"]
+        [*_env_flags(preset), "--teleop-onset", "arm", "--output-dir", str(demo_path), "--num-successes", "1"]
     )
     # The recorder's default: the success key pays the reward and ends the episode.
     assert args.reward_from_teleop_events
     assert run_recorder(args) == demo_path
     assert not station.robot_connected()
-    with open(demo_path, "rb") as stream:
-        transitions = pickle.load(stream)
-    return RecordedDemos(demo_path, transitions)
+    dataset = Dataset(demo_path)
+    transitions = list(iter_transitions(dataset, frame_stack=1))
+    pkl = export_pkl(dataset, workdir / "demos" / "task.pkl", frame_stack=1)
+    return RecordedDemos(demo_path, transitions, pkl)
 
 
 @pytest.fixture(scope="module")
@@ -436,8 +440,10 @@ def test_recorded_demos_hold_the_operator_steps_and_a_terminal_success(recorded_
     assert float(torch.as_tensor(success["reward"]).sum()) == 1.0
     assert bool(torch.as_tensor(success["done"]).all())
 
-    sidecar = read_contract_sidecar(recorded_demos.path)
-    assert recorded_demos.path.with_suffix(".contract.json").exists()
+    from real_world_rl.dataset import Dataset
+
+    sidecar = Dataset(recorded_demos.path).header["action_contract"]
+    assert read_contract_sidecar(recorded_demos.pkl) == sidecar
     assert sidecar["action_mode"] == "joint_delta" and sidecar["arm_action_dim"] == NUM_JOINTS
     assert sidecar["num_arms"] == 1 and sidecar["gripper_in_action"]
     assert sidecar["joint_scale_rad"] == JOINT_SCALE_RAD
@@ -620,7 +626,7 @@ def test_residual_actor_runs_on_an_act_checkpoint_trained_from_the_demos(station
     from rl_garden.models.act.train_trajectories import train_act_from_trajectories
 
     act_args = ACTArgs(
-        demo_paths=(str(recorded_demos.path),),
+        demo_paths=(str(recorded_demos.pkl),),
         exp_name="act",
         log_dir=str(workdir / "runs"),
         log_type="none",
@@ -646,7 +652,7 @@ def test_residual_actor_runs_on_an_act_checkpoint_trained_from_the_demos(station
     from real_world_rl.contracts.action import contract_sidecar_path
 
     assert main(["deploy-act", *_env_flags(preset), "--teleop-onset", "arm",
-                 "--checkpoint", str(checkpoint), "--demo-contract", str(contract_sidecar_path(recorded_demos.path)),
+                 "--checkpoint", str(checkpoint), "--demo-contract", str(contract_sidecar_path(recorded_demos.pkl)),
                  "--episodes", "2", "--max-steps-per-episode", "2"]) == 0
     assert not station.robot_connected()
 

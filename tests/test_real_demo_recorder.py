@@ -1,11 +1,11 @@
 """The real-robot demo recorder over a joint-space fake env: the hold action per mode, which steps
-are recorded, episode outcomes, the episode-start leader check, the saved pkl + contract sidecar
-and the example CLI."""
+the training view selects, episode outcomes, the episode-start leader check, the dataset it
+writes (every episode, resume, interruption) and the example CLI."""
 from __future__ import annotations
 
 import dataclasses
+import gc
 import importlib.util
-import pickle
 import sys
 from pathlib import Path
 
@@ -19,24 +19,23 @@ from _leader_teleop_fakes import (
     executed_joints,
     normalized_joints,
 )
+from _recorder_dataset import STATE4_SPEC, record_into_dataset
 from _teleop_fakes import ContractEnv, TwoArmContractEnv
+from gymnasium import spaces
 
 import real_world_rl.devices.claims as claims
 
-from real_world_rl.contracts.action import (
-    contract_sidecar_path,
-    demo_contract_of,
-    validate_transitions_against_contract,
-)
+from real_world_rl.contracts.action import demo_contract_of, json_normalize
+from real_world_rl.dataset import Dataset, DatasetWriter, EpisodeWriter, iter_transitions
 from real_world_rl.demos import record
 from real_world_rl.demos.record import (
     LeaderFollowerGapError,
     RecordDemosArgs,
     check_leader_near_follower,
     hold_action_fn_for,
+    open_dataset,
     record_demos,
     run_recorder,
-    save_demos,
 )
 from real_world_rl.envs.bimanual import BimanualRealRobotEnv, BimanualRealRobotVectorEnv
 from real_world_rl.envs.wrappers.intervention import InterventionWrapper
@@ -63,6 +62,8 @@ class RecordingEnv(JointEnv):
     """``JointEnv`` whose follower tracks the executed ``joint_abs`` targets, returning
     ``{"state": full((1, 4), global step)}`` and playing ``rewards``/``terminate_steps``
     (keyed by the global step count, from 1)."""
+
+    single_observation_space = spaces.Dict({"state": spaces.Box(-np.inf, np.inf, (4,), dtype=np.float32)})
 
     def __init__(self, action_mode="joint_abs", rewards=None, terminate_steps=()):
         super().__init__(action_mode)
@@ -123,12 +124,30 @@ def _args(**overrides) -> RecordDemosArgs:
     return RecordDemosArgs(**{"num_successes": 1, "control_hz": 1e6, **overrides})
 
 
+@pytest.fixture(autouse=True)
+def _datasets(tmp_path):
+    """Where ``_record`` puts its datasets (one new directory per call)."""
+    global _DATASETS
+    _DATASETS = tmp_path / "datasets"
+    yield
+    _DATASETS = None
+
+
+_DATASETS = None
+
+
+def _new_dataset_dir() -> Path:
+    return _DATASETS / f"ds{len(list(_DATASETS.iterdir())) if _DATASETS.exists() else 0}"
+
+
 def _record(wrapped, **overrides):
-    episodes = []
-    transitions = record_demos(
-        wrapped, _args(**overrides), hold_action_fn=hold_action_fn_for(wrapped), on_episode=episodes.append
-    )
+    """Records into a new dataset; returns the training rows and the episodes."""
+    transitions, episodes, _ = record_into_dataset(wrapped, _args(**overrides), _new_dataset_dir())
     return transitions, episodes
+
+
+def _writer(env, root=None, **overrides) -> DatasetWriter:
+    return open_dataset(env, _args(**overrides), root or _new_dataset_dir(), obs_spec=STATE4_SPEC)
 
 
 def _sent(env, index) -> np.ndarray:
@@ -157,15 +176,15 @@ def test_recording_seed_advances_after_discarded_attempt(tmp_path, monkeypatch):
     for run in range(2):
         env = RandomResetEnv()
         wrapped = _wrap(env, [IDLE])
-        args = _args(num_successes=2, seed=19, output_path=str(tmp_path / f"run_{run}.pkl"))
+        args = _args(num_successes=2, seed=19)
         try:
-            record_demos(wrapped, args, hold_action_fn=hold_action_fn_for(wrapped))
+            record_demos(wrapped, args, hold_action_fn=hold_action_fn_for(wrapped),
+                         writer=_writer(wrapped, tmp_path / f"run_{run}"))
             assert env.seeds == [19, None, None]
             assert not np.array_equal(env.samples[0], env.samples[1])
             assert not np.array_equal(env.samples[1], env.samples[2])
             runs.append(np.array(env.samples))
         finally:
-            wrapped._record_archive.close()
             wrapped.close()
     np.testing.assert_array_equal(runs[0], runs[1])
 
@@ -195,7 +214,7 @@ def test_joint_abs_holds_the_follower_and_records_only_intervened_steps():
     np.testing.assert_allclose(second["action"].reshape(-1).numpy(), readings[4].action)
     assert first["obs"]["state"][0, 0] == 1.0 and first["next_obs"]["state"][0, 0] == 2.0
     assert second["obs"]["state"][0, 0] == 3.0 and not bool(second["done"])
-    assert {"obs", "next_obs", "action", "reward", "done", "human_action_mask", "override_mask", "policy_action", "intervened", "record_id", "episode_id", "step_index", "terminated", "truncated"} <= set(first)
+    assert {"obs", "next_obs", "action", "reward", "done", "human_action_mask", "override_mask", "policy_action", "intervened", "episode_id", "step_index", "terminated", "truncated"} <= set(first)
     assert first["episode_id"] == second["episode_id"]
     assert first["step_index"] == 1 and second["step_index"] == 3
     assert first["training_segment_end"] and second["training_segment_end"]
@@ -332,8 +351,8 @@ def test_run_recorder_takes_an_injected_hold_policy(tmp_path, monkeypatch):
         built.append(env)
         return hold
 
-    output = tmp_path / "demos.pkl"
-    assert run_recorder(_args(output_path=str(output)), hold_action_fn_factory=hold_factory) == output
+    output = tmp_path / "demos"
+    assert run_recorder(_args(output_dir=str(output)), hold_action_fn_factory=hold_factory) == output
     assert built == [wrapped]
     assert hold.resets == 1 and hold.observed == [False, True]
     np.testing.assert_allclose(_sent(env, 0), [0.25] * 8)
@@ -342,7 +361,8 @@ def test_run_recorder_takes_an_injected_hold_policy(tmp_path, monkeypatch):
 def test_a_plain_hold_callable_still_works_without_hooks():
     env = RecordingEnv("joint_delta")
     wrapped = _wrap(env, [IDLE, _reading(intervened=False, episode_end=True)])
-    record_demos(wrapped, _args(max_episodes=1), hold_action_fn=lambda gripper: torch.full((8,), 0.5))
+    record_demos(wrapped, _args(max_episodes=1), hold_action_fn=lambda gripper: torch.full((8,), 0.5),
+                 writer=_writer(wrapped))
     np.testing.assert_allclose(_sent(env, 0), [0.5] * 8)
 
 
@@ -365,10 +385,11 @@ def test_run_recorder_saves_the_kept_episodes_after_the_operator_quit(tmp_path, 
     ]
     wrapped = _wrap(env, readings)
     monkeypatch.setattr(env_building, "build_hil_env", lambda args, **kwargs: wrapped)
-    output = tmp_path / "demos.pkl"
-    assert run_recorder(_args(output_path=str(output), num_successes=5)) == output
-    with open(output, "rb") as stream:
-        assert len(pickle.load(stream)) == 2
+    output = tmp_path / "demos"
+    assert run_recorder(_args(output_dir=str(output), num_successes=5)) == output
+    dataset = Dataset(output)
+    assert len(list(iter_transitions(dataset, frame_stack=1))) == 2
+    assert dataset.episode(0).meta["operator_quit"] and dataset.episodes()[0].kept
     assert "operator quit" in capsys.readouterr().out
     assert env.close_calls == 1
 
@@ -474,10 +495,18 @@ def test_two_arm_joint_abs_recording_keeps_both_arms_intervened_steps(two_arm_jo
         _two_arm_joint_reading([0.1] * 7, zeros, (CLOSED, OPEN), intervened=False, episode_end=True),
     ]
     source = ScriptedTeleopSource(readings, action_mode="joint_abs", arm_action_dim=7, num_arms=2)
-    transitions, episodes = _record(InterventionWrapper(env, source))
+    transitions, episodes, dataset = record_into_dataset(InterventionWrapper(env, source), _args(), _new_dataset_dir())
 
     assert episodes[0].kept and episodes[0].steps == 3 and len(transitions) == 1
     np.testing.assert_allclose(transitions[0]["action"].reshape(-1).numpy(), readings[2].action)
+    # The base env's named state, per arm, with every observation row.
+    header = dataset.header
+    assert header["action_contract"]["num_arms"] == 2 and header["action_dim"] == 16
+    assert set(header["named_state_spec"]) == {f"{arm}.{field}" for arm in ("left", "right")
+                                               for field in env.env.arms[arm].config.state_fields}
+    data = dataset.episode(0).data
+    np.testing.assert_allclose(data["named.left.joint_pos"][-1], _arm_followers(env)["left"], atol=1e-6)
+    assert data["named.right.joint_pos"].shape == (4, 7)
 
 
 def test_max_episode_steps_caps_the_two_arm_env():
@@ -529,15 +558,15 @@ def test_kept_syncing_steps_load_as_supervised_demo_rows(tmp_path):
         _reading(Q1, events=("success",), episode_end=True),
     ]
     wrapped = _wrap(env, readings)
-    transitions, _ = _record(wrapped, keep_syncing_steps=True)
-    # The archive still says which rows were the catch-up.
-    archived = [row for row in wrapped._record_archive if row["record_type"] == "transition"]
-    assert [row["syncing"] for row in archived] == [True, True, False]
-    path = save_demos(transitions, tmp_path / "demos.pkl", demo_contract_of(wrapped))
+    root = tmp_path / "demos"
+    transitions, _, dataset = record_into_dataset(wrapped, _args(keep_syncing_steps=True), root)
+    # The dataset still says which steps were the catch-up.
+    assert dataset.episode(0).data["syncing"].tolist() == [True, True, False]
+    assert len(transitions) == 3 and not any(row["syncing"] for row in transitions)
 
     extras = []
     count = load_demo_pkls(
-        [str(path)], lambda *columns, **extra: extras.append(extra), "cpu", expected_contract=demo_contract_of(wrapped)
+        [str(root)], lambda *columns, **extra: extras.append(extra), "cpu", expected_contract=demo_contract_of(wrapped)
     )
     assert count == 3
     for extra in extras:
@@ -558,21 +587,22 @@ def test_rerecord_drops_the_episode_and_starts_the_next_one():
         _reading(Q2, events=("success",), episode_end=True),
     ]
     wrapped = _wrap(env, readings)
-    transitions, episodes = _record(wrapped)
+    transitions, episodes, dataset = record_into_dataset(wrapped, _args(), _new_dataset_dir())
     from real_world_rl.contracts.outcomes import EpisodeMetrics, EpisodeOutcome
-    ends = [row for row in wrapped._record_archive if row["record_type"] == "episode_end"]
-    discarded = ends[0]["outcome"]
-    assert ends[0]["step_count"] == discarded["steps"] == 2
+    metas = [info.meta for info in dataset.episodes()]
+    assert [(meta["status"], meta["discard_reason"]) for meta in metas] == [("discarded", "rerecord"), ("kept", None)]
+    discarded = metas[0]["extra"]["outcome"]
+    assert metas[0]["steps"] == discarded["steps"] == 2
     assert discarded["intervention_steps"] == 2
     assert discarded["task_success"] is True
     assert discarded["outcome_source"] == "manual"
     assert discarded["discarded"] and not discarded["completed"]
+    assert metas[0]["success"] is None and metas[1]["success"] is True
     metrics = EpisodeMetrics()
-    for end in ends:
-        metrics.add(EpisodeOutcome(**end["outcome"]))
+    for meta in metas:
+        metrics.add(EpisodeOutcome(**meta["extra"]["outcome"]))
     assert metrics.summary()["completed_episodes"] == 1
     assert metrics.summary()["discarded_episodes"] == 1
-    wrapped._record_archive.close()
     wrapped.close()
     assert [episode.discarded_reason for episode in episodes] == ["rerecord", None]
     assert env.reset_calls == 2
@@ -713,34 +743,85 @@ def test_leader_arm_ramp_steps_are_tagged_and_dropped(make_part, keep_syncing_st
 # -- output --------------------------------------------------------------------------------
 
 
-def _one_demo(env):
+def _one_demo(env, root):
     readings = [SYNC, _reading(Q1), _reading(Q2, events=("success",), episode_end=True)]
     wrapped = _wrap(env, readings)
-    transitions, _ = _record(wrapped)
+    transitions, _, _ = record_into_dataset(wrapped, _args(), root)
     return wrapped, transitions
 
 
-def test_saved_demos_load_with_their_contract(tmp_path):
-    wrapped, transitions = _one_demo(RecordingEnv("joint_abs"))
+def test_recorded_dataset_loads_with_its_contract(tmp_path):
+    root = tmp_path / "demos" / "task"
+    wrapped, transitions = _one_demo(RecordingEnv("joint_abs"), root)
     contract = demo_contract_of(wrapped)
-    path = save_demos(transitions, tmp_path / "demos" / "task.pkl", contract)
+    assert Dataset(root).header["action_contract"] == json_normalize(contract)
 
-    assert contract_sidecar_path(path).exists()
     added = []
     count = load_demo_pkls(
-        [str(path)], lambda *columns, **extra: added.append(columns), "cpu", expected_contract=contract
+        [str(root)], lambda *columns, **extra: added.append(columns), "cpu", expected_contract=contract
     )
     assert count == len(added) == 2
     np.testing.assert_allclose(added[0][2].reshape(-1).numpy(), transitions[0]["action"].reshape(-1).numpy())
 
-    with open(path, "rb") as stream:
-        saved = pickle.load(stream)
     delta_contract = demo_contract_of(RecordingEnv("joint_delta"))
     with pytest.raises(ValueError, match="action_mode"):
-        validate_transitions_against_contract(saved, delta_contract, source=str(path), saved=contract)
+        load_demo_pkls([str(root)], lambda *columns, **extra: None, "cpu", expected_contract=delta_contract)
 
 
-def test_run_recorder_builds_the_actor_env_saves_and_closes(tmp_path, monkeypatch):
+def test_every_episode_and_step_is_in_the_dataset_with_the_header():
+    env = RecordingEnv("joint_abs")
+    readings = [
+        SYNC, _reading(Q1), _reading(Q1, events=("rerecord",)),
+        _reading(Q1, intervened=False), _reading(Q1, intervened=False), _reading(Q2, events=("success",), episode_end=True),
+    ]
+    args = _args(real_robot=dataclasses.replace(RecordDemosArgs().real_robot, remote="10.0.0.2:50051", token="secret"))
+    _, episodes, dataset = record_into_dataset(_wrap(env, readings), args, _new_dataset_dir())
+    header = dataset.header
+    assert (header["control_hz"], header["action_dim"], header["recorded_frame_stack"]) == (1e6, 8, 1)
+    # The recorder args are the header's config, without the daemon token.
+    assert header["config"]["real_robot"]["remote"] == "10.0.0.2:50051"
+    assert header["config"]["real_robot"]["token"] is None and "secret" not in (dataset.root / "dataset.json").read_text()
+    assert header["obs_spec"] == STATE4_SPEC and header["named_state_spec"] == {}
+    assert header["config"]["num_successes"] == 1 and header["config"]["keep_syncing_steps"] is False
+    infos = dataset.episodes()
+    assert [(info.status, info.meta["discard_reason"], info.steps) for info in infos] == [
+        ("discarded", "rerecord", 2), ("kept", None, 2)]
+    assert [episode.dataset_index for episode in episodes] == [0, 1]
+    kept = dataset.episode(1)
+    # Hold steps are stored too, with their flags and the env's observation rows.
+    assert kept.data["intervened"].tolist() == [False, True]
+    assert kept.data["stack_reset"].tolist() == [True, False, False]
+    np.testing.assert_allclose(kept.data["state"][:, 0], [0.0, 3.0, 4.0])
+    assert kept.data["event.success"].tolist() == [False, True]
+    assert kept.meta["segments"] == [{"start": 0, "end": 1, "kind": "hold"}, {"start": 1, "end": 2, "kind": "intervene"}]
+
+
+def test_the_recorder_holds_only_the_current_episode_in_memory():
+    """By design: rows go to the open ``EpisodeWriter`` of the current episode only; a finished
+    episode's buffers are dropped once the next begins, and ``RecordedEpisode`` holds no rows."""
+    env = RecordingEnv("joint_abs")
+    readings = []
+    for _ in range(3):
+        readings += [SYNC, _reading(Q1), _reading(Q1, events=("success",), episode_end=True)]
+    wrapped = _wrap(env, readings)
+    buffering = []
+    original_step = wrapped.step
+
+    def counting_step(action):
+        result = original_step(action)
+        gc.collect()
+        buffering.append(sum(isinstance(obj, EpisodeWriter) and obj.num_observations > 0 for obj in gc.get_objects()))
+        return result
+
+    wrapped.step = counting_step
+    _, episodes, dataset = record_into_dataset(wrapped, _args(num_successes=3), _new_dataset_dir())
+    assert len(buffering) == 6 and max(buffering) == 1
+    assert len(dataset.episodes()) == 3
+    assert {field.name for field in dataclasses.fields(record.RecordedEpisode)}.isdisjoint({"transitions", "rows"})
+    assert all(episode.training_rows == 2 for episode in episodes)
+
+
+def test_run_recorder_builds_the_actor_env_saves_and_closes(tmp_path, monkeypatch, capsys):
     env = RecordingEnv("joint_abs")
     readings = [SYNC, _reading(Q1, events=("success",), episode_end=True)]
     wrapped = _wrap(env, readings)
@@ -751,34 +832,63 @@ def test_run_recorder_builds_the_actor_env_saves_and_closes(tmp_path, monkeypatc
         return wrapped
 
     monkeypatch.setattr(env_building, "build_hil_env", fake_build_hil_env)
-    output = tmp_path / "demos.pkl"
-    args = _args(output_path=str(output), env_backend="real_robot", max_episode_steps=40)
+    output = tmp_path / "demos"
+    args = _args(output_dir=str(output), env_backend="real_robot", max_episode_steps=40)
 
     assert run_recorder(args) == output
     assert built["role"] == "actor" and built["args"].real_robot.max_episode_steps == 40
-    assert output.exists() and contract_sidecar_path(output).exists()
-    archive_path = output.with_suffix(".trajectory.sqlite3")
-    assert archive_path.exists() and not output.with_suffix(".trajectory.pt").exists()
-    from real_world_rl.contracts.trajectory import DurableArchive
-    archive = DurableArchive(archive_path)
-    try:
-        records = list(archive)
-        assert [row["record_type"] for row in records] == ["episode_start", "transition", "episode_end"]
-        assert len({row["run_id"] for row in records}) == 1
-        assert all(row["run_id"] != "unknown" and row["session_id"] and row["timestamp_s"] > 0 for row in records)
-        assert [row["sequence"] for row in records] == [0, 1, 2]
-        assert all(row["policy_version"] == 0 and row["stage"] == "teleop" for row in records)
-    finally:
-        archive.close()
+    out = capsys.readouterr().out
+    assert f"[record] dataset {output}: 0 episodes (0 kept); recording until 1 kept" in out
+    # Only the dataset: no pkl, sidecar, archive or trajectory export.
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["demos"]
+    assert sorted(path.name for path in output.iterdir()) == ["dataset.json", "episode_000000"]
     loaded = []
     def add(obs, next_obs, action, reward, done, **extra):
         loaded.append(extra)
-    assert load_demo_pkls([str(archive_path)], add, "cpu", expected_contract=demo_contract_of(env)) == 1
+    assert load_demo_pkls([str(output)], add, "cpu", expected_contract=demo_contract_of(env)) == 1
     assert torch.as_tensor(loaded[0]["human_action_mask"]).any()
     assert env.close_calls == 1
 
-    with pytest.raises(ValueError, match="exists"):
-        run_recorder(args)
+
+def test_rerunning_appends_and_counts_the_earlier_successes(tmp_path, monkeypatch, capsys):
+    output = tmp_path / "demos"
+    readings = [SYNC, _reading(Q1, events=("success",), episode_end=True)]
+    first = _wrap(RecordingEnv("joint_abs"), readings)
+    monkeypatch.setattr(env_building, "build_hil_env", lambda args, **kwargs: first)
+    assert run_recorder(_args(output_dir=str(output), num_successes=1)) == output
+    capsys.readouterr()
+
+    # One success already kept: num_successes=2 records one more, then stops.
+    second_env = RecordingEnv("joint_abs")
+    second = _wrap(second_env, readings * 3)
+    monkeypatch.setattr(env_building, "build_hil_env", lambda args, **kwargs: second)
+    assert run_recorder(_args(output_dir=str(output), num_successes=2)) == output
+    assert f"[record] dataset {output}: 1 episodes (1 kept); recording until 2 kept" in capsys.readouterr().out
+    assert second_env.reset_calls == 1
+    dataset = Dataset(output)
+    assert [info.index for info in dataset.episodes()] == [0, 1] and dataset.header["next_index"] == 2
+    assert len({info.meta["episode_id"] for info in dataset.episodes()}) == 2
+
+    # Already complete: no episode is recorded.
+    third_env = RecordingEnv("joint_abs")
+    monkeypatch.setattr(env_building, "build_hil_env", lambda args, **kwargs: _wrap(third_env, readings))
+    assert run_recorder(_args(output_dir=str(output), num_successes=2)) == output
+    assert third_env.reset_calls == 0 and third_env.close_calls == 1
+
+
+def test_appending_with_another_env_names_the_differing_keys(tmp_path, monkeypatch):
+    output = tmp_path / "demos"
+    readings = [SYNC, _reading(Q1, events=("success",), episode_end=True)]
+    monkeypatch.setattr(env_building, "build_hil_env", lambda args, **kwargs: _wrap(RecordingEnv("joint_abs"), readings))
+    run_recorder(_args(output_dir=str(output)))
+
+    delta = RecordingEnv("joint_delta")
+    monkeypatch.setattr(env_building, "build_hil_env", lambda args, **kwargs: _wrap(delta, readings))
+    with pytest.raises(ValueError, match=r"different action_contract than this run's env; use a new --output-dir"):
+        run_recorder(_args(output_dir=str(output), num_successes=2))
+    assert delta.close_calls == 1 and delta.reset_calls == 0
+    with pytest.raises(ValueError, match=r"different action_contract, control_hz .*use a new --output-dir"):
+        open_dataset(_wrap(RecordingEnv("joint_delta"), readings), _args(control_hz=50.0), output)
 
 
 def test_run_recorder_saves_the_kept_episodes_when_interrupted(tmp_path, monkeypatch):
@@ -796,19 +906,27 @@ def test_run_recorder_saves_the_kept_episodes_when_interrupted(tmp_path, monkeyp
         return original_reset(**kwargs)
 
     monkeypatch.setattr(wrapped, "reset", reset_then_interrupt)
-    output = tmp_path / "demos.pkl"
+    output = tmp_path / "demos"
     with pytest.raises(KeyboardInterrupt):
-        run_recorder(_args(output_path=str(output), num_successes=3))
-    with open(output, "rb") as stream:
-        assert len(pickle.load(stream)) == 1
+        run_recorder(_args(output_dir=str(output), num_successes=3))
+    dataset = Dataset(output)
+    # Interrupted between episodes: nothing was begun, so only the finished episode is there.
+    assert [info.status for info in dataset.episodes()] == ["kept"]
+    assert len(list(iter_transitions(dataset, frame_stack=1))) == 1
     assert env.close_calls == 1
 
 
-def test_output_path_must_be_a_new_pkl(tmp_path):
+def test_output_dir_must_be_a_dataset_directory(tmp_path):
     with pytest.raises(ValueError, match="required"):
         run_recorder(_args())
-    with pytest.raises(ValueError, match=r"\.pkl"):
-        run_recorder(_args(output_path=str(tmp_path / "demos.h5")))
+    with pytest.raises(ValueError, match=r"not a \.pkl"):
+        run_recorder(_args(output_dir=str(tmp_path / "demos.pkl")))
+    (tmp_path / "file").write_text("")
+    with pytest.raises(ValueError, match="is a file"):
+        run_recorder(_args(output_dir=str(tmp_path / "file")))
+    with pytest.raises(ValueError, match="--record-video-dir"):
+        run_recorder(_args(output_dir=str(tmp_path / "demos"), record_video_dir=str(tmp_path / "videos")))
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["file"]
 
 
 # -- example CLI ---------------------------------------------------------------------------
@@ -881,7 +999,7 @@ def test_example_parses_the_hil_env_flags_over_a_training_preset(example, monkey
             "--teleop-device", "gello",
             "--teleop-event-device", "keyboard",
             "--teleop-onset", "arm",
-            "--output-path", "demos/task.pkl",
+            "--output-dir", "demos/task",
             "--num-successes", "3",
             "--max-episodes", "1",
             "--max-episode-steps", "40",
@@ -895,7 +1013,7 @@ def test_example_parses_the_hil_env_flags_over_a_training_preset(example, monkey
     assert (args.env_backend, args.real_robot.action_mode) == ("real_robot", "joint_abs")
     assert args.real_robot.joint_limits == [[-1.0, 1.0]] * 7
     assert (args.teleop_device, args.teleop_event_device, args.teleop_onset) == ("gello", "keyboard", "arm")
-    assert (args.output_path, args.num_successes, args.max_episode_steps) == ("demos/task.pkl", 3, 40)
+    assert (args.output_dir, args.num_successes, args.max_episode_steps) == ("demos/task", 3, 40)
     assert args.max_episodes == 1
     assert args.start_tolerance_rad == 0.5 and args.keep_syncing_steps
     assert args.eval_freq == 0
@@ -927,7 +1045,7 @@ def test_example_parses_the_two_arm_flags_over_a_training_preset(example, monkey
             "--teleop-event-device", "keyboard",
             "--real_robot_bimanual.left.remote", "10.0.0.2:50051",
             "--real_robot_bimanual.right.remote", "10.0.0.3:50052",
-            "--output-path", "demos/bimanual.pkl",
+            "--output-dir", "demos/bimanual",
             "--max-episode-steps", "40",
         ]
     )
@@ -951,7 +1069,7 @@ def test_example_parses_the_two_arm_flags_over_a_training_preset(example, monkey
 def test_example_parses_the_teleop_event_reward_flags(example, monkeypatch):
     received = []
     monkeypatch.setattr("real_world_rl.demos.__main__.run_recorder", received.append)
-    example.main(["--output-path", "demos/task.pkl", "--reward-from-teleop-events", "--teleop-success-reward", "2.0"])
+    example.main(["--output-dir", "demos/task", "--reward-from-teleop-events", "--teleop-success-reward", "2.0"])
     (args,) = received
     assert args.reward_from_teleop_events and args.teleop_success_reward == 2.0
 
@@ -962,49 +1080,69 @@ def test_recorder_defaults():
     assert args.max_episodes is None
     # Unlike the training entrypoints, the recorder rewards the success key by default.
     assert args.reward_from_teleop_events and args.teleop_success_reward == 1.0
-    assert args.output_path is None and args.env_backend == "franka_real"
+    assert args.output_dir is None and args.env_backend == "real_robot"
+    assert not hasattr(args, "output_path") and not hasattr(args, "export_trajectory_pt")
 
 
 def test_example_turns_the_teleop_event_reward_off_with_the_negated_flag(example, monkeypatch):
     received = []
     monkeypatch.setattr("real_world_rl.demos.__main__.run_recorder", received.append)
-    example.main(["--output-path", "demos/task.pkl", "--no-reward-from-teleop-events"])
+    example.main(["--output-dir", "demos/task", "--no-reward-from-teleop-events"])
     (args,) = received
     assert not args.reward_from_teleop_events
 
 
-def test_run_recorder_interrupted_outcome_and_saved_trace_are_visible(tmp_path, monkeypatch, capsys):
-    env = RecordingEnv("joint_delta")
-    wrapped = _wrap(env, [_reading(delta=[0.0] * 7, events=("success",))])
+def _interrupt_on_step(monkeypatch, wrapped, step):
     original_step = wrapped.step
     calls = 0
-    def interrupt_second_step(action):
+
+    def interrupting_step(action):
         nonlocal calls
         calls += 1
-        if calls == 2:
+        if calls == step:
             raise KeyboardInterrupt
         return original_step(action)
-    monkeypatch.setattr(wrapped, "step", interrupt_second_step)
+
+    monkeypatch.setattr(wrapped, "step", interrupting_step)
+
+
+def test_an_interrupted_episode_is_stored_as_discarded_after_the_env_closed(tmp_path, monkeypatch, capsys):
+    env = RecordingEnv("joint_delta")
+    wrapped = _wrap(env, [_reading(delta=[0.0] * 7, events=("success",))])
+    _interrupt_on_step(monkeypatch, wrapped, 2)
     monkeypatch.setattr(env_building, "build_hil_env", lambda args, **kwargs: wrapped)
-    output = tmp_path / "interrupted.pkl"
+    finish = EpisodeWriter.finish
+
+    def finish_after_release(self, **kwargs):
+        assert env.close_calls == 1, "the interrupted episode is written after the env released the robot"
+        return finish(self, **kwargs)
+
+    monkeypatch.setattr(EpisodeWriter, "finish", finish_after_release)
+    output = tmp_path / "interrupted"
     with pytest.raises(KeyboardInterrupt):
-        run_recorder(_args(output_path=str(output)))
-    from real_world_rl.contracts.trajectory import DurableArchive
-    archive = DurableArchive(output.with_suffix(".trajectory.sqlite3"))
-    try:
-        rows = list(archive)
-    finally:
-        archive.close()
-    outcome = rows[-1]["outcome"]
-    assert outcome["interrupted"] and not outcome["completed"]
-    assert outcome["steps"] == outcome["intervention_steps"] == 1
-    assert "interrupted_episodes" in capsys.readouterr().out
+        run_recorder(_args(output_dir=str(output)))
+    (info,) = Dataset(output).episodes()
+    assert (info.status, info.meta["discard_reason"], info.meta["recorded_discard_reason"]) == (
+        "discarded", "interrupted", "interrupted")
+    assert info.steps == info.meta["intervened_steps"] == 1 and info.meta["success"] is None
+    assert list(iter_transitions(Dataset(output), frame_stack=1)) == []
+    assert "episode=0 steps=1 discarded (interrupted)" in capsys.readouterr().out
+
+
+def test_an_episode_interrupted_before_its_first_step_leaves_nothing(tmp_path, monkeypatch):
+    env = RecordingEnv("joint_delta")
+    wrapped = _wrap(env, [_reading(delta=[0.0] * 7, events=("success",))])
+    _interrupt_on_step(monkeypatch, wrapped, 1)
+    monkeypatch.setattr(env_building, "build_hil_env", lambda args, **kwargs: wrapped)
+    output = tmp_path / "interrupted"
+    with pytest.raises(KeyboardInterrupt):
+        run_recorder(_args(output_dir=str(output)))
+    assert sorted(path.name for path in output.iterdir()) == ["dataset.json"]
+    assert Dataset(output).header["next_index"] == 0
 
 
 @pytest.mark.parametrize("ending", ["success", "failure", "rerecord", "timeout", "episode_end"])
-def test_single_attempt_exits_before_second_reset_and_preserves_archive(tmp_path, monkeypatch, ending):
-    from real_world_rl.contracts.trajectory import DurableArchive
-
+def test_single_attempt_exits_before_second_reset_and_stores_the_attempt(tmp_path, monkeypatch, ending):
     env = RecordingEnv("joint_delta")
     if ending == "timeout":
         step = env.step
@@ -1023,22 +1161,15 @@ def test_single_attempt_exits_before_second_reset_and_preserves_archive(tmp_path
         return reset(**kwargs)
     monkeypatch.setattr(wrapped, "reset", reset_once)
     monkeypatch.setattr(env_building, "build_hil_env", lambda *args, **kwargs: wrapped)
-    saved = record.save_demos
-    def save_after_release(*args, **kwargs):
-        assert env.close_calls == 1
-        return saved(*args, **kwargs)
-    monkeypatch.setattr(record, "save_demos", save_after_release)
-    output = tmp_path / f"{ending}.pkl"
-    result = run_recorder(_args(output_path=str(output), num_successes=20, max_episodes=1))
+    output = tmp_path / ending
+    result = run_recorder(_args(output_dir=str(output), num_successes=20, max_episodes=1))
     assert len(resets) == env.close_calls == 1
-    assert (result == output) == output.exists() == (ending == "success")
-    archive = DurableArchive(output.with_suffix(".trajectory.sqlite3"))
-    try:
-        rows = list(archive)
-    finally:
-        archive.close()
-    assert [row["record_type"] for row in rows] == ["episode_start", "transition", "episode_end"]
-    outcome = rows[-1]["outcome"]
+    assert (result == output) == (ending == "success")
+    (info,) = Dataset(output).episodes()
+    assert info.steps == 1 and info.kept == (ending == "success")
+    expected_reason = {"success": None, "failure": "failure event", "rerecord": "rerecord"}.get(ending, "no success")
+    assert info.meta["discard_reason"] == expected_reason
+    outcome = info.meta["extra"]["outcome"]
     assert outcome["task_success"] is (True if ending == "success" else False if ending == "failure" else None)
     assert outcome["discarded"] == (ending == "rerecord")
     assert not outcome["interrupted"]
@@ -1050,18 +1181,16 @@ def test_invalid_episode_limit_is_rejected_before_env_construction(tmp_path, mon
         pytest.fail("invalid attempt count reached device construction")
     monkeypatch.setattr(env_building, "build_hil_env", unexpected_build)
     with pytest.raises(ValueError, match="--max-episodes must be positive"):
-        run_recorder(_args(output_path=str(tmp_path / "invalid.pkl"), max_episodes=limit))
+        run_recorder(_args(output_dir=str(tmp_path / "invalid"), max_episodes=limit))
     assert not list(tmp_path.iterdir())
 
 
-@pytest.mark.parametrize("failure_phase", ["close", "export"])
-def test_finalization_failure_still_releases_devices_and_preserves_archive(tmp_path, monkeypatch, failure_phase):
-    from real_world_rl.contracts.trajectory import DurableArchive
-
+@pytest.mark.parametrize("failure_phase", ["close", "interrupted write"])
+def test_finalization_failure_still_releases_devices_and_keeps_the_dataset(tmp_path, monkeypatch, failure_phase):
     env = RecordingEnv("joint_delta")
     wrapped = TeleopEventRewardWrapper(_wrap(env, [_reading(delta=[0.0] * 7, events=("success",))]))
     monkeypatch.setattr(env_building, "build_hil_env", lambda *args, **kwargs: wrapped)
-    output = tmp_path / "finalization.pkl"
+    output = tmp_path / "finalization"
     if failure_phase == "close":
         close = wrapped.close
         def fail_close():
@@ -1069,25 +1198,20 @@ def test_finalization_failure_still_releases_devices_and_preserves_archive(tmp_p
             raise OSError("release failed")
         monkeypatch.setattr(wrapped, "close", fail_close)
     else:
-        def fail_export(*args, **kwargs):
+        def fail_write(writer):
             assert env.close_calls == 1
-            raise OSError("export failed")
-        monkeypatch.setattr(record, "save_demos", fail_export)
+            raise OSError("write failed")
+        monkeypatch.setattr(record, "_finish_interrupted", fail_write)
     with pytest.raises(OSError, match="failed"):
-        run_recorder(_args(output_path=str(output), max_episodes=1))
+        run_recorder(_args(output_dir=str(output), max_episodes=1))
     assert env.close_calls == 1
-    assert output.exists() == (failure_phase == "close")
-    archive = DurableArchive(output.with_suffix(".trajectory.sqlite3"))
-    try:
-        assert list(archive)[-1]["outcome"]["task_success"] is True
-    finally:
-        archive.close()
+    (info,) = Dataset(output).episodes()
+    assert info.kept and info.meta["extra"]["outcome"]["task_success"] is True
 
 
 @pytest.mark.parametrize('rollout_failure', [False, True])
-def test_recorder_cleanup_preserves_first_failure_and_closes_archive(tmp_path, monkeypatch, rollout_failure):
+def test_recorder_cleanup_preserves_first_failure_and_still_finishes_the_dataset(tmp_path, monkeypatch, rollout_failure):
     import real_world_rl.demos.record as recorder
-    from real_world_rl.contracts.trajectory import DurableArchive
     env = RecordingEnv('joint_abs')
     wrapped = _wrap(env, [SYNC, _reading(Q1, events=('success',), episode_end=True)])
     monkeypatch.setattr(env_building, 'build_hil_env', lambda args, **kwargs: wrapped)
@@ -1098,20 +1222,18 @@ def test_recorder_cleanup_preserves_first_failure_and_closes_archive(tmp_path, m
     def fail_close():
         raise RuntimeError('release failure')
     monkeypatch.setattr(wrapped, 'close', fail_close)
-    closed = []
-    original_close = DurableArchive.close
-    def close_archive(self):
-        closed.append(True)
-        original_close(self)
-        raise OSError('archive close failure')
-    monkeypatch.setattr(DurableArchive, 'close', close_archive)
+    finished = []
+    def fail_write(writer):
+        finished.append(writer)
+        raise OSError('dataset write failure')
+    monkeypatch.setattr(recorder, '_finish_interrupted', fail_write)
     expected = ValueError if rollout_failure else RuntimeError
     with pytest.raises(expected, match='primary rollout failure' if rollout_failure else 'release failure'):
-        run_recorder(_args(output_path=str(tmp_path / 'demos.pkl')))
-    assert closed
+        run_recorder(_args(output_dir=str(tmp_path / 'demos')))
+    assert finished
 
 
-def test_recorder_heartbeat_cleanup_failure_still_releases_and_exports(tmp_path, monkeypatch):
+def test_recorder_heartbeat_cleanup_failure_still_releases_and_keeps_the_dataset(tmp_path, monkeypatch):
     import real_world_rl.demos.record as recorder
     env = RecordingEnv('joint_abs')
     wrapped = _wrap(env, [SYNC, _reading(Q1, events=('success',), episode_end=True)])
@@ -1126,12 +1248,12 @@ def test_recorder_heartbeat_cleanup_failure_still_releases_and_exports(tmp_path,
         monkeypatch.setattr(recorder.Heartbeat, 'begin_long_operation', fail_finalization)
         return result
     monkeypatch.setattr(recorder, 'record_demos', record)
-    output = tmp_path / 'demo.pkl'
+    output = tmp_path / 'demo'
     try:
         with pytest.raises(RuntimeError, match='finalization heartbeat failure'):
-            run_recorder(_args(output_path=str(output)))
+            run_recorder(_args(output_dir=str(output)))
         assert env.close_calls == 1
-        assert output.exists()
+        assert [info.status for info in Dataset(output).episodes()] == ['kept']
     finally:
         monkeypatch.setattr(recorder.Heartbeat, 'begin_long_operation', original)
 
@@ -1159,6 +1281,5 @@ def test_recorder_first_frame_is_observed_after_neutral_gate(monkeypatch):
         observed.append(obs['state'].clone())
         return RecordedEpisode(index, 1, True, operator_quit=True)
     monkeypatch.setattr(record, '_record_episode', episode)
-    record_demos(env, _args(episode_end_behavior='hold'), hold_action_fn=lambda _: torch.zeros(8))
+    record_demos(env, _args(episode_end_behavior='hold'), hold_action_fn=lambda _: torch.zeros(8), writer=_writer(env))
     torch.testing.assert_close(observed[0], torch.full((1, 4), 42.))
-    env._record_archive.close()

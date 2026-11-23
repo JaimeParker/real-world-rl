@@ -172,7 +172,9 @@ SpaceMouse 标定档案与任务坐标系工作空间
    :dedent: 0
 
    rwrl --station local/station.yaml --preset local/task.yaml teleop run \
-     --mode tracker --record local/demo.pkl
+     --mode tracker --record local/demo
+
+``--record`` 给出示范数据集目录（``local/demo``\ ，不带后缀）：每个回合在结束时写成一个 ``episode_NNNNNN/`` 子目录，同一目录再次运行即追加；见 :doc:`录制示范 <recording-demos>`\ 。
 
 ``--mode serl`` 使用原生 SERL 接管语义；预设须提供所需位置和 RPY 限制。\ ``--profile NAME`` 覆盖工作站默认。\ ``--num-successes`` 默认 20，\ ``--max-episodes`` 可选。每回合可包含多次人工/策略交接，模式的接管行为不变。
 
@@ -261,7 +263,7 @@ CLI 会话还写入独立于轨迹 transition 的私有 ``session-events-<timest
    :dedent: 0
 
    rwrl --station local/station.yaml --preset local/task.yaml teleop run \
-     --diagnose translation --duration-s 10 --record local/diag-translation.pkl
+     --diagnose translation --duration-s 10 --record local/diag-translation
 
 选择 ``translation``\ 、\ ``rotation`` 或 ``all``\ ，\ ``--mode tracker|serl`` 选择原控制模式。\ ``--gain`` 默认 0.2，相对预设控制设置缩放输入，不保证绝对速度。普通 ``teleop run`` 默认 gain 1、全部六轴。诊断过滤和增益进入实验约定，以区分这些数据与正常数据。\ ``teleop diagnose`` 仅检查输入。运动诊断使用 ``teleop run --diagnose translation|rotation|all``\ ；\ ``--gain``\ （默认 0.2）与 ``--duration-s``\ （默认 5）仅影响诊断会话，无 ``--diagnose`` 则忽略两者。诊断默认一次成功、最多一回合；普通会话仍为 20 次成功、无回合数上限。
 

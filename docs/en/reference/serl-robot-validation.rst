@@ -131,9 +131,9 @@ low gain:
 
    rwrl --station local/station.yaml --preset local/task.yaml teleop run \
      --mode tracker --diagnose translation --gain 0.2 --duration-s 10 \
-     --record local/serl-first-01.pkl
+     --record local/serl-first-01
 
-Take over with button 0 and push the cap gently forward (+x) for about 1 cm, then release. Watch
+``--record`` is a dataset directory; this diagnosis's episode is also stored in ``local/serl-first-01/`` and can be replayed with ``rwrl dataset view``. Take over with button 0 and push the cap gently forward (+x) for about 1 cm, then release. Watch
 and log:
 
 -  the stderr lines ``INTERVENTION ON: the operator drives the arm`` and, 0.3 s after you hand back,
@@ -210,7 +210,7 @@ keep the ``--record`` names distinct:
 .. code-block:: bash
 
    rwrl --station local/station.yaml --preset local/task.yaml teleop run \
-     --mode serl --diagnose translation --gain 0.5 --duration-s 20 --record local/cmp-C-01.pkl
+     --mode serl --diagnose translation --gain 0.5 --duration-s 20 --record local/cmp-C-01
 
 .. tutorial-test: skip
 .. code-block:: bash

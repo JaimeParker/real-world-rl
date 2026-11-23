@@ -5,7 +5,7 @@ obs:
   state: true
   rgb: [wrist]
   depth: []
-  image_size: [128, 128]
+  image_size: [224, 224]
 real_robot:
   # Offline shape construction only; preparation replaces this entire block.
   remote: 127.0.0.1:50051
@@ -18,7 +18,11 @@ real_robot:
   state_fields: [tcp_pose, tcp_vel, joint_pos, joint_vel]
   control_hz: 10
   max_episode_steps: 200
-demo_dataset_paths: [local/first-demo.pkl]
+demo_dataset_paths: [local/first-demo]
+# plain_conv with the default flatten pooling only fits 128x128 or 64x64 images;
+# gap pooling fits any image size, here 224x224.
+encoder:
+  plain_conv_pooling: gap
 log_dir: local/bc-runs
 exp_name: first-bc
 log_type: tensorboard

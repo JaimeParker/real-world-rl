@@ -25,6 +25,7 @@ import pytest
 import real_world_rl.devices.claims as claims
 import torch
 import yaml
+from _recorder_dataset import record_into_dataset
 from _residual_fakes import FakeSyncClient
 from rl_garden.encoders.config import EncoderConfig
 from rl_garden.observations import ObservationConfig
@@ -35,15 +36,9 @@ import real_world_rl.envs.backends.real_robot_bimanual  # noqa: F401  (registers
 from real_world_rl.contracts.action import (
     demo_contract_of,
     get_env_action_contract,
-    read_contract_sidecar,
 )
 from real_world_rl.algorithms.residual import ResidualRLPDHybrid
-from real_world_rl.demos.record import (
-    RecordDemosArgs,
-    hold_action_fn_for,
-    record_demos,
-    save_demos,
-)
+from real_world_rl.demos.record import RecordDemosArgs
 from real_world_rl.deploy.checkpoint import DeployArgs, restore_training_args, run_deploy
 from real_world_rl.envs.bimanual import BimanualRealRobotEnvConfig
 from real_world_rl.envs.real_robot import RealRobotEnvConfig
@@ -337,7 +332,7 @@ def _run_hil_serl_actor(env) -> list[dict]:
 
 
 def _record(env, daemons, demo_path: Path) -> list[dict]:
-    args = RecordDemosArgs(**_env_fields(daemons), output_path=str(demo_path), num_successes=1)
+    args = RecordDemosArgs(**_env_fields(daemons), output_dir=str(demo_path), num_successes=1)
     episodes = []
 
     def stop_unless_kept(episode) -> None:
@@ -345,8 +340,7 @@ def _record(env, daemons, demo_path: Path) -> list[dict]:
         if not episode.kept:
             raise AssertionError(f"recorded episode {episode.index} was not kept: {episode.discarded_reason}")
 
-    transitions = record_demos(env, args, hold_action_fn=hold_action_fn_for(env), on_episode=stop_unless_kept)
-    save_demos(transitions, demo_path, demo_contract_of(env))
+    transitions, _, dataset = record_into_dataset(env, args, demo_path, on_episode=stop_unless_kept)
 
     # A fresh connection starts the leader script: its first two active reads intervene.
     assert [(episode.steps, episode.success) for episode in episodes] == [(EPISODE_STEPS, True)]
@@ -355,8 +349,9 @@ def _record(env, daemons, demo_path: Path) -> list[dict]:
         # The right gripper holds the open gripper of the reset.
         _assert_left_drives_and_right_is_held(transition["action"], right_gripper=OPEN, observation=transition["obs"])
         assert set(transition["obs"]) == {"state"} | {f"rgb_{cam}" for cam in ALL_CAMERAS}
-    assert demo_path.exists()
-    sidecar = read_contract_sidecar(demo_path)
+    assert demo_path.is_dir()
+    sidecar = dataset.header["action_contract"]
+    assert set(dataset.header["named_state_spec"]) >= {f"{arm}.joint_pos" for arm in ARMS}
     assert sidecar["num_arms"] == 2 and sidecar["arm_names"] == list(ARMS)
     assert sidecar["joint_limits"] == [PANDA_JOINT_LIMITS, PANDA_JOINT_LIMITS]
     assert sidecar["action_mode"] == "joint_delta" and sidecar["arm_action_dim"] == NUM_JOINTS
@@ -522,7 +517,7 @@ def _deploy_bc(daemons, bc_args: RealWorldBCArgs, checkpoint: Path) -> None:
 
 def test_two_arm_station_end_to_end(station_daemons, tmp_path):
     daemons = station_daemons
-    demo_path = tmp_path / "demos" / "bimanual.pkl"
+    demo_path = tmp_path / "demos" / "bimanual"
 
     env = env_building.build_hil_env(_hil_serl_args(daemons), role="actor")
     try:

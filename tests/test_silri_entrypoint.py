@@ -5,7 +5,7 @@ from __future__ import annotations
 import gymnasium as gym
 import numpy as np
 import pytest
-import real_world_rl.envs.backends.franka_real  # noqa: F401  (registers the backend)
+import real_world_rl.envs.backends.real_robot  # noqa: F401  (registers the backend)
 from _silri_fakes import SpacesEnv
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
@@ -51,7 +51,7 @@ def _args(**overrides) -> SilriArgs:
 def test_silri_args_defaults_follow_the_reference_recipe():
     args = SilriArgs()
     assert args.role == "actor"
-    assert args.env_backend == "franka_real"
+    assert args.env_backend == "real_robot"
     assert (args.buffer_size, args.demo_buffer_size, args.batch_size) == (30_000, 10_000, 256)
     assert (args.gamma, args.tau, args.utd) == (0.97, 0.005, 2)
     assert (args.actor_lr, args.critic_lr, args.behavior_lr, args.lambda_lr) == (3e-4, 3e-4, 3e-4, 3e-6)

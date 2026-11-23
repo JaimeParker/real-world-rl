@@ -14,6 +14,7 @@ At each step, the policy or teleop supplies an end-effector target (position + o
    Two independent switches are easy to confuse:
 
    * The station's ``cartesian_controller``: how the **robot side**\ executes targets (this chapter).
+   * The station's ``joint_controller``: how joint servo (GELLO joint teleoperation) is executed. It is independent of ``cartesian_controller`` (step 10 of this chapter).
    * ``teleop run --mode tracker|serl``: how the **SpaceMouse side**\ turns puck input into targets (see :doc:`spacemouse`).
 
    SpaceMouse readings start in the table frame, rotate into the robot base frame, and only then reach this chapter's controller.
@@ -44,7 +45,8 @@ At each step, the policy or teleop supplies an end-effector target (position + o
      - Franky + ``serl_controller`` \ **built together from source**\ on this machine; PREEMPT_RT recommended
      - Reproducing the SERL / HIL-SERL operating feel
 
-In all three modes, joint servo uses franky's joint impedance tracker, and ``move_to_pose`` uses a Ruckig trajectory.
+In all three modes, joint servo defaults to franky's joint impedance tracker (``joint_controller: impedance``), and ``move_to_pose`` uses a Ruckig trajectory.
+For joint teleoperation with GELLO, joint servo can instead use ``joint_controller: trajectory_impedance`` (step 10); it is independent of the choice here.
 
 Combinations with the two SpaceMouse modes:
 
@@ -186,12 +188,12 @@ Server version ≥ 6 means a 5.x system, hence FR3; ≤ 5 means FER. If this dis
 * Doctor's ``handshake`` cannot connect (rather than reporting a version mismatch): return to step 3 of :doc:`station` to fix networking, FCI and control ownership.
 * The model inferred from the handshake's server version disagrees with Desk: confirm in Desk first. Do not guess the model from appearance.
 
-3. Install a realtime kernel (needed by internal and serl)
+3. Install a realtime kernel (internal, serl; advised for trajectory_impedance)
 --------------------------------------------------------------------------------
 
 Both ``internal``'s velocity interface and ``serl``'s 1 kHz torque loop are sensitive to delays. A regular kernel occasionally delays a control cycle,
 causing a communication reflex that stops the robot. The original SERL ran with ``realtime_config: enforce``.
-Skip this step for ``impedance``.
+Skip this step for ``impedance``. The ``trajectory_impedance`` of step 10 also runs a 1 kHz torque loop and should have a realtime kernel (doctor warns when ``realtime`` is not ``enforce``).
 
 If the previous check did not show PREEMPT_RT, follow Franka's official documentation,
 `Setting up the real-time kernel <https://frankarobotics.github.io/docs/installation_linux.html#setting-up-the-real-time-kernel>`_
@@ -649,6 +651,181 @@ start a new experiment. Do not mix data from the two controllers.
 You can keep the source-built franky: it is unmodified v2.0.0 and supports all three controllers. Only if you want to return to an official wheel,
 first change the station to ``impedance`` or ``internal``, then run ``rwrl doctor --install-sdk``. Afterwards ``serl`` is unavailable until you rerun 4B.
 
+10. Optional: the joint controller for GELLO
+--------------------------------------------------------------------------------
+
+For joint teleoperation with GELLO (``joint_delta`` / ``joint_abs`` in step 5 of :doc:`gello`), joint servo can be switched to ``trajectory_impedance``.
+Skip this step for Cartesian teleoperation, SpaceMouse or policies only.
+
+``joint_controller`` is another station field. It determines \ **what executes joint servo targets**\ . The default is unchanged, and ``move_to_joints`` (homing) is unchanged under both values.
+
+.. list-table::
+   :header-rows: 1
+
+   * - ``joint_controller``
+     - What executes
+     - What the robot host needs
+     - Suited for
+   * - ``impedance`` (default)
+     - franky's ``JointImpedanceTracker``, which tracks each target as it arrives; gains come from the joint entries of the station's ``control:``
+     - The official franky wheel matching the robot
+     - Policies, SpaceMouse, and getting everything else working first
+   * - ``trajectory_impedance``
+     - The native package ``joint_controller``: a quintic planner joins every new target into a 1 kHz reference trajectory (within per-joint velocity, acceleration and joint limits),
+       which is tracked with GELLO's joint impedance law K(q_ref − q) − D·dq_filtered (plus Coriolis compensation, with the torque change per tick limited);
+       with no new target for a while it stops in a controlled way. It runs inside unmodified franky as a torque motion
+     - franky + ``serl_controller`` + ``joint_controller`` **built together** on this machine, PREEMPT_RT recommended
+     - GELLO collection: leader readings arrive at only 10–30 Hz and the follower should move smoothly
+
+``impedance`` hands each target to the tracker as a step; GELLO targets arrive only once per ``control_hz`` period, so the jump between targets goes straight into the torque.
+``trajectory_impedance`` fills in continuous position, velocity and acceleration between targets, so the follower moves more smoothly.
+
+**Following has some lag.** Every replan **comes to rest** at the newest target, so while the leader moves, the follower trails by about one braking distance.
+With the default ``max_acceleration`` of 4 rad/s², a leader moving at 0.5 rad/s is trailed by about 0.06 rad; 2 rad/s² gives about 0.20 rad; 8 rad/s² about 0.04 rad.
+For faster following, raise ``max_acceleration`` in the station's ``joint_trajectory:``; lower it for gentler motion.
+All parameters, the timeout and the behaviour when a replan fails are in :doc:`../reference/joint-controller`.
+
+**For GELLO collection, raise control_hz to 15–30 Hz.** This advice follows from the planner's behaviour and is not a measured result: ``control_hz`` sets the interval between targets (100 ms at 10 Hz).
+The shorter the interval, the smaller each replan's displacement, the closer the follower is to continuous motion, and the shorter the delay from leader reading to execution.
+Per-step limits (``max_delta_per_step.joint_rad``, ``joint_scale_rad``) are **per step**, so after raising ``control_hz`` the same per-step values mean a higher speed;
+the actual speed is also limited by ``max_velocity`` in ``joint_trajectory`` (default 0.6 / 0.75 rad/s).
+``control_hz`` is part of the experiment contract: collection, training and deployment must use the same value (see :doc:`../reference/real-world-experiments`).
+
+10A. Install: three wheels from one build
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Like ``serl_controller``, ``joint_controller`` is a native extension that derives from franky's C++ classes, so it works only with franky from **the same build**;
+the official franky wheel does not work. Therefore **do not** run ``rwrl doctor --install-sdk`` or ``pip install franky-control``:
+when the station already says ``joint_controller: trajectory_impedance``, doctor refuses ``--install-sdk`` (a BLOCKED ``sdk.franky.joint_controller`` row).
+
+Build directly on the robot host. Finish steps 2 and 3 first (note the libfranka version, install the realtime kernel), then with the project environment active:
+
+.. tutorial-test: skip
+.. literalinclude:: ../../examples/controller.sh
+   :language: bash
+   :start-after: # start install-joint-native
+   :end-before: # end install-joint-native
+
+If the environment already has franky v2.0.0 built from source against the same libfranka with the same ``WORK`` (default ``~/.cache/rwrl-native-build``), for example after 4B, the script reuses it and installs only ``joint_controller``.
+Otherwise the script first runs ``serl_controller``'s install script (that is 4B: it builds libfranka and franky and rebuilds ``serl_controller``), then installs ``joint_controller``,
+and finally runs the C++ and Python tests, an import check and a pairing check of ``build_info.json`` against the installed ``libfranky.so``.
+``REBUILD_FRANKY=1`` forces the franky step again; the other environment variables (``SKIP_APT``, ``REPLACE_LIBFRANKA``, ``PIP_INDEX_URL``, etc.) are passed unchanged to ``serl_controller``'s script and mean what they do in 4B.
+Logs are in ``$WORK/logs/``; ``joint_controller``'s own steps are ``jc_*``.
+
+You can confirm it at any time:
+
+.. tutorial-test: skip
+.. literalinclude:: ../../examples/controller.sh
+   :language: bash
+   :start-after: # start install-joint-check
+   :end-before: # end install-joint-check
+
+``build_info`` contains ``joint_controller_version`` and ``gello_commit``, plus the franky this build belongs to.
+
+.. note::
+
+   **Optional: build wheels elsewhere.** For several identical NUCs, use ``native/joint_controller/docker/build-on-host.sh`` on a build machine with Docker:
+   one build produces the ``franky_control``, ``serl_controller`` and ``joint_controller`` wheels, which must be installed together
+   (set ``WITH_SERL=0`` when you want only franky + joint_controller):
+
+   .. tutorial-test: skip
+   .. literalinclude:: ../../examples/controller.sh
+      :language: bash
+      :start-after: # start wheels-joint-docker
+      :end-before: # end wheels-joint-docker
+
+   .. tutorial-test: skip
+   .. literalinclude:: ../../examples/controller.sh
+      :language: bash
+      :start-after: # start wheels-joint-install
+      :end-before: # end wheels-joint-install
+
+   The Python version must match the wheels' cp tag (default cp310).
+
+10B. Edit the station
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Add these at the top level of ``local/station.yaml`` (back it up first, see step 5):
+
+.. literalinclude:: ../../examples/en/controller-joint.yaml
+   :language: yaml
+   :start-after: # start controller
+   :end-before: # end controller
+
+``joint_trajectory: {}`` means every native default, with limits taken from ``robot_model`` (Panda or FR3). To change individual values, write only those keys; write seven-joint values as lists of length 7. The parameters are explained in the reference page:
+
+.. literalinclude:: ../../examples/en/controller-joint.yaml
+   :language: yaml
+   :start-after: # start override
+   :end-before: # end override
+
+The ``joint_trajectory`` key names are checked when the station loads, so a wrong key name fails immediately; the values are validated by ``joint_controller`` on connect, and an invalid value is rejected rather than clamped into range.
+``trajectory_impedance`` needs ``arm_backend: franky`` and does not change the ``cartesian_controller`` choice. Automatic recovery after a reflex follows the ``serl_auto_recover`` setting.
+
+Then raise ``control_hz`` in the GELLO collection preset (under the preset's ``real_robot:``):
+
+.. code-block:: yaml
+
+   real_robot:
+     control_hz: 20     # default 10; GELLO collection can use 15 to 30
+
+The wizard can also rewrite the field. It keeps the rest of the station and backs up the old file as ``station.yaml.bak.<UTC>``:
+
+.. literalinclude:: ../../examples/controller.sh
+   :language: bash
+   :start-after: # start setup-joint
+   :end-before: # end setup-joint
+
+``--joint-controller`` accepts only ``impedance`` and ``trajectory_impedance``; with the latter the wizard suggests ``realtime: enforce`` and writes ``joint_trajectory: {}``.
+
+10C. Check with doctor
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. literalinclude:: ../../examples/controller.sh
+   :language: bash
+   :start-after: # start doctor
+   :end-before: # end doctor
+
+**What you should see**: besides the rows of step 6, ``sdk:joint_controller`` and ``mode:joint_trajectory_realtime``, all PASS:
+
+.. literalinclude:: ../../examples/en/controller-output.txt
+   :language: text
+   :start-after: # start joint-doctor
+   :end-before: # end joint-doctor
+
+.. list-table::
+   :header-rows: 1
+
+   * - Row
+     - What it checks
+   * - ``sdk:joint_controller``
+     - The ``joint_controller`` package imports and has ``TrajectoryImpedanceMotion``, and the franky version it records equals the installed franky's version (compares the franky version in ``build_info``)
+   * - ``mode:joint_trajectory_realtime``
+     - Whether ``realtime`` is ``enforce``; WARN if not
+   * - ``mode:realtime_kernel``
+     - Whether the kernel is PREEMPT_RT, as in step 6
+
+**If it doesn't**:
+
+.. literalinclude:: ../../examples/en/controller-output.txt
+   :language: text
+   :start-after: # start joint-doctor-warn
+   :end-before: # end joint-doctor-warn
+
+* ``sdk:joint_controller`` FAIL saying the package is missing: return to 10A and install it.
+* ``sdk:joint_controller`` FAIL saying it does not match franky: franky was replaced by the official wheel or is not from the same build as ``joint_controller``; rerun the 10A script, or reinstall the three wheels from one build directory.
+* ``mode:joint_trajectory_realtime`` WARN: return to step 3, then change ``realtime`` to ``enforce``.
+* To return to the default: set the station back to ``joint_controller: impedance`` (or copy the backup back). franky and ``joint_controller`` can stay installed.
+
+**What you should see**: homing (step 7) works as before; the first GELLO joint-teleoperation practice is in step 5 of :doc:`gello`, after aligning the leader and follower readings.
+
+.. note::
+
+   **What needs confirmation on hardware in this step**
+
+   ``joint_controller``'s planner and control law have C++ unit tests and long runs against a simulated arm, but this repository records no real-robot results.
+   Jitter on a realtime kernel, following lag (which varies with ``max_acceleration``), recovery after a reflex and the feel of GELLO collection all need on-site confirmation.
+
 .. note::
 
    **What needs confirmation on hardware in this chapter**
@@ -659,6 +836,6 @@ first change the station to ``impedance`` or ``internal``, then run ``rwrl docto
    :doc:`../reference/serl-robot-validation`;
    For deeper reference, see :doc:`../reference/serl-controller`.
 
-Checklist: know which controller you chose and why; server version matches libfranka; relevant doctor rows pass; homing works; know how to roll back.
+Checklist: know which controller you chose and why; server version matches libfranka; relevant doctor rows pass; homing works; know how to roll back; with GELLO, know which joint controller you chose and what ``control_hz`` is.
 
 Continue to :doc:`spacemouse`; GELLO users should see :doc:`gello`.

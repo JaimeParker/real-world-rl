@@ -1,0 +1,89 @@
+# clang-tidy for joint_controller's own code: include/, src/, python/bindings.cpp and the
+# test drivers in tests/cpp/*.cpp. tools/lint.sh selects exactly those files.
+#
+# Disabled checks, and why:
+#  bugprone-easily-swappable-parameters   the control-law API takes q, dq, coriolis, ... (Eigen
+#                                         vectors of one type), named as in libfranka.
+#  cppcoreguidelines-avoid-magic-numbers  quintic boundary-value coefficients (10, 15, 6, ...), the
+#  readability-magic-numbers              GELLO gains and the Franka limit tables are literal on
+#                                         purpose, next to their derivation / source.
+#  cppcoreguidelines-pro-bounds-constant-array-index
+#                                         the per-joint loops index std::array<_, 7> with i in
+#                                         [0, 7); gsl::at is not available and .at() would add a
+#                                         throwing path to the 1 kHz loop.
+#  cppcoreguidelines-pro-bounds-pointer-arithmetic,
+#  cppcoreguidelines-pro-type-vararg      pybind11 / doctest macro expansions.
+#  modernize-use-trailing-return-type     style only.
+#  modernize-use-designated-initializers  C++20; the package is C++17.
+#  cppcoreguidelines-avoid-const-or-ref-data-members
+#                                         TrajectoryImpedanceParams::Field is an immutable table row.
+#  bugprone-exception-escape              diagnosed for functions that call pybind11 / std::map
+#                                         code; the RT entry points are noexcept and reviewed by
+#                                         hand (see motion.hpp, "Real-time path").
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-exception-escape,
+  cppcoreguidelines-*,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-type-vararg,
+  -cppcoreguidelines-avoid-const-or-ref-data-members,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-use-designated-initializers,
+  performance-*,
+  google-explicit-constructor,
+  misc-const-correctness,
+  misc-include-cleaner,
+  misc-misplaced-const,
+  misc-redundant-expression,
+  misc-unused-parameters,
+  misc-unused-using-decls,
+  misc-use-anonymous-namespace,
+  readability-avoid-const-params-in-decls,
+  readability-const-return-type,
+  readability-container-size-empty,
+  readability-delete-null-pointer,
+  readability-duplicate-include,
+  readability-else-after-return,
+  readability-identifier-naming,
+  readability-inconsistent-declaration-parameter-name,
+  readability-make-member-function-const,
+  readability-misleading-indentation,
+  readability-non-const-parameter,
+  readability-redundant-access-specifiers,
+  readability-redundant-control-flow,
+  readability-redundant-declaration,
+  readability-redundant-member-init,
+  readability-redundant-smartptr-get,
+  readability-redundant-string-cstr,
+  readability-simplify-boolean-expr,
+  readability-static-accessed-through-instance,
+  readability-static-definition-in-anonymous-namespace,
+  readability-uniqueptr-delete-release
+# Only our own headers.
+HeaderFilterRegex: '.*/joint_controller/(include/joint_controller|src|python|tests/cpp)/[^/]+\.(h|hpp)$'
+WarningsAsErrors: '*'
+CheckOptions:
+  # include-what-you-use for the standard library and our own headers; Eigen, doctest and
+  # pybind11 are used through their public umbrella headers (<Eigen/Dense>, <doctest/doctest.h>,
+  # <pybind11/pybind11.h>), never their internal src/ headers.
+  - { key: misc-include-cleaner.IgnoreHeaders, value: 'Eigen/.*;eigen3/.*;unsupported/Eigen/.*;doctest/.*;pybind11/.*' }
+  - { key: readability-identifier-naming.NamespaceCase,        value: lower_case }
+  - { key: readability-identifier-naming.ClassCase,            value: CamelCase }
+  - { key: readability-identifier-naming.StructCase,           value: CamelCase }
+  - { key: readability-identifier-naming.EnumCase,             value: CamelCase }
+  - { key: readability-identifier-naming.FunctionCase,         value: camelBack }
+  - { key: readability-identifier-naming.MethodCase,           value: camelBack }
+  - { key: readability-identifier-naming.PrivateMemberSuffix,  value: _ }
+  - { key: readability-identifier-naming.ProtectedMemberSuffix, value: _ }
+  - { key: readability-identifier-naming.ConstexprVariableCase, value: CamelCase }
+  - { key: readability-identifier-naming.ConstexprVariablePrefix, value: k }
+  # JointTelemetry / Input are plain data.
+  - { key: cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor, value: true }
+  - { key: cppcoreguidelines-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic, value: true }
+  - { key: performance-unnecessary-value-param.AllowedTypes, value: '' }
+...

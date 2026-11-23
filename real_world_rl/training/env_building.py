@@ -33,7 +33,6 @@ from typing import Any, Optional, Sequence
 
 _LOGGER = logging.getLogger(__name__)
 
-_FRANKA_REAL_QUAT_SLICE = (3, 7)
 _CARTESIAN_ARM_DIM = 6
 _BIMANUAL_BACKEND = "real_robot_bimanual"
 # Backends whose env cannot stack frames itself (apply_obs_chain stacks them, as deploy does).
@@ -58,14 +57,12 @@ _STATION_TELEOP_DEVICE = "gello"
 
 
 def tcp_pose_quat_slice(args) -> tuple[int, int] | list[tuple[int, int]] | None:
-    """FrankaRealEnv's state always starts with tcp_pose; real_robot's follows state_fields;
+    """The real_robot quaternion offset follows state_fields;
     real_robot_bimanual has one slice per arm (``None`` without tcp_pose)."""
     if args.env_backend == _BIMANUAL_BACKEND:
         from real_world_rl.envs.wrappers.obs_chain import tcp_pose_quat_slices
 
         return tcp_pose_quat_slices(args.real_robot_bimanual) or None
-    if args.env_backend != "real_robot":
-        return _FRANKA_REAL_QUAT_SLICE
     from real_world_rl.envs.wrappers.obs_chain import tcp_pose_quat_slice as _real_robot_slice
 
     return _real_robot_slice(args.real_robot)
@@ -119,39 +116,29 @@ def resolve_spacemouse_mode(
     RealRobotEnvConfig's default ``current`` is treated as unset. CLI/preset
     provenance and the standalone parsers distinguish an explicit conflict.
     Finalize this before serializing training or recording args.
-    Franka's JSON mapping already preserves that distinction.
     """
     if not _serl_mode(args):
         return
     # Validate source options on learners too; no device is constructed here.
     motion_teleop_kwargs(args)
     backend = args.env_backend
-    if backend not in ("real_robot", "franka_real"):
-        raise ValueError("spacemouse serl mode requires real_robot or franka_real")
+    if backend != "real_robot":
+        raise ValueError("spacemouse serl mode requires real_robot")
     config = getattr(env_request, "backend_config", None) if env_request is not None else None
     if config is None:
         config = getattr(args, backend)
-    if backend == "franka_real":
-        import json
+    explicit = explicit_cartesian_semantics
+    from rl_garden.training.inspection import current_preflight, has_config_session
 
-        options = json.loads(config.env_kwargs_json or "{}")
-        if options.get("cartesian_semantics") == "current":
-            raise ValueError("spacemouse serl mode conflicts with explicit cartesian_semantics='current'")
-        options["cartesian_semantics"] = "serl"
-        resolved = dataclasses.replace(config, env_kwargs_json=json.dumps(options))
-    else:
-        explicit = explicit_cartesian_semantics
-        from rl_garden.training.inspection import current_preflight, has_config_session
-
-        if sources is None and has_config_session():
-            sources = current_preflight().sources
-        if sources is not None:
-            source = sources.get("real_robot.cartesian_semantics")
-            if source is not None:
-                explicit = explicit or (source.get("kind") != "default" if isinstance(source, Mapping) else source.kind != "default")
-        if explicit and config.cartesian_semantics == "current":
-            raise ValueError("spacemouse serl mode conflicts with explicit cartesian_semantics='current'")
-        resolved = dataclasses.replace(config, cartesian_semantics="serl")
+    if sources is None and has_config_session():
+        sources = current_preflight().sources
+    if sources is not None:
+        source = sources.get("real_robot.cartesian_semantics")
+        if source is not None:
+            explicit = explicit or (source.get("kind") != "default" if isinstance(source, Mapping) else source.kind != "default")
+    if explicit and config.cartesian_semantics == "current":
+        raise ValueError("spacemouse serl mode conflicts with explicit cartesian_semantics='current'")
+    resolved = dataclasses.replace(config, cartesian_semantics="serl")
     setattr(args, backend, resolved)
     if env_request is not None:
         env_request.backend_config = resolved
@@ -481,7 +468,7 @@ def classifier_image_keys_for(args, env) -> Sequence[str]:
     """The observation keys a reward classifier reads: ``--classifier-image-keys``, or every key
     of ``env``'s observation space but ``state``.
 
-    FrankaRealEnv's camera keys are whatever the user configured (``cfg.camera_keys``), not
+    Camera keys are configured by the user, not
     necessarily ``rgb*``/``depth*`` prefixed, so every non-``state`` key counts as an image.
     """
     return args.classifier_image_keys or tuple(
@@ -632,7 +619,7 @@ def build_hil_env(
 
 def ensure_real_world_backend(name):
     """Support source-checkout entrypoints without installed package metadata."""
-    if name in ("franka_real", "real_robot", "real_robot_bimanual"):
+    if name in ("real_robot", "real_robot_bimanual"):
         import importlib
         importlib.import_module(f"real_world_rl.envs.backends.{name}")
 
@@ -734,7 +721,7 @@ def build_offline_experiment_env(env, config, observation, saved_contract=None):
     spec = (saved_contract or {}).get("experiment", {})
     observed = spec.get("observation", {})
     converted = bool(observed.get("convert_obs_rotation", False))
-    backend = "real_robot_bimanual" if hasattr(config, "arm_names") else "real_robot" if hasattr(config, "state_fields") else "franka_real"
+    backend = "real_robot_bimanual" if hasattr(config, "arm_names") else "real_robot"
     namespace = SimpleNamespace(env_backend=backend, real_robot=config, real_robot_bimanual=config)
     env = apply_obs_chain(env, frame_stack=observation.frame_stack, image_keys=observation.image_keys,
                           convert_obs_rotation=converted, quat_slice=tcp_pose_quat_slice(namespace))

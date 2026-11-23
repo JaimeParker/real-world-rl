@@ -20,19 +20,19 @@ rwrl workspace frame show
 # end calibrate-table
 # start axis-check
 rwrl workspace capture
-rwrl teleop run --backend spacemouse --record local/spacemouse-axis.pkl --num-successes 1 --max-episodes 1
+rwrl teleop run --backend spacemouse --record local/spacemouse-axis --num-successes 1 --max-episodes 1
 rwrl workspace capture
 # end axis-check
 # start serl-axis-check
 rwrl workspace capture
-rwrl --preset local/task-serl.yaml teleop run --backend spacemouse --mode serl --record local/spacemouse-serl-axis.pkl --num-successes 1 --max-episodes 1
+rwrl --preset local/task-serl.yaml teleop run --backend spacemouse --mode serl --record local/spacemouse-serl-axis --num-successes 1 --max-episodes 1
 rwrl workspace capture
 # end serl-axis-check
 # start practice
-rwrl teleop run --backend spacemouse --record local/spacemouse-practice.pkl --num-successes 1 --max-episodes 1
+rwrl teleop run --backend spacemouse --record local/spacemouse-practice --num-successes 1 --max-episodes 1
 # end practice
 # start serl
-rwrl --preset local/task-serl.yaml teleop run --backend spacemouse --mode serl --record local/spacemouse-serl.pkl --num-successes 1 --max-episodes 1
+rwrl --preset local/task-serl.yaml teleop run --backend spacemouse --mode serl --record local/spacemouse-serl --num-successes 1 --max-episodes 1
 # end serl
 # start help
 rwrl teleop read --help

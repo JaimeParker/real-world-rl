@@ -111,6 +111,8 @@ sections.
    relative_dynamics_factor: 0.2 # franky velocity/accel/jerk scale for move_to_* and internal servo (default 0.2)
    cartesian_controller: impedance  # impedance (default) | internal | serl; see "Cartesian servo controller" below
    serl: null                    # cartesian_controller: serl: SERL compliance parameters (see "SERL controller")
+   joint_controller: impedance   # impedance (default) | trajectory_impedance; see "Joint servo controller" below
+   joint_trajectory: null        # joint_controller: trajectory_impedance: keys overriding the native defaults (see "Joint controller")
    robot_model: panda            # panda (default) | fr3: joint limits of SERL's joint reset; confirm in Desk
    serl_auto_recover: null       # cartesian_controller: serl: {enabled, max_per_episode}; null = {true, 5}
    load: null                    # optional payload {mass_kg, center_of_mass_m: [x, y, z], inertia: 3x3}, set after connect
@@ -207,7 +209,7 @@ Notes:
 
 \ **Cartesian servo controller (Franka,** \ ``franky``\ **).**\  ``cartesian_controller`` picks who executes
 Cartesian servo targets (``servo_cartesian``, i.e. every ``cartesian_delta`` env step, teleop or
-policy). Joint servo is franky's joint impedance tracker in every mode, and ``move_to_pose`` is
+policy). Joint servo defaults to franky's joint impedance tracker (``joint_controller: impedance``, see below), and ``move_to_pose`` is
 always a Ruckig motion; ``move_to_joints`` is Ruckig except with ``serl`` (SERL's joint reset).
 
 -  ``impedance`` (default): franky's torque-level ``CartesianImpedanceTracker`` pulls the TCP towards
@@ -246,6 +248,17 @@ motion, the way HIL-SERL's ``franka_server`` ``/set_load`` calls franka_control'
 ``null`` leaves whatever load the robot has (Desk's end-effector settings). A rejected call fails
 ``connect()`` with a ``DeviceFault``. The effective value is in ``control_metadata["load"]``.
 
+\ **Joint servo controller (Franka,** \ ``franky``\ **).**\  ``joint_controller`` picks who executes joint servo targets
+(``servo_joints``, e.g. every GELLO ``joint_delta`` / ``joint_abs`` env step). It is independent of ``cartesian_controller``;
+``move_to_joints`` is unaffected.
+
+-  ``impedance`` (default): franky's ``JointImpedanceTracker`` tracks every target directly, with gains from ``control:``.
+-  ``trajectory_impedance``: the native package ``joint_controller`` runs inside franky's 1 kHz loop. Each new target is turned by a quintic planner into a continuous reference trajectory
+   (bounded by per-joint velocity, acceleration and joint limits) and tracked with GELLO's joint impedance law; with no target for a while it stops in a controlled way.
+   ``joint_trajectory:`` overrides the native defaults (12 keys; only the key names are checked at load, the native package validates the values on connect);
+   ``arm.joint_trajectory_params`` and ``arm.update_joint_trajectory_params`` read and live-update them (also through the daemon). It needs ``arm_backend: franky`` and franky,
+   ``serl_controller`` and ``joint_controller`` from one build; ``realtime: enforce`` is recommended. See \ :doc:`Joint controller <joint-controller>`\ .
+
 SERL controller (``cartesian_controller: serl``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -280,8 +293,8 @@ It probes the hardware (TCP 22/443/1337 of ``172.16.0.2``, ``172.16.1.2``, ``$RO
 ``--robot-ip``, plus every host of ``--scan-subnet CIDR``; the serials of every camera backend with an SDK (RealSense, ZED); a Dynamixel broadcast
 ping on every ``/dev/serial/by-id/usb-FTDI_*`` and ``usb-ROBOTIS_*`` port at 57600 to 4000000 baud;
 SpaceMouse devices), then asks per arm for the robot IP, arm and gripper backend, robot model (``--robot-model panda|fr3``,
-required for a new arm with ``--non-interactive``), Cartesian controller (``--cartesian-controller impedance|internal|serl``, default impedance), realtime mode (``--realtime ignore|enforce``; enforce is
-suggested for internal / serl or on a PREEMPT_RT kernel, and the wizard warns when serl / internal
+required for a new arm with ``--non-interactive``), Cartesian controller (``--cartesian-controller impedance|internal|serl``, default impedance), joint controller (``--joint-controller impedance|trajectory_impedance``, default impedance; the latter writes ``joint_trajectory: {}``), realtime mode (``--realtime ignore|enforce``; enforce is
+suggested for internal / serl / trajectory_impedance or on a PREEMPT_RT kernel, and the wizard warns when serl / internal
 meet a non-realtime kernel), home joints,
 cameras (``1=wrist,2=front``), teleop device (GELLO port and servo ids, the last id offered as the
 gripper trigger), intervention mode and daemon port, calibrates each GELLO inline (the same
@@ -525,7 +538,7 @@ own.
      - ``franky`` (``franky``)
      - yes
      - yes
-     - torque-level impedance trackers for servo modes (or, with ``cartesian_controller: internal``, Cartesian velocity motions for Cartesian servo; with ``serl``, SERL's controller and joint reset from the ``serl_controller`` wheel), Ruckig ``move_to_*`` (``IDLE`` only); ``realtime``, ``relative_dynamics_factor`` and ``load`` apply here
+     - torque-level impedance trackers for servo modes (or, with ``cartesian_controller: internal``, Cartesian velocity motions for Cartesian servo; with ``serl``, SERL's controller and joint reset from the ``serl_controller`` wheel; with ``joint_controller: trajectory_impedance``, joint servo uses the trajectory impedance controller of the ``joint_controller`` wheel), Ruckig ``move_to_*`` (``IDLE`` only); ``realtime``, ``relative_dynamics_factor`` and ``load`` apply here
    * - arm ``serl_http``
      - none (HTTP)
      - no

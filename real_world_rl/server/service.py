@@ -50,7 +50,9 @@ METHODS = (
     "arm.configure_control",
     "arm.control_metadata",
     "arm.serl_params",
+    "arm.joint_trajectory_params",
     "arm.update_serl_params",
+    "arm.update_joint_trajectory_params",
     "arm.last_joint_reset",
     "arm.serl_auto_recovery",
     "arm.reset_serl_auto_recovery",
@@ -154,6 +156,8 @@ class RobotService:
             "arm.control_mode": self._arm_control_mode,
             "arm.configure_control": self._arm_configure_control,
             "arm.control_metadata": self._arm_control_metadata,
+            "arm.joint_trajectory_params": self._arm_joint_trajectory_params,
+            "arm.update_joint_trajectory_params": self._arm_update_joint_trajectory_params,
             "arm.serl_params": self._arm_serl_params,
             "arm.update_serl_params": self._arm_update_serl_params,
             "arm.last_joint_reset": self._arm_last_joint_reset,
@@ -378,6 +382,13 @@ class RobotService:
     def _arm_control_metadata(self) -> dict:
         with self._lock:
             return self.robot.arm.control_metadata
+
+    def _arm_joint_trajectory_params(self) -> dict | None:
+        return self.robot.arm.joint_trajectory_params
+
+    def _arm_update_joint_trajectory_params(self, params: dict) -> dict:
+        with self._lock:
+            return self.robot.arm.update_joint_trajectory_params(params)
 
     def _arm_serl_params(self) -> dict | None:
         return self.robot.arm.serl_params

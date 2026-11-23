@@ -16,6 +16,7 @@ field or behaviour.
    doctor
    control-profiles
    serl-controller
+   joint-controller
    serl-robot-validation
 
 .. toctree::

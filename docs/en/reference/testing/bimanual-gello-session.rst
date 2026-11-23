@@ -1,3 +1,7 @@
+.. note::
+
+   This historical session used the pre-dataset recorder (``--output-path`` pkl). For current recording commands, see :ref:`en-recording-demos-recording-demos-on-the-real-robot`.
+
 Reference only: the first hardware session followed the long form of this page; keep for the next bimanual session, not maintained with the tutorials.
 
 .. _en-testing-bimanual-gello-session-bimanual-franka--gello-session:
@@ -69,6 +73,7 @@ Run P00–P03-R with daemons off. After both doctor checks pass, start this in a
 
 ``record_case`` prompts GO before each reset, allows exactly one attempt (default 1200 steps), runs the supervisor, captures exit status and exports archive evidence. Reference expansion of its T00 recorder invocation follows; use the table's helper, which also captures/exports evidence, rather than running this a second time:
 
+.. tutorial-test: skip
 .. code-block:: bash
 
    rwrl supervise --log "$RUN_ROOT/T00/supervise.jsonl" -- \
@@ -161,3 +166,9 @@ The inspector is read-only and does not finalize unfinished episodes. Retain rec
    :file: bimanual-gello-session-record.csv
    :header-rows: 1
    :encoding: utf-8-sig
+
+Current recorder syntax (not part of the historical run):
+
+.. code-block:: bash
+
+   rwrl supervise --log local/supervise.jsonl -- rwrl record --config local/gello-bimanual.yaml --output-dir local/bimanual-demo --num-successes 1 --max-episodes 1

@@ -10,8 +10,8 @@ walks through the commands in order.
 
 After installing the ``real-world-rl`` package with the station's device extras, ``rwrl`` is
 available in that environment (\ :doc:`installation <../tutorials/install>`\ ); it is equivalent to
-``python -m real_world_rl.cli``. ``train``, ``record``, ``deploy``, ``deploy-act``, ``deploy-openpi``, ``collect-reward``, ``teleop run`` and
-``archive inspect`` also need the ``learning`` extra; without it they exit 2 with the hint
+``python -m real_world_rl.cli``. ``train``, ``record``, ``deploy``, ``deploy-act``, ``deploy-openpi``, ``collect-reward``, ``teleop run``,
+``archive inspect`` and ``dataset export --format pkl`` also need the ``learning`` extra; without it they exit 2 with the hint
 ``pip install -e ./rl-garden -e '.[learning]'``. Run hardware commands on the **robot host**
 connected to the devices, with the **project environment active**. Relative station and preset
 paths resolve from the current directory. Each primitive connects for its invocation and
@@ -255,8 +255,11 @@ the child.
      - remember, show or forget the default station and preset for this directory (\ :ref:`details <en-cli-remembered-station-and-preset>`\ )
      - 0 / 2
    * - ``archive inspect ARCHIVE``
-     - read a recorder SQLite archive offline (\ :ref:`details <en-cli-archive-inspect>`\ )
+     - read a demo dataset directory offline (an old recorder SQLite archive is also accepted) (\ :ref:`details <en-cli-archive-inspect>`\ )
      - 0; with ``--stop-time-s``: 0 PASS / 3 FAIL / 4 BLOCKED; 2
+   * - ``dataset list|view|drop|undrop|prune|export DIR``
+     - list, replay (Rerun), drop / restore / prune episodes and export to pkl or LeRobot, offline (\ :ref:`details <en-cli-dataset>`\ )
+     - 0 / 2
 
 **Learning:** ``train``, ``record``, ``deploy``, ``deploy-act``, ``deploy-openpi``, ``collect-reward`` (\ :ref:`above <en-cli-learning-commands>`\ ).
 
@@ -345,7 +348,7 @@ built from points. ``frame show`` instead includes ``origin_base_m`` and
 archive inspect
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Reads the archive read-only and prints indented JSON: outcomes, mask counts, hold drift, and
+Reads the dataset directory (or an old SQLite archive) read-only and prints indented JSON: outcomes, mask counts, hold drift, and
 take-over jump and residual per ``human_action_mask`` segment. ``--csv PATH`` and
 ``--measurements PATH`` write new step and measurement CSVs; ``--drift-window-s`` (default 10) sets
 the hold-drift window; each ``--stop-time-s T`` (repeatable) adds a settle evaluation with
@@ -355,6 +358,13 @@ fields on one line, non-finite numbers as ``null``, plus ``status`` (``REPORT``,
 ``--station``, ``--robot``, ``--preset``, ``--direct``, ``--mock`` and ``--yes`` are usage errors.
 ``python examples/inspect_teleop_archive.py`` is an alias whose exit code ignores the settle
 status.
+
+.. _en-cli-dataset:
+
+dataset
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``rwrl dataset <list|view|drop|undrop|prune|export> DIR`` works offline on the demo dataset that ``rwrl record --output-dir`` writes (format and usage: \ :doc:`Recording demos <recording-demos>`\ ). ``list`` prints the episode table; ``view`` replays in the Rerun viewer (``-e N`` is repeatable, ``--web`` serves a web viewer, ``--save PATH.rrd`` only writes a file; needs the ``viewer`` extra); ``drop DIR N...`` (``--note TEXT``) and ``undrop DIR N...`` reversibly drop or restore episodes; ``prune DIR --yes`` deletes every discarded episode directory, and omitting ``--yes`` (or the global ``--yes``) is a usage error; ``export DIR --format pkl|lerobot --out PATH`` exports (``--frame-stack`` and ``--keep-syncing-steps`` apply to pkl only, ``--repo-id``, ``--fps`` and ``--vcodec`` to lerobot only; lerobot needs the ``lerobot`` extra). ``--json`` prints the matching structured result. No station is loaded: ``--station``, ``--robot``, ``--preset``, ``--direct`` and ``--mock`` are usage errors. Read errors such as an unknown episode or a directory that is not a dataset exit 2.
 
 .. _en-cli-robot-host-diagnosis-and-repair:
 

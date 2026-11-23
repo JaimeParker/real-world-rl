@@ -38,14 +38,19 @@
 ``train_rgbd.py``，基线命令位于同目录的 ``baselines.sh``。
 它们依赖 ManiSkill 及旧的顶层 ``act``/``envs`` 导入，不是仓库根目录入口。
 本仓库的真机示范请使用下文的
-``python -m rl_garden.models.act.train_trajectories``，无需模拟器。
+``python -m rl_garden.models.act.train_trajectories``，无需模拟器。它读 pkl 加 contract sidecar，而 ``rwrl record`` 录出的是数据集目录，先用 ``rwrl dataset export DIR --format pkl --out demos/task.pkl`` 导出（见 :doc:`录制示范 <recording-demos>`\ ）。
 
 .. _act-training-from-trajectory-pkls:
 
 从轨迹 pkl 训练
 --------------------------------------------------------------------------------
 
-``train_trajectories.py`` 从以 pickle 格式保存的状态转移列表训练 ACT，无需模拟器或 ManiSkill，适用于真机上录制的遥操作示范等数据。从仓库根目录运行：
+``train_trajectories.py`` 从以 pickle 格式保存的状态转移列表训练 ACT，无需模拟器或 ManiSkill，适用于真机上录制的遥操作示范（先从数据集导出为 pkl）等数据。从仓库根目录运行：
+
+.. code-block:: bash
+
+   rwrl dataset export demos/task --format pkl --out demos/task.pkl
+
 
 .. code-block:: bash
 
@@ -60,7 +65,7 @@
 -  输出：\ ``runs/<exp-name>/checkpoints/final.pt``\ （显式设置 ``--save-freq`` 时每隔指定迭代保存 ``<iter>.pt``，默认 ``None`` 不定期保存\ ），包含 ``agent``\ 、\ ``ema_agent``\ 、\ ``norm_stats`` 和完整的 ``act_config``\ 。\ ``ACTBaseActionProvider.from_checkpoint(ckpt_path=...)`` 默认使用 EMA 权重加载检查点。训练期间不进行评估。
 
 ACT 轨迹加载器不读取 ``human_action_mask`` 或 BC/HIL 使用的版本化训练片段元数据。
-请使用全维度人工示范并保留观测间隙划分；它不支持按掩码进行部分模仿监督。
+请使用全维度人工示范并保留观测间隙划分；它不支持按掩码进行部分模仿监督。导出的 pkl 带有掩码，但 ACT 不读取它。
 
 .. _act-citation:
 

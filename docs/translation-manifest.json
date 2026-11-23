@@ -3,8 +3,8 @@
     {
       "zh": "README.zh-CN.md",
       "en": "README.md",
-      "zh_sha256": "939e1c99e895a3801c2d798a63b93c543cc7d38b89b30b8804043c57c3b74224",
-      "en_sha256": "63af4b7f586a8f12c0311c1901459cb4fda3d58a30296d671c48a1e7f2517cfb"
+      "zh_sha256": "02c57fd9369522bdf0b21ef1b834369717079ac99fbb1e90375f90d92d7ce4a5",
+      "en_sha256": "a17dbdec5c82f130f668d23ca85e403a81e8c660bbaa67e256eba7798e1261f0"
     },
     {
       "zh": "docs/examples/controller-impedance.yaml",
@@ -19,10 +19,16 @@
       "en_sha256": "7a6e85966001bdd9b603195ba449acfcc85e94877d00482314e81968f22c37b1"
     },
     {
+      "zh": "docs/examples/controller-joint.yaml",
+      "en": "docs/examples/en/controller-joint.yaml",
+      "zh_sha256": "03bc7a1a62823af001562100d77fceb21af6874a07f4f5d95dd6d218b11d1d42",
+      "en_sha256": "c7db030cd6d5c6d10e2b2e13021b300fa2297bded2f3f75111dab6b3d2fd26eb"
+    },
+    {
       "zh": "docs/examples/controller-output.txt",
       "en": "docs/examples/en/controller-output.txt",
-      "zh_sha256": "f33d7f69e94e0c6a440a24ca1868b2b98a749ae5736efe2caa3044e8a7a5f992",
-      "en_sha256": "ca817bb0bc4a11b7e795be2baa54720808e18aa5e0da08522e026a498098ba87"
+      "zh_sha256": "de80293324418145e5c5b7f65ce69aa3c17472f5794a93a12cbbf6f17d8582ab",
+      "en_sha256": "91866fd130a96160892cf95d7c5968f052b8f55252bbe71a518d99ac271cffe9"
     },
     {
       "zh": "docs/examples/controller-serl-params.yaml",
@@ -39,8 +45,8 @@
     {
       "zh": "docs/examples/controller-task.yaml",
       "en": "docs/examples/en/controller-task.yaml",
-      "zh_sha256": "4a6638b56c81d5d0db24cf598e4fd4b447410ee213107e60f992c28309c714b2",
-      "en_sha256": "79364a98993d244e04c2324158640d27a82b927bfdaf18e9e312fe5ef3e50470"
+      "zh_sha256": "85ff4da726f1e910dafd93e7d5ac43a893147b576bd2d12d6d61fe4a05258898",
+      "en_sha256": "e81a38db6a9cbab688d21bae301c6e1f6476b433ab2f4584ad04626329d2a0ed"
     },
     {
       "zh": "docs/examples/deploy-openpi-output.txt",
@@ -63,8 +69,8 @@
     {
       "zh": "docs/examples/record-output.txt",
       "en": "docs/examples/en/record-output.txt",
-      "zh_sha256": "dc6b2f36fd7f4aa3296ff7f724a7206938385345e218d5b3053b4efabcbf344a",
-      "en_sha256": "885bdcfc9a6f0dc1c94a015635327244cf4c4e5d7ecde91f960250fcb03734e4"
+      "zh_sha256": "cf077d2c8e3994b316914a36d113001dfcb0352a134cffb716e4455875a79fdf",
+      "en_sha256": "8420e20c25904ab33f198a29680940bb756baa90457d83228e88c0ef831a839a"
     },
     {
       "zh": "docs/examples/rl-overview-diagram.txt",
@@ -111,32 +117,32 @@
     {
       "zh": "docs/examples/task.yaml",
       "en": "docs/examples/en/task.yaml",
-      "zh_sha256": "1b334a7ed5df88f52622ec1d505b60ff6abe7b3e275a4f9d0047f043699db432",
-      "en_sha256": "5ef7c313c2a8930eb563e740323c9ee860c5d9b35e91cdd4ca0ec02b9a6134c4"
+      "zh_sha256": "ab5c2646782e0ee2bc7f47ad9b1390169171989187fb0af5aebaba1acb022d94",
+      "en_sha256": "31c0e3d8ed524c1a841c56705257f23ff566bcd5e8094aff438032fe50adc536"
     },
     {
       "zh": "docs/index.rst",
       "en": "docs/en/index.rst",
-      "zh_sha256": "c22c97aceb242aa476d3eb717b89601da5aa79405ce7370f850fc0e548df0be5",
+      "zh_sha256": "c2a2fa76b537840c31b15e51c7d27a0f61d9ac12c0c87f42d87cad7d7dba62cd",
       "en_sha256": "cac2ec4c0fb2137ed4dc69a3e33dbda10ddfd2fc2f08511d5e69fcdbecaf2d06"
     },
     {
       "zh": "docs/reference/act.rst",
       "en": "docs/en/reference/act.rst",
-      "zh_sha256": "0609ca31a8a3e1a31c23fc724938b85cc0570108fc0a7140912f6ef109293d15",
-      "en_sha256": "d5d9ce016e1750700c84d283f4a1bf728a80cd06e93b191e2527ea53208ff887"
+      "zh_sha256": "576c251b67aa928014a20f98cecc6c4a94d1c533a7a4474d377af829fa7c4a55",
+      "en_sha256": "e93d277de3cd3b40c77ae2a13947ca824855ab7b8d4e13e11a74d235a941e3c6"
     },
     {
       "zh": "docs/reference/bimanual.rst",
       "en": "docs/en/reference/bimanual.rst",
-      "zh_sha256": "90697ef0baca54d1ab81388944995ff7b0c1c6dbb8afe2f39f8bad9b2bbc071c",
-      "en_sha256": "44afe0b8d32fdfbf90e92f9104bb08cd66b346e433b7c75ea3fbb2fc3655df28"
+      "zh_sha256": "27d366b4dd1d6e400151aa7f2c6278c397c3a0fffca0d06615092727e9aa366c",
+      "en_sha256": "de5cb69bc4811434a8e2bfd837de832204486e81dd7309cfa07caf003240a10f"
     },
     {
       "zh": "docs/reference/cli.rst",
       "en": "docs/en/reference/cli.rst",
-      "zh_sha256": "af69b9452d0c7e772a81cb91dc71b9488f29ed2ee64408d451885d63a4513e5a",
-      "en_sha256": "7c265e79fad5ffa864d6cddad1f5144382b75164f295a3f2e7cf8fe7c387409b"
+      "zh_sha256": "1933b0dcf1581682d55a4b1e74743372b35d0898fb581607da5644a29c6ed461",
+      "en_sha256": "fbe087a4954f52f2ee53a59fdcd8e4272db79a6c338436eb41c7f13589e19cef"
     },
     {
       "zh": "docs/reference/control-profiles.rst",
@@ -147,8 +153,8 @@
     {
       "zh": "docs/reference/daemon.rst",
       "en": "docs/en/reference/daemon.rst",
-      "zh_sha256": "3b32e5248990e75dadb6a0a9f95368b36400fdafeb20e1e0d6f468b1901b9b86",
-      "en_sha256": "58ebf7f7df30a7aaf411686a2c38eed7f090f94bb7350bb3cee2e55fab6e6fe6"
+      "zh_sha256": "c2a6a57b363e86112c75e3591418431de9901c07ac741c715c3d00fa51b35c9f",
+      "en_sha256": "78ad1a4a5770fdf8e6d3be5d0b329fc921e09e9266f0180180ec7b4076244a43"
     },
     {
       "zh": "docs/reference/deploy-openpi.rst",
@@ -159,74 +165,80 @@
     {
       "zh": "docs/reference/devices-roadmap.rst",
       "en": "docs/en/reference/devices-roadmap.rst",
-      "zh_sha256": "a1b5317f4e3f0d5afd103e5757f10d529786aab92aa366d92dc66a008c360a38",
-      "en_sha256": "83db8dbfd051f4d735d4479e1edea55ac296517f29eb01053a25bae2382993c5"
+      "zh_sha256": "caa72a686a0b2afe379516d1810aa90654929423f0e662cb9b855687465bfee1",
+      "en_sha256": "29ca734cb00bcafc93e98aab55f6e3efba73aa6f2ac9c6c407837d2ca176807d"
     },
     {
       "zh": "docs/reference/devices.rst",
       "en": "docs/en/reference/devices.rst",
-      "zh_sha256": "b37705c9687b999c3b69d24184bdd6d0c0532031a3275835d4463905459ccf3c",
-      "en_sha256": "d573f2c1943534d6f4c663337c84bf7679ee650e9b37d2b76d13f361a69d0292"
+      "zh_sha256": "1d383b4ad16cc79a97d096e3054c41709ee41e1d4801bbf340a329d4f588bd07",
+      "en_sha256": "86c591975c9407ba7bbac4ef58573f45d6f479ab87e3ddc561d81bc3ca6819e9"
     },
     {
       "zh": "docs/reference/doctor.rst",
       "en": "docs/en/reference/doctor.rst",
-      "zh_sha256": "a0f467d2e70a4903a2d42cdcb1028d584a8ddcffe44b176998cccda3955b75f6",
-      "en_sha256": "40e1f96a46ee398f12b03fc4f8b10c9cb1906d1dd6205909050f6541b58092f2"
+      "zh_sha256": "0323ea758fdf85884241f1d767d06d729826c5f51a58a8266ee72d27334ad44a",
+      "en_sha256": "f0e549c3e74590b23eb406a0e12b52da004abc26cb516ff73d35c4ec29e596fd"
     },
     {
       "zh": "docs/reference/gello.rst",
       "en": "docs/en/reference/gello.rst",
-      "zh_sha256": "5e2e4721ea88b93117629b68a4a3bc0bafcd8df115df24c136afe53823c1bbc3",
-      "en_sha256": "b7a53f8db7e781e56c2da96e8ca869c521974d4d8ec26ecfbd2a207b0b8b9c8f"
+      "zh_sha256": "4e430bb254c40caa776d3a6bb846aba6617c0c049cd9cc0d8269cb1d59e17b97",
+      "en_sha256": "34f0103654b116edd90e4951c64b4a59266b8f834c21efcabfebc784a8915ee0"
     },
     {
       "zh": "docs/reference/hil-serl-roadmap.rst",
       "en": "docs/en/reference/hil-serl-roadmap.rst",
-      "zh_sha256": "389d6ac266389a83abcb6da89d1666348fe7ad86ca18fd15da26b7d3d1f5de91",
-      "en_sha256": "bbd09a7eba40d490af046b632a8b44130f97addf14a5b41040fbe633fb095717"
+      "zh_sha256": "4ce65228045e00ba048ba4df6959125e301c72343148c590b35ae684c20ff699",
+      "en_sha256": "2ef55e9ac1095f31051ef31561ecec857aaf33d7ded55b9f1eed65d74f8cd5c6"
     },
     {
       "zh": "docs/reference/index.rst",
       "en": "docs/en/reference/index.rst",
-      "zh_sha256": "70ce43ca463c56dfb0ce04d594552eece1d9e0789f0ce481acb58176ccda5909",
-      "en_sha256": "b08ad1a202488fabab62b9ce9d66b2567777a3ecec2527872106ad91b7e281d6"
+      "zh_sha256": "19c47db1df6be344d9ed4c1fde5b21ffbc0678bb9326bf8f4d94ed8581831785",
+      "en_sha256": "9afcfec21a1153b6462a6120add4ad11e5dd25d7155c741f23baa6890bb0790c"
     },
     {
       "zh": "docs/reference/intervening.rst",
       "en": "docs/en/reference/intervening.rst",
-      "zh_sha256": "6f41fd2dec33416ae3401dd4c2e2cde2c3ea65a2ec91db8687a434226f63a794",
-      "en_sha256": "2fd7e0226d473023e3e7dbb7a1d31d6717f2f9bb20ac1a6c0cf259d3fe012a1e"
+      "zh_sha256": "bba9af3c8e7dea6d8f08c7a38cb6ad5a02dc680a12af996eb128fcfaeafaf66a",
+      "en_sha256": "9dce2743ded8d1cfc4c33901b38b5910fec2d8baae7900ea9dbf63c49ccc79fc"
+    },
+    {
+      "zh": "docs/reference/joint-controller.rst",
+      "en": "docs/en/reference/joint-controller.rst",
+      "zh_sha256": "028b86c6478f4e5e585cb4bb5edd6ba505d7b0a8d3738b9dcd4e1b67391739ac",
+      "en_sha256": "d90a49a3af0fed8f60317286c727e9dffac15ca9a4c71eff497049f08bc691dd"
     },
     {
       "zh": "docs/reference/known-issues.rst",
       "en": "docs/en/reference/known-issues.rst",
-      "zh_sha256": "2865935f9d14f7a5db154be0a610ddf94d8722095821b55667e582675a067df5",
-      "en_sha256": "aa1262d03b3f90db96cfc9de2d42ada529a30f90fff65fbb0783646a10d2fe16"
+      "zh_sha256": "290b4d473eba0ae3b36dcaaace0a746313bdeee40173dab3ba5279eaf74de5ba",
+      "en_sha256": "13c2ef00e5550a86fdbdf6cc042c85fcf788a52fffdce5d4d2ef995929e9a035"
     },
     {
       "zh": "docs/reference/real-world-experiments.rst",
       "en": "docs/en/reference/real-world-experiments.rst",
-      "zh_sha256": "83493bd72479430f0575596fc9035a28f55da14162213b77d0426eafe31bec8d",
-      "en_sha256": "1986fa882b31f42353f47595634c377a94b3949c5256dad8ebfc39a808eea526"
+      "zh_sha256": "99943274fcfdcfffcb8d6f946b235d97dae7038b3c88b02bb848229bccd366db",
+      "en_sha256": "a381eac04d8babc901557f7c29ea31b923699cbe65ea48d5b15c8b3c7afc3616"
     },
     {
       "zh": "docs/reference/recording-demos.rst",
       "en": "docs/en/reference/recording-demos.rst",
-      "zh_sha256": "1cba200d626b51225d3475583af4a02858517f62d994d064877cd21b65302267",
-      "en_sha256": "46a3405f9a199fb34062a92723bab5ca811d76cb66d749adb8df835e87f74e09"
+      "zh_sha256": "efa6ca4642929b2f540e0f183cf9bab7d2bfe84d1218f8560ad0252241e64d02",
+      "en_sha256": "b3d5ef98d46b1e0eeccf2efb2155f299abf296d7ae29bdf164d1c2374a1ca787"
     },
     {
       "zh": "docs/reference/remote-actor.rst",
       "en": "docs/en/reference/remote-actor.rst",
-      "zh_sha256": "08037667188bae380cade24f822c7b953e5a281d062b7c40c1aec7d33fd409a6",
-      "en_sha256": "94bfcde12c80977c30b989ce12ecf7c338b38909af3c64ed6e8b7c6efe360273"
+      "zh_sha256": "38742215e174dbb2e79bc1c1fc28b417eedbe73c146d1878a823ec5f4b936e4b",
+      "en_sha256": "e3a4002d1f249b8d9ba89b065d459f7a931a40db3b950f25b92bb841e3901fab"
     },
     {
       "zh": "docs/reference/residual.rst",
       "en": "docs/en/reference/residual.rst",
-      "zh_sha256": "608d409ad4dd54adbc6c2ccd00da219f81a8a81a6d13ee9b8a7cdb2c6b7059c3",
-      "en_sha256": "bf1eaaa45b4e084443b5d4335b0e6a8815ae5689aa59912b5053b490fa6e847e"
+      "zh_sha256": "8894e418897dd521d968aa170d5f11748b617500ea9d68da08ec1dcb5ea1a8c4",
+      "en_sha256": "72a53d5a35d4bc3c93011a2a45f4918d71fb54e2dbfac05a1412ac4db6e3d125"
     },
     {
       "zh": "docs/reference/serl-controller.rst",
@@ -237,32 +249,32 @@
     {
       "zh": "docs/reference/serl-robot-validation.rst",
       "en": "docs/en/reference/serl-robot-validation.rst",
-      "zh_sha256": "1b592a09fb7be62261930454bacd7794f93b25467be851e26ff7d93fad5153ac",
-      "en_sha256": "7fbe4e5abd16e2f9ba909ff97c8c3155270784248a6a3ccb9329ab96bb4b1a86"
+      "zh_sha256": "f9ff6753b8f62e319683436c00579975b582a7f9e62340c29c8266e2a438f6d1",
+      "en_sha256": "4653a76ec3825558dcdd30f24b8ae598fafa81e7594027c3636c2e8209c62fa8"
     },
     {
       "zh": "docs/reference/silri.rst",
       "en": "docs/en/reference/silri.rst",
-      "zh_sha256": "131e404d0a2538be9d6aa1260863f8fa93be2f6a34ced53dfa71cb66ccd55b4f",
-      "en_sha256": "8147a748f9835ce49a5758f611c6025016e3c6418a44ed061eef71b7c7cdbdd9"
+      "zh_sha256": "c89d59c2b0c93d5ae6bbc3ff70541f7f14fbb21aa2e6032300ef8c2521f72b7e",
+      "en_sha256": "0bee8e8b160866526b10e67e1074edf6af57d461a6f8c1f3e89de3e9b6fdc7e9"
     },
     {
       "zh": "docs/reference/spacemouse-commissioning.rst",
       "en": "docs/en/reference/spacemouse-commissioning.rst",
-      "zh_sha256": "8c58626610da716d5fcf064548472ae505492dbd830501634fa2a6b55a32d515",
-      "en_sha256": "2400ce415f7cacb29b6ea0098d9436544c38633a5653f18c4692c368eeaebd4e"
+      "zh_sha256": "19ce36bd7820a738803cf758e0d3f7b450940144c18716be3bf7e8e825ce836e",
+      "en_sha256": "f82010484939173e17df416f899bd7564aa327849ffb76cff8e99a95268788a3"
     },
     {
       "zh": "docs/reference/teleop.rst",
       "en": "docs/en/reference/teleop.rst",
-      "zh_sha256": "b3a1bc9a02dea1b3e430a8792d84ac4963fd5686b0c498dbacca54e3c15337ab",
-      "en_sha256": "90a703975ecfd3a3d1b70d73ca275cb3aa6d98c4e9e63e2a92892c546cc36cde"
+      "zh_sha256": "8d0a598bf20e6c7bddbc3ffab97bbce3bd7596a1158966ac145a8a501a04c2e7",
+      "en_sha256": "58b7e6cffc6b7fe171c6bd0751510611d08dedcfef8f84b2b47022ed56bde952"
     },
     {
       "zh": "docs/reference/testing/bimanual-gello-session.rst",
       "en": "docs/en/reference/testing/bimanual-gello-session.rst",
-      "zh_sha256": "3fa6985e2b954952f3867f177972a7f642d75bfdca95f42b67fae25a7eb5ea71",
-      "en_sha256": "478355db6f22a500ac4d9483134ba148fb353b07d662e8f89fc0974e4d4d8462"
+      "zh_sha256": "50b332e612c30dca49ca6204d7957dc01eb0d780a7f70d2185ca820df6ff5438",
+      "en_sha256": "216e2618019d597f1be546e613d8868426e712e284a99eb11101b6ea7746b52d"
     },
     {
       "zh": "docs/reference/testing/index.rst",
@@ -273,38 +285,38 @@
     {
       "zh": "docs/reference/testing/single-arm-gripper-session2.rst",
       "en": "docs/en/reference/testing/single-arm-gripper-session2.rst",
-      "zh_sha256": "171494d38451a13cab0e14232ddd93b00a8a14ef95f3c12c37e356535788ad07",
-      "en_sha256": "04ea131b84402538b7788f51b0d8208c9010c09087f6aa762a06474f8175676b"
+      "zh_sha256": "90d6ae8fbae07cbc82f3842b3643f81299c10282236a5ca2d03542b51a8026e7",
+      "en_sha256": "de2a44329c1bc93774128cffc3ae9777f770305ca5ef471a0993d22eba8dcf3d"
     },
     {
       "zh": "docs/reference/testing/spacemouse-control-session.rst",
       "en": "docs/en/reference/testing/spacemouse-control-session.rst",
-      "zh_sha256": "35a96cc4b7e0261074bf36d6b2ae79a6e33369171f273cb777eec950aae1307b",
-      "en_sha256": "f4b8660707aa5280fde15b12c03226bcc49da95a83b4829d295460ced9ca1a1a"
+      "zh_sha256": "d7bca99d263576420c141eb7b727448c314d0eb0208b8d0389d8effaff89fcfa",
+      "en_sha256": "aeb8662b1162af51333cb8d5a99c2d9637f5379c55d37c0c847b25b1cc7470e0"
     },
     {
       "zh": "docs/tutorials/bc-check.rst",
       "en": "docs/en/tutorials/bc-check.rst",
-      "zh_sha256": "f60275b5ebc2b37a5545e99dcdd7770377c863effc338652e8bb2159ab4d4a32",
-      "en_sha256": "32f32837be4926a322cd7a4f88bc1ff8c95c88c45015ddbb22409a0bae602945"
+      "zh_sha256": "027fce2fd65574e175257c24cd1cbe4ea2e1674e33ca8200ff43612b75b631f8",
+      "en_sha256": "78e5011bf4fbd812684554fde5a05bbf1f5f6ff573ca6f77494750780092e9bd"
     },
     {
       "zh": "docs/tutorials/bc-data.rst",
       "en": "docs/en/tutorials/bc-data.rst",
-      "zh_sha256": "b09d4882f8f0cc5a7fed4c5cfa3dcf63d1d4f8807a7968b515986942963521a5",
-      "en_sha256": "45c669035ccdbfae634bde72f77528d413541a922c2f1ef70e291fe8c0e4626a"
+      "zh_sha256": "d119c0bbb711589ba9c2118bd0473cfc8b3599f1f86fdd505abc459251e578c4",
+      "en_sha256": "add448ac692d36579f89898be2eb9cc9a1582554511b6dd6dc989ae1b6cafaf3"
     },
     {
       "zh": "docs/tutorials/bc-train.rst",
       "en": "docs/en/tutorials/bc-train.rst",
-      "zh_sha256": "3eca5ac512280798c214ed3691c855618a42bab36b8166c5a337bec6608453ec",
-      "en_sha256": "094897496c986af710d2ec24809fe1dbb4fa4ee126e354835be3847958210ef4"
+      "zh_sha256": "4ea1849ed8912c47038c85b9ee74a54813cb8224e9a3aa29d33dcc498a947a7d",
+      "en_sha256": "ae5da9e3ff023315745476e697f3ccca9971423e573f32bb3985d8fad59caa2c"
     },
     {
       "zh": "docs/tutorials/controller.rst",
       "en": "docs/en/tutorials/controller.rst",
-      "zh_sha256": "00e8550992b7736ad6bcd26fed5e753360c197fd4954b4b66516ecb65998322f",
-      "en_sha256": "ca4b33e0b932e89f403dda31fa9cd77afc69587a190da96759df927980595905"
+      "zh_sha256": "81a239a546da05c903a5a698c54000c3c8789d2a701938d3dd9ed562919e0084",
+      "en_sha256": "cf54d30ea0d714df7d7e06d12b28ce6b8411632838a09e5c868e3088bd8f39cd"
     },
     {
       "zh": "docs/tutorials/deploy-openpi.rst",
@@ -315,20 +327,20 @@
     {
       "zh": "docs/tutorials/deploy.rst",
       "en": "docs/en/tutorials/deploy.rst",
-      "zh_sha256": "df5ed5f6698ee8bd6f99d34157158fb922afa97de6222a76dbd5f1813067633f",
-      "en_sha256": "45cd71dc8a22725ce8f1fb4224c92cf07aa45db0aaca7a9a5782fbdc41670cae"
+      "zh_sha256": "944215723cffb0534924a23d5ac51a49ee22a7c348cad5729cd8513d75c57233",
+      "en_sha256": "2c6d1773f0dc9302c011111666297852014277538b461d48226cbb0e4a533334"
     },
     {
       "zh": "docs/tutorials/gello.rst",
       "en": "docs/en/tutorials/gello.rst",
-      "zh_sha256": "a55bc30d5a2e36545b97e18fde55eef4876f25e8f5dcc72f964121891ec30a93",
-      "en_sha256": "a565c25edb2f8bd3fc7834b16700914fb01857177fa08e64a668fb0062bdb5c9"
+      "zh_sha256": "7f2f3a5870dfded2b9f6f61821c98f9ef78c3d9f4ffab1ff51dd5cad97cb299b",
+      "en_sha256": "1f5afbdc9f7cc398939c383708d95b87df92bc387342de61cbff703759235f53"
     },
     {
       "zh": "docs/tutorials/inspect.rst",
       "en": "docs/en/tutorials/inspect.rst",
-      "zh_sha256": "7410f8d5a37cca0fef113447a2e0cb9cb5597fbd0803749603eb72e40f5c4fb4",
-      "en_sha256": "78c176292fa23fd0bd58d8a51c2c07db60cf4a226a9f8fc4b22ec6a66034739b"
+      "zh_sha256": "f12f0db1a397dab9ebe554a7e7e181e6e421b43a84e3600ef3acf53cefa6c421",
+      "en_sha256": "7eb972e4d0a1ce772bf2b35a45dce60bb3e0d83ce4497db2ecad48315b09ef70"
     },
     {
       "zh": "docs/tutorials/install.rst",
@@ -339,8 +351,8 @@
     {
       "zh": "docs/tutorials/record.rst",
       "en": "docs/en/tutorials/record.rst",
-      "zh_sha256": "cfe74d0ee8cf24e52b078bc7f045b33144343dc71fdd3fb1ff41278751719716",
-      "en_sha256": "f200be1c95fad5167bfbe1e96ad389c11889a34e2d64dcd95bb8bb0ca40f5bf1"
+      "zh_sha256": "969cb0b846c6a8a96c1eda43163fcc7b17b5782e3b5bd0b9d6768e9ed3815795",
+      "en_sha256": "03f73deced1dd5af2e0b1d23ab027885779c4e0cfd1ce1d4de3bc85ca1ca5bd5"
     },
     {
       "zh": "docs/tutorials/rl-intervene.rst",
@@ -351,26 +363,26 @@
     {
       "zh": "docs/tutorials/rl-overview.rst",
       "en": "docs/en/tutorials/rl-overview.rst",
-      "zh_sha256": "1a66c7a276374a81358d0f533653eb469e23fb6dfea40681cb4580aa64662903",
-      "en_sha256": "7d09587f5de14853e4a430397691440e19fd4590bfe65819c2040f7c034176dc"
+      "zh_sha256": "b2f7ff0ee543c151da30cd53b9fc62a2d3442e507ef20402fadadea20b0088d5",
+      "en_sha256": "9d3c0b0a1c57228a0deeaabb1a5f5e8a7214e2d176a1267136ef34442cb67e2e"
     },
     {
       "zh": "docs/tutorials/rl-resume.rst",
       "en": "docs/en/tutorials/rl-resume.rst",
-      "zh_sha256": "80011ec9949523b752f148e3e191056c1b6b452203bcdf562a1049a92d7d74c9",
-      "en_sha256": "9da1750890ac6ec342cc9e79706136000e75e369b21aef8ca6cd62b32ad5c8ec"
+      "zh_sha256": "28e250db8ea297e5a928be8a942ff3a3f0e6006a627bd58156c7b701440bf96c",
+      "en_sha256": "77f87d75c441153bd40fbb454282b576a506f6473e419108519a70f7b4ad1a80"
     },
     {
       "zh": "docs/tutorials/rl-task.rst",
       "en": "docs/en/tutorials/rl-task.rst",
-      "zh_sha256": "ae13760f0dacc1e72c7ee9e84c234a6327584ac9b944926da02d5ded8a4f35fc",
-      "en_sha256": "18dd3f90432bd8f63c7a7614e81047088a7ade28140758de06aa87c56ac2d1f8"
+      "zh_sha256": "b4a3bdc56385a9e6c89dddc4921c795247303a34ea56727018fe042a9c535f48",
+      "en_sha256": "dbd4224b8a67d48b9a11650878331dad4e338e7ed4f40c36a06630376abe934e"
     },
     {
       "zh": "docs/tutorials/rl-train.rst",
       "en": "docs/en/tutorials/rl-train.rst",
-      "zh_sha256": "1a3b2af0cc69f1d474f51574b5e1cef2253889e83344408521f4aed3d2414db2",
-      "en_sha256": "ea0a6869e3af901e0e827676a2dff56492fb46067866d04e89e757138387e3cd"
+      "zh_sha256": "a1575f6974f5f3bf593aa27aa5f4d66a95a757b6d49e5877e73fe978b5e80f98",
+      "en_sha256": "3d5f82abfac41e027a7c530b8dddc14619bf9d4ce61c14e5eadf48f06210be86"
     },
     {
       "zh": "docs/tutorials/serl-controller.rst",
@@ -387,8 +399,8 @@
     {
       "zh": "docs/tutorials/station.rst",
       "en": "docs/en/tutorials/station.rst",
-      "zh_sha256": "b7291d550444ed5d30bcf9a91e482aaa5a9e5a38a8cda7eb47b35393bb9c2d51",
-      "en_sha256": "4b157dca971c6b85ebd8177896c4236986a58c47cfda67965065dc2c0b12d60e"
+      "zh_sha256": "f974b1379a46e6cc307509f3ef2ae57dff7fbd99e115f6ba6109f9f33f8793be",
+      "en_sha256": "62361f7eb1feedf9269a8c34893e8f018d31ae662f01701efb8bbb9938e442b4"
     }
   ]
 }

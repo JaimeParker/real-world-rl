@@ -18,7 +18,6 @@ from real_world_rl.envs.bimanual.config import BimanualRealRobotEnvConfig
 from real_world_rl.envs.real_robot.config import RealRobotEnvConfig
 from real_world_rl.training import env_building
 from real_world_rl.training.args import (
-    FrankaRealConfig,
     HilEnvArgs,
     RealWorldFrankaArgs,
 )
@@ -46,10 +45,9 @@ HIL_SERL_OWN_DEFAULTS = {
     "deterministic_actor": False,
     "train_freq": 1,
     "publish_freq": 100,
-    "env_backend": "franka_real",
+    "env_backend": "real_robot",
     "real_robot": RealRobotEnvConfig(),
     "real_robot_bimanual": BimanualRealRobotEnvConfig(),
-    "franka_real": FrankaRealConfig(),
     "eval_n_trajs": 10,
     "classifier_checkpoint": None,
     "classifier_threshold": 0.5,
@@ -410,9 +408,11 @@ def test_leader_arm_gets_the_robot_part_arguments_plus_onset():
     assert kwargs["teleop_contract"] == ("joint_delta", args.real_robot.num_joints, True)
 
 
-def test_leader_arm_needs_the_real_robot_backend():
-    with pytest.raises(ValueError, match="leader_arm needs --env-backend real_robot"):
-        env_building.teleop_wrapper_kwargs(HilSerlArgs(teleop_device="leader_arm"))
+def test_leader_arm_needs_the_single_arm_backend():
+    with pytest.raises(ValueError, match="leader_arm drives one arm.*real_robot_bimanual"):
+        env_building.teleop_wrapper_kwargs(
+            HilSerlArgs(env_backend="real_robot_bimanual", teleop_device="leader_arm")
+        )
 
 
 def test_gello_gets_the_onset_arguments():

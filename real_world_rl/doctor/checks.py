@@ -165,7 +165,15 @@ def _sdk_layer(config: RobotConfig) -> tuple[list[Check], bool]:
     if getattr(config, "cartesian_controller", None) == "serl" and config.arm_backend == "franky":
         checks.append(_guarded(1, "sdk:serl_controller", _serl_pairing_result))
         checks.append(_guarded(1, "config:serl_control", lambda: _serl_control_result(config)))
+    if getattr(config, "joint_controller", None) == "trajectory_impedance":
+        checks.append(_guarded(1, "sdk:joint_controller", _joint_pairing_result))
     return checks, resolved
+
+
+def _joint_pairing_result() -> CheckResult:
+    from real_world_rl.doctor.deps import joint_controller_pairing
+    ok, message, hint, details = joint_controller_pairing()
+    return CheckResult(1, "sdk:joint_controller", ok, message, hint, details=details)
 
 
 def _serl_control_result(config: RobotConfig) -> CheckResult:

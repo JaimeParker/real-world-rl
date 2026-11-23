@@ -1,29 +1,15 @@
-# start record
-# Offline only: uses the recorder's existing test double, not robot hardware.
-python - <<'PY'
-import runpy
-import sys
-from pathlib import Path
-import pytest
-sys.path.insert(0, 'tests')
-fixture = runpy.run_path('tests/test_real_demo_recorder.py')
-with pytest.MonkeyPatch.context() as patch:
-    fixture['test_run_recorder_builds_the_actor_env_saves_and_closes'](
-        Path('local/inspect-example'), patch)
-PY
-# end record
-# start pkl
-python - <<'PY'
+# start training-view
+python - <<'PYCODE'
 import json
-import pickle
-from pathlib import Path
-path = Path('local/inspect-example/demos.pkl')
-with path.open('rb') as stream:
-    rows = pickle.load(stream)
-contract = json.loads(path.with_suffix('.contract.json').read_text())
+from real_world_rl.dataset import Dataset, iter_transitions
+dataset = Dataset('local/inspect-example/demo')
+rows = list(iter_transitions(dataset, frame_stack=1))
+print('episodes:', [(info.index, info.meta['status']) for info in dataset.episodes()])
 print('transitions:', len(rows))
-print('keys:', sorted(rows[0]))
-print('first human_action_mask:', rows[0]['human_action_mask'])
-print(json.dumps(contract, indent=2, ensure_ascii=False))
-PY
-# end pkl
+print('keys:', sorted(rows[0]) if rows else [])
+print('first human_action_mask:', rows[0]['human_action_mask'] if rows else None)
+print('segment ends:', [row['step_index'] for row in rows if row.get('training_segment_end')])
+print(json.dumps(dataset.header['action_contract'], indent=2, ensure_ascii=False))
+print('obs_spec:', json.dumps(dataset.header['obs_spec']))
+PYCODE
+# end training-view

@@ -14,6 +14,7 @@
    有两个开关容易混，它们互不依赖：
 
    * station 的 ``cartesian_controller``：**机器人端**\ 怎么执行目标（本章）。
+   * station 的 ``joint_controller``：关节 servo（GELLO 关节遥操作）怎么执行，与 ``cartesian_controller`` 互不依赖（本章第 10 步）。
    * ``teleop run --mode tracker|serl``：**SpaceMouse 端**\ 怎么把推帽变成目标（见 :doc:`spacemouse`）。
 
    SpaceMouse 的读数先在桌面坐标系里，再转到机器人基座系，最后才交给本章的控制器；
@@ -44,7 +45,8 @@
      - 在本机\ **一起从源码构建**\ 的 franky + ``serl_controller``，建议 PREEMPT_RT
      - 想要 SERL／HIL-SERL 的操作手感
 
-三种模式下，关节 servo 都是 franky 的关节阻抗 tracker，``move_to_pose`` 都是 Ruckig 轨迹。
+三种模式下，关节 servo 默认都是 franky 的关节阻抗 tracker（``joint_controller: impedance``），``move_to_pose`` 都是 Ruckig 轨迹。
+用 GELLO 做关节遥操作时，关节 servo 可以另选 ``joint_controller: trajectory_impedance``，见第 10 步；它和这里的选择无关。
 
 和 SpaceMouse 两种模式的搭配：
 
@@ -186,12 +188,12 @@ server version ≥ 6 的一定是 5.x 系统，也就是 FR3；≤ 5 的是 FER�
 * doctor 的 ``handshake`` 连不上（不是版本不匹配）：回到 :doc:`station` 第 3 步修网络、FCI 和控制权。
 * 握手报告的 server version 推出的型号和 Desk 不一致：先在 Desk 确认，不要凭外观猜型号。
 
-3. 装实时内核（internal、serl 需要）
+3. 装实时内核（internal、serl 需要；trajectory_impedance 建议）
 --------------------------------------------------------------------------------
 
 ``internal`` 的速度接口和 ``serl`` 的 1 kHz 扭矩循环都怕延迟：普通内核偶尔让一个控制周期迟到，
 机器人就触发通信类反射并停下。SERL 当年就是在 ``realtime_config: enforce`` 下运行的。
-``impedance`` 可以跳过本步。
+``impedance`` 可以跳过本步。第 10 步的 ``trajectory_impedance`` 同样跑 1 kHz 扭矩循环，建议装实时内核（doctor 在 ``realtime`` 不是 ``enforce`` 时给 WARN）。
 
 上一步检查不是 PREEMPT_RT 时，按 Franka 官方文档
 `Setting up the real-time kernel <https://frankarobotics.github.io/docs/installation_linux.html#setting-up-the-real-time-kernel>`_
@@ -649,6 +651,181 @@ HIL-SERL 在每个 ``/pose`` 前调用 ``/clearerr``，所以操作员感觉不�
 源码构建的 franky 可以留着：它就是未修改的 v2.0.0，三种控制器都能用。只有想换回官方 wheel 时，
 先把 station 改成 ``impedance`` 或 ``internal``，再运行 ``rwrl doctor --install-sdk``；之后 ``serl`` 不再可用，直到重跑 4B。
 
+10. 可选：GELLO 用的关节控制器
+--------------------------------------------------------------------------------
+
+用 GELLO 做关节遥操作（:doc:`gello` 第 5 步的 ``joint_delta`` ／ ``joint_abs``）时，关节 servo 可以换成 ``trajectory_impedance``。
+只用笛卡尔遥操作、SpaceMouse 或策略时跳过本步。
+
+``joint_controller`` 是 station 里的另一行，决定\ **谁执行关节 servo 目标**\ 。默认值不变，``move_to_joints`` （归位）两种取值下都不变。
+
+.. list-table::
+   :header-rows: 1
+
+   * - ``joint_controller``
+     - 谁在执行
+     - 机器人主机要装什么
+     - 适合
+   * - ``impedance`` （默认）
+     - franky 的 ``JointImpedanceTracker``，每收到一个目标就直接跟踪它；增益来自 station 的 ``control:`` 里的关节项
+     - 与机器人匹配的官方 franky wheel
+     - 策略、SpaceMouse，和先把其余部分调通
+   * - ``trajectory_impedance``
+     - 原生包 ``joint_controller``：每个新目标都由五次多项式规划器接成一条 1 kHz 参考轨迹（在每关节速度、加速度和关节限位内），
+       再用 GELLO 的关节阻抗律 K(q_ref − q) − D·dq_filtered（加科氏力补偿，限制每 tick 的力矩变化）跟踪；
+       超时没有新目标就受控停下。运行在未修改的 franky 里，作为一个扭矩运动
+     - 在本机\ **一起构建**\ 的 franky + ``serl_controller`` + ``joint_controller``，建议 PREEMPT_RT
+     - GELLO 采集：主臂读数只有 10–30 Hz，希望从臂平滑跟随
+
+``impedance`` 把每个目标当作一次阶跃交给 tracker；GELLO 的目标按 ``control_hz`` 才到一次，所以目标之间的跳变直接进入力矩。
+``trajectory_impedance`` 在目标之间补出连续的位置、速度和加速度，从臂运动更平滑。
+
+**跟随有一点滞后。** 每次重规划都在最新目标处\ **停住**\ ，所以主臂移动时，从臂落后约一个刹车距离。
+默认 ``max_acceleration`` 4 rad/s² 时，主臂以 0.5 rad/s 移动，约落后 0.06 rad；2 rad/s² 约 0.20 rad；8 rad/s² 约 0.04 rad。
+需要更快的跟随就调大 station ``joint_trajectory:`` 里的 ``max_acceleration``，想更柔和就调小。
+全部参数、超时和重规划失败时的行为见 :doc:`../reference/joint-controller`。
+
+**GELLO 采集建议把 control_hz 提到 15–30 Hz。** 这是依据规划器行为的建议，不是实测结论：``control_hz`` 决定目标之间的间隔（10 Hz 是 100 ms），
+间隔越短，每次重规划的位移越小，从臂越接近连续运动，主臂读数到执行的延迟也越小。
+每步的上限（``max_delta_per_step.joint_rad``、``joint_scale_rad``）是按\ **每步**\ 计的，``control_hz`` 提高后同样的每步值对应更快的速度，
+实际速度还受 ``joint_trajectory`` 的 ``max_velocity`` （默认 0.6／0.75 rad/s）限制。
+``control_hz`` 属于实验约定：采集、训练和部署必须用同一个值（见 :doc:`../reference/real-world-experiments`）。
+
+10A. 装软件：三个 wheel 来自同一次构建
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``joint_controller`` 和 ``serl_controller`` 一样，是继承 franky C++ 类的原生扩展，只能和\ **同一次构建**\ 的 franky 一起用；
+官方 franky wheel 不行。所以\ **不要**\ 运行 ``rwrl doctor --install-sdk`` 或 ``pip install franky-control``：
+station 已写 ``joint_controller: trajectory_impedance`` 时，doctor 会拒绝 ``--install-sdk``（报 ``sdk.franky.joint_controller`` BLOCKED）。
+
+在机器人主机上直接构建。先做完第 2、3 步（记下 libfranka 版本、装好实时内核），激活项目环境后：
+
+.. tutorial-test: skip
+.. literalinclude:: ../examples/controller.sh
+   :language: bash
+   :start-after: # start install-joint-native
+   :end-before: # end install-joint-native
+
+环境里已经有同一个 ``WORK`` （默认 ``~/.cache/rwrl-native-build``）、同一个 libfranka 构建的 franky v2.0.0 时（例如做过 4B），脚本复用它，只装 ``joint_controller``。
+否则脚本先运行 ``serl_controller`` 的安装脚本（即 4B：构建 libfranka 和 franky，并重建 ``serl_controller``），再装 ``joint_controller``，
+最后跑 C++ 和 Python 测试、导入检查，以及 ``build_info.json`` 与已装 ``libfranky.so`` 的配对检查。
+``REBUILD_FRANKY=1`` 强制重做 franky 那一步；其余环境变量（``SKIP_APT``、``REPLACE_LIBFRANKA``、``PIP_INDEX_URL`` 等）原样传给 ``serl_controller`` 的脚本，含义同 4B。
+日志在 ``$WORK/logs/``，``joint_controller`` 自己的步骤是 ``jc_*``。
+
+之后可以随时确认：
+
+.. tutorial-test: skip
+.. literalinclude:: ../examples/controller.sh
+   :language: bash
+   :start-after: # start install-joint-check
+   :end-before: # end install-joint-check
+
+``build_info`` 里有 ``joint_controller_version`` 和 ``gello_commit``，以及这次构建对应的 franky。
+
+.. note::
+
+   **可选：在别处构建 wheel。** 多台一样的 NUC 可以在有 Docker 的构建机上用 ``native/joint_controller/docker/build-on-host.sh``：
+   一次构建同时产出 ``franky_control``、``serl_controller`` 和 ``joint_controller`` 三个 wheel，必须一起安装
+   （只要 franky + joint_controller 时设 ``WITH_SERL=0``）：
+
+   .. tutorial-test: skip
+   .. literalinclude:: ../examples/controller.sh
+      :language: bash
+      :start-after: # start wheels-joint-docker
+      :end-before: # end wheels-joint-docker
+
+   .. tutorial-test: skip
+   .. literalinclude:: ../examples/controller.sh
+      :language: bash
+      :start-after: # start wheels-joint-install
+      :end-before: # end wheels-joint-install
+
+   Python 版本必须和 wheel 的 cp 标签一致（默认 cp310）。
+
+10B. 写 station
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+在 ``local/station.yaml`` 顶层（先备份，见第 5 步）加上：
+
+.. literalinclude:: ../examples/controller-joint.yaml
+   :language: yaml
+   :start-after: # start controller
+   :end-before: # end controller
+
+``joint_trajectory: {}`` 表示全部取原生默认值，限位按 ``robot_model`` 取（Panda 或 FR3）。只改个别值时只写要改的键，七关节的值写成长度 7 的列表，参数含义见参考页：
+
+.. literalinclude:: ../examples/controller-joint.yaml
+   :language: yaml
+   :start-after: # start override
+   :end-before: # end override
+
+``joint_trajectory`` 的键名在加载 station 时检查，写错键名直接报错；数值要等 ``joint_controller`` 在连接时校验，不合法的值被拒绝而不是被夹到范围内。
+``trajectory_impedance`` 需要 ``arm_backend: franky``，不改变 ``cartesian_controller`` 的选择。反射后的自动恢复沿用 ``serl_auto_recover`` 的设置。
+
+然后把 GELLO 采集的 preset 的 ``control_hz`` 提高（preset 的 ``real_robot:`` 下）：
+
+.. code-block:: yaml
+
+   real_robot:
+     control_hz: 20     # 默认 10；GELLO 采集可提到 15 到 30
+
+也可以让向导改写，它保留 station 里其余的值，并把旧文件备份为 ``station.yaml.bak.<UTC>``：
+
+.. literalinclude:: ../examples/controller.sh
+   :language: bash
+   :start-after: # start setup-joint
+   :end-before: # end setup-joint
+
+``--joint-controller`` 只接受 ``impedance`` 和 ``trajectory_impedance``，选后者时向导建议 ``realtime: enforce``，并写下 ``joint_trajectory: {}``。
+
+10C. 让 doctor 检查
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. literalinclude:: ../examples/controller.sh
+   :language: bash
+   :start-after: # start doctor
+   :end-before: # end doctor
+
+**你应该看到**：除了第 6 步那些行，还有 ``sdk:joint_controller`` 和 ``mode:joint_trajectory_realtime``，都是 PASS：
+
+.. literalinclude:: ../examples/controller-output.txt
+   :language: text
+   :start-after: # start joint-doctor
+   :end-before: # end joint-doctor
+
+.. list-table::
+   :header-rows: 1
+
+   * - 行
+     - 检查什么
+   * - ``sdk:joint_controller``
+     - ``joint_controller`` 包能导入、有 ``TrajectoryImpedanceMotion``，并且它记录的 franky 版本等于已装 franky 的版本（比较 ``build_info`` 里的 franky 版本）
+   * - ``mode:joint_trajectory_realtime``
+     - ``realtime`` 是否 ``enforce``；不是时 WARN
+   * - ``mode:realtime_kernel``
+     - 内核是否 PREEMPT_RT，同第 6 步
+
+**如果不对**：
+
+.. literalinclude:: ../examples/controller-output.txt
+   :language: text
+   :start-after: # start joint-doctor-warn
+   :end-before: # end joint-doctor-warn
+
+* ``sdk:joint_controller`` FAIL，说包缺失：回到 10A 安装。
+* ``sdk:joint_controller`` FAIL，说和 franky 不在一起：franky 被官方 wheel 换掉了或和 ``joint_controller`` 不是同一次构建；重跑 10A 的脚本，或从同一个构建目录重装三个 wheel。
+* ``mode:joint_trajectory_realtime`` WARN：回到第 3 步，再把 ``realtime`` 改成 ``enforce``。
+* 想回到默认：station 改回 ``joint_controller: impedance``（备份拷回来也行），franky 和 ``joint_controller`` 可以留着。
+
+**你应该看到**：归位（第 7 步）照常工作；GELLO 关节遥操作的第一次练习见 :doc:`gello` 第 5 步，开始前先做主从读数对齐。
+
+.. note::
+
+   **本节哪些内容需要真机确认**
+
+   ``joint_controller`` 的规划器和控制律有 C++ 单元测试和对模拟机械臂的长时间测试，没有在本仓记录过真机结果。
+   实时内核下的抖动、跟随滞后（随 ``max_acceleration`` 变化）、反射后的恢复，以及 GELLO 采集的手感，都要现场确认。
+
 .. note::
 
    **本章哪些内容需要真机确认**
@@ -659,6 +836,6 @@ HIL-SERL 在每个 ``/pose`` 前调用 ``/clearerr``，所以操作员感觉不�
    :doc:`../reference/serl-robot-validation`；
    深层参考见 :doc:`../reference/serl-controller`。
 
-检查清单：知道选了哪个控制器、为什么；server version 和 libfranka 版本对得上；doctor 相关行都通过；能归位；知道怎么回滚。
+检查清单：知道选了哪个控制器、为什么；server version 和 libfranka 版本对得上；doctor 相关行都通过；能归位；知道怎么回滚；用 GELLO 的，知道关节控制器选了哪个、``control_hz`` 是多少。
 
 接着进入 :doc:`spacemouse`；用 GELLO 的读者看 :doc:`gello`。

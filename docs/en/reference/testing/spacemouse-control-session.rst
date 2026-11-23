@@ -1,3 +1,7 @@
+.. note::
+
+   This historical session used the pre-dataset recorder (``--output-path`` pkl). For current recording commands, see :ref:`en-recording-demos-recording-demos-on-the-real-robot`.
+
 .. _en-testing-spacemouse-control-session-spacemouse-tabletop-control-and-normal-stop-acceptance:
 
 SpaceMouse tabletop control and normal-stop acceptance
@@ -117,6 +121,7 @@ launches the recorder under ``rwrl supervise``; do not wrap it in a second
 supervisor. Reset can home the arm. At the nominal step budget it holds until q;
 ``--duration-s`` is not a wall-clock termination deadline.
 
+.. tutorial-test: skip
 .. code-block:: bash
 
    rwrl --station local/station.yaml --preset local/task.yaml teleop run --mode tracker --diagnose translation --gain 0.2 --duration-s 10 --record local/check-translation.pkl
@@ -136,6 +141,7 @@ if control is unexpected; do not continue merely to complete a table row.
 D: Trajectory ownership and end holding
 --------------------------------------------------------------------------------
 
+.. tutorial-test: skip
 .. code-block:: bash
 
    rwrl --station local/station.yaml --preset local/task.yaml teleop run --mode tracker --record local/check-session.pkl --num-successes 2 --max-episodes 3

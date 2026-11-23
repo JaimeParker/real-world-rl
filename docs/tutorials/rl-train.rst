@@ -94,7 +94,7 @@ StepWatchdog 在同一进程内，不能覆盖整个进程挂死；daemon 的 wa
 --------------------------------------------------------------------------------
 
 先启动 learner，让 actor 能在初始快照等待期限内连上。
-训练机上的 pkl、contract、rl-task.yaml 及所引用 teleop 配置必须可读；remote 指向机器人 PC
+训练机上的示范数据集目录、rl-task.yaml 及所引用 teleop 配置必须可读；remote 指向机器人 PC
 上的服务，但 learner 只构造空间，不要求训练机打开这个连接。
 
 .. literalinclude:: ../examples/rl-train.sh
@@ -304,7 +304,7 @@ hybrid 只对机械臂维度加残差，夹爪用 DQN 头；continuous 对全部
 residual_action_scale=0.1 是归一化动作尺度；critic_only_updates=500 只在前 500 次更新训练 critic，
 residual_bc_weight=0.1 在人工监督维度上拟合人工修正；后两项代码默认均为 0。
 
-普通遥操作 pkl 没有基础动作，因此本例不传 demo_dataset_paths。
+普通遥操作示范没有基础动作，因此本例不传 demo_dataset_paths。
 ``--allow-base-less-demos`` 才允许把这种示范按零基础动作加载；这并非用冻结模型给示范补算基础动作，
 会改变残差学习目标，不能为了消除报错随意打开。
 

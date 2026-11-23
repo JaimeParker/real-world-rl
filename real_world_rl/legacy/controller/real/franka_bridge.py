@@ -174,7 +174,7 @@ def create_app(
 ):
     """Builds and returns the Flask app. Call ``app.run(host=..., port=...)``
     on the returned object; not done here so callers control the bind
-    address/port explicitly (matches ``FrankaRealEnvConfig.bridge_url``)."""
+    address/port explicitly (matches the SerlHttpArm bridge URL)."""
     from flask import Flask, jsonify, request
 
     controller = FrankaBridgeController(robot_ip, reset_joint_target, ros_pkg_name)

@@ -17,17 +17,16 @@ Read the Docs sources under `docs/`; `docs/` retains the GitHub reference guides
 Real-world RL orchestration split out of
 [rl-garden](https://github.com/JaimeParker/rl-garden): `ActorLoop`/
 `LearnerLoop`/sync (SERL, HIL-SERL, residual and SiLRI variants), the
-`franka_real` and `real_robot` env backends, the `TeleopSource` registry and
+`real_robot` and `real_robot_bimanual` env backends, the `TeleopSource` registry and
 teleop intervention wrapper, and the reward-classifier data-collection tool.
 
 This package imports `rl_garden` as a normal dependency (algorithms,
 buffers, policies, the `EnvBackend`/`BasePolicy` contracts) and registers
-`franka_real` through rl-garden's `rlgarden.env_backends` entry-point group
-— no file inside the `rl_garden` package itself needs editing to add it.
+`real_robot` and `real_robot_bimanual` through rl-garden's `rlgarden.env_backends` entry-point group
+— no file inside the `rl_garden` package itself needs editing to register them.
 Hardware/communication code lives in this repository in the torch-free device layer of
 `real_world_rl` ([device-layer guide](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/devices.html)); the learning side (torch, rl-garden) is the `learning` extra, so a robot PC that
-only serves the daemon installs `pip install -e '.[franky,grpc]'`. `franka_real`'s own coupling
-to the device layer is HTTP/JSON only (`FrankaBridgeClient`), no shared Python types.
+only serves the daemon installs `pip install -e '.[franky,grpc]'`. For a SERL HTTP bridge, select a `serl_http` arm in the station YAML.
 
 This repository is the top level for real-robot work. It carries rl-garden as a
 git submodule under [`rl-garden/`](rl-garden), pinned to the rl-garden commit the
@@ -44,6 +43,20 @@ Use `rwrl train`, `rwrl record`, `rwrl deploy` and `rwrl collect-reward` for tra
 recording, deployment and reward-classifier data collection. The existing console scripts,
 Python module entrypoints and scripts in `examples/` remain compatibility aliases.
 
+Demonstrations are recorded into a dataset directory, one subdirectory per episode (kept and
+discarded episodes alike, images lossless, a review video per camera), and the training commands
+read that directory directly:
+
+```bash
+rwrl record --config hil.yaml --output-dir demos/task --num-successes 20   # same directory again = append
+rwrl dataset list demos/task                                                # episodes, status, reasons
+rwrl dataset view demos/task                                                # Rerun viewer (needs the `viewer` extra)
+rwrl train hil_serl --role learner --config hil.yaml --demo-dataset-paths demos/task
+```
+
+`rwrl dataset` also drops, restores and prunes episodes and exports a pkl (for ACT) or a LeRobot
+dataset; see [Recording demos](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/recording-demos.html).
+
 SpaceMouse defaults to `--spacemouse-mode tracker`; opt into `--spacemouse-mode serl`
 for raw motion takeover, release returning control to the policy, and held-button gripper control, with
 configured xyz/RPY safety boxes ([mode guide](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/teleop.html#en-teleop-spacemouse)).
@@ -54,7 +67,7 @@ configured xyz/RPY safety boxes ([mode guide](https://real-world-rl.readthedocs.
 | `hil_serl` | `serl` plus human interventions (teleop wrapper), a growing demo buffer, an optional reward classifier and a DQN gripper (`RLPDHybrid`). | [Running on hardware](#running-on-hardware), [HIL-SERL Roadmap](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/hil-serl-roadmap.html) |
 | `residual_hil_serl` | `hil_serl` with a bounded residual on top of a frozen base policy (zero, rl-garden checkpoint or ACT); `--residual-variant continuous\|hybrid`. | [Residual RL with human intervention (`residual_hil_serl`)](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/residual.html) |
 | `silri` | HIL-RL (SiLRI): actor pulled towards a learned model of the human's interventions under a state-wise Lagrange multiplier. | [HIL-RL (SiLRI)](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/silri.html) |
-| `real_world_bc` | Offline behaviour cloning over demo pkls; no actor/learner split. | [Demo and snapshot contract sidecar](#demo-and-snapshot-contract-sidecar) |
+| `real_world_bc` | Offline behaviour cloning over demo datasets (or pkls); no actor/learner split. | [Demo and snapshot contract sidecar](#demo-and-snapshot-contract-sidecar) |
 
 ## Repository layout
 
@@ -66,7 +79,7 @@ real-world-rl/                   repository real-world-rl (top level)
     loops/                       actor/learner/sync: base classes (actor, learner, sync) and one module per method (serl, hil_serl, residual, silri)
     algorithms/ policies/        real-world algorithms and policies (residual, SiLRI, base action providers)
     buffers/                     InterventionReplayBuffer (residual, SiLRI)
-    envs/                        env backends (franka_real, real_robot, real_robot_bimanual) and wrappers
+    envs/                        env backends (real_robot, real_robot_bimanual) and wrappers
     teleop/ kinematics/          teleop sources; robot kinematics (numpy)
     training/                    registry, shared args, env building, entrypoints/ (one per method); python -m entry
     demos/ reward/               demo recording, reward-classifier data collection
@@ -125,8 +138,7 @@ arm: station setup, demo recording, BC and ACT, HIL-SERL / residual / SiLRI, and
 arms are in [Two arms as one env (`real_robot_bimanual`)](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/bimanual.html#en-bimanual-two-arms-the-tutorial-steps). This section is the
 reference.
 
-Everything below drives a `real_robot` env (any device-layer robot). `franka_real` (the HTTP
-bridge) is always cartesian 7-D and is not covered here. Install this package
+Everything below drives a `real_robot` env (any device-layer robot). Install this package
 (`pip install -e ./rl-garden -e '.[learning]'`) so that the `real_robot` backend is registered through the
 `rlgarden.env_backends` entry point; without it `--env-backend real_robot` fails with
 `Unknown env backend 'real_robot'`.
@@ -303,7 +315,7 @@ contract:
   **Limitation:** a CLI value equal to the dataclass default cannot be told apart from an unset
   one, so `--real_robot.action_mode cartesian_delta` against a `joint_abs` run silently uses
   the run's `joint_abs`.
-- Runs without a `real_robot` config (older runs, `franka_real`) fall back to the CLI with a
+- Runs without a `real_robot` config (older runs) fall back to the CLI with a
   warning, and the contract is then not verified.
 - A `DeviceError` (daemon unreachable, watchdog, safety) prints its message and hint and exits
   with code 1.
@@ -341,7 +353,8 @@ interventions arrive, and the actor tags the transition before each takeover
 
 The hil_serl learner's buffer and demo-buffer snapshots get a `<name>.contract.json` next to
 each pkl (`transitions_N.pkl` -> `transitions_N.contract.json`); `--demo-dataset-paths` pkls
-are read together with their sidecar. One line of sorted JSON:
+are read together with their sidecar; a demo dataset directory (`rwrl record --output-dir`) carries the same contract as
+`action_contract` in its `dataset.json` instead. One line of sorted JSON:
 
 ```json
 {"action_mode": "joint_abs", "arm_action_dim": 7, "gripper_in_action": true, "joint_limits": [[-2.8, 2.8], ...], "joint_scale_rad": 0.05, "num_joints": 7, "rot_scale_rad": 0.1, "state_fields": ["joint_pos", "gripper_pos"], "xyz_scale_m": 0.02}
@@ -427,7 +440,7 @@ workflow, and [HIL-SERL Roadmap](https://real-world-rl.readthedocs.io/zh-cn/late
 HIL-SERL capability was and wasn't migrated, and why.
 
 
-Experiment recovery, autonomous/assisted metrics, part takeover and trajectory archives are
+Experiment recovery, autonomous/assisted metrics, part takeover and demo datasets are
 documented in [Real-world experiments](https://real-world-rl.readthedocs.io/zh-cn/latest/en/reference/real-world-experiments.html). Human action masks
 keep partial demonstrations aligned through BC, residual and SiLRI training; no-gripper
 HIL configurations use continuous policies. Hardware validation remains pending.
@@ -447,6 +460,11 @@ Franka Hand values follow [SERL](https://github.com/rail-berkeley/serl)
 (Apache-2.0, `1fa2af7`) and [HIL-SERL](https://github.com/rail-berkeley/hil-serl)
 (Apache-2.0, `c32939b`); the `rlinf` Cartesian conventions and the RLinf
 integration follow [RLinf](https://github.com/RLinf/RLinf) (Apache-2.0). The
+joint controller in `native/joint_controller` uses the joint impedance law, velocity
+filter and default gains of the public
+[GELLO controller](https://github.com/wuphilipp/gello_software) (Apache-2.0,
+Copyright (c) 2025 Franka Robotics GmbH, `9fc8c26`) and franka_description's joint
+limits (Apache-2.0); its reference planner is this repository's own. The
 Franka backend is [franky](https://github.com/TimSchneider42/franky) (MIT) on
 [libfranka](https://github.com/frankaemika/libfranka) (Apache-2.0); the golden
 tests vendor [franka_ros](https://github.com/frankaemika/franka_ros) (Apache-2.0)

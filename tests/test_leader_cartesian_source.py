@@ -1,5 +1,5 @@
 """LeaderArmCartesianSource: a joint_abs leader arm mapped through Panda FK onto a requested pose,
-which a CartesianTargetTracker turns into the cartesian twist of franka_real / real_robot cartesian
+which a CartesianTargetTracker turns into the cartesian twist of real_robot cartesian
 envs. Covers both mappings, the take-over and hand-back, the target speed and lead cap, the
 workspace hold, the gripper (and its take-over latch), the action-contract checks, the flags and
 the experiment-contract block, and the leader served by a stub-robot daemon (RemoteRobot +
@@ -31,9 +31,6 @@ from real_world_rl.contracts.action import (
     describe_contract,
     validate_transitions_against_contract,
 )
-from real_world_rl.envs.franka_real.bridge_client import FrankaBridgeClient
-from real_world_rl.envs.franka_real.config import FrankaRealEnvConfig
-from real_world_rl.envs.franka_real.env import make_franka_real_env
 from real_world_rl.envs.wrappers.intervention import (
     InterventionWrapper,
     TeleopInterventionWrapper,
@@ -130,7 +127,7 @@ class _Clock:
         return self.now
 
 
-def franka_real_update(pose, action, pos_scale=SCALE_M, rot_scale=SCALE_RAD):
+def cartesian_update(pose, action, pos_scale=SCALE_M, rot_scale=SCALE_RAD):
     """The env's cartesian_delta target pose (without the safety box): base-frame translation and
     a left-multiplied rotation vector, quaternions xyzw."""
     action = np.asarray(action, dtype=np.float64)
@@ -140,7 +137,7 @@ def franka_real_update(pose, action, pos_scale=SCALE_M, rot_scale=SCALE_RAD):
 
 
 class _Follower:
-    """Follower TCP pose, moved by ``franka_real_update``."""
+    """Follower TCP pose, moved by ``cartesian_update``."""
 
     def __init__(self, pose):
         self.pose = np.asarray(pose, dtype=np.float64)
@@ -149,7 +146,7 @@ class _Follower:
         return self.pose.copy()
 
     def apply(self, action):
-        self.pose = franka_real_update(self.pose, action)
+        self.pose = cartesian_update(self.pose, action)
 
 
 def _pose(position, rotation: Rotation) -> np.ndarray:
@@ -630,7 +627,7 @@ def test_describe_contract_shows_the_teleop_control_block():
 def test_gello_cartesian_preset():
     from real_world_rl.demos.record import parse_record_args
 
-    args = parse_record_args(["--config", str(PRESET), "--output-path", "demos/try.pkl"])
+    args = parse_record_args(["--config", str(PRESET), "--output-dir", "demos/try"])
     assert args.teleop_device == "leader_cartesian" and args.teleop_event_device == "stdin"
     robot = args.real_robot
     assert robot.action_mode == "cartesian_delta" and robot.control_hz == 50
@@ -753,60 +750,44 @@ def test_exactly_one_leader():
 # -- follower discovery from the env --------------------------------------------------------
 
 
-class _FakeBridge(FrankaBridgeClient):
-    """In-memory bridge: the robot reaches every sent pose."""
+def test_real_robot_pose_scales_and_box_found_through_the_wrapper_chain_and_followed(tmp_path, monkeypatch):
+    import real_world_rl.devices.claims as claims
+    from real_world_rl.envs.real_robot import RealRobotEnv, RealRobotEnvConfig
+    from real_world_rl.envs.real_robot.env import RealRobotVectorEnv
+    from test_real_robot_env import _fake_franka
+    from rl_garden.envs.wrappers.reward_transform import RewardScaleBiasWrapper
 
-    def __init__(self, pose):
-        self.pose = np.asarray(pose, dtype=np.float64)
-        self.gripper_calls = []
-
-    def reset_joints(self):
-        pass
-
-    def get_state(self):
-        return {
-            "pose": self.pose.tolist(),
-            "vel": [0.0] * 6,
-            "gripper_pos": 0.0,
-            "force": [0.0] * 3,
-            "torque": [0.0] * 3,
-        }
-
-    def send_pose(self, pose):
-        self.pose = np.asarray(pose, dtype=np.float64)
-
-    def send_gripper(self, open_gripper):
-        self.gripper_calls.append(bool(open_gripper))
-
-
-def test_franka_real_pose_scales_and_box_found_through_the_wrapper_chain_and_followed():
+    monkeypatch.setattr(claims, "_DEFAULT_LOCK_DIR", tmp_path / "claims")
     q = np.asarray(READY_Q, dtype=np.float32)
     target = _ee_pose(q)
-    bridge = _FakeBridge(_offset_pose(q, [0.06, -0.004, 0.05], [0.0, 0.0, 0.2]))
-    cfg = FrankaRealEnvConfig(
-        bridge_url="http://unused",
-        action_scale=(SCALE_M, SCALE_RAD),
-        reward_scale=2.0,  # adds a RewardScaleBiasWrapper above FrankaRealEnv
-        max_episode_steps=1000,
-        safety_box_low=(-10.0, -10.0, -10.0),
-        safety_box_high=(10.0, 10.0, 10.0),
+    robot = _fake_franka()
+    robot.connect()
+    robot.arm._alpha = 1.0
+    robot.arm._tcp_pose = _offset_pose(q, [0.06, -0.004, 0.05], [0.0, 0.0, 0.2])
+    cfg = RealRobotEnvConfig(
+        robot={"type": "franka", "arm_backend": "fake"},
+        xyz_scale_m=SCALE_M, rot_scale_rad=SCALE_RAD,
+        home_joints=[0.0] * 7, reset_settle_s=0.0, control_hz=1000.0,
+        max_episode_steps=1000, safety_box=[-10.0] * 3 + [10.0] * 3,
     )
     env = TeleopInterventionWrapper(
-        make_franka_real_env(cfg, bridge_client=bridge),
-        device="leader_cartesian",
-        leader=_Leader(q, gripper=1.0),
-        mapping="absolute",
-        clock=_Clock(),
+        RewardScaleBiasWrapper(RealRobotVectorEnv(RealRobotEnv(cfg, robot=robot)), 2.0, 0.0),
+        device="leader_cartesian", leader=_Leader(q, gripper=1.0),
+        mapping="absolute", clock=_Clock(),
     )
-    assert env.source.cartesian_tracker.safety_box.tolist() == [-10.0] * 3 + [10.0] * 3
-    env.reset()
-    _, _, _, _, info = env.step(torch.zeros(1, 7))
-    np.testing.assert_allclose(info["intervene_action"][0, :6].numpy(), 0.0, atol=1e-6)  # no jump
-    for _ in range(30):
-        env.step(torch.zeros(1, 7))
-    np.testing.assert_allclose(bridge.pose[:3], target[:3], atol=1e-8)
-    assert _rotation_error(bridge.pose, target[3:]) < 1e-7
-    assert bridge.gripper_calls[-1] is True
+    try:
+        assert env.source.cartesian_tracker.safety_box.tolist() == [-10.0] * 3 + [10.0] * 3
+        env.reset()
+        _, _, _, _, info = env.step(torch.zeros(1, 7))
+        np.testing.assert_allclose(info["intervene_action"][0, :6].numpy(), 0.0, atol=1e-6)
+        for _ in range(30):
+            env.step(torch.zeros(1, 7))
+        np.testing.assert_allclose(robot.arm.read_state()["tcp_pose"][:3], target[:3], atol=1e-8)
+        assert _rotation_error(robot.arm.read_state()["tcp_pose"], target[3:]) < 1e-7
+        assert robot.gripper.width == 1.0
+        assert "open" in robot.gripper.call_log
+    finally:
+        env.close()
 
 
 _ENV_BOX = [-1.0, -1.0, -1.0, 1.0, 1.0, 1.5]

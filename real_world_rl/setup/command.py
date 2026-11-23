@@ -63,6 +63,7 @@ def answers_from_args(args: argparse.Namespace, previous: StationDraft | None) -
         arm_backends=args.arm_backend,
         grippers=args.gripper,
         cartesian_controllers=args.cartesian_controller,
+        joint_controllers=args.joint_controller,
         robot_models=args.robot_model,
         realtimes=args.realtime,
         home_joints=args.home_joints,

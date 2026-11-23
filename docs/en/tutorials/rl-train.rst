@@ -94,7 +94,7 @@ StepWatchdog runs in the same process and cannot cover a hang of the entire proc
 --------------------------------------------------------------------------------
 
 Start the learner first so the actor can connect within the initial-snapshot deadline.
-The training machine must be able to read the pkl, contract, rl-task.yaml, and referenced teleop configuration. remote points to the service
+The training machine must be able to read the demonstration dataset directory, rl-task.yaml, and referenced teleop configuration. remote points to the service
 on the robot PC, but the learner only constructs spaces; it does not require the training machine to open that connection.
 
 .. literalinclude:: ../../examples/rl-train.sh
@@ -304,7 +304,7 @@ but residual_gripper_scale defaults to 0, preserving the base gripper. This exam
 residual_action_scale=0.1 is a normalized-action scale; critic_only_updates=500 trains only the critic for the first 500 updates,
 and residual_bc_weight=0.1 fits human corrections on human-supervised dimensions. The latter two settings both default to 0 in code.
 
-Ordinary teleop pkl files have no base actions, so this example does not pass demo_dataset_paths.
+Ordinary teleop demonstrations have no base actions, so this example does not pass demo_dataset_paths.
 Only ``--allow-base-less-demos`` permits loading such demonstrations with zero base actions; this does not recompute their base actions with the frozen model.
 It changes the residual learning target, so do not enable it merely to remove an error.
 

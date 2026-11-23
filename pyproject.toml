@@ -75,6 +75,10 @@ franka-gello = [
 ]
 # collect_data.py's global success/failure keyboard listener.
 reward-collection = ["pynput"]
+# dataset/view.py (rwrl dataset view): review recorded episodes in the Rerun viewer.
+viewer = ["rerun-sdk==0.42.0"]
+# dataset/lerobot_export.py (rwrl dataset export --format lerobot): LeRobot v3.0 dataset export.
+lerobot = ["lerobot[dataset]==0.7.0"]
 dev = ["pytest", "scipy"]
 test = ["pytest", "opencv-python-headless", "ipython", "torchvision", "grpcio>=1.60"]
 
@@ -86,7 +90,6 @@ real-world-rl-deploy = "real_world_rl.deploy.checkpoint:run_cli"
 real-world-rl-collect-reward = "real_world_rl.reward.collect_data:main"
 
 [project.entry-points."rlgarden.env_backends"]
-franka_real = "real_world_rl.envs.backends.franka_real"
 real_robot = "real_world_rl.envs.backends.real_robot"
 real_robot_bimanual = "real_world_rl.envs.backends.real_robot_bimanual"
 

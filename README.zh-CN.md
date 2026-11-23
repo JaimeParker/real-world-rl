@@ -12,9 +12,9 @@ Documentation: https://real-world-rl.readthedocs.io/
 
 **从这里开始：** [安装与初验](https://real-world-rl.readthedocs.io/zh-cn/latest/tutorials/install.html)，然后[建立工作站](https://real-world-rl.readthedocs.io/zh-cn/latest/tutorials/station.html)。这些分步教程是 `docs/` 下的 Read the Docs 源文件；`docs/` 保留 GitHub 参考指南。
 
-从 [rl-garden](https://github.com/JaimeParker/rl-garden) 拆出的真机 RL 编排层：`ActorLoop`/`LearnerLoop`/sync（SERL、HIL-SERL、residual、SiLRI 变体）、`franka_real` 和 `real_robot` 环境后端、`TeleopSource` 注册表与遥操作介入包装器，以及奖励分类器数据采集工具。
+从 [rl-garden](https://github.com/JaimeParker/rl-garden) 拆出的真机 RL 编排层：`ActorLoop`/`LearnerLoop`/sync（SERL、HIL-SERL、residual、SiLRI 变体）、`real_robot` 和 `real_robot_bimanual` 环境后端、`TeleopSource` 注册表与遥操作介入包装器，以及奖励分类器数据采集工具。
 
-本包将 `rl_garden` 作为普通依赖导入（算法、缓冲区、策略及 `EnvBackend`/`BasePolicy` 约定），通过 rl-garden 的 `rlgarden.env_backends` 入口组注册 `franka_real`，添加它无需修改 `rl_garden` 内部文件。硬件/通信代码位于本仓库 `real_world_rl` 的无 torch 设备层（[设备层指南](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/devices.html)）；学习侧（torch、rl-garden）属于 `learning` 扩展，因此仅提供 daemon 的机器人 PC 安装 `pip install -e '.[franky,grpc]'`。`franka_real` 自身仅通过 HTTP/JSON（`FrankaBridgeClient`）耦合设备层，不共享 Python 类型。
+本包将 `rl_garden` 作为普通依赖导入（算法、缓冲区、策略及 `EnvBackend`/`BasePolicy` 约定），通过 rl-garden 的 `rlgarden.env_backends` 入口组注册 `real_robot` 和 `real_robot_bimanual`，添加它无需修改 `rl_garden` 内部文件。硬件/通信代码位于本仓库 `real_world_rl` 的无 torch 设备层（[设备层指南](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/devices.html)）；学习侧（torch、rl-garden）属于 `learning` 扩展，因此仅提供 daemon 的机器人 PC 安装 `pip install -e '.[franky,grpc]'`。使用 SERL HTTP 桥接时，在工作站 YAML 中选择 `serl_http` 臂。
 
 本仓库是真机工作的顶层仓库，将 rl-garden 放在 [`rl-garden/`](rl-garden) git 子模块，固定到本仓库测试通过的提交。
 
@@ -24,6 +24,17 @@ Documentation: https://real-world-rl.readthedocs.io/
 
 每种方法是 `rwrl train <method> --role {actor,learner,eval}` 子命令（`real_world_bc` 无角色）。`residual_hil_serl` 和 `silri` 也通过 `rlgarden.algorithms` 注册到 rl-garden 在线注册表，使 `examples/deploy_real_robot.py` 可从 checkpoint 重建智能体（`rl-garden-eval` 无法评估残差 checkpoint，因为需要基础策略提供者）。使用 `rwrl train`、`rwrl record`、`rwrl deploy`、`rwrl collect-reward` 进行训练、录制、部署及奖励分类器数据采集。已有控制台脚本、Python 模块入口和 `examples/` 脚本保留为兼容别名。
 
+示范录进一个数据集目录，每个回合一个子目录（保留和丢弃的回合都在，图像无损，每个相机一个回看视频），训练命令直接读这个目录：
+
+```bash
+rwrl record --config hil.yaml --output-dir demos/task --num-successes 20   # 同一目录再次运行即追加
+rwrl dataset list demos/task                                                # 回合、状态、原因
+rwrl dataset view demos/task                                                # Rerun 查看器（需要 `viewer` extra）
+rwrl train hil_serl --role learner --config hil.yaml --demo-dataset-paths demos/task
+```
+
+`rwrl dataset` 还能丢弃、恢复、清理回合，并导出 pkl（给 ACT 用）或 LeRobot 数据集，见[录制示范](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/recording-demos.html)。
+
 SpaceMouse 默认 `--spacemouse-mode tracker`；可用 `--spacemouse-mode serl` 选择原始运动接管、释放后交还策略和按住按钮控制夹爪，须配置 XYZ/RPY 安全框（[模式指南](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/teleop.html#teleop-spacemouse)）。
 
 | 方法 | 内容 | 指南 |
@@ -32,7 +43,7 @@ SpaceMouse 默认 `--spacemouse-mode tracker`；可用 `--spacemouse-mode serl` 
 | `hil_serl` | SERL 加人工介入（遥操作包装器）、增长的示范缓冲区、可选奖励分类器及 DQN 夹爪（`RLPDHybrid`）。 | [真机运行](#running-on-hardware)、[HIL-SERL 路线图](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/hil-serl-roadmap.html) |
 | `residual_hil_serl` | 冻结基础策略（zero、rl-garden checkpoint 或 ACT）上的有界残差 HIL-SERL；`--residual-variant continuous\|hybrid`。 | [带人工介入的残差 RL（`residual_hil_serl`）](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/residual.html) |
 | `silri` | HIL-RL（SiLRI）：通过随状态变化的拉格朗日乘子，将 actor 拉向学习得到的人工介入模型。 | [HIL-RL（SiLRI）](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/silri.html) |
-| `real_world_bc` | 基于示范 pkl 的离线行为克隆，无 actor/learner 分离。 | [示范与快照约定附属文件](#demo-and-snapshot-contract-sidecar) |
+| `real_world_bc` | 基于示范数据集（或 pkl）的离线行为克隆，无 actor/learner 分离。 | [示范与快照约定附属文件](#demo-and-snapshot-contract-sidecar) |
 
 <a id="repository-layout"></a>
 
@@ -46,7 +57,7 @@ real-world-rl/                   repository real-world-rl (top level)
     loops/                       actor/learner/sync: base classes (actor, learner, sync) and one module per method (serl, hil_serl, residual, silri)
     algorithms/ policies/        real-world algorithms and policies (residual, SiLRI, base action providers)
     buffers/                     InterventionReplayBuffer (residual, SiLRI)
-    envs/                        env backends (franka_real, real_robot, real_robot_bimanual) and wrappers
+    envs/                        env backends (real_robot, real_robot_bimanual) and wrappers
     teleop/ kinematics/          teleop sources; robot kinematics (numpy)
     training/                    registry, shared args, env building, entrypoints/ (one per method); python -m entry
     demos/ reward/               demo recording, reward-classifier data collection
@@ -101,7 +112,7 @@ rl-garden 自身测试在子模块内运行（见 `rl-garden/.agents/runbooks/te
 
 **首次使用硬件？** [教程](https://real-world-rl.readthedocs.io/zh-cn/latest/index.html)（[索引](https://real-world-rl.readthedocs.io/zh-cn/latest/index.html)）以单 Franka 和 GELLO 主臂讲解配置工作站、录制示范、BC/ACT、HIL-SERL / residual / SiLRI 及部署；双臂见 [将两条机械臂组合成一个环境（`real_robot_bimanual`）](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/bimanual.html#bimanual-two-arms-the-tutorial-steps)。本节为参考。
 
-以下均驱动 `real_robot` 环境（任意设备层机器人）。`franka_real`（HTTP 桥接）始终为 7 维笛卡尔，不在本节范围。安装本包（`pip install -e ./rl-garden -e '.[learning]'`）后通过 `rlgarden.env_backends` 注册 `real_robot`；否则 `--env-backend real_robot` 失败，报 `Unknown env backend 'real_robot'`。双臂合为一个环境使用 `--env-backend real_robot_bimanual`，见 [将两条机械臂组合成一个环境（`real_robot_bimanual`）](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/bimanual.html)。
+以下均驱动 `real_robot` 环境（任意设备层机器人）。安装本包（`pip install -e ./rl-garden -e '.[learning]'`）后通过 `rlgarden.env_backends` 注册 `real_robot`；否则 `--env-backend real_robot` 失败，报 `Unknown env backend 'real_robot'`。双臂合为一个环境使用 `--env-backend real_robot_bimanual`，见 [将两条机械臂组合成一个环境（`real_robot_bimanual`）](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/bimanual.html)。
 
 <a id="robot-daemon"></a>
 
@@ -211,7 +222,7 @@ rwrl deploy --checkpoint runs/.../checkpoints/checkpoint_<step>.pt \
 
 - 部署环境从运行读取 `action_mode`、`gripper_in_action`、`num_joints`、`joint_limits`、`xyz_scale_m`、`rot_scale_rad`、`joint_scale_rad`、`state_fields`、`image_size`、`control_hz` 及任务/控制/预处理设置。工作站拥有的 reset 信息与回合上限可为部署调整。自动重建观测包装器：`obs.frame_stack`（堆叠 `classifier_image_keys`）、`convert_obs_rotation`。`--real_robot.*` 仅提供连接字段（`robot`、`remote`、`token`、`home_joints`、`safety_box`、`reset_settle_s` 等）。
 - CLI 约定字段不同于训练值会报 `ValueError: --real_robot.* contradicts the training run's real_robot config ...`。**限制：** 等于 dataclass 默认值的 CLI 值无法区分是否显式设置，因此对 `joint_abs` 运行传 `--real_robot.action_mode cartesian_delta` 会静默采用运行的 `joint_abs`。
-- 无 `real_robot` 配置的旧运行或 `franka_real` 会警告并回退 CLI，不验证约定。
+- 无 `real_robot` 配置的旧运行 会警告并回退 CLI，不验证约定。
 - `DeviceError`（daemon 不可达、watchdog、安全）输出消息/提示，以 1 退出。
 - `--jpeg-quality` 不在运行配置内，部署 daemon 应使用与训练相同值（或都不设置）。
 - 部署接受 `bundle_manifest.json` 或独立 `.pt`。`enable_teleop` 默认 true；活动任务或显式 `--teleop-device` 组合操作员设置。无人接管用 `--no-enable-teleop`。分类器/任务可提供显式结果；主 `success_rate` 是已完成回合中的自主成功率。两种部署模式见[教程 11](https://real-world-rl.readthedocs.io/zh-cn/latest/tutorials/deploy.html)。
@@ -232,7 +243,7 @@ rwrl deploy --checkpoint runs/.../checkpoints/checkpoint_<step>.pt \
 
 ### 示范与快照约定附属文件
 
-hil_serl learner 的回放和示范缓冲区快照每个 pkl 旁带 `<name>.contract.json`（`transitions_N.pkl` → `transitions_N.contract.json`）；`--demo-dataset-paths` 的 pkl 与此文件一起读取。它是一行排序 JSON：
+hil_serl learner 的回放和示范缓冲区快照每个 pkl 旁带 `<name>.contract.json`（`transitions_N.pkl` → `transitions_N.contract.json`）；`--demo-dataset-paths` 的 pkl 与此文件一起读取；示范数据集目录（`rwrl record --output-dir`）则把同样的约定放在 `dataset.json` 的 `action_contract` 里。它是一行排序 JSON：
 
 ```json
 {"action_mode": "joint_abs", "arm_action_dim": 7, "gripper_in_action": true, "joint_limits": [[-2.8, 2.8], ...], "joint_scale_rad": 0.05, "num_joints": 7, "rot_scale_rad": 0.1, "state_fields": ["joint_pos", "gripper_pos"], "xyz_scale_m": 0.02}
@@ -288,10 +299,10 @@ RLinf 从 [`configs/rlinf/realworld_rlgarden_franka.yaml`](configs/rlinf/realwor
 
 用 `rwrl train serl --role ...` 训练（双进程 actor/learner 启动形式见该文件模块 docstring）。遥操作演示/录制流程见 [遥操作](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/teleop.html)，HIL-SERL 已迁移/未迁移能力及原因见 [HIL-SERL 路线图](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/hil-serl-roadmap.html)。
 
-实验恢复、自主/辅助指标、部件接管、轨迹归档见[真机实验](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/real-world-experiments.html)。人工动作掩码让局部示范在 BC、residual、SiLRI 训练中保持对齐，无夹爪 HIL 使用连续策略。硬件验证仍待完成。
+实验恢复、自主/辅助指标、部件接管、示范数据集见[真机实验](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/real-world-experiments.html)。人工动作掩码让局部示范在 BC、residual、SiLRI 训练中保持对齐，无夹爪 HIL 使用连续策略。硬件验证仍待完成。
 
 当前 learner 恢复使用 `bundle_manifest.json`、配套 checkpoint 目录和 SQLite journal。Actor 上传用持久 outbox，重启应保留身份/路径。所选部件和观测预处理进入实验约定。见[教程 10](https://real-world-rl.readthedocs.io/zh-cn/latest/tutorials/rl-resume.html)和[机械臂控制配置](https://real-world-rl.readthedocs.io/zh-cn/latest/reference/control-profiles.html)。
 
 ## 致谢与引用
 
-`native/serl_controller` 中的 SERL 控制器是 [serl_franka_controllers](https://github.com/rail-berkeley/serl_franka_controllers)（MIT，`1f140ef`）的去 ROS 移植；SERL 控制模式、SpaceMouse 介入和 Franka Hand 参数沿用 [SERL](https://github.com/rail-berkeley/serl)（Apache-2.0，`1fa2af7`）和 [HIL-SERL](https://github.com/rail-berkeley/hil-serl)（Apache-2.0，`c32939b`）；`rlinf` 笛卡尔约定和 RLinf 集成沿用 [RLinf](https://github.com/RLinf/RLinf)（Apache-2.0）。Franka 后端是 [franky](https://github.com/TimSchneider42/franky)（MIT），底层为 [libfranka](https://github.com/frankaemika/libfranka)（Apache-2.0）；golden 测试原样收录 [franka_ros](https://github.com/frankaemika/franka_ros)（Apache-2.0）和 ros_control 的 `joint_limits_interface`（BSD-3-Clause）。各项的版本、文件位置、许可证以及 SERL、HIL-SERL、RLinf 论文的 BibTeX 见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+`native/serl_controller` 中的 SERL 控制器是 [serl_franka_controllers](https://github.com/rail-berkeley/serl_franka_controllers)（MIT，`1f140ef`）的去 ROS 移植；SERL 控制模式、SpaceMouse 介入和 Franka Hand 参数沿用 [SERL](https://github.com/rail-berkeley/serl)（Apache-2.0，`1fa2af7`）和 [HIL-SERL](https://github.com/rail-berkeley/hil-serl)（Apache-2.0，`c32939b`）；`rlinf` 笛卡尔约定和 RLinf 集成沿用 [RLinf](https://github.com/RLinf/RLinf)（Apache-2.0）。`native/joint_controller` 中的关节控制器使用公开的 [GELLO 控制器](https://github.com/wuphilipp/gello_software)（Apache-2.0，Copyright (c) 2025 Franka Robotics GmbH，`9fc8c26`）的关节阻抗律、速度滤波和默认增益，以及 franka_description 的关节限位（Apache-2.0），参考规划器是本仓自己的实现。Franka 后端是 [franky](https://github.com/TimSchneider42/franky)（MIT），底层为 [libfranka](https://github.com/frankaemika/libfranka)（Apache-2.0）；golden 测试原样收录 [franka_ros](https://github.com/frankaemika/franka_ros)（Apache-2.0）和 ros_control 的 `joint_limits_interface`（BSD-3-Clause）。各项的版本、文件位置、许可证以及 SERL、HIL-SERL、RLinf 论文的 BibTeX 见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

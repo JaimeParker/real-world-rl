@@ -1,3 +1,7 @@
+.. note::
+
+   This historical session used the pre-dataset recorder (``--output-path`` pkl). For current recording commands, see :ref:`en-recording-demos-recording-demos-on-the-real-robot`.
+
 .. _en-testing-single-arm-gripper-session2-second-single-arm-and-gripper-hardware-session-gello--spacemouse:
 
 Second single-arm and gripper hardware session: GELLO / SpaceMouse

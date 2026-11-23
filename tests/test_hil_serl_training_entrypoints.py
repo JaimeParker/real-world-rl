@@ -544,11 +544,11 @@ def test_build_env_real_robot_applies_rotvec_only_when_state_starts_with_tcp_pos
     assert "convert_obs_rotation skipped" in caplog.text
 
 
-def test_build_env_franka_real_rotvec_unchanged(monkeypatch):
+def test_build_env_real_robot_rotvec_unchanged(monkeypatch):
     captured = {}
     _patch_backend(monkeypatch, captured)
     assert _rotvec_in_chain(_build_env(_base_args(convert_obs_rotation=True), env_request=None))
-    assert captured["backend"] == "franka_real"
+    assert captured["backend"] == "real_robot"
 
 
 # -- --teleop-device robot and real_robot frame stacking ------------------------------
@@ -726,7 +726,7 @@ def test_robot_teleop_device_requires_real_robot_backend():
     from real_world_rl.training.entrypoints.hil_serl import _robot_teleop_kwargs
 
     with pytest.raises(ValueError, match="real_robot"):
-        _robot_teleop_kwargs(_base_args(teleop_device="robot"))
+        _robot_teleop_kwargs(_base_args(env_backend="real_robot_bimanual", teleop_device="robot"))
 
 
 def test_robot_teleop_declaration_comes_from_args():
@@ -763,13 +763,6 @@ def test_real_robot_frame_stack_is_stacked_by_the_wrapper_not_the_backend(
     finally:
         env.close()
 
-
-def test_franka_real_request_keeps_frame_stack():
-    import real_world_rl.envs.backends.franka_real  # noqa: F401  (registers the backend)
-    from real_world_rl.training.entrypoints.hil_serl import _hil_serl_env_request
-
-    args = _base_args(obs=ObservationConfig(state=True, rgb=("wrist",), frame_stack=2))
-    assert _hil_serl_env_request(args, run_name="t").observation.frame_stack == 2
 
 
 @pytest.fixture(autouse=True)

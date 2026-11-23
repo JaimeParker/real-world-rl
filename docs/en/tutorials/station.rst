@@ -62,8 +62,8 @@ For addresses, cameras and GELLO serial ports, enter either the index listed by 
      - ``franky``, ``serl_http`` or ``fake`` for the arm; the gripper also accepts ``none``.
    * - ``--robot-model``
      - ``panda`` or ``fr3``, which determines default joint limits. Required when creating a new arm non-interactively.
-   * - ``--cartesian-controller``, ``--realtime``
-     - The controller defaults to ``impedance``; ``internal`` / ``serl`` are also available. Realtime is ``ignore`` / ``enforce``. internal, serl or a PREEMPT_RT kernel default to enforce; otherwise ignore. See :doc:`controller` for SERL installation.
+   * - ``--cartesian-controller``, ``--joint-controller``, ``--realtime``
+     - The controller defaults to ``impedance``; ``internal`` / ``serl`` are also available. Realtime is ``ignore`` / ``enforce``. internal, serl or a PREEMPT_RT kernel default to enforce; otherwise ignore. ``--joint-controller`` defaults to ``impedance``; ``trajectory_impedance`` is available for GELLO joint teleoperation (enforce is also suggested). See :doc:`controller` for SERL and joint controller installation.
    * - ``--home-joints``, ``--joint-limits``, ``--safety-box``
      - Comma-separated joint angles, lo/hi pairs for each joint and a base-frame position box. Set home to ``none`` to measure it in step 4. Do not treat wizard suggestions as station acceptance results.
    * - ``--max-delta-xyz-m``, ``--max-delta-joint-rad``, ``--control``
@@ -590,13 +590,15 @@ Once all devices can be read, edit ``local/task.yaml`` to select this experiment
    * - ``obs.rgb``
      - Enter the camera ``name`` from the station you just checked; this chapter uses ``[wrist]``.
    * - ``obs.image_size``
-     - Enter height and width for the model. Start with ``[128, 128]`` in this example, and keep recording, training and deployment consistent.
+     - Enter height and width for the model. ``[224, 224]`` is recommended in this example; keep recording, training and deployment consistent.
+       Larger sizes cost more: one lossless 224×224 RGB frame is about 150 KB (one per camera per control step, before compression),
+       and both the recorded dataset's disk use and the training buffer's memory scale with it. A smaller size is fine when resources are tight, as long as all stages agree.
 
 Keep the other fields at their defaults: ``env_backend: real_robot``, ``env_id: pick_and_place``,
 ``obs.state: true``, ``obs.depth: []``. You can change ``env_id`` to identify another experiment;
 it does not automatically provide success detection. Change both the station's depth switch and ``obs.depth`` only when depth is needed.
 
-**What you should see**: the configuration uses ``wrist``. Capture remains 640 × 480, while model input is 128 × 128.
+**What you should see**: the configuration uses ``wrist``. Capture remains 640 × 480, while model input is 224 × 224.
 The environment resizes images. The policy will receive the keys ``state`` and ``rgb_wrist``;
 the RGB tensor is uint8 with shape ``(1, H, W, 3)``.
 To crop images, measure pixel coordinates from the saved color image first. Under ``real_robot.preprocess.wrist``,
@@ -606,7 +608,7 @@ Processing crops first, then resizes to ``obs.image_size``. You can instead use 
 or normalized ``[top, left, bottom, right]`` (0–1, increasing bounds) in place of a pixel ROI. Do not set both;
 ``crop_region`` is resolved against the camera's original dimensions and requires ``image_size``.
 ``resize`` defaults to ``pil_bilinear``; ``cv2_linear`` is also available. RGB uses the corresponding bilinear interpolation; depth uses nearest-neighbor.
-Do not use the resized 128×128 as the original image size. ROI, depth selection and resize dimensions form the observation contract and must match across recording, training and deployment.
+Do not use the resized 224×224 as the original image size. ROI, depth selection and resize dimensions form the observation contract and must match across recording, training and deployment.
 This section only checks the file; it has not started a policy.
 
 **If it doesn't**:

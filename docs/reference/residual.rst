@@ -89,7 +89,7 @@ learner 无需加载基础策略。actor 为每条 transition 保存 ``obs`` 和
 
 与 hil_serl 相同，介入 transition 还会复制到示范缓冲区。
 
-预先采集的示范（\ ``--demo-dataset-paths``\ ）视为人工动作。缺少 ``intervened`` / ``policy_action`` 的 transition 会补为 ``intervened=True`` 和 ``policy_action=action``\ 。learner 无法恢复基础动作，因此缺少 ``base_actions`` / ``next_base_actions`` 的示范 pkl，例如 hil_serl 快照和遥操作录制，会被拒绝，并抛出指明文件名的 ``ValueError``\ 。\ ``--allow-base-less-demos`` 会以零基础动作加载这些数据并警告一次，此时 critic 目标与 BC 项会把它们视为零基础上的残差；只有基础策略在这些状态本就接近 0 时才与当前运行匹配。残差运行自身 learner 写出的示范缓冲区包含基础动作。
+预先采集的示范（\ ``--demo-dataset-paths``\ ）视为人工动作。缺少 ``intervened`` / ``policy_action`` 的 transition 会补为 ``intervened=True`` 和 ``policy_action=action``\ 。learner 无法恢复基础动作，因此缺少 ``base_actions`` / ``next_base_actions`` 的示范（数据集目录或 pkl），例如 hil_serl 快照和遥操作录制，会被拒绝，并抛出指明文件名的 ``ValueError``\ 。\ ``--allow-base-less-demos`` 会以零基础动作加载这些数据并警告一次，此时 critic 目标与 BC 项会把它们视为零基础上的残差；只有基础策略在这些状态本就接近 0 时才与当前运行匹配。残差运行自身 learner 写出的示范缓冲区包含基础动作。
 
 可选 BC 项（\ ``--residual-bc-weight``\ ，默认 0）在非同步人工记录上，将单位残差拉向人工隐含残差，仅监督 ``human_action_mask`` 中缩放非零的维度。保持补充动作和空掩码不提供专家损失。对旧版全动作介入，目标为：
 
@@ -129,7 +129,7 @@ learner 无需加载基础策略。actor 为每条 transition 保存 ``obs`` 和
 
 -  仅支持 ``nstep`` 为 1、内存回放、单个环境（一个机器人）；暂不支持 ``--mmap-dir``\ 、\ ``--memory-efficient-buffer`` 和 ``--fwbw``\ 。
 -  暂无模拟器 ``learn()`` 路径，也不支持 ``rl-garden-eval``\ ：两者调用 ``policy.predict`` 时都不提供基础动作，原因记录在 ``checkpoint_eval_unsupported_reason``\ 。
--  缺少基础动作的示范 pkl 需要 ``--allow-base-less-demos``\ ，数据按零基础动作上的残差学习，见“人工介入”。
+-  缺少基础动作的示范（数据集目录或 pkl）需要 ``--allow-base-less-demos``\ ，数据按零基础动作上的残差学习，见“人工介入”。
 -  checkpoint 提供器根据基础运行的 Args 重建智能体，基础 checkpoint 与残差运行的观测和动作空间必须相同。
 
 .. _residual-durable-operation-and-partial-supervision:

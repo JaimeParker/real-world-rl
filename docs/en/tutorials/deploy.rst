@@ -78,7 +78,7 @@ Check the following against offline-check.json. Do not compare action length alo
      - What to check at the current station
    * - cameras, observation_shapes, observation_dtypes
      - obs in local/task.yaml matches the restored result; the station has wrist, and its actual view, serial number and mounting position match the demonstrations.
-       Here, rgb_wrist is [1,128,128,3] uint8. Also check depth, preprocess and frame_stack.
+       Here, rgb_wrist is [1,224,224,3] uint8. Also check depth, preprocess and frame_stack.
    * - state_fields
      - Here, tcp_pose, tcp_vel, joint_pos and joint_vel concatenate to 27 dimensions. Preserve their order, units, xyzw quaternion convention and task frame.
        Check experiment for rotation conversions.
@@ -152,14 +152,14 @@ For the synthetic exercise, use this instead. Do not rename synthetic data as re
    :start-after: # start offline
    :end-before: # end offline
 
-The predicted x is about 0.1761, requesting about 0.0088 m at this example's scale. This is a requested increment, not measured displacement.
+The predicted x is about -0.1588, requesting about -0.0079 m at this example's scale. This is a requested increment, not measured displacement.
 The model also outputs motion in other directions absent from the demonstrations. This four-step synthetic model cannot be used for the on-site task.
 For your own model, check observations from several independent episodes before deciding whether to continue.
 
 **If it doesn't**:
 
 * ``recorded action contract does not match`` or ``saved experiment contract/hash differs``:
-  Check the data and training directory using the error fields. Do not delete sidecars to bypass validation.
+  Check the data and training directory using the error fields. Do not delete contracts to bypass validation.
 * ``prediction/action/mask shape mismatch`` or ``non-finite prediction or no supervised dimensions``:
   Return to :doc:`bc-check` to inspect inputs, actions and masks.
 * ``FileExistsError``: Keep the old record and give --record a new filename.
@@ -327,6 +327,7 @@ Preserve the original model's state, camera and action settings. Deployment chec
 
 ACT defaults to temporal_agg=true and clears chunk / aggregation state at the start of each episode.
 ``--no-temporal-agg`` switches to chunk-by-chunk replay. Do not mix the two settings partway through evaluation.
+``--demo-contract`` takes the ``.contract.json`` that ``rwrl dataset export --format pkl`` (step 4 of :doc:`bc-train`) writes next to the pkl.
 
 General deploy and deploy-act share run_deploy. They do not perform the training eval role's START_NEUTRAL /
 EPISODE_HOLD / n workflow, nor wait in the loop to fill out the control_hz period. Saved hold configuration does not change this.
@@ -334,7 +335,7 @@ If you need that neutral check, episode hold and loop pacing, use the correspond
 
 **What you should see**: [deploy] episode and summary lines after loading / convention checks pass.
 No ACT real-hardware episode was run here, and the local environment lacking torchvision did not complete ACT model loading either.
-**If it doesn't**: Missing --checkpoint or --demo-contract is rejected. For camera or width mismatches, recover the matching configuration and demonstration sidecar;
+**If it doesn't**: Missing --checkpoint or --demo-contract is rejected. For camera or width mismatches, recover the matching configuration and demonstration contract (the dataset header's action_contract, or the sidecar written when exporting the pkl);
 do not edit the contract to make checks pass. Deployment performs no training updates or data uploads. Archive evaluation results separately.
 
 .. note::

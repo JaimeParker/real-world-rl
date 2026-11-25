@@ -75,6 +75,8 @@ franka-gello = [
 ]
 # collect_data.py's global success/failure keyboard listener.
 reward-collection = ["pynput"]
+# shell/app.py (rwrl shell): the interactive terminal.
+shell = ["prompt_toolkit>=3.0.36", "rich>=13.0"]
 # dataset/view.py (rwrl dataset view): review recorded episodes in the Rerun viewer.
 viewer = ["rerun-sdk==0.42.0"]
 # dataset/lerobot_export.py (rwrl dataset export --format lerobot): LeRobot v3.0 dataset export.

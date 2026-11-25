@@ -86,6 +86,10 @@ Activate the environment you just installed in the current terminal, so subseque
    :start-after: # start activate
    :end-before: # end activate
 
+Without ``--extras`` or ``--daemon-only``, ``scripts/install.sh`` defaults to
+``learning,franka-gello,shell``. The ``shell`` extra installs the dependencies for the interactive
+``rwrl shell`` terminal.
+
 The script uses ``python3.10`` to create ``.venv`` by default. When you select ``learning``, it also installs
 the rl-garden submodule and the ``test`` extra. ``--daemon-only`` is shorthand for ``franky,grpc``;
 the device-server command in this chapter also adds ``realsense`` for the camera.

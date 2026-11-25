@@ -86,6 +86,9 @@
    :start-after: # start activate
    :end-before: # end activate
 
+未指定 ``--extras`` 或 ``--daemon-only`` 时，\ ``scripts/install.sh`` 默认安装
+``learning,franka-gello,shell``\ 。\ ``shell`` extra 安装交互式终端 ``rwrl shell`` 所需的依赖。
+
 脚本默认用 ``python3.10`` 创建 ``.venv``。选择 ``learning`` 时，它还会安装
 rl-garden 子模块和 ``test`` extra。``--daemon-only`` 是 ``franky,grpc`` 的快捷方式，
 本章设备服务命令额外加了相机需要的 ``realsense``。

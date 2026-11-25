@@ -24,9 +24,9 @@ rwrl：站点命令行
    * - ``--station PATH``
      - 未设置：按\ :ref:`站点查找 <cli-station-lookup>`\ 。
    * - ``--robot NAME``
-     - 未设置：单个机器人；多机器人站点的原语需指定名称。
+     - 未设置：未给出 ``--station`` 时先用 ``$RWRL_ROBOT``\ ，否则选单个机器人；多机器人站点的原语需指定名称。
    * - ``--preset PATH``
-     - 未设置：用 \ :ref:`rwrl use preset <cli-remembered-station-and-preset>`\  记住的文件，否则用站点 home。对 ``home`` 为环境预设（裸映射或 ``real_robot`` 下设置）；\ ``home set`` 必需。\ ``doctor`` 用于确定预期设备及比较机器人与站点。学习命令中转为 ``--config PATH``\ 。
+     - 未设置：先用 ``$RWRL_PRESET``\ ，再用 \ :ref:`rwrl use preset <cli-remembered-station-and-preset>`\  记住的文件，否则用站点 home。对 ``home`` 为环境预设（裸映射或 ``real_robot`` 下设置）；\ ``home set`` 必需。\ ``doctor`` 用于确定预期设备及比较机器人与站点。学习命令中转为 ``--config PATH``\ 。
    * - ``--direct``
      - 关闭：遵循站点守护进程声明。仅守护进程端口不可达时允许强制直连。
    * - ``--mock``
@@ -62,6 +62,82 @@ rwrl：站点命令行
 
 命令回退到记住的文件时，会在 stderr 打印一次 ``using preset PATH (from rwrl use)``\ （或 ``station``\ ），\ ``--json`` 结果多出 ``from_rwrl_use: {kind: path}``\ 。显式参数总是优先，\ ``$RWRL_STATION`` 优先于记住的站点。记住的文件已不存在时是用法错误（退出码 2），不会静默落到下一步查找。学习命令和 ``archive inspect`` 从不接收记住的预设：它们的 ``--config`` 需显式传入。
 
+.. _cli-shell:
+
+交互式 shell
+--------------------------------------------------------------------------------
+
+``rwrl shell [PROFILE] [--task NAME]`` 打开设备配置的交互式终端。
+不带 PROFILE 时显示选择列表；\ ``--task`` 需要 PROFILE。输入命令时可省略 ``rwrl`` 前缀。
+供 agent 和脚本使用的普通 ``rwrl`` 命令不变。shell 需要终端和 ``shell`` extra。在仓库根目录安装：
+
+.. tutorial-test: skip
+.. code-block:: bash
+
+   pip install -e '.[shell]'
+
+``scripts/install.sh`` 默认安装此 extra。设备配置放在当前目录下：
+
+.. code-block:: text
+
+   local/sites/<name>/
+     station.yaml
+     task.yaml
+     tasks/
+       <name>.yaml
+     <teleop_profiles file>
+     spacemouse-devices.yaml
+
+将相对路径文件（如 ``teleop_profiles`` 指向的文件和 ``spacemouse-devices.yaml``\ ）保留在
+``station.yaml`` 旁边。任务来自 ``task.yaml`` 和 ``tasks/*.yaml``\ 。
+``local/station.yaml`` 和 ``~/.config/rwrl/station.yaml`` 也会列为 ``local`` 和 ``user``\
+（用户路径遵循 ``XDG_CONFIG_HOME``\ ）。若已有同名设备配置，条目改名为
+``local/station.yaml`` 或 ``user/station.yaml``\ 。加载失败的设备配置会列出原因，不能选择。
+
+.. list-table:: 内置命令
+   :header-rows: 1
+
+   * - 命令
+     - 效果
+   * - ``switch [PROFILE]``
+     - 选择设备配置；省略名称时打开列表。
+   * - ``task [NAME]``
+     - 选择此配置的任务；省略名称时打开列表。
+   * - ``robot [NAME|all]``
+     - 选择一台或全部机器人；省略名称时打开列表。
+   * - ``menu``
+     - 选择命令并填入提示行供编辑；尚不执行。
+   * - ``info``
+     - 显示所选文件、机器人及连接地址。
+   * - ``default``
+     - 确认后像 ``rwrl use`` 一样保存站点和任务预设；不保存机器人选择。
+   * - ``daemon [start|stop|log|status|run]``
+     - 管理本地守护进程；省略操作时为 ``status``\ 。
+   * - ``help [COMMAND]``
+     - 列出命令，或显示某命令的选项。
+   * - ``exit``
+     - 离开 shell；Ctrl-D 也可退出。
+
+选择仅对当前终端生效。子进程收到 ``RWRL_STATION``\ 、\ ``RWRL_PRESET``\ ；
+选定多机器人站点中的一台时还收到 ``RWRL_ROBOT``\ 。其他终端保留自己的选择，除非用
+``default`` 为本目录的普通命令保存站点和预设。继承的 ``RWRL_STATION`` 会被忽略。
+命令行自带 ``--station`` 时不接收这些选择变量。前台命令占用终端，Ctrl-C 传给命令，
+shell 保持运行。运动确认不变。
+
+``train``\ 、\ ``record``\ 、\ ``collect-reward`` 和 ``deploy-act`` 缺少 ``--config``\
+（也未显式给出 ``--preset``\ ）时，会从任务补入配置，再返回提示行供编辑，尚不执行。
+配置的 remote 与本站点守护进程不匹配时，需要输入 ``y`` 确认。
+地址匹配时，shell 检查身份；守护进程服务另一台机器人则拒绝执行。
+守护进程不可达时由命令报告错误。\ ``deploy`` 和 ``deploy-openpi`` 不接受 ``--config``\ ，此处不检查。
+
+``daemon start`` 在后台启动所选站点的守护进程。退出 shell 后仍可运行；
+进程记录和日志保存在 ``local/.rwrl-shell/``\ 。\ ``daemon status`` 报告状态和身份，
+``daemon log`` 显示最近日志的末尾，\ ``daemon run`` 在前台运行。
+选项放在 ``start`` 或 ``run`` 后；\ ``start`` 不接受 ``--station`` 或 ``--bind`` 覆盖。
+``daemon stop`` 对本配置中由本目录 shell 启动的每个守护进程逐一询问后停止，包括以前的 shell。
+不能停止其他方式启动的守护进程。只发送 SIGTERM，不发送 SIGKILL。
+离开 shell 时，会逐一询问本目录记录中仍在运行的 shell 所启动的守护进程；拒绝停止则继续运行。
+
 .. _cli-learning-commands:
 
 学习命令
@@ -84,6 +160,8 @@ rwrl：站点命令行
 无 ``daemon:`` 时直连：franky Franka 站点报告 ``connection: direct franky``\ ，模拟为 ``direct fake``\ 。声明的守护进程端口可达时 ``--direct`` 被拒绝，退出 2：\ ``error: the daemon owns the arm (hint: omit --direct)``\ 。
 
 Franka FCI 仅允许一个控制连接。直连时先结束录制器或 actor，再用 ``rwrl`` 建另一硬件连接；守护进程路径使用同一守护进程。\ ``stop``\ 、\ ``recover`` 也遵循此选择，不能绕过直连占用。
+
+守护进程路径要求站点的名称、类型和地址（\ ``robot_ip`` 或 ``can_interface``\ ，含环境变量回退）与守护进程报告的一致。回退后站点仍无地址时不比较地址。不匹配或旧版守护进程未报告身份时，在任何设备调用前拒绝；旧版守护进程需用当前版本重启。\ ``stop`` 不因身份不匹配而拒绝，先执行再警告；\ ``teleop run`` 在启动前检查。训练、录制和部署入口连接预设的 remote，本身不执行此站点身份检查。
 
 .. _cli-commands:
 
@@ -187,7 +265,7 @@ Franka FCI 仅允许一个控制连接。直连时先结束录制器或 actor，
      - 离线评估保存的停止轨迹（\ :ref:`指南 <spacemouse-commissioning-live-input-calibration-and-diagnosis>`\ ）
      - 0 PASS / 3 FAIL / 4 BLOCKED
 
-**限位、桌面坐标系、选择与归档**\ （除 ``workspace capture`` 外仅读站点文件）
+**限位、桌面坐标系、选择与归档**\ （除 ``workspace capture`` 和 ``shell`` 外仅读站点文件）
 
 .. list-table::
    :header-rows: 1
@@ -215,6 +293,9 @@ Franka FCI 仅允许一个控制连接。直连时先结束录制器或 actor，
      - 0 / 1 / 2
    * - ``use [station|preset] [PATH]`` / ``use --clear [KIND]``
      - 记住、显示或忘掉本目录的默认站点和预设（\ :ref:`详情 <cli-remembered-station-and-preset>`\ ）
+     - 0 / 2
+   * - ``shell [PROFILE] [--task NAME]``
+     - 交互选择设备和任务（\ :ref:`详情 <cli-shell>`\ ）
      - 0 / 2
    * - ``archive inspect ARCHIVE``
      - 离线读示范数据集目录（也接受旧的录制器 SQLite 归档）（\ :ref:`详情 <cli-archive-inspect>`\ ）

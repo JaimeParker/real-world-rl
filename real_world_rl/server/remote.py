@@ -53,6 +53,8 @@ class RemoteRobotConfig(RobotConfig):
     reconnect_attempts: int = 5
     reconnect_backoff_s: float = 0.5
     transport: str = "grpc"
+    # Station identity to require before connecting; None disables the check.
+    expected_identity: dict | None = None
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -421,6 +423,7 @@ class RemoteRobot(Robot):
 
     def __init__(self, config: RemoteRobotConfig, *, client: TransportClient | None = None) -> None:
         self._client = client
+        self._daemon_identity: dict | None = None
         super().__init__(config)
 
     @classmethod
@@ -452,11 +455,27 @@ class RemoteRobot(Robot):
             )
         return self._client
 
+    @property
+    def daemon_identity(self) -> dict | None:
+        return self._daemon_identity
+
+    def _check_identity(self, info: dict) -> None:
+        from real_world_rl.common.robot_identity import identity_error, identity_mismatches
+
+        actual = info.get("identity")
+        self._daemon_identity = actual if isinstance(actual, dict) else None
+        if self.config.expected_identity is not None:
+            mismatches = identity_mismatches(self.config.expected_identity, actual)
+            if mismatches:
+                message, hint = identity_error(self.config.address, mismatches, actual)
+                raise DeviceError(message, hint=hint)
+
     def _open(self) -> dict:
         client = self._ensure_client()
         client.open()
         try:
             info = client.call("robot.describe")
+            self._check_identity(info)
         except BaseException:
             client.close()
             raise
@@ -470,6 +489,13 @@ class RemoteRobot(Robot):
         client = self._client
         client.open()
         info = client.call("robot.describe")
+        try:
+            self._check_identity(info)
+        except DeviceError:
+            self._disconnect_children_reversed()
+            self._handle = None
+            client.close()
+            raise
         instance_id = info.get("daemon_instance_id")
         if instance_id is not None and instance_id == self._handle.get("daemon_instance_id"):
             return False

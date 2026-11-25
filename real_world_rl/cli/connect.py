@@ -7,6 +7,8 @@ import socket
 import sys
 from typing import Any, Iterator
 
+from real_world_rl.common.robot_identity import expected_identity, identity_error, identity_mismatches
+
 from .errors import CliError, USAGE_EXIT_CODE
 
 
@@ -80,10 +82,11 @@ def _daemon_address(args, selected) -> str | None:
     return address
 
 
-def _remote_robot(address: str, selected):
+def _remote_robot(address: str, selected, expected):
     from real_world_rl.server.remote import RemoteRobot, RemoteRobotConfig
 
-    return RemoteRobot(RemoteRobotConfig(address=address, token=selected.token))
+    return RemoteRobot(RemoteRobotConfig(address=address, token=selected.token,
+                                         expected_identity=expected))
 
 
 def _direct_robot(args, selected):
@@ -119,7 +122,10 @@ def open_robot(args) -> Iterator[RobotConnection]:
     selected = _selected_robot(args)
     address = _daemon_address(args, selected)
     if address is not None:
-        robot = _remote_robot(address, selected)
+        # `stop` must always reach the arm; it reports a mismatch afterwards.
+        robot = _remote_robot(address, selected,
+                              None if getattr(args, "command", None) == "stop"
+                              else expected_identity(selected.config))
         path = f"daemon {address}"
     else:
         robot, config = _direct_robot(args, selected)
@@ -149,10 +155,31 @@ def open_teleop(args, *, with_follower: bool = False) -> Iterator[TeleopConnecti
         with _connected(teleop):
             yield TeleopConnection(teleop, selected.config, f"direct {config.teleop.backend}", False)
         return
-    robot = _remote_robot(address, selected)
+    robot = _remote_robot(address, selected, expected_identity(selected.config))
     with _connected(robot):
         if robot.teleop is None:
             raise CliError(f"daemon at {address} serves no teleop", code=USAGE_EXIT_CODE,
                            hint="restart the daemon after adding the station teleop")
         yield TeleopConnection(robot.teleop, selected.config, f"daemon {address}", True,
                                robot.arm if with_follower else None)
+
+
+def describe_daemon_identity(address: str, token: str | None) -> dict | None:
+    """Read identity without connecting any devices."""
+    from real_world_rl.server.transport.grpc_transport import GrpcClient
+
+    client = GrpcClient(address, token=token, reconnect_attempts=0)
+    try:
+        client.open()
+        actual = client.call("robot.describe").get("identity")
+        return actual if isinstance(actual, dict) else None
+    finally:
+        client.close()
+
+
+def check_daemon_identity(address: str, selected) -> None:
+    actual = describe_daemon_identity(address, selected.token)
+    mismatches = identity_mismatches(expected_identity(selected.config), actual)
+    if mismatches:
+        message, hint = identity_error(address, mismatches, actual)
+        raise CliError(message, hint=hint)

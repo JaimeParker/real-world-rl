@@ -745,6 +745,11 @@ ROI 必须在原图内，设置 ROI 时也必须提供 source_resolution；实�
 
 .. tip::
 
+   交互使用时，\ ``rwrl shell`` 可更方便地在当前终端选择站点和任务。
+   见\ :ref:`交互式 shell <cli-shell>`\ 。
+
+.. tip::
+
    后续章节的设备命令都省略 ``--station local/station.yaml`` 和 ``--preset local/task.yaml``。
    命令里显式写出的 ``--station`` 或 ``--preset`` 总是优先；设置了 ``$RWRL_STATION`` 时它也优先于记住的 station。
    ``train``、``record``、``deploy`` 不读记住的 preset，仍要显式传 ``--config``。

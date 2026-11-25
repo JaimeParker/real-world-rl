@@ -10,6 +10,7 @@ import traceback
 
 from .errors import CliError, FAILURE_EXIT_CODE, SUCCESS_EXIT_CODE, USAGE_EXIT_CODE
 from .command import Context, render
+from .render import BOLD_RED, GREY, paint, supports_color
 
 
 class _Parser(argparse.ArgumentParser):
@@ -69,7 +70,9 @@ def _report_error(error: Exception, as_json: bool) -> int:
     if diagnostic is not None:
         print(diagnostic, file=sys.stderr, end="")
     else:
-        print(f"error: {message}" + (f" (hint: {hint})" if hint else ""), file=sys.stderr)
+        color = supports_color(sys.stderr)
+        print(paint("error:", BOLD_RED, enabled=color) + f" {message}"
+              + (paint(f" (hint: {hint})", GREY, enabled=color) if hint else ""), file=sys.stderr)
     if as_json:
         payload = getattr(error, "payload", None)
         if payload is None:
@@ -84,11 +87,18 @@ def _report_error(error: Exception, as_json: bool) -> int:
 
 
 def fill_selected_preset(args, command) -> None:
-    """A command that takes ``--preset`` falls back to the ``rwrl use preset`` selection.
+    """A command that takes ``--preset`` falls back to ``$RWRL_PRESET``, then the ``rwrl use preset`` selection.
     Commands that hand ``--preset`` to another parser (or reject it) set ``uses_selection = False``."""
     if not getattr(command, "uses_selection", True) or getattr(args, "preset", "") is not None:
         return
-    from real_world_rl.common.station_paths import announce_selection, require_selected_file, selected_path
+    from real_world_rl.common.station_paths import (
+        PRESET_CONFIG_ENV, announce_selection, require_selected_file, selected_path)
+    from_env = os.environ.get(PRESET_CONFIG_ENV)
+    if from_env:
+        if not os.path.isfile(from_env):
+            raise CliError(f"${PRESET_CONFIG_ENV} {from_env} does not exist", code=USAGE_EXIT_CODE)
+        args.preset = from_env
+        return
     try:
         selected = selected_path("preset")
         if selected is not None:
@@ -98,6 +108,14 @@ def fill_selected_preset(args, command) -> None:
     if selected is not None:
         args.preset = str(selected)
         announce_selection("preset", selected)
+
+
+def fill_selected_robot(args, command) -> None:
+    """``$RWRL_ROBOT`` stands in for ``--robot``, unless another station is named explicitly."""
+    from real_world_rl.common.station_paths import ROBOT_NAME_ENV
+    if (getattr(command, "uses_selection", True) and getattr(args, "robot", "") is None
+            and getattr(args, "station", None) is None):
+        args.robot = os.environ.get(ROBOT_NAME_ENV) or None
 
 
 def note_selections(result) -> None:
@@ -122,6 +140,7 @@ def main(argv: list[str] | None = None, *, commands, prog, description,
         if as_json and not getattr(command, "supports_json", True):
             raise CliError(f"{command.name} has no JSON output", code=USAGE_EXIT_CODE)
         fill_selected_preset(args, command)
+        fill_selected_robot(args, command)
         ctx = Context(args, remaining, station_loader=station_loader, connection_factory=connection_factory)
         # Keep SDK chatter and confirmation text out of the JSON result stream.
         with redirect_stdout(sys.stderr) if as_json else nullcontext():

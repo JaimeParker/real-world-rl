@@ -33,6 +33,7 @@ def validate(kind: str, path: str, station_loader) -> None:
 def current(cwd=None) -> dict:
     """``{kind: {"path", "source"}}`` for what a command run here would use without flags."""
     from real_world_rl.common.station_paths import (
+        PRESET_CONFIG_ENV,
         STATION_CONFIG_ENV,
         read_selection,
         station_lookup_dirs,
@@ -51,8 +52,14 @@ def current(cwd=None) -> dict:
                       if (directory / STATION_FILENAME).is_file()), None)
         state["station"] = ({"path": str(found), "source": "lookup"} if found is not None
                             else {"path": None, "source": None})
-    state["preset"] = ({"path": selection["preset"], "source": "rwrl use"} if "preset" in selection
-                       else {"path": None, "source": None})
+    preset_env = os.environ.get(PRESET_CONFIG_ENV)
+    if preset_env:
+        state["preset"] = {"path": preset_env, "source": "$" + PRESET_CONFIG_ENV}
+        if "preset" in selection:
+            state["preset"]["overrides"] = selection["preset"]
+    else:
+        state["preset"] = ({"path": selection["preset"], "source": "rwrl use"} if "preset" in selection
+                           else {"path": None, "source": None})
     if from_env is not None and "station" in selection:
         state["station"]["overrides"] = selection["station"]
     return state

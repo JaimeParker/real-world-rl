@@ -143,6 +143,9 @@ What happens:
    robot and releases the claim. It never powers the robot off and never disables the
    motors (see \ :ref:`Safety rules <en-devices-safety-rules>`\ ).
 
+The top-level ``identity`` in ``robot.describe`` contains ``{name, type, address}``.
+The address is the robot's ``robot_ip`` or ``can_interface``, or ``null`` when neither is set.
+
 ``robot.describe`` is what a client builds its mirror from. For the fake robot above (trimmed):
 
 .. code-block:: text

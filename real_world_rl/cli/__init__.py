@@ -13,11 +13,12 @@ from .cmd_limits import LIMITS
 from .cmd_archive import ARCHIVE
 from .cmd_dataset import DATASET
 from .cmd_use import USE
+from .cmd_shell import SHELL
 from .cmd_learning import COMMANDS as LEARNING_COMMANDS
 
 
 COMMANDS = [STATUS, Q, TCP, STOP, RECOVER, HOME, GRIPPER, CAMERA, DOCTOR, *DEVICE_COMMANDS,
-            TELEOP, WORKSPACE, LIMITS, USE, ARCHIVE, DATASET, *LEARNING_COMMANDS]
+            TELEOP, WORKSPACE, LIMITS, USE, SHELL, ARCHIVE, DATASET, *LEARNING_COMMANDS]
 
 
 def build_parser():

@@ -23,6 +23,7 @@ Documentation: https://real-world-rl.readthedocs.io/
 ## 方法
 
 每种方法是 `rwrl train <method> --role {actor,learner,eval}` 子命令（`real_world_bc` 无角色）。`residual_hil_serl` 和 `silri` 也通过 `rlgarden.algorithms` 注册到 rl-garden 在线注册表，使 `examples/deploy_real_robot.py` 可从 checkpoint 重建智能体（`rl-garden-eval` 无法评估残差 checkpoint，因为需要基础策略提供者）。使用 `rwrl train`、`rwrl record`、`rwrl deploy`、`rwrl collect-reward` 进行训练、录制、部署及奖励分类器数据采集。已有控制台脚本、Python 模块入口和 `examples/` 脚本保留为兼容别名。
+`rwrl shell` 在当前终端选择设备配置和任务，用于交互式命令。
 
 示范录进一个数据集目录，每个回合一个子目录（保留和丢弃的回合都在，图像无损，每个相机一个回看视频），训练命令直接读这个目录：
 

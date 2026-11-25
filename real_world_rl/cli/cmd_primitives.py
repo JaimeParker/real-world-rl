@@ -49,7 +49,22 @@ def tcp(connection):
 
 def stop(connection):
     connection.arm.stop()
-    return {"ok": True}, "stop: ok"
+    data, text = {"ok": True}, "stop: ok"
+    try:
+        if connection.remote:
+            from real_world_rl.common.robot_identity import expected_identity, identity_mismatches
+
+            actual = connection.daemon_identity
+            mismatches = identity_mismatches(expected_identity(connection.station_config), actual)
+            if mismatches:
+                identity = actual if isinstance(actual, dict) else {}
+                text += (f"\nwarning: stopped {identity.get('name')} ({identity.get('type')}, "
+                         f"{identity.get('address')}), which does not match the selected station: "
+                         + "; ".join(mismatches))
+                data["identity_mismatches"] = mismatches
+    except Exception:
+        pass  # Identity diagnostics must never fail a successful stop.
+    return data, text
 
 
 def recover(connection):

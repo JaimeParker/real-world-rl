@@ -58,6 +58,7 @@ def test_extras():
         "gello-events": ["evdev"],
         "franka-gello": ["franky-control", "dynamixel-sdk>=3.7.31,<3.9", "evdev", "grpcio>=1.60", "websockets>=13"],
         "reward-collection": ["pynput"],
+        "shell": ["prompt_toolkit>=3.0.36", "rich>=13.0"],
         "viewer": ["rerun-sdk==0.42.0"],
         "lerobot": ["lerobot[dataset]==0.7.0"],
         "dev": ["pytest", "scipy"],
@@ -206,7 +207,7 @@ def test_default_installer_runs_mock_and_prints_hardware_next_step(installer_che
     assert result.returncode == 0, result.stderr
     assert calls[-1][:3] == ["doctor", "--mock", "--station"] and len(calls[-1]) == 4
     assert [call["args"] for call in doctor_calls(installer_checkout)] == [calls[-1]]
-    assert ["-m", "pip", "install", "-e", "./rl-garden", "-e", ".[learning,franka-gello,test]"] in calls
+    assert ["-m", "pip", "install", "-e", "./rl-garden", "-e", ".[learning,franka-gello,shell,test]"] in calls
     assert not any("./robot_infra" in call for call in calls)
     assert any("import rl_garden, real_world_rl" in " ".join(call) for call in calls)
     assert "Next, configure local/station.yaml, then run from this repository root:" in result.stdout

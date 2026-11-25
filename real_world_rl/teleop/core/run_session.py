@@ -61,7 +61,7 @@ def run_supervised_session(args, ctx, plan: SessionPlan) -> Result:
     import dataclasses
     import subprocess
     import yaml
-    from real_world_rl.cli.connect import client_address, probe_daemon
+    from real_world_rl.cli.connect import check_daemon_identity, client_address, probe_daemon
     from real_world_rl.cli.preset_edit import Preset
 
     path, _, _, _, selected = load_session_station(args, plan.diagnose)
@@ -82,6 +82,7 @@ def run_supervised_session(args, ctx, plan: SessionPlan) -> Result:
         env.pop(name, None)
     env.update(task_frame=config.task_frame)
     if selected.daemon_declared and not args.direct:
+        check_daemon_identity(client_address(selected.bind), selected)
         env.update(robot=None, remote=client_address(selected.bind), token=selected.token)
     else:
         if selected.daemon_declared and probe_daemon(client_address(selected.bind)):

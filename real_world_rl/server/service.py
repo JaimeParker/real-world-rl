@@ -211,11 +211,16 @@ class RobotService:
     # -- robot.* -------------------------------------------------------------
 
     def _describe(self) -> dict:
+        from real_world_rl.common.robot_identity import robot_identity
+
         robot = self.robot
+        identity = robot_identity(robot.config)
+        identity["type"] = robot.ROBOT_TYPE
         arm = robot.arm
         gripper = robot.gripper
         gripper_config = robot.config.gripper
         return {
+            "identity": identity,
             "type": robot.ROBOT_TYPE,
             "daemon_instance_id": self.daemon_instance_id,
             "watchdog_s": self.watchdog_s,

@@ -7,7 +7,7 @@ Usage: bash scripts/install.sh [options]
 Run from the repository root. Installs this project, and with the learning extra the
 rl-garden submodule, into a venv.
 
-  --extras LIST      Comma-separated extras (default: learning,franka-gello).
+  --extras LIST      Comma-separated extras (default: learning,franka-gello,shell).
                      With learning, the test extra is added and the rl-garden submodule
                      is installed too; an empty LIST installs the core only.
   --daemon-only      Robot host that only serves the daemon: extras franky,grpc, no
@@ -53,7 +53,7 @@ run_step() {
   fi
 }
 
-extras=learning,franka-gello
+extras=learning,franka-gello,shell
 extras_given=false
 daemon_only=false
 venv_dir=.venv

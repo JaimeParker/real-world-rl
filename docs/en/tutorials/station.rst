@@ -749,6 +749,11 @@ which file they used:
 
 .. tip::
 
+   For interactive use, ``rwrl shell`` is an easier way to select a station and task in this
+   terminal. See :ref:`Interactive shell <en-cli-shell>`.
+
+.. tip::
+
    Device commands in later chapters omit ``--station local/station.yaml`` and ``--preset local/task.yaml``.
    An explicit ``--station`` or ``--preset`` always takes precedence. If set, ``$RWRL_STATION`` also takes precedence over the remembered station.
    ``train``, ``record`` and ``deploy`` do not read the remembered preset; still pass ``--config`` explicitly.

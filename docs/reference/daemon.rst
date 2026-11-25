@@ -99,6 +99,8 @@ Daemon 与客户端来自同一仓库；应 **先升级客户端，再升级 dae
 
 6. **Ctrl-C / SIGTERM。** Daemon 停止传输与 watchdog，断开机器人并释放 claim。从不关闭机器人电源，也不禁用电机（见\ :ref:`安全规则 <devices-safety-rules>`\ ）。
 
+``robot.describe`` 的顶层 ``identity`` 包含 ``{name, type, address}``\ 。地址为机器人的 ``robot_ip`` 或 ``can_interface``\ ，两者均未设置时为 ``null``\ 。
+
 客户端根据 ``robot.describe`` 构建镜像。上方 fake 机器人对应如下（已节选）：
 
 .. code-block:: text

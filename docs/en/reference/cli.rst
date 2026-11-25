@@ -33,9 +33,9 @@ Global options
    * - ``--station PATH``
      - Unset: the \ :ref:`station lookup <en-cli-station-lookup>`\ .
    * - ``--robot NAME``
-     - Unset: the single robot; a multi-robot station requires a name for primitives.
+     - Unset: ``$RWRL_ROBOT`` when no ``--station`` is given, else the single robot; a multi-robot station requires a name for primitives.
    * - ``--preset PATH``
-     - Unset: the \ :ref:`rwrl use preset <en-cli-remembered-station-and-preset>`\  selection, else the station home. For ``home``, an env preset (a bare mapping or settings under ``real_robot``); required by ``home set``. ``doctor`` uses it to find expected devices and to compare its robot with the station. For learning commands it becomes ``--config PATH``.
+     - Unset: ``$RWRL_PRESET``, then the \ :ref:`rwrl use preset <en-cli-remembered-station-and-preset>`\  selection, else the station home. For ``home``, an env preset (a bare mapping or settings under ``real_robot``); required by ``home set``. ``doctor`` uses it to find expected devices and to compare its robot with the station. For learning commands it becomes ``--config PATH``.
    * - ``--direct``
      - Off: follow the station's daemon declaration. Force direct access only when its daemon port is unreachable.
    * - ``--mock``
@@ -86,6 +86,87 @@ longer exists is a usage error (exit 2), not a silent fallback to the next looku
 commands and ``archive inspect`` never receive the remembered preset: pass their ``--config``
 explicitly.
 
+.. _en-cli-shell:
+
+Interactive shell
+--------------------------------------------------------------------------------
+
+``rwrl shell [PROFILE] [--task NAME]`` opens an interactive terminal for a device profile.
+Without PROFILE it shows a selection list; ``--task`` requires PROFILE. Type commands with or
+without the ``rwrl`` prefix. Plain ``rwrl`` commands are unchanged for agents and scripts.
+The shell requires a terminal and the ``shell`` extra. Install it from the repository root:
+
+.. tutorial-test: skip
+.. code-block:: bash
+
+   pip install -e '.[shell]'
+
+``scripts/install.sh`` installs this extra by default. Profiles live under the current directory:
+
+.. code-block:: text
+
+   local/sites/<name>/
+     station.yaml
+     task.yaml
+     tasks/
+       <name>.yaml
+     <teleop_profiles file>
+     spacemouse-devices.yaml
+
+Keep relative files such as the ``teleop_profiles`` file and ``spacemouse-devices.yaml`` beside
+``station.yaml``. Tasks come from ``task.yaml`` and ``tasks/*.yaml``.
+``local/station.yaml`` and ``~/.config/rwrl/station.yaml`` also appear as ``local`` and ``user``
+(the user path follows ``XDG_CONFIG_HOME``). If a site already uses that name, the entry is named
+``local/station.yaml`` or ``user/station.yaml``. A profile that does not load is listed with its
+reason and cannot be selected.
+
+.. list-table:: Built-in commands
+   :header-rows: 1
+
+   * - Command
+     - Effect
+   * - ``switch [PROFILE]``
+     - Select a device profile; omit the name to open the list.
+   * - ``task [NAME]``
+     - Select a task from this profile; omit the name to open the list.
+   * - ``robot [NAME|all]``
+     - Select one robot or all; omit the name to open the list.
+   * - ``menu``
+     - Pick a command and fill the prompt for editing; it does not run yet.
+   * - ``info``
+     - Show the selected files, robot and connection addresses.
+   * - ``default``
+     - Ask before saving the station and task preset like ``rwrl use``; the robot choice is not saved.
+   * - ``daemon [start|stop|log|status|run]``
+     - Manage local daemons; no action means ``status``.
+   * - ``help [COMMAND]``
+     - List commands, or show a command's options.
+   * - ``exit``
+     - Leave the shell; Ctrl-D also leaves.
+
+Selection applies only to this terminal. Children receive ``RWRL_STATION``, ``RWRL_PRESET`` and,
+when one robot of a multi-robot station is selected, ``RWRL_ROBOT``. Other terminals keep their
+selection unless ``default`` stores the station and preset for plain commands in this directory.
+An inherited ``RWRL_STATION`` is ignored. A line with its own ``--station`` receives none of these
+selection variables. Foreground commands own the terminal; Ctrl-C reaches the command and the
+shell stays open. Motion confirmations are unchanged.
+
+For ``train``, ``record``, ``collect-reward`` and ``deploy-act``, a missing ``--config`` (with no
+explicit ``--preset``) is filled from the task and returned for editing before execution.
+A config whose remote does not match this station's daemon needs a ``y`` confirmation.
+For matching daemon addresses, the shell checks identity and refuses a daemon serving another
+robot. An unreachable daemon is left for the command to report. ``deploy`` and ``deploy-openpi``
+take no ``--config`` and are not checked here.
+
+``daemon start`` starts the selected station's daemons in the background. They outlive the shell;
+process records and logs live under ``local/.rwrl-shell/``. ``daemon status`` reports state and
+identity, ``daemon log`` shows the latest log tail, and ``daemon run`` runs in the foreground.
+Options go after ``start`` or ``run``; ``start`` does not accept ``--station`` or ``--bind`` overrides.
+``daemon stop`` asks before stopping each daemon of this profile started by a shell in this
+directory, including an earlier shell. It cannot stop daemons started elsewhere. It sends only
+SIGTERM, never SIGKILL. Leaving the shell asks about each still-running shell-started daemon
+recorded in this directory; declining leaves it running.
+
 .. _en-cli-learning-commands:
 
 Learning commands
@@ -123,6 +204,14 @@ Franka FCI allows one control connection. On the direct route, finish the record
 before opening another hardware connection with ``rwrl``; on the daemon route, use the same
 daemon. ``stop`` and ``recover`` follow this selection too; they do not bypass ownership of a
 directly held arm.
+
+On the daemon route, the station's name, type and address (``robot_ip`` or ``can_interface``,
+including environment fallbacks) must match what the daemon reports. The address is not compared
+when the station has none after those fallbacks. A mismatch or an older daemon reporting no
+identity is refused before any device call; restart an older daemon with the current version.
+``stop`` still runs despite an identity mismatch and then warns; ``teleop run`` checks before
+starting. Training, recording and deployment entry points connect to the preset's remote and
+do not perform this station identity check themselves.
 
 .. _en-cli-commands:
 
@@ -231,7 +320,7 @@ the child.
      - evaluate a saved stop trace offline (\ :ref:`guide <en-spacemouse-commissioning-live-input-calibration-and-diagnosis>`\ )
      - 0 PASS / 3 FAIL / 4 BLOCKED
 
-**Limits, the table frame, selections and archives** (these read the station file only, except ``workspace capture``)
+**Limits, the table frame, selections and archives** (these read the station file only, except ``workspace capture`` and ``shell``)
 
 .. list-table::
    :header-rows: 1
@@ -259,6 +348,9 @@ the child.
      - 0 / 1 / 2
    * - ``use [station|preset] [PATH]`` / ``use --clear [KIND]``
      - remember, show or forget the default station and preset for this directory (\ :ref:`details <en-cli-remembered-station-and-preset>`\ )
+     - 0 / 2
+   * - ``shell [PROFILE] [--task NAME]``
+     - interactive device and task selection (\ :ref:`details <en-cli-shell>`\ )
      - 0 / 2
    * - ``archive inspect ARCHIVE``
      - read a demo dataset directory offline (an old recorder SQLite archive is also accepted) (\ :ref:`details <en-cli-archive-inspect>`\ )

@@ -241,8 +241,14 @@ def test_gello_resolved_config_and_provenance(session, tmp_path, capsys, wrapped
     assert payload["stop_assessment"]["status"] == "BLOCKED"
 
 
-def test_gello_daemon_and_custom_limits(session, tmp_path, capsys):
+def test_gello_daemon_and_custom_limits(session, tmp_path, capsys, monkeypatch):
+    from real_world_rl.cli import connect
+    from real_world_rl.common.robot_identity import expected_identity
+    from real_world_rl.station import load_station
+
     gello_station(session, daemon=True)
+    identity = expected_identity(load_station(session.path).select(None).config)
+    monkeypatch.setattr(connect, "describe_daemon_identity", lambda address, token: identity)
     assert main([*session.prefix, "teleop", "run", "--record", str(tmp_path / "gello"),
                  "--neutral-stable-s", ".4", "--num-successes", "2", "--max-episodes", "3"]) == 0
     payload = json.loads(capsys.readouterr().out)

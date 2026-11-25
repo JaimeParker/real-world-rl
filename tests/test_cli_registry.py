@@ -27,7 +27,7 @@ def test_registry_contract_and_parser_commands():
     names = [command.name for command in COMMANDS]
     assert names == ["status", "q", "tcp", "stop", "recover", "home", "gripper", "camera",
                      "doctor", "setup", "daemon", "supervise", "discover", "teleop", "workspace", "limits",
-                     "use", "archive", "dataset", "train", "record", "deploy", "deploy-act", "deploy-openpi", "collect-reward"]
+                     "use", "shell", "archive", "dataset", "train", "record", "deploy", "deploy-act", "deploy-openpi", "collect-reward"]
     assert len(names) == len(set(names))
     parser = build_parser()
     subparsers = next(action for action in parser._actions if isinstance(action, argparse._SubParsersAction))

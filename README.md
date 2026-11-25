@@ -42,6 +42,7 @@ they need a base provider).
 Use `rwrl train`, `rwrl record`, `rwrl deploy` and `rwrl collect-reward` for training,
 recording, deployment and reward-classifier data collection. The existing console scripts,
 Python module entrypoints and scripts in `examples/` remain compatibility aliases.
+`rwrl shell` selects a device profile and task for interactive commands in this terminal.
 
 Demonstrations are recorded into a dataset directory, one subdirectory per episode (kept and
 discarded episodes alike, images lossless, a review video per camera), and the training commands

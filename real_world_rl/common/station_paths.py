@@ -15,6 +15,10 @@ from typing import Mapping
 STATION_FILENAME = "station.yaml"
 STATION_CONFIG_ENV = "RWRL_STATION"
 LEGACY_STATION_CONFIG_ENV = "ROBOT_INFRA_CONFIG"
+# Set by `rwrl shell` for its commands, like $RWRL_STATION: the preset and robot of the selection.
+PRESET_CONFIG_ENV = "RWRL_PRESET"
+ROBOT_NAME_ENV = "RWRL_ROBOT"
+SHELL_ENV = "RWRL_SHELL"  # marks a process started by `rwrl shell`
 STATION_SCOPES = ("local", "user")
 LOCAL_CONFIG_DIRNAME = "local"
 USER_CONFIG_DIRNAME = "rwrl"
